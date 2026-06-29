@@ -1,0 +1,12 @@
+[package]
+name = "phca-hpm-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+phca-common = { path = "../common" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+crate-type = ["lib", "cdylib"]

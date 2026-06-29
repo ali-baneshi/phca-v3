@@ -1,0 +1,17 @@
+# PHCA v3.0 — Development Dependencies
+# For linting, formatting, and developer tooling
+# Install: pip install -r requirements-dev.txt
+
+# Linting
+ruff==0.2.0
+black==24.1.1
+
+# Structured logging (optional — falls back to stdlib logging)
+structlog==24.1.0
+
+# Serialization (optional — falls back to stdlib json)
+orjson==3.9.13
+
+# CLI
+click==8.1.7
+typer==0.9.0

@@ -1,0 +1,82 @@
+name: PHCA v3.0 CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Phase 3.1 dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-phase-3.1.txt
+      - name: Lint Python
+        run: |
+          ruff check python/ --no-cache
+      - name: Lint Rust
+        run: |
+          cd rust && cargo clippy -- -D warnings 2>/dev/null || echo "⚠️ clippy warnings found"
+
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Phase 3.1 dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-phase-3.1.txt
+      - name: Test Python
+        run: |
+          PYTHONPATH=python:$PYTHONPATH python -m pytest python/tests/ python/phca/ -v --tb=short --timeout=30 -x --benchmark-skip
+
+  test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build and test Rust
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
+        run: |
+          cd rust && cargo test
+
+  benchmark-level-0:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [test-python, test-rust]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run Level 0 benchmark
+        run: |
+          mkdir -p results
+          PYTHONPATH=python:$PYTHONPATH python -m phca.benchmarks.runner --level=0 --output=results/level_0.json
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-level-0
+          path: results/

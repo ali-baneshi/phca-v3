@@ -1,0 +1,7 @@
+# PHCA v3.0 — Python Dependencies (Meta Requirements)
+# This is an aggregate file. Install the phase-specific file instead:
+#   pip install -r requirements-phase-3.1.txt  (Weeks 1-12)
+#   pip install -r requirements-phase-3.2.txt  (Weeks 13+)
+#   pip install -r requirements-dev.txt        (for development)
+
+-r requirements-phase-3.1.txt

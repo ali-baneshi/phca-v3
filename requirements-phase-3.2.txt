@@ -1,0 +1,33 @@
+# PHCA v3.0 — Phase 3.2+ Dependencies
+# For Full Architecture, Benchmarking, and Visualization (Weeks 13+)
+# Install: pip install -r requirements-phase-3.2.txt
+
+# Core scientific computing (Phase 3.1 deps also needed)
+numpy==1.26.4
+scipy==1.12.0
+
+# Machine learning (for TSPL, VSA, feature encoders)
+torch==2.2.1
+torchvision==0.17.1  # Level 0 vision tasks
+scikit-learn==1.4.1  # Feature encoder, KDTree
+
+# Probabilistic programming
+pyro-ppl==1.9.0      # Sampling for large G' graphs
+pgmpy==0.1.24         # Exact inference for small graphs
+
+# Graph operations
+networkx==3.2.1
+
+# Data processing
+pandas==2.2.0
+
+# Testing
+pytest==8.0.0
+pytest-benchmark==4.0.0
+pytest-timeout==2.2.0
+
+# Serialization
+orjson==3.9.13
+
+# Visualization
+matplotlib==3.8.3
