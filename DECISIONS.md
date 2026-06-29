@@ -44,3 +44,43 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Make structlog a hard dependency, use only stdlib logging
 - **Rationale:** structlog provides structured logging for production use. stdlib fallback ensures code works without it during initial setup. The `_log()` wrapper handles both APIs transparently.
 - **v3.0 trace:** None (tooling)
+
+## Decision D-005: Uniform entropy floor for Phase 3.1
+
+- **Date:** 2026-06-29
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** All 13 modules use entropy_floor=0.01 in DEFAULT_MODULE_BOUNDS
+- **Alternatives:** Differentiate by module type (sensory: 0.001, model: 0.01, meta: 0.05)
+- **Rationale:** Uniform 0.01 works for Phase 3.1 grid-world tasks. Differentiating requires formal v3.0 spec interpretation. Will be updated when M3/M4 added in Phase 3.2.
+- **v3.0 trace:** §2.3 Definition 2.2; Audit Finding V-3 (`12-sprint-0-audit.md`)
+
+## Decision D-006: Split requirements into phase-specific files
+
+- **Date:** 2026-06-29
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Three files: `requirements-phase-3.1.txt`, `requirements-phase-3.2.txt`, `requirements-dev.txt`
+- **Alternatives:** Single monolithic requirements.txt, use of `pip extras`
+- **Rationale:** Phase 3.1 drops 1.1GB of unused dependencies (torch, torchvision, pyro, sklearn). CI installs in 30s vs 5min. Dev deps separate to avoid production bloat.
+- **v3.0 trace:** Audit Finding O-3 (`12-sprint-0-audit.md`)
+
+## Decision D-007: Python-only RBTA for Phase 3.1
+
+- **Date:** 2026-06-29
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 1 (must match v3.0 spec)
+- **Option chosen:** Pure Python RBTA enforcer for Phase 3.1; Rust version tagged as experimental
+- **Alternatives:** Rust RBTA with JSON FFI (original plan), Python mock with Rust production
+- **Rationale:** Eliminates FFI overhead, CI Python 3.12+ compatibility issues, and simplifies Week 2-3 integration. Rust RBTA still present and tested via cargo test. Python RBTA is ~50 lines vs ~220 Rust lines.
+- **v3.0 trace:** §2.1 Def 2.2; Audit Finding O-1 (`12-sprint-0-audit.md`)
+
+## Decision D-008: orjson with stdlib json fallback
+
+- **Date:** 2026-06-29
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** try/except ImportError with stdlib json fallback for serialization
+- **Alternatives:** Hard dependency on orjson, replace entirely with stdlib json
+- **Rationale:** orjson is faster (3-4x) for Phase 3.2 SQLite BLOBs. stdlib fallback ensures no crash if not installed. The fallback pattern is consistent with the structlog approach in D-004.
+- **v3.0 trace:** Audit Finding V-2 (`12-sprint-0-audit.md`)

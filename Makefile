@@ -11,10 +11,13 @@ all: lint test-all
 setup:
 	@echo "Setting up Python virtual environment..."
 	python3 -m venv .venv
-	. .venv/bin/activate && pip install --upgrade pip && pip install -r requirements-phase-3.1.txt
+	. .venv/bin/activate && pip install --upgrade pip \
+	    && pip install -r requirements-phase-3.1.txt \
+	    && pip install -r requirements-dev.txt
 	@echo "Setting up Rust workspace..."
 	cd rust && cargo fetch
 	@echo "Done. Run 'make test-all' to verify."
+	@echo "Install Phase 3.2+ deps when needed: pip install -r requirements-phase-3.2.txt"
 
 # ── Testing ───────────────────────────────────────────────────
 
@@ -23,7 +26,7 @@ test-all: test-python test-rust
 
 test-python:
 	@echo "Running Python tests..."
-	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ -v --tb=short --timeout=30 -x --benchmark-skip
+	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ -v --tb=short -x
 
 test-rust:
 	@echo "Running Rust tests..."
