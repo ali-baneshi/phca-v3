@@ -42,7 +42,8 @@ from phca.attention.attention import Attention
 from phca.regulation.pid_controller import CriticalityRegulator
 from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
-from environments.grid_world import GridWorld, ACTION_NAMES, ACTION_DELTAS
+from environments.grid_world import GridWorld
+from environments.protocol import EnvironmentProtocol
 
 
 @dataclass
@@ -84,7 +85,7 @@ class CognitiveCycle:
         criticality_regulator: CriticalityRegulator,
         hpm_validator: HPMValidator,
         consolidation: ConsolidationScheduler,
-        env: GridWorld,
+        env: EnvironmentProtocol,
         state_dim: int,
         rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
     ):
@@ -284,7 +285,8 @@ class CognitiveCycle:
             self.engine.update_action(self.last_action)
 
             metrics.action_taken = action_idx
-            metrics.action_name = ACTION_NAMES[action_idx]
+            action_names = self.env.get_action_names()
+            metrics.action_name = action_names[action_idx]
             metrics.goal_reached = info.get("goal_reached", False)
 
             if terminal:
@@ -573,41 +575,44 @@ class CognitiveCycle:
         """Compute normalized distance gain for an action.
 
         Returns 0.0 if action moves directly toward goal, 1.0 if away,
-        0.5 if same distance or non-GridWorld environment.
+        0.5 if same distance or environment lacks position information.
         Continuous metric: (current_dist - new_dist) / current_dist mapped
         to [0, 1] where lower = better.
 
         STAY (idx=4) penalized when not at goal (0.7 vs 0.5) to discourage
-        lingering. For non-GridWorld environments, falls back to 0.5 (neutral).
+        lingering. For environments without position, falls back to 0.5 (neutral).
         """
         env = self.env
-        if hasattr(env, "agent_pos") and hasattr(env, "goal_pos") and hasattr(env, "grid"):
-            dr, dc = ACTION_DELTAS[action_idx]
-            new_row = env.agent_pos[0] + dr
-            new_col = env.agent_pos[1] + dc
+        goal_pos = env.get_goal_position()
+        if goal_pos is not None and hasattr(env, "agent_pos"):
+            # GridWorld-specific: compute Manhattan distance gain
+            if hasattr(env, "grid") and hasattr(env, "WALL"):
+                action_names = env.get_action_names()
+                dr, dc = {
+                    "MOVE_N": (-1, 0), "MOVE_S": (1, 0),
+                    "MOVE_E": (0, 1), "MOVE_W": (0, -1), "STAY": (0, 0),
+                }[action_names[action_idx]]
+                new_row = env.agent_pos[0] + dr
+                new_col = env.agent_pos[1] + dc
 
-            # Out of bounds or wall → worst score
-            if not (0 <= new_row < env.size and 0 <= new_col < env.size):
-                return 1.0
-            if env.grid[new_row, new_col] == env.WALL:
-                return 1.0
+                if not (0 <= new_row < env.size and 0 <= new_col < env.size):
+                    return 1.0
+                if env.grid[new_row, new_col] == env.WALL:
+                    return 1.0
 
-            g_row, g_col = env.goal_pos
-            current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
-            new_dist = abs(new_row - g_row) + abs(new_col - g_col)
+                g_row, g_col = goal_pos
+                current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
+                new_dist = abs(new_row - g_row) + abs(new_col - g_col)
 
-            if current_dist == 0:
-                return 0.0
+                if current_dist == 0:
+                    return 0.0
 
-            # Penalize STAY when not at goal to discourage lingering
-            if action_idx == 4 and new_dist == current_dist:
-                return 0.7
+                if action_idx == 4 and new_dist == current_dist:
+                    return 0.7
 
-            # Normalized gain: (current - new) / current → [-1, 1], map to [0, 1]
-            gain = (current_dist - new_dist) / current_dist
-            return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
-        else:
-            return 0.5
+                gain = (current_dist - new_dist) / current_dist
+                return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
+        return 0.5
 
     def _estimate_empowerment(self) -> float:
         """Estimate empowerment from cached action confidences.

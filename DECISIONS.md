@@ -174,3 +174,83 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Pass MLP gradient as TSPL `gradient=` kwarg, requiring TSPL theta key mapping. Sync TSPL theta from MLP after each learn step.
 - **Rationale:** MLP gradient keys (`gprime_w1`, `gprime_b1`, ...) don't match TSPL theta keys (`gprime`). Mapping would require TSPL changes (forbidden by Phase 3.3b constraint: zero TSPL internals changes). MLP internal weights are the authoritative copy; TSPL theta is a bookkeeping mirror for skill compilation. Decoupling simplifies integration and avoids accidental gradient double-counting.
 - **v3.0 trace:** §2.2 Def 2.4b, §3.1 Def 3.2
+
+## Decision D-018: HPM validation layer stripped (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** Remove `ModuleType`, `LeafOp`, `ValidationResult`, `validate()`, `validate_structured()`, and three `_validate_*` methods from `phca/hpm/parser.py`. Keep `CompositionOp`, `HPMNode`, and `compute_bounds()`.
+- **Alternatives:** Keep validation with a flag; rewrite validation to be correct.
+- **Rationale:** `validate_structured()` was a stub that printed cosmetic warnings against a hardcoded spec. Only `compute_bounds()` (v3.0 Theorem 2.1/3.1 resource additivity) is genuinely used by RBTA. The validation produced no runtime action and created false confidence.
+- **v3.0 trace:** §2.1 Def 2.2, §4.2
+
+## Decision D-019: Dead module removal — inference.py, similarity.py (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** Delete `world_model/inference.py` (216 prod + 165 test lines) and `world_model/similarity.py` (82 prod + 111 test lines) entirely.
+- **Alternatives:** Keep as "future use" stubs; mark deprecated.
+- **Rationale:** `forward_inference()` and `knn_similarity()` were never imported or called from any production code path. Dead code increases maintenance burden and confuses readers.
+- **v3.0 trace:** N/A
+
+## Decision D-020: E_STREAM / S_STREAM removed (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Remove `E_STREAM` and `S_STREAM` from `StreamID` enum, `config.py` defaults, and all TSPL update paths. `cycle.py` only calls `tspl.update(P_STREAM, ...)`.
+- **Alternatives:** Keep flags disabled; keep as no-ops for future use.
+- **Rationale:** E/S streams were always disabled (`False` default) and had no production code path. Consolidation runs on a fixed 50-cycle timer instead, obviating TSPL-mediated stream consolidation.
+- **v3.0 trace:** §3.1 Def 3.2
+
+## Decision D-021: Dead function excision across 10 modules (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Remove ~570 lines of dead functions across MDIM, TSPL, PEU, PID, RBTA, M2, M3, MLP, graph, attention.
+- **Alternatives:** Keep all public methods for "API completeness."
+- **Rationale:** Every removed function was either never called, only called from tests, or duplicated functionality. Examples: `MDIM.get_drive_summary()` replaced by `drives` dict access; `MDIM.reset()` never used; `TSPL.freeze_skill()` never used; `GEM`/`EWC` methods never used.
+- **v3.0 trace:** N/A
+
+## Decision D-022: EnvironmentProtocol decoupling (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** Create `environments/protocol.py` with `EnvironmentProtocol`. `CognitiveCycle.build_for_env()` accepts the protocol instead of a concrete `GridWorld`. `GridWorld` adds `get_action_names()`, `get_possible_actions()`, `get_goal_position()`.
+- **Alternatives:** Keep GridWorld dependency; abstract via ABC in a shared base class.
+- **Rationale:** Protocol typing (structural subtyping) avoids ABC inheritance and allows any duck-typed environment to drive the cycle. Zero runtime overhead.
+- **v3.0 trace:** §1.2
+
+## Decision D-023: M3 SQLite abstraction deferred (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Keep M3 SQLite-backed with no storage backend abstraction.
+- **Alternatives:** Add abstract BaseStorage class with SQLite and in-memory implementations.
+- **Rationale:** Single backend, zero benefit from an abstraction layer now. Deferred to Phase 3.4 if a second backend is ever needed.
+- **v3.0 trace:** §2.3
+
+## Decision D-024: MLP abstraction skipped (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Keep MLP as a single concrete class with no abstract base.
+- **Alternatives:** AbstractBaseMLP with WorldModelMLP and (future) TorchMLP implementations.
+- **Rationale:** Single implementation would add ~80 abstraction lines for zero immediate benefit.
+- **v3.0 trace:** §2.2 Def 2.4b
+
+## Decision D-025: NaN hardening with @np.errstate raise (Phase 3.3 final)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 1
+- **Option chosen:** Change `@np.errstate(all="ignore")` to `@np.errstate(divide="raise", invalid="raise", over="ignore")` in all modules.
+- **Alternatives:** Add manual np.isnan/np.isfinite checks everywhere; keep floating-point exceptions suppressed.
+- **Rationale:** `all="ignore"` silently converts all FP exceptions to NaN, which then propagates silently. Raising on divide-by-zero and invalid operations forces NaN to surface immediately at the source. `over="ignore"` is retained because overflow to ±inf is recoverable.
+- **v3.0 trace:** §2.1 Def 2.1a

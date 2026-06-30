@@ -160,12 +160,13 @@ class TestMemoryChaos:
             )
 
         assert m3.count() <= 50, f"count={m3.count()} exceeds max_episodes=50"
-        # The earliest episodes (timestamp 0..9) should be evicted
-        first_10 = m3.query_episodes(limit=10, offset=0)
-        for ep in first_10:
-            assert ep.timestamp is None or ep.timestamp >= 10, (
-                f"Found evicted episode with timestamp {ep.timestamp}"
-            )
+        # Verify earliest timestamps were evicted by checking the minimum timestamp
+        cursor = m3._connection.execute(
+            "SELECT MIN(timestamp) FROM episodes"
+        )
+        min_ts = cursor.fetchone()[0]
+        assert min_ts is not None, "No episodes remain after eviction"
+        assert min_ts >= 10, f"Earliest remaining timestamp {min_ts} < 10, eviction did not preserve recent episodes"
 
 
 # ── Helpers ────────────────────────────────────────────────────

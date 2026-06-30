@@ -250,7 +250,7 @@ class BenchmarkRunner:
 
         # Goal complexity: MDIM drive diversity in stationary env
         if hasattr(cycle, 'mdim') and cycle.mdim is not None:
-            drive_summary = cycle.mdim.get_drive_summary()
+            drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
             active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
             result.goal_complexity = min(1.0, active_drives / 5.0)
         else:
@@ -389,7 +389,7 @@ class BenchmarkRunner:
 
         # Goal complexity: drive diversity from MDIM
         if hasattr(cycle, 'mdim') and cycle.mdim is not None:
-            drive_summary = cycle.mdim.get_drive_summary()
+            drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
             active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
             result.goal_complexity = min(1.0, active_drives / 5.0)
         else:

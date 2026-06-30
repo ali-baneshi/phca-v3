@@ -202,4 +202,6 @@ def test_nested_time_propagation() -> None:
     }
     bounds = v.compute_bounds(tree, log)
     assert bounds is not None
-    assert bounds["B_time"] == pytest.approx(0.05 + 0.001 + TAU_SYNC + 0.03 + TAU_COMP, abs=1e-6)
+    assert bounds["B_time"] == pytest.approx(
+        # inner=0.05 (string child, no leaf padding), nested=0.001 (dict leaf), outer=0.03 (string)
+        max(0.05, 0.001) + TAU_SYNC + 0.03 + TAU_COMP, abs=1e-6)

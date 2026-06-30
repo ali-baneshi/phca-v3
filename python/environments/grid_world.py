@@ -228,3 +228,12 @@ class GridWorld:
     @property
     def action_space_size(self) -> int:
         return 5
+
+    def get_possible_actions(self) -> list[str]:
+        return list(ACTION_NAMES)
+
+    def get_action_names(self) -> list[str]:
+        return list(ACTION_NAMES)
+
+    def get_goal_position(self) -> tuple[int, int] | None:
+        return self.goal_pos

@@ -53,35 +53,6 @@ class TestTSPLInit:
         assert tspl.configs[StreamID.P_STREAM].accuracy_threshold == 0.95
         assert tspl.configs[StreamID.P_STREAM].enabled is True
 
-        # E-Stream: medium alpha, medium lambda, medium eta, disabled by default
-        assert tspl.configs[StreamID.E_STREAM].alpha == 0.005
-        assert tspl.configs[StreamID.E_STREAM].lambda_ == 0.1
-        assert tspl.configs[StreamID.E_STREAM].eta == 0.01
-        assert tspl.configs[StreamID.E_STREAM].enabled is False
-
-        # S-Stream: lowest alpha, highest lambda, lowest eta, disabled by default
-        assert tspl.configs[StreamID.S_STREAM].alpha == 0.0005
-        assert tspl.configs[StreamID.S_STREAM].lambda_ == 1.0
-        assert tspl.configs[StreamID.S_STREAM].eta == 0.001
-        assert tspl.configs[StreamID.S_STREAM].enabled is False
-
-    def test_disabled_stream_returns_theta_unchanged(self, tspl, sample_state, sample_prediction):
-        """Disabled E/S streams return theta unchanged."""
-        original = {k: v.copy() for k, v in tspl.theta.items()}
-        theta_new_e, _ = tspl.update(
-            StreamID.E_STREAM, 0.01, sample_state, sample_prediction,
-        )
-        for key in original:
-            assert np.allclose(original[key], theta_new_e[key]), \
-                f"{key} should NOT change after disabled E-Stream update"
-
-        theta_new_s, _ = tspl.update(
-            StreamID.S_STREAM, 0.05, sample_state, sample_prediction,
-        )
-        for key in original:
-            assert np.allclose(original[key], theta_new_s[key]), \
-                f"{key} should NOT change after disabled S-Stream update"
-
     def test_initial_state(self):
         """Fresh TSPL should have no parameters."""
         tspl = TSPL()
@@ -118,97 +89,6 @@ class TestTSPLUpdate:
         assert isinstance(theta_new, dict)
         assert "gprime_cpd_transition" in theta_new
         assert theta_new["gprime_cpd_transition"].shape == (4, 4)
-
-    def test_e_stream_updates_theta(self, tspl, sample_state, sample_prediction):
-        """E-Stream update should modify theta (Phase 3.2: GEM active)."""
-        tspl.configs[StreamID.E_STREAM].enabled = True
-        original = {k: v.copy() for k, v in tspl.theta.items()}
-        theta_new, compiled = tspl.update(
-            StreamID.E_STREAM, 0.01, sample_state, sample_prediction,
-        )
-        # Theta should be updated (no longer a stub)
-        for key in original:
-            assert not np.allclose(original[key], theta_new[key]), \
-                f"{key} should change after E-Stream update"
-
-    def test_e_stream_stores_references(self, tspl, sample_state, sample_prediction):
-        """E-Stream updates should accumulate GEM reference gradients."""
-        tspl.configs[StreamID.E_STREAM].enabled = True
-        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
-        assert tspl._gem_tasks_seen == 1
-        assert len(tspl._gem_reference_grads) == 1
-
-        tspl.update(StreamID.E_STREAM, 0.02, sample_state, sample_prediction)
-        assert tspl._gem_tasks_seen == 2
-        assert len(tspl._gem_reference_grads) == 2
-
-    def test_e_stream_gem_projection(self, tspl, sample_state, sample_prediction):
-        """GEM projection should not crash and return valid gradient."""
-        tspl.configs[StreamID.E_STREAM].enabled = True
-        # First update: establish reference
-        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
-        assert len(tspl._gem_reference_grads) == 1
-
-        # Second update: should project against existing reference
-        theta_new, compiled = tspl.update(
-            StreamID.E_STREAM, 0.5, sample_state, sample_prediction,
-        )
-        assert isinstance(theta_new, dict)
-        assert "gprime_cpd_transition" in theta_new
-
-    def test_s_stream_updates_theta(self, tspl, sample_state, sample_prediction):
-        """S-Stream update should modify theta (Phase 3.2: EWC active)."""
-        tspl.configs[StreamID.S_STREAM].enabled = True
-        original = {k: v.copy() for k, v in tspl.theta.items()}
-        theta_new, compiled = tspl.update(
-            StreamID.S_STREAM, 0.01, sample_state, sample_prediction,
-        )
-        # Theta should be updated (no longer a stub)
-        for key in original:
-            assert not np.allclose(original[key], theta_new[key]), \
-                f"{key} should change after S-Stream update"
-
-    def test_s_stream_ewc_fisher_update(self, tspl, sample_state, sample_prediction):
-        """S-Stream should update Fisher information matrix."""
-        tspl.configs[StreamID.S_STREAM].enabled = True
-        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
-        assert len(tspl._ewc_fisher) > 0
-        assert "gprime_cpd_transition" in tspl._ewc_fisher
-
-    def test_s_stream_ewc_fisher_accumulates(self, tspl):
-        """Fisher information should accumulate over multiple updates.
-
-        Uses different state/prediction inputs per update so the gradient
-        differs, which causes the EMA Fisher to update. With identical
-        inputs the gradient would be identical and the EMA would converge
-        instantly (correct behavior — the test uses different inputs).
-        """
-        state1 = StateVector(
-            values=np.array([0.5, -0.3], dtype=np.float32),
-            precision=np.array([0.9, 0.9], dtype=np.float32),
-        )
-        pred1 = StateVector(
-            values=np.array([0.48, -0.28], dtype=np.float32),
-            precision=np.array([0.9, 0.9], dtype=np.float32),
-        )
-        state2 = StateVector(
-            values=np.array([0.7, -0.1], dtype=np.float32),
-            precision=np.array([0.8, 0.8], dtype=np.float32),
-        )
-        pred2 = StateVector(
-            values=np.array([0.6, 0.0], dtype=np.float32),
-            precision=np.array([0.8, 0.8], dtype=np.float32),
-        )
-
-        tspl.configs[StreamID.E_STREAM].enabled = True
-        tspl.configs[StreamID.S_STREAM].enabled = True
-        tspl.update(StreamID.S_STREAM, 0.01, state1, pred1)
-        f1 = tspl._ewc_fisher["gprime_cpd_transition"].copy()
-
-        tspl.update(StreamID.S_STREAM, 0.05, state2, pred2)
-        f2 = tspl._ewc_fisher["gprime_cpd_transition"]
-        # Fisher should be updated (running average with different gradient)
-        assert not np.allclose(f1, f2)
 
     def test_update_with_no_theta_returns_empty(self, sample_state, sample_prediction):
         """Update with no initialized parameters should return empty."""

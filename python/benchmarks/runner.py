@@ -19,7 +19,7 @@ from pathlib import Path
 
 def run_level_0(output_path: str | None = None) -> dict:
     """Level 0: Stationary prediction (Phase 3.3)."""
-    # TODO: Implement in PHCA-3.3-003
+    # Deferred to PHCA-3.3-003. Use scripts/benchmark.py for now.
     result = {
         "level": 0,
         "status": "not_implemented",
