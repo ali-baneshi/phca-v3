@@ -9,7 +9,15 @@
 > (`python/phca/environments/mujoco_env.py`), `CognitiveCycle.build_for_mujoco()` was
 > implemented, tests and benchmark scripts were written. The wrapper was moved into
 > `phca/environments/` as part of the gap-closure package restructure (B-004).
-> See `docs/phase3.3_full_completion_report.md` for details.
+>
+> **Post-execution update (Phase 4 gap audit, G-008):** The `build_for_env()` and
+> `build_for_mujoco()` class methods have been refactored into a single
+> `CognitiveCycle.build(env)` canonical builder. Both original methods are now thin
+> wrappers that create their respective environments and delegate to `build()`. The
+> manual module wiring described in §4.1 is no longer duplicated — see the unified
+> builder in `cycle.py` instead.
+>
+> See `docs/phase3.3_full_completion_report.md` for the original execution details.
 
 ---
 
@@ -377,97 +385,19 @@ The `MuJoCoSimpleEnv` satisfies:
 
 ## 4. Phase 2: Integration with CognitiveCycle
 
-### 4.1 Extending `build_for_env()`
+> **Post-execution update:** The `build_for_mujoco()` class method described below was
+> implemented as originally planned. During the Phase 4 gap audit (G-008), both
+> `build_for_env()` and `build_for_mujoco()` were refactored into a single
+> `CognitiveCycle.build(env)` canonical builder. The manual module wiring (LR selection,
+> bounds adjustment, module instantiation) is now centralized in `build()` instead of
+> being duplicated across both methods. The original `build_for_mujoco()` is now a thin
+> wrapper that creates a `MuJoCoSimpleEnv` and calls `build(env=env, use_mlp=True,
+> use_continuous=True, gprime_b_time=0.080, action_b_time=0.050, mlp_lr=0.05)`.
+>
+> The following section documents the original implementation design for historical
+> reference. For the current code, see `CognitiveCycle.build()` in `cycle.py`.
 
-Add a new class method to `CognitiveCycle` (or modify `build_for_env()`) to accept a `MuJoCoSimpleEnv` instance:
-
-```python
-@classmethod
-def build_for_mujoco(
-    cls,
-    env_name: str = "InvertedPendulum-v5",
-    seed: int = 42,
-    use_mlp: bool = False,
-    use_continuous: bool = True,
-) -> CognitiveCycle:
-    """Build a cognitive cycle for a MuJoCo physics environment.
-
-    Args:
-        env_name: gymnasium MuJoCo environment ID.
-        seed: Random seed.
-        use_mlp: If True, use MLP world model instead of Bayesian G'.
-        use_continuous: If True, use Gaussian CPDs (only if not use_mlp).
-
-    Returns:
-        Configured CognitiveCycle instance.
-    """
-    env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
-    state_dim = env.get_state_dim()
-
-    sanitizer = ASISanitizer(sensor_dim=state_dim, v_max=100.0, epsilon_confidence=0.01)
-    m1 = M1SensoryBuffer(sensor_dim=state_dim)
-    m2 = M2WorkingMemory(capacity=7)
-
-    if use_mlp:
-        gprime = WorldModelMLP(
-            state_dim=state_dim,
-            action_dim=env.action_space_size,
-            seed=seed,
-            # MuJoCo observations are continuous floats, not discrete {0,1,2}.
-            # The MLP's linear output is appropriate. Reduce learning rate
-            # slightly for smoother continuous prediction targets.
-            lr=0.05,
-        )
-    elif use_continuous:
-        gprime = WorldModelGPrime.build_gaussian_grid(
-            state_dim=state_dim,
-            action_dim=env.action_space_size,
-            transition_std=0.5,
-            seed=seed,
-        )
-    else:
-        # Discrete graph — less suitable for continuous MuJoCo observations
-        # but included for compatibility.
-        gprime = WorldModelGPrime(
-            state_dim=state_dim,
-            action_dim=env.action_space_size,
-            seed=seed,
-        )
-        # Discrete nodes not shown for brevity — only use with discrete
-        # observations (e.g., binned MuJoCo states).
-        # ⚠️ Discrete G' is NOT recommended for MuJoCo. Use continuous or MLP.
-
-    engine = PredictionEngine(gprime)
-    peu = PredictionErrorUnit()
-    tspl = TSPL(seed=seed)
-    tspl.init_parameters("gprime", (state_dim,))
-    rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
-
-    # Adjust G' bounds for MuJoCo simulation overhead
-    rbta.update_bounds(
-        "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
-    )
-
-    mdim = MDIM(state_dim=state_dim)
-    attention = Attention()
-    criticality_regulator = CriticalityRegulator()
-    hpm_validator = HPMValidator()
-    m3 = M3EpisodicMemory(state_dim=state_dim, action_dim=env.action_space_size)
-    consolidation = ConsolidationScheduler(
-        m3=m3, state_dim=state_dim,
-        consolidation_interval=10, max_facts_per_cycle=50,
-    )
-
-    return cls(
-        sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
-        engine=engine, peu=peu, tspl=tspl, rbta=rbta,
-        mdim=mdim, attention=attention,
-        criticality_regulator=criticality_regulator,
-        hpm_validator=hpm_validator,
-        consolidation=consolidation, env=env,
-        state_dim=state_dim,
-    )
-```
+### 4.1 Extending `build_for_env()` (Original Design — Now Superseded by `CognitiveCycle.build()`)
 
 ### 4.2 Changes to `_compute_distance_gain()`
 

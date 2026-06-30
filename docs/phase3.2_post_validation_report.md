@@ -1,8 +1,12 @@
 # PHCA v3.0 – Post-Validation Strategic Report
 
+> **⚠️ HISTORICAL — Phase 3.2 State. All findings in this report have been addressed**
+> in Phase 3.3, gap-closure fixes, or the Phase 4 gap audit. See `docs/architecture.md`
+> for the current architecture and `docs/phase4_gap_report.md` for remaining issues.
+
 **Date:** 2026-06-30  
 **Author:** Chief Architect & Technical Strategist  
-**Status:** Phase 3.2 Complete – Transitioning to Phase 3.3  
+**Status:** ⚠️ HISTORICAL (Phase 3.2 Complete — superseded by Phase 3.3/4)  
 
 ---
 

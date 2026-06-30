@@ -21,8 +21,7 @@ per the v3.0 specification §3.2–§4.
                      └──────────────────┬───────────────────────┘
                                         │ raw_obs
                                         ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                      12-Step Cognitive Cycle                    │
+  ┌─────────────────────────────────────────────────────────────────┐                     │  Cognitive Cycle (20 steps)                  │
   │                                                                  │
   │  Step  0: ASI Sanitize       sanitize(raw_obs) → clean_state    │
   │  Step  1: WM Write           m2.write(state) + m1.write(state)  │
@@ -52,21 +51,21 @@ per the v3.0 specification §3.2–§4.
 
 | Module | File | Function |
 |---|---|---|
-| **ASI** | `phca/perception/asi.py` | Input sanitization, NaN/Inf detection, finite checks |
-| **M1 (Sensory)** | `phca/working_memory/m1_sensory.py` | Short-term sensory buffer (50-cycle horizon) |
-| **M2 (Working)** | `phca/working_memory/m2_working.py` | Ring-buffer working memory with salience tracking |
-| **G' (Engine)** | `phca/world_model/engine.py` | Gaussian G' / MLP prediction engine; 1000× speedup via cached joint moments |
-| **PEU** | `phca/learning/peu.py` | Precision-weighted prediction error |
+| **ASI** | `phca/asi/sanitizer.py` | Input sanitization, NaN/Inf detection, finite checks |
+| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (50-cycle horizon) |
+| **M2 (Working)** | `phca/memory/m2_working.py` | Ring-buffer working memory with salience tracking |
+| **G' (Engine)** | `phca/prediction/engine.py` | Prediction engine wrapping G' Gaussian/MLP; 1000× speedup via cached joint moments |
+| **PEU** | `phca/prediction/error_unit.py` | Precision-weighted prediction error |
 | **TSPL** | `phca/learning/tspl.py` | Single-stream predictive learning (P-Stream only) |
 | **MDIM** | `phca/motivation/mdim.py` | Multi-drive intrinsic motivation (6 drives) with softmax goal selection |
-| **CR** | `phca/motivation/criticality.py` | Criticality regulation (energy homeostasis) |
-| **ATTN** | `phca/learning/attention.py` | Precision-weighted sparse attention with Gumbel noise |
+| **APC** | `phca/regulation/pid_controller.py` | Adaptive parameter control (PID-based modulation of T, η, α) |
+| **ATTN** | `phca/attention/attention.py` | Precision-weighted sparse attention with Gumbel noise |
 | **HPM** | `phca/hpm/parser.py` | Hierarchical procedure memory: composition operators + `compute_bounds()` |
-| **RBTA** | `phca/governance/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement |
-| **PID** | `phca/governance/pid_controller.py` | PID-inspired controller for Φ orthogonality constraint |
-| **M3 (Episodic)** | `phca/episodic_memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
-| **Consolidation** | `phca/episodic_memory/consolidation.py` | Episodic → semantic transfer with periodic fact extraction |
-| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator |
+| **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement |
+| **PID** | `phca/regulation/pid_controller.py` | PID-inspired controller for error volatility homeostasis |
+| **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
+| **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
+| **Cycle** | `phca/core/cycle.py` | 20-step cognitive cycle orchestrator |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment (5×5, obstacles) |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper |
 | **Config** | `phca/config.py` | Global constants, resource bounds, `StreamID` (P-Stream only) |
@@ -107,5 +106,5 @@ This was fixed in gap-closure issue A-001/A-004 (D-036).
 
 ### Up-to-Date Reference
 
-See `DECISIONS.md` (D-001 through D-044) for the complete design decision history,
+See `DECISIONS.md` (D-001 through D-049) for the complete design decision history,
 and `docs/phase3.3_full_completion_report.md` for the gap-closure execution summary.

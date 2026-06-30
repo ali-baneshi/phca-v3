@@ -1,7 +1,7 @@
 # PHCA v3.0 — Monitoring System Completion Report
 
 **Date:** 2026-06-30 (updated post gap-closure)
-**Status:** ✅ **COMPLETED** — all 5 steps implemented, 283 tests passing
+**Status:** ✅ **COMPLETED** — all 5 steps implemented, 284 tests passing
 
 ---
 
@@ -45,7 +45,7 @@ Usage: `python scripts/phca-logs.py --follow --level warning`
 |---|-----------|--------|----------|
 | M1 | Dashboard launches and renders | ✅ | `python scripts/phca-monitor.py --cycles=20` starts live display |
 | M2 | Dashboard updates live | ✅ | Cycle counter increments every ~25ms, display refreshes every 500ms |
-| M3 | No cycle slowdown | ✅ | All 289 tests pass. Push cost < 5 μs per cycle |
+| M3 | No cycle slowdown | ✅ | All 284 tests pass. Push cost < 5 μs per cycle |
 | M4 | Log file is written | ✅ | `setup_file_logging()` creates `logs/phca.log` |
 | M5 | Log tailing works | ✅ | `python scripts/phca-logs.py --follow` streams live entries |
 | M6 | Log filtering works | ✅ | `--level error`, `--event consolidation` filter correctly |

@@ -441,7 +441,12 @@ Every entry must reference the v3.0 specification section it affects.
 
 ## Decision D-044: D6 empowerment blend reverted — old logic was correct (Phase 3.3 gap closure — B-003)
 
----
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Reverted D6 empowerment blend to use the original `weighted_sum = sum(e * v for e,v in zip(empowerments, state_values))` logic. The attempted optimization (normalizing empowerments before blending) was incorrect because empowerment values are already unitless in [0, 1] after softmax normalization during generation.
+- **Rationale:** The "improved" normalization double-normalized the empowerment signal, causing D6 to produce near-uniform deficits regardless of state differences. The original blend correctly preserves empowerment magnitude as a relative signal — states with high empowerment produce proportionally higher D6 deficits, which is the intended behaviour for energy/empowerment drive.
+- **v3.0 trace:** §3.3 Def 3.5 (D6), Phase 3.3 gap closure finding B-003
 
 ## Decision D-045: Rename `phi` → `error_volatility` to stop claiming IIT (Phase 4 gap audit — G-001)
 

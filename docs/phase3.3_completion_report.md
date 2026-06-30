@@ -64,9 +64,11 @@ Phase 3.3 has been completed with all 5 critical issues from the `docs/top5_fixe
 | `test_mujoco_env.py` | 13 | ✅ All passed |
 | `test_cycle_with_mujoco.py` | 10 | ✅ All passed |
 | **Total pre-gap-closure** | **289** | **✅ All passed** |
+| **Total post-Phase-4-audit** | **284** | **✅ All passed** |
 
-> **Post gap-closure (Phase 3.3a/b):** 283 tests pass (6 `SkillLibrary` tests removed).
-> See `docs/phase3.3_full_completion_report.md`.
+> **Post gap-closure + Phase 4 audit:** 284 tests pass (6 `SkillLibrary` tests removed,
+> 1 test added for precision-weighted similarity via G-005).
+> See `docs/phase3.3_full_completion_report.md` and `docs/phase4_gap_report.md`.
 
 ### Benchmark Runner Validation (Quick Test, 5 cycles/level)
 

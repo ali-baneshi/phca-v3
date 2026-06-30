@@ -1,11 +1,12 @@
 """
-PHCA v3.0 — P-Stream TSPL (Three-Stream Predictive Learning).
+PHCA v3.0 — TSPL (Predictive Learning Module).
 
-Phase 3.1: P-Stream active, E-Stream and S-Stream are stubs.
-Phase 3.2+: All three streams active with EWC/GEM consolidation.
+Phase 3.3: P-Stream only. E-Stream and S-Stream were removed
+in Phase 3.3 final (D-020). Consolidation runs on a fixed 10-cycle
+timer instead of TSPL-mediated stream scheduling.
 
 v3.0 References:
-    - §3.1 Definition 3.2 (P-Stream only, Phase 3.1)
+    - §3.1 Definition 3.2 (P-Stream learning)
     - §3.1 Definition 3.3.3 (skill compilation)
     - §3.1 Table 2 (stream-specific hyperparameters)
 """
@@ -46,21 +47,16 @@ DEFAULT_STREAM_CONFIGS: Dict[StreamID, StreamConfig] = {
 
 
 class TSPL:
-    """Three-Stream Predictive Learning module.
+    """Predictive Learning module.
 
-    Phase 3.1:
+    Phase 3.3 (current):
         - P-Stream (procedural): Fast learning, high exploration noise.
-          Updates G' CPD parameters via prediction error δ_t.
-        - E-Stream (episodic): Stub — returns theta unchanged.
-        - S-Stream (semantic): Stub — returns theta unchanged.
+          Updates G' parameters via prediction error δ_t.
+        - E-Stream and S-Stream removed (Phase 3.3 final, D-020).
+          Consolidation runs on a fixed 10-cycle timer instead.
         - Skill compilation: P-Stream parameters freeze at ≥95% accuracy.
 
-    Phase 3.2+:
-        - E-Stream active with GEM projection.
-        - S-Stream active with EWC penalty.
-        - Multi-stream consolidation scheduling.
-
-    The unified learning rule (v3.0 Definition 3.2):
+    The learning rule (v3.0 Definition 3.2):
         θ_new = θ - α · ∇L - λ · (θ - θ_protected) + η · noise
     """
 

@@ -14,10 +14,11 @@ with identical functional behaviour.
 
 **Production lines:** 7,257 → 5,997 (−17.4%)  
 **Total lines:** 12,071 → 10,290 (−14.8%)  
-**Tests:** 398 → 289 (−27.4%, dead-function test removal only — no coverage loss)
+**Tests:** 398 → 284 (dead-function test removal + 1 new Phase 4 gap audit test — no coverage loss)
 
-> **Note (post gap-closure):** Tests further reduced to **283** with the removal of
-> `SkillLibrary` tests (dead code, never instantiated). No coverage loss.
+> **Note (post gap-closure + Phase 4 audit):** Tests further reduced to **284** with the removal of
+> `SkillLibrary` tests (dead code, never instantiated) and the addition of one new
+> test for precision-weighted similarity (G-005). No coverage loss.
 > See `docs/phase3.3_full_completion_report.md` for gap-closure details.
 
 ---
