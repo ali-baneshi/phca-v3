@@ -141,6 +141,8 @@ class M3EpisodicMemory:
         self._action_dim = action_dim
         self._lock = threading.Lock()
         self._current_version: int = 1
+        self._pending_commits: int = 0
+        self._commit_interval: int = 10
 
         # Initialize database
         self._conn: Optional[sqlite3.Connection] = None
@@ -211,7 +213,10 @@ class M3EpisodicMemory:
                 ),
             )
             episode_id = cursor.lastrowid
-            self._connection.commit()
+            self._pending_commits += 1
+            if self._pending_commits >= self._commit_interval:
+                self._connection.commit()
+                self._pending_commits = 0
 
         # Evict oldest if over capacity
         self._evict_if_needed()
@@ -255,6 +260,16 @@ class M3EpisodicMemory:
 
         self._evict_if_needed()
         return ids
+
+    def flush(self) -> None:
+        """Force a commit of any pending writes.
+
+        Called by the consolidation scheduler to ensure episodes are
+        durable before marking them as consolidated.
+        """
+        if self._pending_commits > 0 and self._conn is not None:
+            self._conn.commit()
+            self._pending_commits = 0
 
     # ── Read ──────────────────────────────────────────────────
 

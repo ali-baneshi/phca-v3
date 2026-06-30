@@ -162,6 +162,8 @@ class ConsolidationScheduler:
 
             # Step 18: Write facts to S-Stream (log and mark consolidated)
             n_facts = self._store_facts(facts)
+            # Flush pending M3 writes so episodes are durable before marking
+            self.m3.flush()
             marked = self.m3.mark_consolidated(episode_ids)
 
             # Increment MVCC version for next writes

@@ -485,8 +485,11 @@ class CognitiveCycle:
                 if score > best_score:
                     best_score = score
                     best_action = action_idx
-            except Exception:
+            except Exception as e:
                 action_confidences.append(0.0)
+                if action_name:
+                    _log(logger, "warning", "action_selection.predict_failed",
+                         action=action_name, error=str(e))
                 continue
 
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)

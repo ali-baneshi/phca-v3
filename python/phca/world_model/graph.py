@@ -21,6 +21,7 @@ from pgmpy.factors.discrete import TabularCPD, DiscreteFactor
 from pgmpy.inference import VariableElimination
 
 from phca.config import StateVector
+from phca.logging import logger, _log
 from phca.world_model.gaussian import (
     compute_joint_moments,
     posterior,
@@ -347,6 +348,8 @@ class WorldModelGPrime:
             )
 
         except Exception:
+            _log(logger, "warning", "gprime.inference_failed",
+                 method="discrete", fallback="identity")
             # Inference failed — return low-confidence identity
             return (
                 StateVector(
@@ -527,7 +530,9 @@ class WorldModelGPrime:
                     n_samples=10_000,
                     seed=self.rng.randint(10000),
                 )
-        except (ValueError, np.linalg.LinAlgError):
+        except (ValueError, np.linalg.LinAlgError) as e:
+            _log(logger, "warning", "gprime.continuous_inference_failed",
+                 error=str(e), fallback="identity")
             return (
                 StateVector(
                     values=state.values.copy(),

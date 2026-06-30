@@ -23,24 +23,24 @@
       "adaptation_speed": 0.9180199985253806,
       "goal_complexity": 0.8,
       "transfer_efficiency": 0.8427239968915045,
-      "resource_efficiency": 0.9517800159996841,
-      "failure_rate": 0.06,
-      "phi_iq": 0.7979646021435763,
+      "resource_efficiency": 0.9267979967594147,
+      "failure_rate": 0.02,
+      "phi_iq": 0.7969681982955225,
       "raw_metrics": {
         "mean_error": 0.8202000147581147,
         "mean_confidence": 0.7999999999999997,
-        "mean_latency_ms": 24.109992000157945,
-        "p95_latency_ms": 77.95096785121129,
-        "violations": 3,
+        "mean_latency_ms": 36.601001620292664,
+        "p95_latency_ms": 199.79121040523734,
+        "violations": 1,
         "skill_accuracy": 0.9014993343868789,
         "skill_compiled": true,
         "active_drives": 4
       }
     }
   ],
-  "overall_phi_iq": 0.7979646021435763,
+  "overall_phi_iq": 0.7969681982955225,
   "total_cycles": 50,
-  "duration_s": 1.4581338040006813,
+  "duration_s": 2.1646113310125656,
   "pass_criteria": {
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,

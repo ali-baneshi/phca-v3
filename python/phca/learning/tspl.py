@@ -12,7 +12,7 @@ v3.0 References:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -29,11 +29,13 @@ class StreamConfig:
         lambda_: Elastic consolidation strength (P-Stream lowest, S-Stream highest).
         eta: Exploration noise stddev (P-Stream highest).
         accuracy_threshold: Skill compilation threshold (default 0.95).
+        enabled: If False, the stream's update is a no-op (Phase 3.3a feature gate).
     """
     alpha: float
     lambda_: float
     eta: float
     accuracy_threshold: float = 0.95
+    enabled: bool = True
 
 
 DEFAULT_STREAM_CONFIGS: Dict[StreamID, StreamConfig] = {
@@ -42,9 +44,11 @@ DEFAULT_STREAM_CONFIGS: Dict[StreamID, StreamConfig] = {
     ),
     StreamID.E_STREAM: StreamConfig(
         alpha=0.005, lambda_=0.1, eta=0.01, accuracy_threshold=0.90,
+        enabled=False,
     ),
     StreamID.S_STREAM: StreamConfig(
         alpha=0.0005, lambda_=1.0, eta=0.001, accuracy_threshold=0.90,
+        enabled=False,
     ),
 }
 
@@ -74,10 +78,10 @@ class TSPL:
         Args:
             seed: Random seed for deterministic exploration noise.
         """
+        # Deep-copy configs so instance mutation never pollutes the global DEFAULT_STREAM_CONFIGS
         self.configs = {
-            StreamID.P_STREAM: DEFAULT_STREAM_CONFIGS[StreamID.P_STREAM],
-            StreamID.E_STREAM: DEFAULT_STREAM_CONFIGS[StreamID.E_STREAM],
-            StreamID.S_STREAM: DEFAULT_STREAM_CONFIGS[StreamID.S_STREAM],
+            sid: StreamConfig(**asdict(cfg))
+            for sid, cfg in DEFAULT_STREAM_CONFIGS.items()
         }
 
         # Learned parameters (mapping parameter name → numpy array)
@@ -146,6 +150,10 @@ class TSPL:
 
         if not self.theta:
             return {}, False
+
+        # Phase 3.3a: If stream is disabled (E/S-Stream by default), return theta unchanged.
+        if not config.enabled:
+            return dict(self.theta), False
 
         # Compute gradient if not provided (simple delta-rule approximation)
         if gradient is None:
