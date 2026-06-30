@@ -216,32 +216,38 @@ class RBTAEnforcer:
         if not children:
             return
 
-        # Collect child runtimes
+        # Collect child runtimes and energies
         child_times = []
+        child_energies = []
         for child in children:
             if isinstance(child, dict):
                 # Nested composition tree — recurse
                 self._check_composition_tree(child, runtime_log, violations)
-                # For the parent check, compute the child's composite time
+                # For the parent check, compute the child's composite time and energy
                 child_times.append(self._compute_subtree_runtime(child, runtime_log))
+                child_energies.append(self._compute_subtree_energy(child, runtime_log))
             elif isinstance(child, str):
-                # Leaf module — look up runtime
+                # Leaf module — look up runtime and energy
                 child_times.append(runtime_log.get(child, 0.0))
+                child_energies.append(runtime_log.get(child + "_energy", 1.0))
 
         if not child_times:
             return
 
-        # Compute composite time based on composition type
+        # Compute composite time and energy based on composition type
         if op == "SEQUENCE":
             total_time = sum(child_times) + TAU_COMP
+            total_energy = sum(child_energies) + 0.001  # ε_overhead = 1mJ
         elif op == "PARALLEL":
             total_time = max(child_times) + TAU_SYNC
+            total_energy = sum(child_energies) + 0.002  # ε_comm = 2mJ
         else:
             # Unknown operator — skip check
             return
 
-        # Check against composite bound
+        # Check against composite bounds
         if tree_bounds is not None:
+            # Time check
             bound = tree_bounds.get("B_time", float("inf"))
             if isinstance(bound, ResourceBounds):
                 bound = bound.B_time
@@ -251,6 +257,17 @@ class RBTAEnforcer:
                     bound_type=BoundType.TIME.value,
                     measured=total_time,
                     allowed=float(bound),
+                ))
+            # Energy check (v3.0 §2.1.1 Def 3.6)
+            energy_bound = tree_bounds.get("B_energy", float("inf"))
+            if isinstance(energy_bound, ResourceBounds):
+                energy_bound = energy_bound.B_energy
+            if total_energy > energy_bound:
+                violations.append(ConstraintViolation(
+                    module_id=f"composite:{tree.get('id', op)}",
+                    bound_type=BoundType.ENERGY.value,
+                    measured=total_energy,
+                    allowed=float(energy_bound),
                 ))
 
     def _compute_subtree_runtime(
@@ -286,6 +303,41 @@ class RBTAEnforcer:
             return max(child_times) + TAU_SYNC
         else:
             return sum(child_times)  # fallback
+
+    def _compute_subtree_energy(
+        self, tree: Dict, runtime_log: Dict[str, float]
+    ) -> float:
+        """Compute the composite energy of a composition subtree.
+
+        Energy composition rules (v3.0 §2.1.1 Def 3.6):
+          SEQUENCE: B_energy = sum(child_energy) + ε_overhead
+          PARALLEL: B_energy = sum(child_energy) + ε_comm
+        """
+        EPSILON_OVERHEAD = 0.001  # 1mJ
+        EPSILON_COMM = 0.002      # 2mJ
+
+        op = tree.get("type", "SEQUENCE")
+        children = tree.get("children", [])
+
+        if not children:
+            return 0.0
+
+        child_energies = []
+        for child in children:
+            if isinstance(child, dict):
+                child_energies.append(self._compute_subtree_energy(child, runtime_log))
+            elif isinstance(child, str):
+                child_energies.append(runtime_log.get(child + "_energy", 1.0))
+
+        if not child_energies:
+            return 0.0
+
+        if op == "SEQUENCE":
+            return sum(child_energies) + EPSILON_OVERHEAD
+        elif op == "PARALLEL":
+            return sum(child_energies) + EPSILON_COMM
+        else:
+            return sum(child_energies)  # fallback
 
     def update_bounds(self, module_id: str, bounds: ResourceBounds) -> None:
         """Update bounds for a module (e.g., when new modules are registered).

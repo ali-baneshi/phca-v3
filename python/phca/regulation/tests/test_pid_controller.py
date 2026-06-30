@@ -146,10 +146,10 @@ class TestOrthogonalityConstraint:
         # Simulate highly correlated T and eta
         for i in range(50):
             # Force positive correlation between T and eta
-            base = rng.randn() * 0.3
+            base = rng.randn() * 5.0  # larger variance → cov > 0.5 threshold
             cr._param_history_buffer.append({
                 "T": 1.0 + base,
-                "eta": 0.1 + base * 0.5,
+                "eta": 0.1 + base * 0.8,
                 "alpha": 0.5 + rng.randn() * 0.1,
             })
 

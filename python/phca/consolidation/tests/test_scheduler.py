@@ -421,7 +421,7 @@ class TestStoreFactsPruning:
             for i in range(10_000)
         ]
         cs._store_facts(facts)
-        assert len(cs._semantic_facts) == 10_000
+        assert len(cs._committed_facts) == 10_000
 
     def test_prune_removes_lowest(self):
         """After exceeding 10_000, only 5_000 highest-confidence facts remain."""
@@ -437,9 +437,9 @@ class TestStoreFactsPruning:
             for i in range(10_001)
         ]
         cs._store_facts(facts)
-        assert len(cs._semantic_facts) == 5_000
+        assert len(cs._committed_facts) == 5_000
         # All remaining facts should be high-confidence (top half)
-        min_conf = min(f.confidence for f in cs._semantic_facts)
+        min_conf = min(f.confidence for f in cs._committed_facts)
         assert min_conf > 0.5
 
 

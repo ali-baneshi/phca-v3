@@ -279,6 +279,7 @@ class CognitiveCycle:
             if terminal:
                 self.env.reset()
                 self.gprime.reset()
+                self.sanitizer.reset()  # clear stale precision across episode boundaries (N6)
 
             # Steps 10-13: MDIM + CR + ATTN + HPM (Phase 3.2)
             # Compute Φ approximation from module states (replaces synthetic decay)

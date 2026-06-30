@@ -140,8 +140,9 @@ class TestParetoFront:
 
     def test_all_on_front_when_equal(self, mdim):
         """All drives are on Pareto front when deficits are equal."""
-        deficits = {1: 0.5, 3: 0.5, 5: 0.5}
-        pareto = mdim.compute_pareto_front(deficits)
+        # Config values that yield equal deficits WRT targets {1:0.1, 3:0.05, 5:0.2}
+        config = {1: 0.5, 3: 0.45, 5: 0.6}  # all have deficit 0.4
+        pareto = mdim.compute_pareto_front(config)
         assert len(pareto) == 3
 
 
@@ -290,7 +291,7 @@ class TestDriveSummary:
         """Get a summary of current drive deficits."""
         mdim.compute_drives(default_context)
         summary = mdim.get_drive_summary()
-        assert len(summary) == 5  # D1-D5
+        assert len(summary) == 6  # D1-D6 (M5: D6 active)
         for name, deficit in summary.items():
             assert name.startswith("D")
             assert 0.0 <= deficit <= 10.0

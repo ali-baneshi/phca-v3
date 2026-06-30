@@ -117,6 +117,8 @@ TAU_COMP = 0.001    # 1ms composition overhead (SEQUENCE)
 TAU_SYNC = 0.002    # 2ms synchronization overhead (PARALLEL)
 DELTA_SHARED = 1024.0  # 1KB shared memory
 DELTA_COMM = 2048.0     # 2KB communication memory
+EPSILON_OVERHEAD = 0.001  # 1mJ energy overhead (SEQUENCE)
+EPSILON_COMM = 0.002      # 2mJ communication energy (PARALLEL)
 
 
 class HPMValidator:
@@ -413,9 +415,11 @@ class HPMValidator:
         # Leaf node: look up runtime from log, use stored bounds
         if not children:
             actual_time = runtime_log.get(node_id, 0.0)
+            actual_energy = runtime_log.get(node_id, 0.0) * 50.0  # scaled from runtime
             return {
                 "B_time": node.get("B_time", actual_time + 0.001),
                 "B_mem": node.get("B_mem", 1024.0),
+                "B_energy": node.get("B_energy", max(0.1, min(10.0, actual_energy))),
             }
 
         # Composition node: compute child bounds first
@@ -434,48 +438,56 @@ class HPMValidator:
         if not child_bounds:
             return None
 
-        # Apply composition rules
+        # Apply composition rules (v3.0 §2.1.1 Def 3.6 — corrected)
         if op == CompositionOp.SEQUENCE.value:
             return {
                 "B_time": sum(c["B_time"] for c in child_bounds) + TAU_COMP,
                 "B_mem": max(c["B_mem"] for c in child_bounds) + DELTA_SHARED,
+                "B_energy": sum(c.get("B_energy", 1.0) for c in child_bounds) + EPSILON_OVERHEAD,
             }
         elif op == CompositionOp.PARALLEL.value:
             return {
                 "B_time": max(c["B_time"] for c in child_bounds) + TAU_SYNC,
                 "B_mem": sum(c["B_mem"] for c in child_bounds) + DELTA_COMM,
+                "B_energy": sum(c.get("B_energy", 1.0) for c in child_bounds) + EPSILON_COMM,
             }
         elif op == CompositionOp.CONDITIONAL.value:
             # Time = max over branches (only one executes)
             branch_times = child_bounds[1:]  # skip predictor
             branch_mems = child_bounds[1:]
+            branch_energies = child_bounds[1:]
             return {
                 "B_time": max(c["B_time"] for c in branch_times) + child_bounds[0]["B_time"],
                 "B_mem": max(c["B_mem"] for c in branch_mems),
+                "B_energy": max(c.get("B_energy", 1.0) for c in branch_energies) + child_bounds[0].get("B_energy", 1.0),
             }
         elif op == CompositionOp.HIERARCHY.value:
             # Time = predictor + sub_module (sequential)
             return {
                 "B_time": child_bounds[0]["B_time"] + child_bounds[1]["B_time"] + TAU_COMP,
                 "B_mem": max(c["B_mem"] for c in child_bounds),
+                "B_energy": child_bounds[0].get("B_energy", 1.0) + child_bounds[1].get("B_energy", 1.0) + EPSILON_OVERHEAD,
             }
         elif op == CompositionOp.RECURSE.value:
             n = node.get("n", 1)
             return {
                 "B_time": child_bounds[0]["B_time"] * n + TAU_COMP * (n - 1),
                 "B_mem": child_bounds[0]["B_mem"],
+                "B_energy": child_bounds[0].get("B_energy", 1.0) * n + EPSILON_OVERHEAD * (n - 1),
             }
         elif op == CompositionOp.REACTIVE.value:
             # Fast bypass: time = max(sensor, controller)
             return {
                 "B_time": max(c["B_time"] for c in child_bounds),
                 "B_mem": child_bounds[0]["B_mem"] + child_bounds[1]["B_mem"],
+                "B_energy": child_bounds[0].get("B_energy", 1.0) + child_bounds[1].get("B_energy", 1.0),
             }
         else:
             # Fallback: use max
             return {
                 "B_time": max(c["B_time"] for c in child_bounds),
                 "B_mem": max(c["B_mem"] for c in child_bounds),
+                "B_energy": max(c.get("B_energy", 1.0) for c in child_bounds),
             }
 
     def reset(self) -> None:

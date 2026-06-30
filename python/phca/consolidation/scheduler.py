@@ -17,6 +17,8 @@ v3.0 Reference: v3.0 Patch §2.3, §3.1 Table, Theorem 3.3
 
 from __future__ import annotations
 
+import copy
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,6 +28,11 @@ import numpy as np
 from phca.config import StateVector, StreamID
 from phca.memory.m3_episodic import M3EpisodicMemory, EpisodeRecord
 from phca.logging import logger, _log
+
+# M4 write-lock constants (v3.0 Patch §2.3.2)
+M4_LOCK_TIMEOUT = 0.050       # 50ms max wait for M4 write lock
+M4_MAX_FACTS = 10_000          # max facts before pruning low-confidence
+M4_PRUNE_TARGET = 5_000        # target count after pruning
 
 
 @dataclass
@@ -108,7 +115,12 @@ class ConsolidationScheduler:
         # Consolidation state
         self._last_consolidation_cycle: int = 0
         self._current_snapshot: Optional[Any] = None
-        self._semantic_facts: List[SemanticFact] = []
+
+        # M4 write-lock protected store (v3.0 Patch §2.3.2)
+        self._m4_lock: threading.Lock = threading.Lock()
+        self._committed_facts: List[SemanticFact] = []
+        self._staging_buffer: Optional[List[SemanticFact]] = None
+
         self._total_processed: int = 0
         self._total_facts: int = 0
         self._history: List[ConsolidationReport] = []
@@ -277,9 +289,14 @@ class ConsolidationScheduler:
         return facts
 
     def _store_facts(self, facts: List[SemanticFact]) -> int:
-        """Store extracted facts in the in-memory S-Stream fact store.
+        """Store extracted facts in the S-Stream with M4 write-lock atomicity.
 
-        Phase 3.2: In-memory storage. Phase 3.3+: Durable S-Stream store.
+        Implements v3.0 Patch §2.3.2 M4 write-lock semantics:
+        1. Acquires exclusive write lock with timeout
+        2. Builds complete new fact set in staging buffer (atomic transaction)
+        3. Atomically swaps staging buffer into committed store
+        4. Releases write lock
+        5. Readers see last committed state (never blocked)
 
         Args:
             facts: Facts to store.
@@ -287,12 +304,35 @@ class ConsolidationScheduler:
         Returns:
             Number of facts stored.
         """
-        self._semantic_facts.extend(facts)
-        if len(self._semantic_facts) > 10_000:
-            # Prune lowest-confidence facts
-            self._semantic_facts.sort(key=lambda f: f.confidence)
-            self._semantic_facts = self._semantic_facts[-5_000:]
-        return len(facts)
+        # Build the new fact set in a staging buffer
+        n_new = 0
+        staging = list(self._committed_facts)
+        all_facts = staging + list(facts)
+        n_new = len(facts)
+
+        # Prune if over capacity
+        if len(all_facts) > M4_MAX_FACTS:
+            all_facts.sort(key=lambda f: f.confidence)
+            all_facts = all_facts[-M4_PRUNE_TARGET:]
+
+        # Acquire write lock with timeout (v3.0 §2.3.2 C.5)
+        acquired = self._m4_lock.acquire(timeout=M4_LOCK_TIMEOUT)
+        if not acquired:
+            _log(logger, "warning", "consolidation.m4_lock_timeout",
+                 facts_pending=n_new,
+                 msg="M4 write lock timeout — consolidation cycle skipped")
+            return 0
+
+        try:
+            self._staging_buffer = all_facts
+            self._committed_facts = self._staging_buffer
+            self._staging_buffer = None
+        finally:
+            self._m4_lock.release()
+
+        _log(logger, "debug", "consolidation.m4_commit",
+             facts_written=n_new, total_facts=len(self._committed_facts))
+        return n_new
 
     # ── Queries ──────────────────────────────────────────────
 
@@ -304,6 +344,9 @@ class ConsolidationScheduler:
     ) -> List[SemanticFact]:
         """Retrieve stored semantic facts with optional filters.
 
+        Reads from committed store without lock (readers not blocked by
+        concurrent writes — v3.0 §2.3.2 M4 write-lock semantics).
+
         Args:
             fact_type: Filter by fact type (None = all).
             min_confidence: Minimum confidence threshold.
@@ -312,7 +355,7 @@ class ConsolidationScheduler:
         Returns:
             Filtered list of SemanticFact objects.
         """
-        results = self._semantic_facts
+        results = list(self._committed_facts)
         if fact_type is not None:
             results = [f for f in results if f.fact_type == fact_type]
         results = [f for f in results if f.confidence >= min_confidence]
@@ -337,7 +380,9 @@ class ConsolidationScheduler:
         """Reset consolidation state."""
         self._last_consolidation_cycle = 0
         self._current_snapshot = None
-        self._semantic_facts.clear()
+        with self._m4_lock:
+            self._committed_facts.clear()
+            self._staging_buffer = None
         self._total_processed = 0
         self._total_facts = 0
         self._history.clear()

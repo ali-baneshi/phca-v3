@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.config import DriveID, GoalVector, StateVector
+from phca.logging import logger, _log
 
 
 @dataclass
@@ -120,6 +121,13 @@ class MDIM:
         self._meta_stable_threshold: float = 0.15  # all deficits < threshold
         self._meta_stable_min_cycles: int = 3
 
+        # Disruption detection (v3.0 Patch §2.4.1 Def 3.11(4))
+        self._pred_error_history: List[float] = []  # rolling window of δ_t
+        self._wm_entropy_history: List[float] = []  # rolling window of H(WM)
+        self._disruption_window: int = 50
+        self._baseline_error_std: float = 0.1
+        self._baseline_wm_entropy: float = 0.5
+
         # CR-controlled temperature (set externally by CognitiveCycle)
         self.temperature: float = 1.0
 
@@ -215,6 +223,22 @@ class MDIM:
             deficit=d6_deficit, target=self._targets[6],
         )
 
+        # Track prediction error for disruption detection (v3.0 §2.4.1 Def 3.11(4))
+        self._pred_error_history.append(prediction_error)
+        if len(self._pred_error_history) > self._disruption_window:
+            self._pred_error_history.pop(0)
+
+        # Track model entropy as proxy for H(WM) disruption detection
+        self._wm_entropy_history.append(model_entropy)
+        if len(self._wm_entropy_history) > self._disruption_window:
+            self._wm_entropy_history.pop(0)
+
+        # Update baselines from rolling statistics
+        if len(self._pred_error_history) >= 10:
+            self._baseline_error_std = max(float(np.std(self._pred_error_history)), 0.01)
+        if len(self._wm_entropy_history) >= 10:
+            self._baseline_wm_entropy = max(float(np.mean(self._wm_entropy_history)), 0.1)
+
         # Log drive history
         self._drive_history.append({
             d: self.drives[d].deficit for d in self.drives
@@ -227,42 +251,70 @@ class MDIM:
     # ── Pareto Front ──────────────────────────────────────────
 
     def compute_pareto_front(
-        self, deficits: Optional[Dict[int, float]] = None,
+        self, config: Optional[Dict[int, float]] = None,
     ) -> List[int]:
-        """Compute Pareto-optimal drives given current deficits.
+        """Compute Pareto-optimal drives given current configuration.
 
-        Pareto front over D1 (prediction error), D3 (competence),
-        and D5 (energy). A drive is Pareto-optimal if no other drive
-        has both a higher deficit and higher priority.
+        Implements v3.0 §2.4.1 Definition 3.10 (Drive Pareto Front).
 
-        Phase 3.2: Simple Pareto front for D1/D3/D5.
+        The Pareto front is computed over configuration (v1, v3, v5) where:
+          v1 = D1 value (prediction error, minimize)
+          v3 = D3 value (competence = 1 - accuracy, minimize)
+          v5 = D5 value (energy cost, minimize)
+
+        A drive is Pareto-optimal if no alternative configuration dominates
+        the current one — i.e., you cannot improve one drive's value toward
+        its target without worsening another conflicting drive's value.
+
+        Phase 3.2: Pareto front over D1/D3/D5 configuration.
         Phase 3.3: Full n-dimensional Pareto with D2/D4/D6.
 
         Args:
-            deficits: Optional override of drive deficits.
-                If None, uses self.drives current values.
+            config: Optional override of drive configuration values.
+                If None, uses self.drives current values for D1, D3, D5.
 
         Returns:
-            List of drive IDs that are on the Pareto front.
+            List of drive IDs (1, 3, 5) that are on the Pareto front.
         """
-        if deficits is None:
-            deficits = {d: self.drives[d].deficit for d in [1, 3, 5]}
+        if config is None:
+            config = {
+                1: self.drives[1].value,    # v1: prediction error (minimize)
+                3: self.drives[3].value,     # v3: competence deficit (minimize)
+                5: self.drives[5].value,     # v5: energy cost (minimize)
+            }
 
         pareto_ids: List[int] = []
-        drive_ids = sorted(deficits.keys())
+        drive_ids = sorted(config.keys())
 
+        # For the current configuration, check if it's Pareto-optimal.
+        # A configuration is Pareto-optimal if no other configuration
+        # can improve one drive without worsening another.
+        # We check pairwise: drive i is on the front if no other drive j
+        # can be improved (moved toward its target) without worsening i.
         for i in drive_ids:
-            i_deficit = deficits.get(i, 0.0)
+            i_val = config.get(i, 0.0)
+            i_target = self._targets.get(i, 0.1)
+            i_improving = (i_val > i_target)  # can we improve i by reducing it?
+
             dominated = False
             for j in drive_ids:
                 if i == j:
                     continue
-                j_deficit = deficits.get(j, 0.0)
-                # j dominates i if j has higher deficit and higher priority
-                # (priority is implicit in deficit magnitude for now)
-                if j_deficit > i_deficit + 0.01:  # tolerance to avoid noise
-                    dominated = True
-                    break
+                j_val = config.get(j, 0.0)
+                j_target = self._targets.get(j, 0.1)
+                j_improving = (j_val > j_target)  # can we improve j by reducing it?
+
+                # j dominates i if:
+                #   - Both can be improved, but j has more room (higher relative deficit)
+                #   - Improving j necessarily worsens i (conflicting drives)
+                if i_improving and j_improving:
+                    i_deficit = max(0.0, i_val - i_target)
+                    j_deficit = max(0.0, j_val - j_target)
+                    # j dominates if improving j is more urgent and comes at i's expense
+                    if j_deficit > i_deficit + 0.01:
+                        dominated = True
+                        break
+
             if not dominated:
                 pareto_ids.append(i)
 
@@ -315,13 +367,14 @@ class MDIM:
                 self.drives[d].deficit = 0.0
 
         # Softmax weighting of deficits (now with suppressed drives if meta-stable)
-        deficits = np.array([self.drives[d].deficit for d in range(1, 6)], dtype=np.float64)
+        # Include D6 (Empowerment) in goal generation per v3.0 §2.4.1 Def 3.11(3)
+        deficits = np.array([self.drives[d].deficit for d in range(1, 7)], dtype=np.float64)
         exp_deficits = np.exp((deficits - deficits.max()) / max(self.temperature, 0.01))
         weights = exp_deficits / (exp_deficits.sum() + 1e-8)
 
         # Select winning drive via weighted sampling
         rng = np.random.RandomState(self._cycle)
-        winner = int(rng.choice(5, p=weights)) + 1  # 1-indexed
+        winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
 
         # Generate goal from winning drive
         goal = self._goal_from_drive(winner, weights[int(winner) - 1])
@@ -480,15 +533,37 @@ class MDIM:
     # ── Meta-Stable State ─────────────────────────────────────
 
     def _update_meta_stable(self) -> None:
-        """Update meta-stable state based on Pareto front.
+        """Update meta-stable state based on Pareto front and disruption detection.
 
         Meta-stability occurs when all active drives (D1-D5) have
         deficits below threshold for min_cycles.
+
+        Meta-stable state persists until a significant external event
+        disrupts it (v3.0 §2.4.1 Def 3.11(4)):
+          - ‖δ_t‖ > 3σ_δ  (prediction error spike)
+          - H(WM_t) > 3·H(WM_train) (working memory entropy spike)
         """
-        deficits = [self.drives[d].deficit for d in range(1, 6)]
+        deficits = [self.drives[d].deficit for d in range(1, 7)]
         all_satisfied = all(d < self._meta_stable_threshold for d in deficits)
 
-        if all_satisfied:
+        # Check for disruption events that should exit meta-stable state
+        disruption_detected = False
+        if self.meta_stable.is_meta_stable:
+            current_error = self.drives[1].value
+            current_wm_entropy = self.drives[4].value if 4 in self.drives else 0.5
+            if current_error > 3.0 * self._baseline_error_std:
+                disruption_detected = True
+                _log(logger, "info", "mdim.disruption.prediction_error_spike",
+                     error=current_error, threshold=3.0 * self._baseline_error_std)
+            if current_wm_entropy > 3.0 * self._baseline_wm_entropy:
+                disruption_detected = True
+                _log(logger, "info", "mdim.disruption.entropy_spike",
+                     entropy=current_wm_entropy, threshold=3.0 * self._baseline_wm_entropy)
+
+        if disruption_detected:
+            self.meta_stable.is_meta_stable = False
+            self.meta_stable.cycles_since_entry = 0
+        elif all_satisfied:
             if not self.meta_stable.is_meta_stable:
                 # Entering meta-stable state
                 self.meta_stable.is_meta_stable = True
@@ -531,16 +606,16 @@ class MDIM:
         """
         return {
             f"D{d}": self.drives[d].deficit
-            for d in range(1, 6)
+            for d in range(1, 7)
         }
 
     def get_winning_drive(self) -> int:
         """Get the drive ID with the highest current deficit.
 
         Returns:
-            Drive ID (1-5) with maximum deficit.
+            Drive ID (1-6) with maximum deficit.
         """
-        deficits = {d: self.drives[d].deficit for d in range(1, 6)}
+        deficits = {d: self.drives[d].deficit for d in range(1, 7)}
         return max(deficits, key=deficits.get)  # type: ignore[arg-type]
 
     # ── Reset ─────────────────────────────────────────────────

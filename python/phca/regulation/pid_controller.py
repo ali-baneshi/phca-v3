@@ -14,6 +14,8 @@ from typing import Dict, Tuple
 
 import numpy as np
 
+from phca.logging import logger, _log
+
 
 class CriticalityRegulator:
     """Criticality Regulator — PID controller with orthogonality constraint.
@@ -79,6 +81,7 @@ class CriticalityRegulator:
         self._prev_error: float = 0.0
         self._prev_output: Tuple[float, float, float] = (T_base, eta_base, alpha_base)
         self._cycle: int = 0
+        self._high_cov_cycles: int = 0  # consecutive cycles with high covariance
 
         # Orthogonality tracking (covariance history)
         self._param_history: Dict[str, float] = {
@@ -86,6 +89,10 @@ class CriticalityRegulator:
         }
         self._param_history_buffer: list[Dict[str, float]] = []
         self._frozen_params: set[str] = set()
+
+        # Freeze priority by PID gain timescale (v3.0 §2.6.1 Def 2.8a)
+        # T (slowest, 1st to freeze) > alpha (medium, 2nd) > eta (fastest, last)
+        self._freeze_priority: List[str] = ["T", "alpha", "eta"]
 
     def regulate(self, phi_current: float = 0.5) -> Tuple[float, float, float]:
         """Regulate criticality toward setpoint using PID control.
@@ -166,11 +173,17 @@ class CriticalityRegulator:
     def _check_orthogonality(self) -> None:
         """Check orthogonality constraint and freeze parameters if needed.
 
-        Computes pairwise covariance between T, eta, alpha over recent
-        history. If any pair exceeds the threshold, freezes the slowest-changing
-        parameter (lowest variance) to break the covariance.
+        Implements v3.0 §2.6.1 Def 2.8a (Orthogonality Constraint):
+
+        1. Compute pairwise covariance between T, eta, alpha over sliding window W=100
+        2. If max(Σ) > Σ_max:
+            a. Identify the pair (i,j) with highest covariance
+            b. Freeze the parameter with the slower timescale (by PID gain priority)
+            c. Let the other parameters continue to adjust
+            d. If covariance remains high for T_freeze > 100 cycles, unfreeze and freeze next
         """
-        if len(self._param_history_buffer) < 10:
+        W = len(self._param_history_buffer)
+        if W < 10:
             return
 
         # Extract arrays
@@ -178,25 +191,53 @@ class CriticalityRegulator:
         eta_vals = np.array([p["eta"] for p in self._param_history_buffer], dtype=np.float64)
         alpha_vals = np.array([p["alpha"] for p in self._param_history_buffer], dtype=np.float64)
 
-        # Compute correlation matrix
+        # Compute covariance matrix over sliding window (v3.0 §2.6.1)
         stack = np.column_stack([T_vals, eta_vals, alpha_vals])
-        corr = np.corrcoef(stack.T)
+        cov = np.cov(stack.T)
         names = ["T", "eta", "alpha"]
 
-        # Check each pair
+        # Find max absolute covariance
+        max_cov = 0.0
+        max_pair = (0, 1)
         for i in range(3):
             for j in range(i + 1, 3):
-                if abs(corr[i, j]) > self.orthogonality_threshold:
-                    # Freeze the parameter with lower variance
-                    variances = [float(np.var(stack[:, k])) for k in [i, j]]
-                    freeze_idx = i if variances[0] < variances[1] else j
-                    freeze_name = names[freeze_idx]
+                abs_cov = abs(cov[i, j])
+                if abs_cov > max_cov:
+                    max_cov = abs_cov
+                    max_pair = (i, j)
 
-                    if freeze_name not in self._frozen_params:
-                        self._frozen_params.add(freeze_name)
-                        # Unfreeze the other param in the pair
-                        other_name = names[j if freeze_idx == i else i]
-                        self._frozen_params.discard(other_name)
+        if max_cov <= self.orthogonality_threshold:
+            self._high_cov_cycles = 0
+            return
+
+        self._high_cov_cycles += 1
+        i, j = max_pair
+        pair_names = (names[i], names[j])
+
+        # Freeze the parameter with the slower timescale (higher freeze priority)
+        # Priority list: T (1st) > alpha (2nd) > eta (3rd)
+        freeze_name = pair_names[0]
+        other_name = pair_names[1]
+        for p in self._freeze_priority:
+            if p in pair_names:
+                freeze_name = p
+                other_name = pair_names[0] if pair_names[1] == p else pair_names[1]
+                break
+
+        # If high covariance persists for T_freeze > 100 cycles, switch which is frozen
+        if self._high_cov_cycles > 100:
+            # Swap: freeze the other parameter instead
+            freeze_name, other_name = other_name, freeze_name
+            self._high_cov_cycles = 0
+            _log(logger, "info", "cr.orthogonality.swap",
+                 new_frozen=freeze_name, unfrozen=other_name)
+
+        # Apply freeze
+        if freeze_name not in self._frozen_params:
+            self._frozen_params.add(freeze_name)
+            self._frozen_params.discard(other_name)
+            _log(logger, "info", "cr.orthogonality.freeze",
+                 frozen=freeze_name, unfrozen=other_name, covariance=float(max_cov))
 
     def unfreeze_all(self) -> None:
         """Unfreeze all parameters (for new training runs)."""
