@@ -109,6 +109,12 @@ class WorldModelGPrime:
         self._gaussian_sigmas: Dict[str, float] = {}
         self._gaussian_parents: Dict[str, List[str]] = {}
 
+        # Inference cache: topology and joint moments are static for a given graph
+        # Avoids recomputing O(n³) matrix inversion on every predict() call.
+        self._cached_topology: Tuple[bool, List[str], Dict[str, List[float]],
+                                     Dict[str, float], Dict[str, List[str]]] | None = None
+        self._cached_joint_moments: Tuple[np.ndarray, np.ndarray] | None = None
+
     # ── Graph Construction ────────────────────────────────────
 
     def add_node(self, node: StateNode) -> None:
@@ -364,10 +370,17 @@ class WorldModelGPrime:
                                               Dict[str, float], Dict[str, List[str]]]:
         """Extract Gaussian BN topology from current nodes.
 
+        Results are cached because the graph structure is static after construction.
+        Use invalidate_cache() to clear when the graph is modified.
+
         Returns:
             Tuple of (node_order, betas, sigmas, parents) for the
             Gaussian BN inference engine.
         """
+        # Return cached topology if available
+        if self._cached_topology is not None:
+            return self._cached_topology[1], self._cached_topology[2], self._cached_topology[3], self._cached_topology[4]
+
         # Get topological ordering from temporal + causal + parent edges
         node_order = list(self.nodes.keys())
 
@@ -424,6 +437,9 @@ class WorldModelGPrime:
 
             sigmas[node_name] = max(node.std, 0.001)
 
+        # Cache the topology
+        self._cached_topology = (True, sorted_order, betas, sigmas, parents_dict)
+
         return sorted_order, betas, sigmas, parents_dict
 
     def predict_continuous(
@@ -437,6 +453,10 @@ class WorldModelGPrime:
         Phase 3.2: Closed-form posterior computation for Gaussian
         Bayesian networks. Uses precision matrix operations for
         exact inference (O(n³) for n nodes).
+
+        Joint moments are cached after first computation because the
+        graph structure is static — only evidence changes between calls.
+        This avoids O(n³) recomputation on every predict() call.
 
         Args:
             state: Current state vector (provides evidence for _t nodes).
@@ -460,7 +480,7 @@ class WorldModelGPrime:
                 0.0,
             )
 
-        # Build Gaussian topology
+        # Build Gaussian topology (cached after first call)
         node_order, betas, sigmas, parents_dict = self._get_gaussian_topology()
 
         # Build evidence from current state and action
@@ -491,9 +511,12 @@ class WorldModelGPrime:
 
         try:
             if method == "analytic":
-                mu, cov = compute_joint_moments(
-                    node_order, betas, sigmas, parents_dict
-                )
+                # Compute or reuse cached joint moments
+                if self._cached_joint_moments is None:
+                    self._cached_joint_moments = compute_joint_moments(
+                        node_order, betas, sigmas, parents_dict
+                    )
+                mu, cov = self._cached_joint_moments
                 posteriors = posterior(
                     mu, cov, evidence, query_vars, node_order
                 )
@@ -759,6 +782,8 @@ class WorldModelGPrime:
         self.state_history.clear()
         self._cpd_params.clear()
         self._bn = None
+        self._cached_topology = None
+        self._cached_joint_moments = None
 
 
 # ── Helper: pgmpy result conversion (pgmpy 1.1.2+ compat) ─────

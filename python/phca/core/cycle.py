@@ -29,6 +29,7 @@ from phca.config import (
 from phca.asi.sanitizer import ASISanitizer
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
+from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
 from phca.prediction.engine import PredictionEngine
 from phca.prediction.error_unit import PredictionErrorUnit
@@ -38,6 +39,7 @@ from phca.motivation.mdim import MDIM
 from phca.attention.attention import Attention
 from phca.regulation.pid_controller import CriticalityRegulator
 from phca.hpm.parser import HPMValidator
+from phca.consolidation.scheduler import ConsolidationScheduler
 from environments.grid_world import GridWorld, ACTION_NAMES
 
 
@@ -79,6 +81,7 @@ class CognitiveCycle:
         attention: Attention,
         criticality_regulator: CriticalityRegulator,
         hpm_validator: HPMValidator,
+        consolidation: ConsolidationScheduler,
         env: GridWorld,
         state_dim: int,
         rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
@@ -95,6 +98,7 @@ class CognitiveCycle:
         self.attention = attention
         self.criticality_regulator = criticality_regulator
         self.hpm_validator = hpm_validator
+        self.consolidation = consolidation
         self.env = env
         self.state_dim = state_dim
 
@@ -226,6 +230,8 @@ class CognitiveCycle:
             # Compute Φ approximation from module states (replaces synthetic decay)
             t_mdim = time.perf_counter()
             phi_current = self._approximate_phi()
+            # Estimate empowerment from prediction confidence spread across actions
+            empowerment = self._estimate_empowerment()
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
                 "phi_criticality": phi_current,
@@ -234,6 +240,7 @@ class CognitiveCycle:
                 "energy_cost": 0.1,
                 "cycle": self.cycle_count,
                 "prediction_confidence": metrics.prediction_confidence,
+                "empowerment": empowerment,
             }
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
@@ -251,7 +258,24 @@ class CognitiveCycle:
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
-            _ = self.hpm_validator.validate({"cycle": self.cycle_count})
+            # Validate the actual composition tree via HPM grammar
+            hpm_spec = {
+                "type": "SEQUENCE", "id": "cognitive_cycle",
+                "children": [
+                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim, "grounding_level": 1},
+                    {"type": "SEQUENCE", "id": "prediction_block",
+                     "children": [
+                         "WM",
+                         {"type": "Predict", "id": "G'_PE", "horizon": 1},
+                         "PEU",
+                         "TSPL-P",
+                     ]},
+                    {"type": "PARALLEL", "id": "regulation_block",
+                     "children": ["MDIM", "CR", "ATTN", "HPM"]},
+                    "CYCLE",
+                ],
+            }
+            _ = self.hpm_validator.validate(hpm_spec)
             metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
             # Step 14: RBTA enforcement
@@ -291,8 +315,29 @@ class CognitiveCycle:
             # Step 15: Logging
             self.metrics_history.append(metrics)
 
+            # Steps 16-18: Consolidation (periodic E→S transfer)
+            t_consol = time.perf_counter()
+            consol_report = self.consolidation.step(self.cycle_count)
+            if consol_report.success and consol_report.episodes_processed > 0:
+                _log(logger, "info", "cycle.consolidation",
+                     episodes=consol_report.episodes_processed,
+                     facts=consol_report.facts_generated,
+                     ms=f"{consol_report.duration_ms:.1f}")
+            metrics.module_timings["consolidation"] = (
+                time.perf_counter() - t_consol
+            ) * 1000
+
             # Step 19: Increment cycle counter
             self.cycle_count += 1
+
+            # Step 20: Sleep-cycle check (full consolidation every N cycles)
+            if self.cycle_count % self._get_sleep_interval() == 0:
+                t_sleep = time.perf_counter()
+                _log(logger, "debug", "cycle.sleep_cycle", cycle=self.cycle_count)
+                self.consolidation.step(self.cycle_count, force=True)
+                metrics.module_timings["sleep_cycle"] = (
+                    time.perf_counter() - t_sleep
+                ) * 1000
 
         except Exception as e:
             _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
@@ -326,6 +371,53 @@ class CognitiveCycle:
                 continue
 
         return best_action
+
+    def _estimate_empowerment(self) -> float:
+        """Estimate empowerment (action-effect channel capacity).
+
+        Approximation: compute variance of prediction confidences
+        across all possible actions. If different actions lead to
+        different confidence levels, empowerment is high.
+
+        Phase 3.2: Simple heuristic based on confidence spread.
+        Phase 3.3+: Full I(state_{t+1}; a_t | state_t) computation.
+
+        Returns:
+            Float in [0.0, 1.0] estimating empowerment.
+        """
+        if self.current_state is None:
+            return 0.3
+
+        confidences = []
+        for action_idx in range(self.env.action_space_size):
+            action = np.zeros(self.env.action_space_size, dtype=np.float32)
+            action[action_idx] = 1.0
+            self.engine.update_action(action)
+            try:
+                _, confidence = self.engine.predict(self.current_state, horizon=1)
+                confidences.append(confidence)
+            except Exception:
+                confidences.append(0.0)
+
+        # Restore engine action
+        if self.last_action is not None:
+            self.engine.update_action(self.last_action)
+
+        if not confidences:
+            return 0.3
+
+        # Empowerment ≈ std(confidences) — higher spread = more discriminative actions
+        empowerment = float(np.std(confidences))
+        return float(np.clip(empowerment, 0.0, 1.0))
+
+    @staticmethod
+    def _get_sleep_interval() -> int:
+        """Get the sleep-cycle interval (cognitive cycles between sleep cycles).
+
+        Returns:
+            Integer number of cycles.
+        """
+        return 50  # sleep every 50 cognitive cycles
 
     def _approximate_phi(self) -> float:
         """Approximate Φ (integrated information) from module state vectors.
@@ -433,6 +525,7 @@ class CognitiveCycle:
         seed: int = 42,
         state_dim: Optional[int] = None,
         use_continuous: bool = False,
+        obstacles: Optional[List[tuple]] = None,
     ) -> CognitiveCycle:
         """Build a fully-configured cognitive cycle for GridWorld.
 
@@ -443,11 +536,14 @@ class CognitiveCycle:
             use_continuous: If True, use Gaussian CPDs with analytic inference
                 (Phase 3.2). If False (default), use discrete binary CPDs with
                 pgmpy exact inference (Phase 3.1 compatible).
+            obstacles: Wall positions for GridWorld. If None, random walls generated.
+                If empty list, no walls.
 
         Returns:
             Configured CognitiveCycle instance.
         """
-        env = GridWorld(size=size, obstacles=[], seed=seed)
+        # obstacles=None → use empty list (backward compatible: original code passed [])
+        env = GridWorld(size=size, obstacles=obstacles if obstacles is not None else [], seed=seed)
         actual_state_dim = state_dim or env.get_state_dim()
 
         sanitizer = ASISanitizer(sensor_dim=actual_state_dim, v_max=100.0, epsilon_confidence=0.01)
@@ -495,12 +591,18 @@ class CognitiveCycle:
         attention = Attention()
         criticality_regulator = CriticalityRegulator()
         hpm_validator = HPMValidator()
+        m3 = M3EpisodicMemory(state_dim=actual_state_dim, action_dim=env.action_space_size)
+        consolidation = ConsolidationScheduler(
+            m3=m3, state_dim=actual_state_dim,
+            consolidation_interval=10, max_facts_per_cycle=50,
+        )
 
         return cls(
             sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
             engine=engine, peu=peu, tspl=tspl, rbta=rbta,
             mdim=mdim, attention=attention,
             criticality_regulator=criticality_regulator,
-            hpm_validator=hpm_validator, env=env,
+            hpm_validator=hpm_validator,
+            consolidation=consolidation, env=env,
             state_dim=actual_state_dim,
         )

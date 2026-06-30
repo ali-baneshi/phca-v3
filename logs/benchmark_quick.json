@@ -1,0 +1,70 @@
+{
+  "config": {
+    "n_cycles": 20,
+    "warmup": 10,
+    "seed": 42,
+    "grid_size": 5,
+    "use_continuous": true,
+    "weights": {
+      "prediction_accuracy": 0.2,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 0.15,
+      "transfer_efficiency": 0.15,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 0,
+      "level_name": "Stationary Prediction",
+      "n_cycles": 20,
+      "prediction_accuracy": 0.9184999985396858,
+      "adaptation_speed": 0.0,
+      "goal_complexity": 0.0,
+      "transfer_efficiency": 0.0,
+      "resource_efficiency": 0.0,
+      "failure_rate": 5.55,
+      "phi_iq": 0.0,
+      "raw_metrics": {
+        "mean_error": 0.8150000146031428,
+        "mean_confidence": 0.8,
+        "mean_latency_ms": 18953.589614546217,
+        "p95_latency_ms": 21359.02074464684,
+        "violations": 111,
+        "skill_accuracy": 0.9014993343868789,
+        "skill_compiled": true
+      }
+    },
+    {
+      "level": 1,
+      "level_name": "Reactive Control",
+      "n_cycles": 20,
+      "prediction_accuracy": 0.9174999985098834,
+      "adaptation_speed": 0.0,
+      "goal_complexity": 0.2,
+      "transfer_efficiency": 0.0,
+      "resource_efficiency": 0.0,
+      "failure_rate": 5.4,
+      "phi_iq": 0.0,
+      "raw_metrics": {
+        "mean_error": 0.8250000149011658,
+        "mean_latency_ms": 20779.560875153402,
+        "p95_latency_ms": 27057.464555613114,
+        "violations": 108,
+        "unique_actions": 1,
+        "skill_accuracy": 0.9008968782084873,
+        "skill_compiled": true
+      }
+    }
+  ],
+  "overall_phi_iq": 0.0,
+  "total_cycles": 40,
+  "duration_s": 1176.7298154340242,
+  "pass_criteria": {
+    "latency_under_500ms": false,
+    "failure_rate_under_10pct": false,
+    "goal_autonomy_achieved": false,
+    "phi_iq_above_0_5": false
+  }
+}

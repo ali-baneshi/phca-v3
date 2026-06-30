@@ -202,11 +202,16 @@ class MDIM:
             deficit=d5_deficit, target=self._targets[5],
         )
 
-        # D6: Empowerment (deferred to Phase 3.3)
-        empowerment = context.get("empowerment", 0.5)
-        d6_deficit = max(0.0, abs(empowerment - self._targets[6]))
+        # D6: Empowerment
+        # Measure action-effect channel capacity: I(state_t+1; a_t | state_t)
+        # Approximated as entropy of state transitions under different actions.
+        # High empowerment = many distinct outcomes from different actions.
+        empowerment = context.get("empowerment", 0.3)
+        # Also blend in prediction_error as a proxy for action effectiveness
+        empowerment_blend = 0.7 * empowerment + 0.3 * min(prediction_error * 0.5, 1.0)
+        d6_deficit = max(0.0, abs(empowerment_blend - self._targets[6]))
         self.drives[6] = DriveState(
-            drive_id=6, value=empowerment,
+            drive_id=6, value=empowerment_blend,
             deficit=d6_deficit, target=self._targets[6],
         )
 
@@ -301,7 +306,15 @@ class MDIM:
         # Phase 3.2: compute drives from context
         self.compute_drives(context)
 
-        # Softmax weighting of deficits
+        # ── Meta-stable goal locking ──
+        # When meta-stable, suppress conflicting drives D1/D3/D5.
+        # Only non-conflicting drives (D2, D4, D6) may generate goals.
+        if self._is_deeply_meta_stable():
+            # Suppress D1/D3/D5 drives (set their deficits to 0)
+            for d in [1, 3, 5]:
+                self.drives[d].deficit = 0.0
+
+        # Softmax weighting of deficits (now with suppressed drives if meta-stable)
         deficits = np.array([self.drives[d].deficit for d in range(1, 6)], dtype=np.float64)
         exp_deficits = np.exp((deficits - deficits.max()) / max(self.temperature, 0.01))
         weights = exp_deficits / (exp_deficits.sum() + 1e-8)
@@ -487,14 +500,26 @@ class MDIM:
             self.meta_stable.is_meta_stable = False
             self.meta_stable.cycles_since_entry = 0
 
-    def is_meta_stable(self) -> bool:
-        """Check if system is in a stable meta-stable state.
+    def _is_deeply_meta_stable(self) -> bool:
+        """Check if system is in a stable meta-stable state (min cycles elapsed).
+
+        Once meta-stable, conflicting drives D1/D3/D5 are suppressed.
+        Only D2 (criticality), D4 (epistemic curiosity), and D6 (empowerment)
+        may generate new goals.
 
         Returns:
-            True if all drives below threshold for min cycles.
+            True if meta-stable and min cycles threshold met.
         """
         return (self.meta_stable.is_meta_stable
                 and self.meta_stable.cycles_since_entry >= self._meta_stable_min_cycles)
+
+    def is_meta_stable(self) -> bool:
+        """Public API: check if system is meta-stable (any state).
+
+        Returns:
+            True if all drives below threshold.
+        """
+        return self.meta_stable.is_meta_stable
 
     # ── Drive Summary ─────────────────────────────────────────
 
