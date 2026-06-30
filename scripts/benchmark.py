@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
+from phca.logging import ensure_logging
 from phca.config import GoalVector, ResourceBounds, StateVector, CYCLE_TARGET
 
 
@@ -516,6 +517,7 @@ def save_report(report: BenchmarkReport, path: str) -> None:
 
 
 def main() -> None:
+    ensure_logging()  # enable file logging to logs/phca.log (A-002 fix)
     parser = argparse.ArgumentParser(description="PHCA Φ-IQ Benchmark Suite")
     parser.add_argument("--levels", type=str, default="0,1,2,3",
                         help="Comma-separated list of levels to run (default: 0,1,2,3)")

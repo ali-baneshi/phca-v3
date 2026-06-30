@@ -385,7 +385,9 @@ class MDIM:
         self._push_goal(goal)
 
         # Compute Pareto front and meta-stable state
-        pareto = self.compute_pareto_front()
+        # TODO (Phase 4): Wire Pareto front into _is_deeply_meta_stable() to
+        # selectively suppress non-Pareto drives instead of all D1/D3/D5.
+        # self.compute_pareto_front()  # A-005: output was unused
         self._update_meta_stable()
 
         self.current_goal = goal

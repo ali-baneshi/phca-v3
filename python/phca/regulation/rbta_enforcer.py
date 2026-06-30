@@ -178,7 +178,7 @@ class RBTAEnforcer:
 
         # Composition tree check (Phase 3.2+)
         if composition_tree is not None:
-            self._check_composition_tree(composition_tree, runtime_log, violations)
+            self._check_composition_tree(composition_tree, runtime_log, energy_log, violations)
 
         # Determine action based on violation severity
         action = self._classify_action(violations)
@@ -205,6 +205,7 @@ class RBTAEnforcer:
         self,
         tree: Dict,
         runtime_log: Dict[str, float],
+        energy_log: Dict[str, float],
         violations: List[ConstraintViolation],
     ) -> None:
         """Check composite resource bounds via HPM composition tree.
@@ -243,14 +244,16 @@ class RBTAEnforcer:
         for child in children:
             if isinstance(child, dict):
                 # Nested composition tree — recurse
-                self._check_composition_tree(child, runtime_log, violations)
+                self._check_composition_tree(child, runtime_log, energy_log, violations)
                 # For the parent check, compute the child's composite time and energy
                 child_times.append(self._compute_subtree_runtime(child, runtime_log))
-                child_energies.append(self._compute_subtree_energy(child, runtime_log))
+                child_energies.append(self._compute_subtree_energy(child, energy_log))
             elif isinstance(child, str):
-                # Leaf module — look up runtime and energy
+                # Leaf module — look up runtime from runtime_log and
+                # energy from energy_log (GAP-001/GAP-004 fix: energy_log
+                # contains estimated Joules, runtime_log contains seconds).
                 child_times.append(runtime_log.get(child, 0.0))
-                child_energies.append(runtime_log.get(child + "_energy", 1.0))
+                child_energies.append(energy_log.get(child, 0.0))
 
         if not child_times:
             return
@@ -326,13 +329,16 @@ class RBTAEnforcer:
             return sum(child_times)  # fallback
 
     def _compute_subtree_energy(
-        self, tree: Dict, runtime_log: Dict[str, float]
+        self, tree: Dict, energy_log: Dict[str, float]
     ) -> float:
         """Compute the composite energy of a composition subtree.
 
         Energy composition rules (v3.0 §2.1.1 Def 3.6):
           SEQUENCE: B_energy = sum(child_energy) + ε_overhead
           PARALLEL: B_energy = sum(child_energy) + ε_comm
+
+        Note: Energy values are read from energy_log (estimated Joules per
+        module), matching the key convention of _collect_runtime_log().
         """
         EPSILON_OVERHEAD = 0.001  # 1mJ
         EPSILON_COMM = 0.002      # 2mJ
@@ -346,9 +352,12 @@ class RBTAEnforcer:
         child_energies = []
         for child in children:
             if isinstance(child, dict):
-                child_energies.append(self._compute_subtree_energy(child, runtime_log))
+                child_energies.append(self._compute_subtree_energy(child, energy_log))
             elif isinstance(child, str):
-                child_energies.append(runtime_log.get(child + "_energy", 1.0))
+                # Read energy from energy_log (proper log dict containing
+                # estimated Joules). Fix GAP-001/GAP-004: was reading from
+                # runtime_log with bare keys, getting seconds not Joules.
+                child_energies.append(energy_log.get(child, 0.0))
 
         if not child_energies:
             return 0.0
@@ -368,5 +377,3 @@ class RBTAEnforcer:
             bounds: New resource bounds for this module.
         """
         self._bounds[module_id] = bounds
-
-

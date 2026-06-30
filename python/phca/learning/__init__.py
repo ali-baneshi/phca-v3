@@ -14,11 +14,9 @@ v3.0 Reference: §3.1 Definitions 3.2, 3.3.3
 """
 
 from phca.learning.tspl import TSPL, StreamConfig, DEFAULT_STREAM_CONFIGS
-from phca.learning.skill_compilation import SkillLibrary
 
 __all__ = [
     "TSPL",
     "StreamConfig",
     "DEFAULT_STREAM_CONFIGS",
-    "SkillLibrary",
 ]

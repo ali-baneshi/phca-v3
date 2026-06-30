@@ -7,7 +7,7 @@ import pytest
 
 from phca.config import StateVector, StreamID
 from phca.learning.tspl import TSPL
-from phca.learning.skill_compilation import SkillLibrary
+
 
 
 # ── Fixtures ──────────────────────────────────────────────────
@@ -142,53 +142,3 @@ class TestTSPLUpdate:
         large_error = 10.0  # sqrt(10/2) ≈ 2.236 → max(0, 1-2.236) = 0
         acc2 = tspl._estimate_accuracy(state, state, large_error)
         assert acc2 == 0.0
-
-
-class TestSkillLibrary:
-    """Tests for SkillLibrary class."""
-
-    def test_store_and_retrieve(self):
-        """Store and retrieve a skill."""
-        lib = SkillLibrary()
-        params = {
-            "transition": np.array([[0.8, 0.2], [0.2, 0.8]], dtype=np.float32),
-        }
-        lib.store("nav_v1", params, {"accuracy": 0.97})
-        retrieved = lib.retrieve("nav_v1")
-        assert retrieved is not None
-        np.testing.assert_array_equal(retrieved["transition"], params["transition"])
-
-    def test_retrieve_missing(self):
-        """Retrieving non-existent skill should return None."""
-        lib = SkillLibrary()
-        assert lib.retrieve("nonexistent") is None
-
-    def test_store_is_snapshot(self):
-        """Stored params should be a copy."""
-        lib = SkillLibrary()
-        params = {"w": np.array([1.0, 2.0], dtype=np.float32)}
-        lib.store("test", params)
-        params["w"][0] = 99.0
-        retrieved = lib.retrieve("test")
-        assert retrieved["w"][0] == 1.0
-
-    def test_list_skills(self):
-        """List should return all stored skill IDs."""
-        lib = SkillLibrary()
-        lib.store("a", {"w": np.zeros(1)})
-        lib.store("b", {"w": np.zeros(1)})
-        skills = lib.list_skills()
-        assert set(skills) == {"a", "b"}
-
-    def test_get_metadata(self):
-        """get_metadata should return stored metadata."""
-        lib = SkillLibrary()
-        lib.store("test", {"w": np.zeros(1)}, {"accuracy": 0.95, "cycles": 100})
-        meta = lib.get_metadata("test")
-        assert meta["accuracy"] == 0.95
-        assert meta["cycles"] == 100
-
-    def test_get_metadata_missing(self):
-        """get_metadata for missing skill should return empty dict."""
-        lib = SkillLibrary()
-        assert lib.get_metadata("nonexistent") == {}

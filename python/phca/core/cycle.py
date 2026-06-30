@@ -319,16 +319,6 @@ class CognitiveCycle:
             phi_current = self._approximate_phi()
             # Estimate empowerment from prediction confidence spread across actions
             empowerment = self._estimate_empowerment()
-            # Compute attention focus from current chunk saliences (set by prev cycle's attention)
-            # High focus (cv >> 0) = one chunk dominates → exploitation
-            # Low focus  (cv ≈ 0)  = all chunks similar → exploration
-            if self.m2.chunks:
-                curr_sal = [c.salience for c in self.m2.chunks]
-                mean_sal = float(np.mean(curr_sal))
-                std_sal = float(np.std(curr_sal))
-                attention_focus = min(1.0, std_sal / (mean_sal + 1e-8))
-            else:
-                attention_focus = 0.5
             # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
             consol_stats = self.consolidation.get_stats()
             total_facts = consol_stats.get("total_facts_stored", 0)
@@ -348,11 +338,11 @@ class CognitiveCycle:
                 "phi_criticality": phi_current,
                 "skill_accuracy": self.tspl.skill_accuracy,
                 "model_entropy": 0.5 - self.cycle_count * 0.001,
-                "energy_cost": 0.1,
+                "energy_cost": max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0)),
                 "cycle": self.cycle_count,
                 "prediction_confidence": metrics.prediction_confidence,
                 "empowerment": empowerment,
-                "attention_focus": attention_focus,
+
                 "consolidation_facts": total_facts,
                 "fact_confidence_mean": fact_confidence_mean,
                 "fact_count": fact_count,
@@ -499,18 +489,9 @@ class CognitiveCycle:
             # Step 19: Increment cycle counter
             self.cycle_count += 1
 
-            # Step 20: Sleep-cycle check (full consolidation every N cycles)
-            if self.cycle_count % self._get_sleep_interval() == 0:
-                t_sleep = time.perf_counter()
-                _log(logger, "debug", "cycle.sleep_cycle", cycle=self.cycle_count)
-                self.consolidation.step(self.cycle_count, force=True)
-                metrics.module_timings["sleep_cycle"] = (
-                    time.perf_counter() - t_sleep
-                ) * 1000
-                self.runtime_log["CONSOL"] = max(
-                    self.runtime_log.get("CONSOL", 0.0),
-                    metrics.module_timings["sleep_cycle"] / 1000.0,
-                )
+            # Step 20: (removed) Sleep-cycle check — not needed. Consolidation
+            # is already handled by Steps 16-18 every consolidation_interval=10
+            # cycles. The 50-cycle sleep cycle duplicated this work. (A-008 fix)
 
         except Exception as e:
             _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
@@ -710,15 +691,6 @@ class CognitiveCycle:
         empowerment = float(np.std(confidences))
         return float(np.clip(empowerment, 0.0, 1.0))
 
-    @staticmethod
-    def _get_sleep_interval() -> int:
-        """Get the sleep-cycle interval (cognitive cycles between sleep cycles).
-
-        Returns:
-            Integer number of cycles.
-        """
-        return 50  # sleep every 50 cognitive cycles
-
     def _approximate_phi(self) -> float:
         """Approximate Φ (integrated information) from prediction error temporal variance.
 
@@ -804,17 +776,20 @@ class CognitiveCycle:
             "PE": max(1_000, sd * 4 * 3),
             "PEU": max(500, sd * 4),
             "TSPL-P": max(5_000, sd * 4 * 10),
-            "TSPL-E": max(5_000, sd * 4 * 10),
-            "TSPL-S": max(5_000, sd * 4 * 10),
             "MDIM": 20_000, "CR": 10_000, "ATTN": 5_000,
             "HPM": 10_000, "CONSOL": 2_000,
         }
         # Energy estimates from actual module runtimes (scaled to match original magnitude)
+        # TODO (Phase 4): Replace runtime_s * 50.0 with actual FLOP-based estimate:
+        #   - MLP: 3 * hidden_dim^2 + 2 * hidden_dim * state_dim FLOPs/cycle
+        #   - Gaussian G': O(n^3) for n = state_dim
+        #   - SQLite M3: ~1000 * rows_written
+        # For now, scale factor 50.0 keeps values in 0.1-10.0 range (A-007 fix).
         self.energy_log = {}
         for mod, runtime_s in self.runtime_log.items():
             self.energy_log[mod] = max(0.1, min(10.0, runtime_s * 50.0))
         # Fill any missing standard modules at realistic baseline
-        baseline = {"ASI": 2.0, "WM": 1.0, "G'": 5.0, "TSPL-E": 3.0, "TSPL-S": 3.0, "CONSOL": 0.5}
+        baseline = {"ASI": 2.0, "WM": 1.0, "G'": 5.0, "CONSOL": 0.5}
         for mod, val in baseline.items():
             if mod not in self.energy_log:
                 self.energy_log[mod] = val

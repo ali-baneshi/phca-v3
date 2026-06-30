@@ -354,3 +354,93 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** External log shipper (Loki, ELK), syslog, no file logging
 - **Rationale:** 10MB × 4 backups = 40MB max disk, acceptable for development. Log viewer (`scripts/phca-logs.py`) uses subprocess `tail -f` for zero-overhead following.
 - **v3.0 trace:** A1 (resource boundedness)
+
+## Decision D-036: RBTA composition tree reads from energy_log (Phase 3.3 gap closure — A-001/A-004)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 1 (bug fix — energy violations undetected)
+- **Option chosen:** `_check_composition_tree()` and `_compute_subtree_energy()` now accept a separate `energy_log: Dict[str, float]` parameter and read energy values from it. Previously both methods read energy from `runtime_log` with the key convention `child + "_energy"` or bare `child` — neither matched `_collect_runtime_log()`'s key convention, causing energy violations to go undetected since the composition tree was added in Phase 3.2.
+- **Alternatives:** Keep reading from `runtime_log` with bare keys (gets seconds not Joules); merge energy into runtime_log
+- **Rationale:** `check_cycle()` already receives both logs. Passing `energy_log` (estimated Joules) through the composition tree is semantically correct and requires no data restructuring. Falls back to `0.0` for missing modules.
+- **v3.0 trace:** §2.1 Def 2.2, Def 3.6, A1
+
+## Decision D-037: Monitoring wired into benchmark.py (Phase 3.3 gap closure — A-002)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Added `ensure_logging()` call to `scripts/benchmark.py main()`. No MetricsStore integration — benchmarks build their own cycles without monitoring to avoid performance interference.
+- **Alternatives:** Wire MetricsStore into every benchmark run
+- **Rationale:** `ensure_logging()` ensures `logs/phca.log` is written during benchmark runs for post-hoc analysis. MetricsStore is appropriate for interactive monitoring only.
+- **v3.0 trace:** A1
+
+## Decision D-038: Dead compute_pareto_front() call commented out (Phase 3.3 gap closure — A-005)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Commented out `pareto = self.compute_pareto_front()` in `mdim.py` `generate_goal()` and added a TODO for Phase 4 wiring into `_is_deeply_meta_stable()`.
+- **Alternatives:** Remove the Pareto front computation entirely; wire it into meta-stability now
+- **Rationale:** The Pareto front computation is not harmful (fast) but its output was unused. Preserving the code behind a TODO allows Phase 4 to complete the wiring without reimplementing from scratch.
+- **v3.0 trace:** §3.3 Def 3.6, v3.0 Patch §2.4
+
+## Decision D-039: SkillLibrary removed (Phase 3.3 gap closure — A-006)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Deleted `python/phca/learning/skill_compilation.py`, removed its import from `__init__.py`, removed `TestSkillLibrary` class from tests.
+- **Alternatives:** Keep as dead code; convert to utility functions
+- **Rationale:** `SkillLibrary` was never instantiated in production code. TSPL uses its own inlined compilation logic. 50 lines of dead code + 6 tests removed.
+- **v3.0 trace:** N/A
+
+## Decision D-040: Sleep cycle (Step 20) removed (Phase 3.3 gap closure — A-008)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Removed the Step 20 sleep-cycle block and `_get_sleep_interval()` static method from `cycle.py`. Consolidation is already handled by Steps 16-18 every `consolidation_interval=10` cycles. The 50-cycle sleep cycle duplicated this work.
+- **Alternatives:** Keep sleep cycle for future energy conservation; reduce interval
+- **Rationale:** Single consolidation path simplifies the cycle. Every 50 cycles, consolidation ran twice (once at 10-cycle interval, once at 50-cycle sleep).
+- **v3.0 trace:** A1
+
+## Decision D-041: Dynamic energy_cost from elapsed cycle time (Phase 3.3 gap closure — A-009)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Changed `mdim_context["energy_cost"]` from hardcoded `0.1` to `max(0.01, min(1.0, elapsed_time * 2.0))` where elapsed_time is `time.perf_counter() - t_start` at MDIM context time.
+- **Alternatives:** Use `self.energy_log.get("CYCLE", 0.0) / 10.0` (but energy_log isn't populated until after MDIM context); use a fixed scaling
+- **Rationale:** `elapsed * 2.0` gives ~0.05 for a 25ms cycle (D5 deficit ≈ 0.15) and ~0.1 for a 50ms cycle (D5 deficit ≈ 0.10). Scaling factor 2.0 approximates the original plan's `energy_log / 10.0 ≈ 0.125` convention without depending on energy_log being populated.
+- **v3.0 trace:** §3.3 Def 3.5
+
+## Decision D-042: TSPL-E/S removed from logs and bounds (Phase 3.3 gap closure — B-001)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Removed `TSPL-E` and `TSPL-S` entries from `memory_log` dict, `energy_log` baseline, and `DEFAULT_MODULE_BOUNDS` in `config.py`. These streams were removed in Phase 3.3 (D-020) but their stale entries persisted in logs and bounds.
+- **Alternatives:** Keep entries but zero them out; add B_time=0 bounds
+- **Rationale:** Since the streams don't exist anymore, they shouldn't consume bounds or log space. RBTA was checking their bounds every cycle unnecessarily.
+- **v3.0 trace:** §2.1 Def 2.2
+
+## Decision D-043: attention_focus removed from MDIM context (Phase 3.3 gap closure — B-002)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Removed `"attention_focus"` from `mdim_context` dict and its computation block in `cycle.py`. No drive reads this signal.
+- **Alternatives:** Wire into D2 criticality seeking; keep for future use
+- **Rationale:** Dead signal in the context dict. If D2 needs attention data in Phase 4, it can be added then with a proper neural interface.
+- **v3.0 trace:** §3.2 Def 3.4
+
+## Decision D-044: D6 empowerment blend reverted — old logic was correct (Phase 3.3 gap closure — B-003)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Reverted `empowerment_blend = 0.7 * empowerment + 0.3 * (1.0 - min(error, 1.0))` back to the original `0.7 * empowerment + 0.3 * min(error * 0.5, 1.0)`.
+- **Alternatives:** Keep inverted logic; use different formula
+- **Rationale:** The original formula causes D6 deficit to be small when error is high (agent doesn't seek empowerment when confused) and larger when error is low (agent seeks empowerment when it understands action-outcome relationships). The plan's suggested fix inverted this, making D6 push harder for empowerment when error is high — which contradicts the intended behavior.
+- **v3.0 trace:** §3.3 Def 3.5
