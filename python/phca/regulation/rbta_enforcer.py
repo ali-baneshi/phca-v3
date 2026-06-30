@@ -1,0 +1,218 @@
+"""
+PHCA v3.0 — RBTA Constraint Enforcer (Python).
+
+Implements v3.0 §2.1 Definition 2.2 (Constraint Enforcer),
+Definition 2.3 (Enforcement Status), and Theorem 2.1 / Theorem 3.1 (Composition).
+
+Pure Python implementation for Phase 3.1. Rust FFI version deferred to Phase 3.2.
+
+Audit Decision O-1: Use Python for Phase 3.1 to eliminate FFI overhead.
+"""
+
+from __future__ import annotations
+
+from enum import Enum, auto
+from typing import Dict, List, Optional, Tuple
+
+from phca.config import ConstraintViolation, ResourceBounds
+
+
+class BoundType(Enum):
+    """Types of resource bounds that can be violated (v3.0 §2.1 Definition 2.2).
+
+    Values match the string convention used in ConstraintViolation.bound_type.
+    """
+    TIME = "TIME"
+    MEMORY = "MEM"
+    ENERGY = "ENERGY"
+    ENTROPY_FLOOR = "ENTROPY"
+    SENSOR_FAILURE = "SENSOR"
+
+
+class EnforcerAction(Enum):
+    """Aggregate enforcement status for a cycle (v3.0 §2.1 Definition 2.3).
+
+    - CONTINUE: All bounds satisfied — continue normal operation.
+    - INTERRUPT: Warning-level violation — interrupt current module, continue cycle.
+    - TERMINATE: Critical violation — terminate the current cognitive cycle.
+    """
+    CONTINUE = auto()
+    INTERRUPT = auto()
+    TERMINATE = auto()
+
+
+class RBTAEnforcer:
+    """RBTA constraint enforcer for a complete cognitive cycle.
+
+    Checks per-module resource bounds (time, memory, energy, entropy floor)
+    and aggregate sensor failure count. Phase 3.1: flat per-module checks.
+    Phase 3.2+: composition tree for SEQUENCE/PARALLEL verification.
+
+    v3.0 References:
+        - §2.1 Definition 2.2: Resource bounds B_X
+        - §2.1 Definition 2.3: Enforcement status (Continue/Interrupt/Terminate)
+        - §2.1 Theorem 2.1: Corrected SEQUENCE time = sum(time_i) + tau_comp
+        - §2.1 Theorem 3.1: Corrected PARALLEL time = max(time_i) + tau_sync
+    """
+
+    def __init__(self, module_bounds: Dict[str, ResourceBounds]):
+        """Initialize enforcer with per-module resource bounds.
+
+        Args:
+            module_bounds: Mapping from module_id (e.g., "ASI", "G'") to
+                ResourceBounds for that module.
+        """
+        self._bounds = dict(module_bounds)
+        self._asi_failure_limit: int = 5  # default from v3.0 Patch B
+
+    @property
+    def asi_failure_limit(self) -> int:
+        return self._asi_failure_limit
+
+    @asi_failure_limit.setter
+    def asi_failure_limit(self, value: int) -> None:
+        assert value > 0, f"asi_failure_limit must be positive, got {value}"
+        self._asi_failure_limit = value
+
+    def check_cycle(
+        self,
+        runtime_log: Dict[str, float],
+        memory_log: Dict[str, float],
+        energy_log: Dict[str, float],
+        belief_entropies: Dict[str, float],
+        sensor_failure_count: int,
+        asi_failure_limit: Optional[int] = None,
+        composition_tree: Optional[Dict] = None,
+    ) -> Tuple[List[ConstraintViolation], EnforcerAction]:
+        """Check all resource bounds for the current cognitive cycle.
+
+        Args:
+            runtime_log: Measured runtime (seconds) per module_id.
+                Missing module_id means 0.0 (not a violation).
+            memory_log: Measured memory (bytes) per module_id.
+            energy_log: Measured energy (estimated Joules) per module_id.
+            belief_entropies: Current belief entropy H(beliefs) per module_id.
+            sensor_failure_count: Number of consecutive ASI sensor failures.
+            asi_failure_limit: ASI failure limit override (default: self.asi_failure_limit).
+            composition_tree: HPM composition tree for SEQUENCE/PARALLEL checks.
+                Phase 3.1: None (deferred to Phase 3.2).
+
+        Returns:
+            Tuple of (violations, action):
+                violations: List of ConstraintViolation detected.
+                action: EnforcerAction (Continue/Interrupt/Terminate).
+        """
+        violations: List[ConstraintViolation] = []
+        limit = asi_failure_limit if asi_failure_limit is not None else self._asi_failure_limit
+
+        for module_id, bounds in self._bounds.items():
+            # Check time bound: runtime > B_time → violation
+            runtime = runtime_log.get(module_id, 0.0)
+            if runtime > bounds.B_time:
+                violations.append(ConstraintViolation(
+                    module_id=module_id,
+                    bound_type=BoundType.TIME.value,
+                    measured=runtime,
+                    allowed=bounds.B_time,
+                ))
+
+            # Check memory bound: memory > B_mem → violation
+            memory = memory_log.get(module_id, 0.0)
+            if memory > bounds.B_mem:
+                violations.append(ConstraintViolation(
+                    module_id=module_id,
+                    bound_type=BoundType.MEMORY.value,
+                    measured=memory,
+                    allowed=bounds.B_mem,
+                ))
+
+            # Check energy bound: energy > B_energy → violation
+            energy = energy_log.get(module_id, 0.0)
+            if energy > bounds.B_energy:
+                violations.append(ConstraintViolation(
+                    module_id=module_id,
+                    bound_type=BoundType.ENERGY.value,
+                    measured=energy,
+                    allowed=bounds.B_energy,
+                ))
+
+            # Check entropy floor (A3: Incomplete Knowledge): H < entropy_floor → violation
+            entropy = belief_entropies.get(module_id, None)
+            if entropy is not None and entropy < bounds.entropy_floor:
+                violations.append(ConstraintViolation(
+                    module_id=module_id,
+                    bound_type=BoundType.ENTROPY_FLOOR.value,
+                    measured=entropy,
+                    allowed=bounds.entropy_floor,
+                ))
+
+        # Check ASI sensor failure limit (v3.0 Patch B)
+        if sensor_failure_count > limit:
+            violations.append(ConstraintViolation(
+                module_id="ASI",
+                bound_type=BoundType.SENSOR_FAILURE.value,
+                measured=float(sensor_failure_count),
+                allowed=float(limit),
+            ))
+
+        # Composition tree check (Phase 3.2+)
+        if composition_tree is not None:
+            self._check_composition_tree(composition_tree, runtime_log, violations)
+
+        # Determine action based on violation severity
+        action = self._classify_action(violations)
+        return (violations, action)
+
+    # ── Internal Methods ─────────────────────────────────────
+
+    def _classify_action(self, violations: List[ConstraintViolation]) -> EnforcerAction:
+        """Classify aggregate enforcement action (v3.0 §2.1 Definition 2.3).
+
+        0 violations → CONTINUE
+        1-2 violations → INTERRUPT
+        3+ violations → TERMINATE
+        """
+        count = len(violations)
+        if count == 0:
+            return EnforcerAction.CONTINUE
+        elif count <= 2:
+            return EnforcerAction.INTERRUPT
+        else:
+            return EnforcerAction.TERMINATE
+
+    def _check_composition_tree(
+        self,
+        tree: Dict,
+        runtime_log: Dict[str, float],
+        violations: List[ConstraintViolation],
+    ) -> None:
+        """Check composite resource bounds via HPM composition tree.
+
+        Implements v3.0 Theorem 2.1 (corrected SEQUENCE) and Theorem 3.1 (PARALLEL).
+
+        Args:
+            tree: Composition tree node with format:
+                {"type": "SEQUENCE" | "PARALLEL", "children": [...], "bounds": ResourceBounds}
+            runtime_log: Measured runtimes per module.
+            violations: Shared violation list (appended in-place).
+
+        Phase 3.2+: Full implementation with recursive tree traversal.
+        Phase 3.1: Placeholder — raises no false positives.
+        """
+        # PHCA-3.1-TODO: Phase 3.2 — recursive composition tree traversal
+        # Formula (SEQUENCE): T_total = sum(T_i) + tau_comp, tau_comp = 1ms
+        # Formula (PARALLEL): T_total = max(T_i) + tau_sync, tau_sync = 2ms
+        pass  # no-op for Phase 3.1
+
+    def update_bounds(self, module_id: str, bounds: ResourceBounds) -> None:
+        """Update bounds for a module (e.g., when new modules are registered).
+
+        Args:
+            module_id: Module identifier (e.g., "ASI", "G'").
+            bounds: New resource bounds for this module.
+        """
+        self._bounds[module_id] = bounds
+
+    def get_bounds(self, module_id: str) -> Optional[ResourceBounds]:
+        """Get bounds for a module, or None if not registered."""
+        return self._bounds.get(module_id)

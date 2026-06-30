@@ -1,10 +1,28 @@
 """
 World Model — G' (Probabilistic Graph) with VSA integration (Phase 3.2+).
 
-Phase 3.1: No VSA component. G' similarity search (k-NN) replaces VSA
-            for analogical retrieval. See v3.0 §4 Implementation Phasing.
-Phase 3.2: V = python/phca/world_model/vsa.py if similarity insufficient.
+Phase 3.1:
+    - G' Bayesian network with discrete CPDs (graph.py)
+    - Exact junction tree inference via pgmpy (inference.py)
+    - k-NN similarity search replaces VSA (similarity.py)
+
+Phase 3.2:
+    - V = python/phca/world_model/vsa.py if similarity insufficient
+    - Sampling inference for |V| > 100
+    - Dual-model ensemble (G' + V)
+
+Cross-ref: v3.0 §2.2, §4, §D.3
 """
 
-# Phase 3.1: WorldModelGPrime lives in graph.py, similarity.py
-# Phase 3.2: VSA lives in vsa.py (conditional — see v3.0 §4.3)
+from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
+from phca.world_model.inference import forward_inference, infer_next_state
+from phca.world_model.similarity import knn_similarity
+
+__all__ = [
+    "WorldModelGPrime",
+    "StateNode",
+    "TemporalEdge",
+    "forward_inference",
+    "infer_next_state",
+    "knn_similarity",
+]
