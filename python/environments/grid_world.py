@@ -229,6 +229,11 @@ class GridWorld:
     def action_space_size(self) -> int:
         return 5
 
+    @property
+    def stay_action(self) -> int:
+        """Return the index of the STAY action (last action)."""
+        return 4
+
     def get_possible_actions(self) -> list[str]:
         return list(ACTION_NAMES)
 

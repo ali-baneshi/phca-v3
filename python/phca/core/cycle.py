@@ -471,7 +471,7 @@ class CognitiveCycle:
           D6 (empowerment): state-space alignment
         """
         if self.current_state is None:
-            return 4  # STAY
+            return self.env.stay_action
 
         goal = self.current_goal
         goal_id = goal.drive_id if goal else 1
@@ -484,9 +484,9 @@ class CognitiveCycle:
 
         # D5 (Energy Efficiency): prefer STAY
         if goal_id == 5:
-            return 4
+            return self.env.stay_action
 
-        best_action = 4
+        best_action = self.env.stay_action
         best_score = -float("inf")
         action_confidences = []
 
@@ -753,6 +753,130 @@ class CognitiveCycle:
         else:
             entropy_val = 0.5
         self.belief_entropies = {"G'": entropy_val}
+
+    @classmethod
+    def build_for_mujoco(
+        cls,
+        env_name: str = "InvertedPendulum-v5",
+        seed: int = 42,
+        use_mlp: bool = True,
+        use_continuous: bool = True,
+    ) -> CognitiveCycle:
+        """Build a cognitive cycle for a MuJoCo physics environment.
+
+        Creates a MuJoCoSimpleEnv wrapper for the given gymnasium MuJoCo
+        environment ID and wires up all PHCA modules with appropriate
+        dimensions and RBTA bounds.
+
+        Args:
+            env_name: gymnasium MuJoCo environment ID (e.g.
+                'InvertedPendulum-v5', 'Pendulum-v1', 'Reacher-v5').
+            seed: Random seed.
+            use_mlp: If True, use the pure-NumPy MLP world model.
+                Recommended for continuous MuJoCo observations.
+            use_continuous: If True (and use_mlp=False), use Gaussian
+                CPDs with analytic inference. If both use_mlp and
+                use_continuous are False, a discrete binary G' is used,
+                which is NOT recommended for continuous MuJoCo observations.
+
+        Returns:
+            Configured CognitiveCycle instance.
+
+        Raises:
+            ImportError: If gymnasium is not installed.
+        """
+        from environments.mujoco_env import MuJoCoSimpleEnv
+
+        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
+        state_dim = env.get_state_dim()
+
+        sanitizer = ASISanitizer(
+            sensor_dim=state_dim, v_max=100.0, epsilon_confidence=0.01,
+        )
+        m1 = M1SensoryBuffer(sensor_dim=state_dim)
+        m2 = M2WorkingMemory(capacity=7)
+
+        if use_mlp:
+            # MLP with slightly lower LR for smooth continuous targets
+            gprime = WorldModelMLP(
+                state_dim=state_dim,
+                action_dim=env.action_space_size,
+                seed=seed,
+                lr=0.05,
+            )
+        elif use_continuous:
+            gprime = WorldModelGPrime.build_gaussian_grid(
+                state_dim=state_dim,
+                action_dim=env.action_space_size,
+                transition_std=0.5,
+                seed=seed,
+            )
+        else:
+            # Discrete G' — NOT recommended for continuous MuJoCo obs.
+            # Included for compatibility. Observations will be quantised.
+            import warnings
+            warnings.warn(
+                "Discrete G' with continuous MuJoCo observations will "
+                "quantise all values to 0/1. Use use_mlp=True or "
+                "use_continuous=True for MuJoCo environments."
+            )
+            gprime = WorldModelGPrime(
+                state_dim=state_dim,
+                action_dim=env.action_space_size,
+                seed=seed,
+            )
+            for i in range(min(state_dim, 10)):
+                name_t = f"s{i}_t"
+                name_t1 = f"s{i}_t1"
+                gprime.add_node(StateNode(
+                    name=name_t, cpd_type="discrete", parents=[],
+                    cardinality=2,
+                    params=np.array([[0.5], [0.5]], dtype=np.float32),
+                ))
+                gprime.add_node(StateNode(
+                    name=name_t1, cpd_type="discrete", parents=[name_t],
+                    cardinality=2,
+                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
+                ))
+                gprime.add_temporal_edge(TemporalEdge(
+                    source=name_t, target=name_t1, lag=1,
+                ))
+
+        engine = PredictionEngine(gprime)
+        peu = PredictionErrorUnit()
+        tspl = TSPL(seed=seed)
+        tspl.init_parameters("gprime", (state_dim,))
+        rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
+
+        # Adjust G' and ACTION bounds for MuJoCo simulation overhead
+        rbta.update_bounds(
+            "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
+        )
+        rbta.update_bounds(
+            "ACTION", ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=2.0),
+        )
+
+        mdim = MDIM(state_dim=state_dim)
+        attention = Attention()
+        criticality_regulator = CriticalityRegulator()
+        hpm_validator = HPMValidator()
+        m3 = M3EpisodicMemory(
+            state_dim=state_dim, action_dim=env.action_space_size,
+        )
+        consolidation = ConsolidationScheduler(
+            m3=m3, state_dim=state_dim,
+            consolidation_interval=10, max_facts_per_cycle=50,
+        )
+
+        return cls(
+            sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
+            engine=engine, peu=peu, tspl=tspl, rbta=rbta,
+            mdim=mdim, attention=attention,
+            criticality_regulator=criticality_regulator,
+            hpm_validator=hpm_validator,
+            consolidation=consolidation, env=env,
+            state_dim=state_dim,
+        )
 
     @classmethod
     def build_for_env(
