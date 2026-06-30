@@ -194,6 +194,17 @@ class CognitiveCycle:
                 predicted, confidence = self.engine.predict(
                     self.current_state, horizon=1,
                 )
+                # G1: NaN gate — clamp prediction to identity if degenerate
+                if not np.all(np.isfinite(predicted.values)):
+                    _log(logger, "warning", "cycle.prediction.nan_detected",
+                         fallback="identity")
+                    predicted = StateVector(
+                        values=self.current_state.values.copy(),
+                        precision=np.ones_like(self.current_state.precision) * 0.01,
+                        timestamp=predicted.timestamp,
+                        grounding_level=predicted.grounding_level,
+                    )
+                    confidence = 0.0
                 self.last_prediction = predicted
                 metrics.prediction_confidence = confidence
             metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
@@ -230,14 +241,16 @@ class CognitiveCycle:
                     self.current_state, action_vec
                 )
                 t3 = time.perf_counter()
-                error = self.peu.compute(next_state, corrected_prediction)
+                error = self.peu.compute_precision_weighted(
+                    next_state, corrected_prediction, next_state.precision
+                )
                 metrics.prediction_error = error
                 # Update confidence to reflect the corrected prediction
                 if corrected_conf > metrics.prediction_confidence:
                     metrics.prediction_confidence = corrected_conf
                 # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
                 self._phi_error_window.append(metrics.prediction_error)
-                if len(self._phi_error_window) > self._phi_window_size:
+                if len(self._phi_error_window) >= self._phi_window_size:
                     self._phi_error_window.pop(0)
                 metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
 
@@ -324,7 +337,11 @@ class CognitiveCycle:
             metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
 
             t_attn = time.perf_counter()
-            self.attention.select(self.m2.chunks, self.current_goal)
+            attention_chunks = self.attention.select(self.m2.chunks, self.current_goal)
+            for chunk in attention_chunks:
+                self.attention.update_precision(
+                    chunk.chunk_id, metrics.prediction_error,
+                )
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
@@ -395,6 +412,8 @@ class CognitiveCycle:
 
             # Step 15: Logging
             self.metrics_history.append(metrics)
+            if len(self.metrics_history) > 10000:
+                self.metrics_history = self.metrics_history[-5000:]
 
             # Steps 16-18: Consolidation (periodic E→S transfer)
             t_consol = time.perf_counter()
@@ -506,9 +525,8 @@ class CognitiveCycle:
                     best_action = action_idx
             except Exception as e:
                 action_confidences.append(0.0)
-                if action_name:
-                    _log(logger, "warning", "action_selection.predict_failed",
-                         action=action_name, error=str(e))
+                _log(logger, "warning", "action_selection.predict_failed",
+                     error=str(e))
                 continue
 
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)

@@ -39,7 +39,7 @@ class TestIT31_ASIToWM:
 
         nan_raw = np.array([np.nan, 2.0, 3.0, 4.0], dtype=np.float32)
         clean_state, status = asi_sanitizer.sanitize(nan_raw)
-        assert status == ASIStatus.OK
+        assert status == ASIStatus.PARTIAL_FAILURE
         assert not np.any(np.isnan(clean_state.values))
         chunk = m2_memory.write(clean_state)
         assert chunk.state.values[0] == 1.0

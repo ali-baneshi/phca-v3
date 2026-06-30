@@ -17,6 +17,7 @@ from enum import Enum, auto
 class ASIStatus(Enum):
     """ASI sanitization result status."""
     OK = auto()
+    PARTIAL_FAILURE = auto()
     SENSOR_FAILURE = auto()
 
 

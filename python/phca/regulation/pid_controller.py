@@ -119,6 +119,12 @@ class CriticalityRegulator:
         """
         self._cycle += 1
 
+        # G6: NaN gate — clamp phi_current to previous value if degenerate
+        if not np.isfinite(phi_current):
+            _log(logger, "warning", "cr.nan_phi_input",
+                 phi_current=phi_current, fallback="previous")
+            phi_current = self._prev_output[0] if self._cycle > 1 else self.setpoint
+
         # Compute PID error
         error = self.setpoint - phi_current
 
@@ -167,7 +173,7 @@ class CriticalityRegulator:
             params: Current (T, eta, alpha) values.
         """
         self._param_history_buffer.append(dict(params))
-        if len(self._param_history_buffer) > 100:
+        if len(self._param_history_buffer) >= 100:
             self._param_history_buffer.pop(0)
 
     def _check_orthogonality(self) -> None:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import numpy as np
 
 from phca.config import StateVector
+from phca.logging import logger, _log
 
 
 class PredictionErrorUnit:
@@ -37,6 +38,15 @@ class PredictionErrorUnit:
         Returns:
             Scalar error value δ_t ≥ 0.
         """
+        # G2: NaN gate — validate inputs before computation
+        if not np.all(np.isfinite(observed.values)):
+            _log(logger, "warning", "peu.nan_input",
+                 source="observed", fallback="0.0")
+            return 0.0
+        if not np.all(np.isfinite(predicted.values)):
+            _log(logger, "warning", "peu.nan_input",
+                 source="predicted", fallback="0.0")
+            return 0.0
         diff = observed.values.astype(np.float64) - predicted.values.astype(np.float64)
         return float(np.dot(diff, diff))
 

@@ -26,8 +26,10 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
+from phca.logging import logger, _log
 
-@np.errstate(all="ignore")
+
+@np.errstate(divide="raise", invalid="raise", over="ignore")
 def compute_joint_moments(
     node_order: List[str],
     betas: Dict[str, List[float]],
@@ -86,6 +88,8 @@ def compute_joint_moments(
         inv_I_minus_B = np.linalg.inv(I_minus_B)
     except np.linalg.LinAlgError:
         # Fallback: pseudoinverse for singular matrices
+        _log(logger, "warning", "gaussian.singular_matrix",
+             method="inv", fallback="pinv", exc_info=True)
         inv_I_minus_B = np.linalg.pinv(I_minus_B)
 
     diag_sigma2 = np.diag(
@@ -96,7 +100,7 @@ def compute_joint_moments(
     return mu, cov
 
 
-@np.errstate(all="ignore")
+@np.errstate(divide="raise", invalid="raise", over="ignore")
 def posterior(
     mu: np.ndarray,
     cov: np.ndarray,
@@ -152,6 +156,8 @@ def posterior(
         Σ_EE_inv = np.linalg.inv(Σ_EE)
     except np.linalg.LinAlgError:
         # If singular, use pseudoinverse
+        _log(logger, "warning", "gaussian.singular_posterior",
+             fallback="pinv", exc_info=True)
         Σ_EE_inv = np.linalg.pinv(Σ_EE)
 
     resid = e_vec - mu_E
@@ -230,6 +236,8 @@ def sample_posterior(
             mu, cov = compute_joint_moments(node_order, betas, sigmas, parents)
             return posterior(mu, cov, evidence, query_vars, node_order)
         except np.linalg.LinAlgError:
+            _log(logger, "warning", "gaussian.mvn_singular",
+                 fallback="rejection_sampling", exc_info=True)
             pass  # Fall through to sampling
 
     accepted_samples: List[np.ndarray] = []

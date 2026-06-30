@@ -231,6 +231,16 @@ class TSPL:
         Returns:
             Dict mapping parameter names to gradient arrays.
         """
+        # G4: NaN gate — return zero gradient if inputs are degenerate
+        if not np.all(np.isfinite(state.values)):
+            _log(logger, "warning", "tspl.nan_gradient_input",
+                 source="state", fallback="zero_gradient")
+            return {key: np.zeros_like(param) for key, param in self.theta.items()}
+        if not np.all(np.isfinite(prediction.values)):
+            _log(logger, "warning", "tspl.nan_gradient_input",
+                 source="prediction", fallback="zero_gradient")
+            return {key: np.zeros_like(param) for key, param in self.theta.items()}
+
         # Per-dimension signed error (preserves magnitude per dimension)
         error_per_dim = (
             prediction.values.astype(np.float64) - state.values.astype(np.float64)
@@ -283,6 +293,12 @@ class TSPL:
         Returns:
             Accuracy in [0.0, 1.0].
         """
+        # G3: NaN gate — return 0.0 if prediction_error is degenerate
+        if not np.isfinite(prediction_error):
+            _log(logger, "warning", "tspl.nan_prediction_error",
+                 value=prediction_error, fallback="0.0")
+            return 0.0
+
         dim = max(state.values.shape[0], 1)
         rmse = np.sqrt(prediction_error / dim)
         return float(max(0.0, 1.0 - rmse))

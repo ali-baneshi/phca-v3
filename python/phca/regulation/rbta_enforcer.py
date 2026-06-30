@@ -14,7 +14,10 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 from phca.config import ConstraintViolation, ResourceBounds
+from phca.logging import logger, _log
 
 
 class BoundType(Enum):
@@ -108,6 +111,11 @@ class RBTAEnforcer:
         for module_id, bounds in self._bounds.items():
             # Check time bound: runtime > B_time → violation
             runtime = runtime_log.get(module_id, 0.0)
+            # G7: NaN gate — skip NaN values that would bypass detection
+            if not np.isfinite(runtime):
+                _log(logger, "warning", "rbta.nan_log_value",
+                     module=module_id, bound="TIME", value=runtime)
+                continue
             if runtime > bounds.B_time:
                 violations.append(ConstraintViolation(
                     module_id=module_id,
@@ -118,6 +126,10 @@ class RBTAEnforcer:
 
             # Check memory bound: memory > B_mem → violation
             memory = memory_log.get(module_id, 0.0)
+            if not np.isfinite(memory):
+                _log(logger, "warning", "rbta.nan_log_value",
+                     module=module_id, bound="MEM", value=memory)
+                continue
             if memory > bounds.B_mem:
                 violations.append(ConstraintViolation(
                     module_id=module_id,
@@ -128,6 +140,10 @@ class RBTAEnforcer:
 
             # Check energy bound: energy > B_energy → violation
             energy = energy_log.get(module_id, 0.0)
+            if not np.isfinite(energy):
+                _log(logger, "warning", "rbta.nan_log_value",
+                     module=module_id, bound="ENERGY", value=energy)
+                continue
             if energy > bounds.B_energy:
                 violations.append(ConstraintViolation(
                     module_id=module_id,
@@ -138,13 +154,18 @@ class RBTAEnforcer:
 
             # Check entropy floor (A3: Incomplete Knowledge): H < entropy_floor → violation
             entropy = belief_entropies.get(module_id, None)
-            if entropy is not None and entropy < bounds.entropy_floor:
-                violations.append(ConstraintViolation(
-                    module_id=module_id,
-                    bound_type=BoundType.ENTROPY_FLOOR.value,
-                    measured=entropy,
-                    allowed=bounds.entropy_floor,
-                ))
+            if entropy is not None:
+                if not np.isfinite(entropy):
+                    _log(logger, "warning", "rbta.nan_log_value",
+                         module=module_id, bound="ENTROPY", value=entropy)
+                    continue
+                if entropy < bounds.entropy_floor:
+                    violations.append(ConstraintViolation(
+                        module_id=module_id,
+                        bound_type=BoundType.ENTROPY_FLOOR.value,
+                        measured=entropy,
+                        allowed=bounds.entropy_floor,
+                    ))
 
         # Check ASI sensor failure limit (v3.0 Patch B)
         if sensor_failure_count > limit:

@@ -349,7 +349,7 @@ class WorldModelGPrime:
 
         except Exception:
             _log(logger, "warning", "gprime.inference_failed",
-                 method="discrete", fallback="identity")
+                 method="discrete", fallback="identity", exc_info=True)
             # Inference failed — return low-confidence identity
             return (
                 StateVector(

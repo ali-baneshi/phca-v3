@@ -35,7 +35,7 @@ class TestASISanitizer:
 
         raw_nan = np.array([np.nan, 2.0, 3.0, 4.0], dtype=np.float32)
         state, status = sanitizer.sanitize(raw_nan)
-        assert status == ASIStatus.OK
+        assert status == ASIStatus.PARTIAL_FAILURE
         # Sensor 0 should be the last valid value (1.0)
         assert state.values[0] == 1.0
 
@@ -46,7 +46,7 @@ class TestASISanitizer:
 
         raw_inf = np.array([np.inf, 2.0, 3.0, 4.0], dtype=np.float32)
         state, status = sanitizer.sanitize(raw_inf)
-        assert status == ASIStatus.OK
+        assert status == ASIStatus.PARTIAL_FAILURE
         assert state.values[0] == 1.0
 
     def test_overflow_replaced_by_last_valid(self, sanitizer):
@@ -56,7 +56,7 @@ class TestASISanitizer:
 
         raw_overflow = np.array([200.0, 2.0, 3.0, 4.0], dtype=np.float32)  # V_max = 100
         state, status = sanitizer.sanitize(raw_overflow)
-        assert status == ASIStatus.OK
+        assert status == ASIStatus.PARTIAL_FAILURE
         assert state.values[0] == 1.0
 
     def test_precision_halves_on_each_failure(self, sanitizer):

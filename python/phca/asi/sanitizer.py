@@ -123,6 +123,17 @@ class ASISanitizer:
                     timestamp=timestamp,
                     grounding_level=grounding_level,
                 ), ASIStatus.SENSOR_FAILURE
+            # Some sensors failed but precision still viable — partial failure
+            _log(logger, "warning", "asi.sanitizer.partial_failure",
+                 failed_sensors=int(np.sum(failure_mask)),
+                 min_precision=float(min_precision),
+                 timestamp=timestamp)
+            return StateVector(
+                values=clean,
+                precision=self.precision.copy(),
+                timestamp=timestamp,
+                grounding_level=grounding_level,
+            ), ASIStatus.PARTIAL_FAILURE
 
         return StateVector(
             values=clean,

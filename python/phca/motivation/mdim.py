@@ -166,6 +166,8 @@ class MDIM:
 
         # D1: Prediction Error Minimization
         # Drive = current prediction error. Deficit = |error - target|
+        # G5: NaN gate — sanitize before use
+        prediction_error = np.nan_to_num(prediction_error, nan=10.0, posinf=10.0)
         d1_value = min(prediction_error, 10.0)
         d1_deficit = max(0.0, d1_value - self._targets[1])
         self.drives[1] = DriveState(
@@ -225,12 +227,12 @@ class MDIM:
 
         # Track prediction error for disruption detection (v3.0 §2.4.1 Def 3.11(4))
         self._pred_error_history.append(prediction_error)
-        if len(self._pred_error_history) > self._disruption_window:
+        if len(self._pred_error_history) >= self._disruption_window:
             self._pred_error_history.pop(0)
 
         # Track model entropy as proxy for H(WM) disruption detection
         self._wm_entropy_history.append(model_entropy)
-        if len(self._wm_entropy_history) > self._disruption_window:
+        if len(self._wm_entropy_history) >= self._disruption_window:
             self._wm_entropy_history.pop(0)
 
         # Update baselines from rolling statistics
@@ -243,7 +245,7 @@ class MDIM:
         self._drive_history.append({
             d: self.drives[d].deficit for d in self.drives
         })
-        if len(self._drive_history) > 1000:
+        if len(self._drive_history) >= 1000:
             self._drive_history = self._drive_history[-500:]
 
         return dict(self.drives)
@@ -388,7 +390,7 @@ class MDIM:
 
         self.current_goal = goal
         self._goal_history.append(goal)
-        if len(self._goal_history) > 100:
+        if len(self._goal_history) >= 100:
             self._goal_history = self._goal_history[-50:]
 
         return goal

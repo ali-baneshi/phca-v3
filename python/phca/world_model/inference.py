@@ -17,6 +17,7 @@ import numpy as np
 from pgmpy.factors.discrete import DiscreteFactor
 
 from phca.config import StateVector
+from phca.logging import logger, _log
 
 
 def forward_inference(
@@ -127,6 +128,8 @@ def infer_next_state(
     try:
         posteriors = forward_inference(bn, evidence, target_vars, method="exact")
     except (RuntimeError, ValueError):
+        _log(logger, "warning", "gprime.forward_inference_failed",
+             fallback="identity", exc_info=True)
         return (
             StateVector(
                 values=state.values.copy(),
@@ -151,6 +154,8 @@ def infer_next_state(
                 predicted[idx] = float(max_idx)
                 confidence[idx] = float(probs[max_idx])
         except (ValueError, IndexError):
+            _log(logger, "warning", "gprime.variable_inference_failed",
+                 var_name=var_name)
             continue
 
     avg_confidence = float(np.mean(confidence))
