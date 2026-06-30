@@ -1,6 +1,6 @@
 {
   "config": {
-    "n_cycles": 20,
+    "n_cycles": 50,
     "warmup": 10,
     "seed": 42,
     "grid_size": 5,
@@ -18,33 +18,33 @@
     {
       "level": 0,
       "level_name": "Stationary Prediction",
-      "n_cycles": 20,
-      "prediction_accuracy": 0.9184999985396858,
-      "adaptation_speed": 0.0,
-      "goal_complexity": 0.6,
-      "transfer_efficiency": 0.0,
-      "resource_efficiency": 0.9886790710006608,
-      "failure_rate": 0.0,
-      "phi_iq": 0.4714358139080693,
+      "n_cycles": 50,
+      "prediction_accuracy": 0.9179799985241885,
+      "adaptation_speed": 0.9180199985253806,
+      "goal_complexity": 0.8,
+      "transfer_efficiency": 0.8427239968915045,
+      "resource_efficiency": 0.9517800159996841,
+      "failure_rate": 0.06,
+      "phi_iq": 0.7979646021435763,
       "raw_metrics": {
-        "mean_error": 0.8150000146031428,
-        "mean_confidence": 0.8,
-        "mean_latency_ms": 5.660464499669615,
-        "p95_latency_ms": 6.81230532936752,
-        "violations": 0,
+        "mean_error": 0.8202000147581147,
+        "mean_confidence": 0.7999999999999997,
+        "mean_latency_ms": 24.109992000157945,
+        "p95_latency_ms": 77.95096785121129,
+        "violations": 3,
         "skill_accuracy": 0.9014993343868789,
         "skill_compiled": true,
-        "active_drives": 3
+        "active_drives": 4
       }
     }
   ],
-  "overall_phi_iq": 0.4714358139080693,
-  "total_cycles": 20,
-  "duration_s": 0.2167878549953457,
+  "overall_phi_iq": 0.7979646021435763,
+  "total_cycles": 50,
+  "duration_s": 1.4581338040006813,
   "pass_criteria": {
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,
     "goal_autonomy_achieved": false,
-    "phi_iq_above_0_5": false
+    "phi_iq_above_0_5": true
   }
 }

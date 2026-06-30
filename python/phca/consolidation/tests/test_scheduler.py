@@ -308,3 +308,171 @@ class TestSemanticFactRetrieval:
         low_conf = cs.get_semantic_facts(min_confidence=0.0)
         # high confidence filter should be subset (or same if all facts are high conf)
         assert len(high_conf) <= len(low_conf)
+
+
+class TestCosineSimilarity:
+    """Direct tests for _cosine_similarity static method."""
+
+    def test_identical_vectors(self):
+        """Cosine similarity of a vector with itself is 1.0."""
+        a = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        sim = ConsolidationScheduler._cosine_similarity(a, a)
+        assert abs(sim - 1.0) < 1e-6
+
+    def test_orthogonal_vectors(self):
+        """Cosine similarity of orthogonal vectors is 0.0."""
+        a = np.array([1.0, 0.0], dtype=np.float32)
+        b = np.array([0.0, 1.0], dtype=np.float32)
+        sim = ConsolidationScheduler._cosine_similarity(a, b)
+        assert abs(sim) < 1e-6
+
+    def test_zero_vector(self):
+        """Cosine similarity with zero vector is 0.0."""
+        a = np.array([1.0, 2.0], dtype=np.float32)
+        zero = np.zeros(2, dtype=np.float32)
+        sim = ConsolidationScheduler._cosine_similarity(a, zero)
+        assert sim == 0.0
+
+    def test_empty_dim(self):
+        """Zero-norm on both sides returns 0.0."""
+        a = np.zeros(3, dtype=np.float32)
+        b = np.zeros(3, dtype=np.float32)
+        sim = ConsolidationScheduler._cosine_similarity(a, b)
+        assert sim == 0.0
+
+    def test_parallel_vectors(self):
+        """Parallel vectors have similarity 1.0."""
+        a = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        b = np.array([2.0, 4.0, 6.0], dtype=np.float32)
+        sim = ConsolidationScheduler._cosine_similarity(a, b)
+        assert abs(sim - 1.0) < 1e-6
+
+
+class TestFactTypeClassification:
+    """Tests for fact type classification based on prediction_error/confidence."""
+
+    def test_novelty_fact_high_error(self):
+        """prediction_error > 0.5 → fact_type == 'novelty'."""
+        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
+        cs = ConsolidationScheduler(m3=m3, state_dim=4, max_facts_per_cycle=10)
+        ep = EpisodeRecord(
+            episode_id=1,
+            state_before=StateVector(values=np.zeros(4, dtype=np.float32), precision=np.ones(4)),
+            action_taken=np.array([1.0, 0.0], dtype=np.float32),
+            state_after=StateVector(values=np.ones(4, dtype=np.float32), precision=np.ones(4)),
+            prediction_error=0.8,
+            confidence=0.3,
+            timestamp=0,
+        )
+        facts = cs._extract_facts([ep])
+        assert len(facts) == 1
+        assert facts[0].fact_type == "novelty"
+
+    def test_well_known_fact_high_confidence(self):
+        """confidence > 0.8 and low error → fact_type == 'well_known'."""
+        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
+        cs = ConsolidationScheduler(m3=m3, state_dim=4, max_facts_per_cycle=10)
+        ep = EpisodeRecord(
+            episode_id=1,
+            state_before=StateVector(values=np.zeros(4, dtype=np.float32), precision=np.ones(4)),
+            action_taken=np.array([1.0, 0.0], dtype=np.float32),
+            state_after=StateVector(values=np.ones(4, dtype=np.float32), precision=np.ones(4)),
+            prediction_error=0.1,
+            confidence=0.9,
+            timestamp=0,
+        )
+        facts = cs._extract_facts([ep])
+        assert len(facts) == 1
+        assert facts[0].fact_type == "well_known"
+
+    def test_transition_fact_default(self):
+        """Low error and low confidence → fact_type == 'transition'."""
+        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
+        cs = ConsolidationScheduler(m3=m3, state_dim=4, max_facts_per_cycle=10)
+        ep = EpisodeRecord(
+            episode_id=1,
+            state_before=StateVector(values=np.zeros(4, dtype=np.float32), precision=np.ones(4)),
+            action_taken=np.array([1.0, 0.0], dtype=np.float32),
+            state_after=StateVector(values=np.ones(4, dtype=np.float32), precision=np.ones(4)),
+            prediction_error=0.1,
+            confidence=0.5,
+            timestamp=0,
+        )
+        facts = cs._extract_facts([ep])
+        assert len(facts) == 1
+        assert facts[0].fact_type == "transition"
+
+
+class TestStoreFactsPruning:
+    """Tests for _store_facts pruning logic."""
+
+    def test_prune_at_10000(self):
+        """_store_facts prunes lowest-confidence facts when exceeding 10_000."""
+        m3 = M3EpisodicMemory(max_episodes=10000, state_dim=2, action_dim=1)
+        cs = ConsolidationScheduler(m3=m3, state_dim=2, max_facts_per_cycle=100)
+
+        # Store just under limit
+        facts = [
+            SemanticFact(
+                fact_id=f"f{i}", source_episode_id=i, fact_type="transition",
+                state_pattern=StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2)),
+                confidence=0.5, frequency=1,
+            )
+            for i in range(10_000)
+        ]
+        cs._store_facts(facts)
+        assert len(cs._semantic_facts) == 10_000
+
+    def test_prune_removes_lowest(self):
+        """After exceeding 10_000, only 5_000 highest-confidence facts remain."""
+        m3 = M3EpisodicMemory(max_episodes=10000, state_dim=2, action_dim=1)
+        cs = ConsolidationScheduler(m3=m3, state_dim=2, max_facts_per_cycle=100)
+
+        facts = [
+            SemanticFact(
+                fact_id=f"f{i}", source_episode_id=i, fact_type="transition",
+                state_pattern=StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2)),
+                confidence=float(i) / 10_000, frequency=1,
+            )
+            for i in range(10_001)
+        ]
+        cs._store_facts(facts)
+        assert len(cs._semantic_facts) == 5_000
+        # All remaining facts should be high-confidence (top half)
+        min_conf = min(f.confidence for f in cs._semantic_facts)
+        assert min_conf > 0.5
+
+
+class TestConsolidationErrorHandling:
+    """Tests for consolidation error paths."""
+
+    def test_step_handles_snapshot_failure(self):
+        """step() should not crash if M3 snapshot creation fails."""
+        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
+        cs = ConsolidationScheduler(m3=m3, state_dim=4, consolidation_interval=1)
+
+        # Corrupt the store so create_snapshot raises
+        m3._conn.execute("DROP TABLE episodes")
+
+        report = cs.step(cycle_count=10, force=True)
+        assert report.success is False
+        assert report.episodes_processed == 0
+
+    def test_step_report_has_all_fields(self):
+        """ConsolidationReport from a successful step has all fields populated."""
+        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
+        cs = ConsolidationScheduler(m3=m3, state_dim=4, consolidation_interval=1, max_facts_per_cycle=5)
+
+        state = StateVector(values=np.zeros(4, dtype=np.float32), precision=np.ones(4))
+        m3.store_episode(
+            state_before=state, action_taken=np.array([1.0, 0.0], dtype=np.float32),
+            state_after=state, prediction_error=0.1, timestamp=0,
+        )
+
+        report = cs.step(cycle_count=10, force=True)
+        assert report.cycles_since_last >= 0
+        assert report.episodes_processed > 0
+        assert report.facts_generated > 0
+        assert report.snapshot_version > 0
+        assert report.duration_ms >= 0
+        assert report.success is True

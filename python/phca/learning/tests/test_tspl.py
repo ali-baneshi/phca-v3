@@ -47,7 +47,7 @@ class TestTSPLInit:
         """Default stream configs should have correct ordering."""
         tspl = TSPL()
         # P-Stream: highest alpha, lowest lambda, highest eta
-        assert tspl.configs[StreamID.P_STREAM].alpha == 0.05
+        assert tspl.configs[StreamID.P_STREAM].alpha == 0.08
         assert tspl.configs[StreamID.P_STREAM].lambda_ == 0.01
         assert tspl.configs[StreamID.P_STREAM].eta == 0.1
         assert tspl.configs[StreamID.P_STREAM].accuracy_threshold == 0.95

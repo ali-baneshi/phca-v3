@@ -398,6 +398,9 @@ class CognitiveCycle:
                 time.perf_counter() - t_consol
             ) * 1000
             self.runtime_log["CONSOL"] = metrics.module_timings["consolidation"] / 1000.0
+            # Recompute energy_log to reflect actual CONSOL runtime
+            consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
+            self.energy_log["CONSOL"] = consol_energy
 
             # Step 19: Increment cycle counter
             self.cycle_count += 1
@@ -574,44 +577,25 @@ class CognitiveCycle:
             return 0.5
 
     def _estimate_empowerment(self) -> float:
-        """Estimate empowerment (action-effect channel capacity).
+        """Estimate empowerment from cached action confidences.
 
-        Uses cached confidences from _select_action when available to
-        avoid duplicating the 5× predict loop. Falls back to fresh
-        computation when cache is missing or stale.
-
-        Approximation: compute variance of prediction confidences
-        across all possible actions.
+        Uses confidences stored by _select_action to compute variance
+        across actions — higher spread = more discriminative actions.
+        No duplicate predictions needed (cache avoids 5× predict loop).
 
         Phase 3.3+: Full I(state_{t+1}; a_t | state_t) computation.
 
         Returns:
             Float in [0.0, 1.0] estimating empowerment.
         """
-        if self.current_state is None:
+        confidences = getattr(self, '_cached_confidences', None)
+        if not confidences or self.current_state is None:
             return 0.3
 
-        # Use cached confidences from _select_action if available
-        if hasattr(self, '_cached_confidences') and self._cached_confidences:
-            confidences = self._cached_confidences
-        else:
-            confidences = []
-            for action_idx in range(self.env.action_space_size):
-                action = np.zeros(self.env.action_space_size, dtype=np.float32)
-                action[action_idx] = 1.0
-                self.engine.update_action(action)
-                try:
-                    _, confidence = self.engine.predict(self.current_state, horizon=1)
-                    confidences.append(confidence)
-                except Exception:
-                    confidences.append(0.0)
-
-        # Restore engine action
+        # Restore engine action after action selection's predict loop
         if self.last_action is not None:
             self.engine.update_action(self.last_action)
 
-        if not confidences:
-            return 0.3
         empowerment = float(np.std(confidences))
         return float(np.clip(empowerment, 0.0, 1.0))
 
@@ -798,8 +782,10 @@ class CognitiveCycle:
         engine = PredictionEngine(gprime)
         peu = PredictionErrorUnit()
         tspl = TSPL(seed=seed)
-        # Note: tspl.init_parameters() not called — TSPL theta params never feed back
-        # into G' (P2-C fix). Re-enable when TSPL → G' parameter wiring is implemented.
+        # Initialize TSPL theta with G' parameter shape so TSPL.update() reaches
+        # accuracy computation and skill compilation. Theta is a bookkeeping mirror
+        # of G' parameters — Phase 3.3 will wire theta→G' when MLP replaces G'.
+        tspl.init_parameters("gprime", (actual_state_dim,))
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
 
         mdim = MDIM(state_dim=actual_state_dim)
