@@ -1,0 +1,81 @@
+flowchart TB
+    subgraph ENV["🌍 محیط (Environment)"]
+        GW["GridWorld / MuJoCo / Simulator"]
+    end
+
+    subgraph ASI_LAYER["🔌 لایه‌ی ورودی/خروجی (ASI)"]
+        SAN["پالایشگر (Sanitizer)<br/>NaN/Inf → last valid<br/>precision *= 0.5"]
+        ADAPTER["مبدل سطح زمین‌شدگی<br/>Level 0: Raw → Feature<br/>Level 1: Feature → State<br/>Level 2: Semantic → V"]
+    end
+
+    subgraph MEMORY["🧠 سلسله‌مراتب حافظه"]
+        M1["M1: بافر حسی<br/>۱۰ × sensor_dim<br/>حلقوی، بدون قفل"]
+        M2["M2: حافظه‌ی کاری<br/>۷±۲ تکه<br/>حذف کم‌اهمیت‌ترین"]
+        M3["M3: حافظه‌ی رویدادی<br/>SQLite + MVCC<br/>۱۰٬۰۰۰ رویداد"]
+        M4["M4: حافظه‌ی معنایی<br/>RocksDB/SQLite<br/>قفل نوشتن"]
+        M5["M5: حافظه‌ی رویه‌ای<br/>مهارت‌های تثبیت‌شده<br/>فقط خواندنی"]
+    end
+
+    subgraph WORLD["🌐 مدل جهان (World Model)"]
+        GP["G': گراف احتمالاتی<br/>گسسته + گاوسی<br/>یال‌های زمانی"]
+        VSA["V: معماری برداریِ نمادین<br/>(فاز ۳.۳)<br/>HRR: ⊗ + Π"]
+        SIM["تشابه‌یابی<br/>k-NN جایگزین VSA"]
+    end
+
+    subgraph PREDICT["🔮 پیش‌بینی"]
+        PE["موتور پیش‌بینی<br/>افق ۱-۱۰۰<br/>افت اطمینان با افق"]
+        PEU["واحد خطای پیش‌بینی<br/>δ = ‖obs - pred‖²<br/>وزن‌دهی دقت"]
+    end
+
+    subgraph LEARN["📚 یادگیری (TSPL)"]
+        PSTREAM["P-Stream (رویه‌ای)<br/>α=0.05, λ=0.01, η=0.1<br/>کامپایل مهارت ≥۹۵%"]
+        ESTREAM["E-Stream (رویدادی)<br/>α=0.005, λ=0.1, η=0.01<br/>GEM projection"]
+        SSTREAM["S-Stream (معنایی)<br/>α=0.0005, λ=1.0, η=0.001<br/>EWC penalty"]
+    end
+
+    subgraph MOTIVATE["🎯 انگیزش و تنظیم"]
+        MDIM["MDIM (۶ محرک)<br/>D1-D6 + Pareto front<br/>حالت متاپایدار"]
+        CR["تنظیم‌کننده‌ی بحرانیت<br/>PID + قید اورتوگونالیته<br/>خروجی: T, η, α"]
+        ATTN["توجه وزنیِ دقیق<br/>k-WTA + Gumbel<br/>S = (α·S_bu + β·S_td)·p"]
+    end
+
+    subgraph COMPOSE["🧩 ترکیب (HPM)"]
+        HPM["گرامر HPM<br/>SEQUENCE, PARALLEL<br/>CONDITIONAL, HIERARCHY<br/>REACTIVE"]
+        CONSOL["تثبیت‌کننده<br/>E→S در چرخه‌ی خواب<br/>MVCC snapshot"]
+    end
+
+    subgraph REGULATE["⚖️ نظارت (RBTA)"]
+        RBTA["ناظر محدودیت‌ها<br/>زمان، حافظه، انرژی<br/>آنتروپی، سنسور"]
+    end
+
+    subgraph CYCLE["🔄 چرخه‌ی شناختی (۲۰ مرحله)"]
+        CORE["CognitiveCycle<br/>مراحل ۰-۱۹<br/>زمان ~۰.۲۵ms"]
+    end
+
+    ENV --> ASI_LAYER
+    ASI_LAYER --> MEMORY
+    MEMORY --> WORLD
+    WORLD --> PREDICT
+    PREDICT --> LEARN
+    LEARN --> MOTIVATE
+    MOTIVATE --> COMPOSE
+    COMPOSE --> REGULATE
+    REGULATE --> CYCLE
+    CYCLE --> ENV
+
+    M1 --> M2
+    M2 --> M3
+    M3 -->|تثبیت| M4
+    M5 -->|فریز| PSTREAM
+
+    GP --> PE
+    PE --> PEU
+    PEU --> PSTREAM
+    PSTREAM --> ESTREAM
+    ESTREAM --> SSTREAM
+
+    MDIM --> ATTN
+    CR --> ATTN
+    CR --> PSTREAM
+
+    CYCLE --> RBTA

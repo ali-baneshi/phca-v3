@@ -1,0 +1,37 @@
+gantt
+    title چرخه‌ی شناختی ۲۰ مرحله‌ای (زمان‌های تقریبی)
+    dateFormat  ss
+    axisFormat %S
+
+    section مرحله ۰
+    پالایش ASI (۲μs)      :a1, 0, 1s
+
+    section مرحله ۱
+    M1 + M2 نوشتن (۵μs)   :a2, after a1, 1s
+
+    section مراحل ۲-۴
+    پیش‌بینی G' (۱۰-۵۰ms) :a3, after a2, 50s
+
+    section مراحل ۵-۶
+    PEU خطا (۱ms)         :a4, after a3, 1s
+
+    section مرحله ۷
+    TSPL P-Stream (۱۰ms)  :a5, after a4, 10s
+
+    section مرحله ۸
+    توجه (۲ms)            :a6, after a5, 2s
+
+    section مرحله ۹
+    انتخاب اقدام (۱ms)    :a7, after a6, 1s
+
+    section مراحل ۱۰-۱۳
+    MDIM + CR + HPM (۲۰۰ms):crit, a8, after a7, 200s
+
+    section مرحله ۱۴
+    RBTA (۵۰μs)          :a9, after a8, 1s
+
+    section مراحل ۱۶-۱۸
+    تثبیت (۱ms)          :a10, after a9, 1s
+
+    section مراحل ۱۹-۲۰
+    شمارنده + خواب (۱ms)  :a11, after a10, 1s

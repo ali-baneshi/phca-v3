@@ -1,0 +1,47 @@
+flowchart LR
+    subgraph PHASE1["🧪 فاز ۳.۱: هسته (مراحل ۰-۷، ۹، ۱۴-۱۵، ۱۹)"]
+        S0["۰. پالایش ASI<br/>Sanitizer"]
+        S1["۱. M2 + M1<br/>حافظه‌ی کاری + حسی"]
+        S2_4["۲-۴. پیش‌بینی G'<br/>موتور پیش‌بینی"]
+        S5_6["۵-۶. خطای PEU<br/>δ = obs - pred"]
+        S7["۷. TSPL P-Stream<br/>θ ← θ - α∇L - λ(θ-θ*) + η·noise"]
+        S9["۹. انتخاب اقدام<br/>argmax score"]
+        S14["۱۴. RBTA<br/>بررسی محدودیت‌ها"]
+        S15["۱۵. لاگ‌گیری"]
+        S19["۱۹. شمارنده‌ی چرخه<br/>t++"]
+    end
+
+    subgraph PHASE2["⚙️ فاز ۳.۲: کامل (مراحل ۸، ۱۰-۱۳، ۱۶-۱۸، ۲۰)"]
+        S8["۸. توجه<br/>k-WTA + Gumbel"]
+        S10_13["۱۰-۱۳. MDIM + CR + HPM<br/>هدف، تنظیم، ترکیب"]
+        S16_18["۱۶-۱۸. تثبیت<br/>E→S + خواب"]
+        S20["۲۰. چرخه‌ی خواب<br/>تثبیت کامل"]
+    end
+
+    S0 --> S1
+    S1 --> S2_4
+    S2_4 --> S5_6
+    S5_6 --> S7
+    S7 --> S8
+    S8 --> S9
+    S9 --> S10_13
+    S10_13 --> S14
+    S14 --> S15
+    S15 --> S16_18
+    S16_18 --> S19
+    S19 --> S20
+    S20 --> S0
+
+    style S0 fill:#e1f5fe
+    style S1 fill:#e1f5fe
+    style S2_4 fill:#e1f5fe
+    style S5_6 fill:#e1f5fe
+    style S7 fill:#e1f5fe
+    style S9 fill:#e1f5fe
+    style S14 fill:#e1f5fe
+    style S15 fill:#e1f5fe
+    style S19 fill:#e1f5fe
+    style S8 fill:#fff3e0
+    style S10_13 fill:#fff3e0
+    style S16_18 fill:#fff3e0
+    style S20 fill:#fff3e0

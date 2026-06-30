@@ -1,0 +1,44 @@
+flowchart LR
+    subgraph M1["M1: بافر حسی"]
+        M1_IN["ورودی:<br/>StateVector"]
+        M1_BUF["حلقه:<br/>۱۰ × d"]
+        M1_OUT["خروجی:<br/>۱۰ نمونه اخیر"]
+    end
+
+    subgraph M2["M2: حافظه‌ی کاری"]
+        M2_IN["ورودی:<br/>توجه + StateVector"]
+        M2_STORE["ذخیره:<br/>۷±۲ تکه"]
+        M2_EVICT["حذف:<br/>کم‌اهمیت‌ترین"]
+        M2_OUT["خروجی:<br/>تکه‌های انتخاب‌شده"]
+    end
+
+    subgraph M3["M3: حافظه‌ی رویدادی"]
+        M3_IN["ورودی:<br/>(s, a, s') + error"]
+        M3_SQL["SQLite:<br/>MVCC نسخه‌ها"]
+        M3_SNAP["Snapshot:<br/>برای تثبیت"]
+        M3_OUT["خروجی:<br/>نمونه‌های تجربه"]
+    end
+
+    subgraph M4["M4: حافظه‌ی معنایی"]
+        M4_IN["ورودی:<br/>از تثبیت"]
+        M4_STORE["ذخیره:<br/>حقایق"]
+        M4_READ["خواندن:<br/>بدون قفل"]
+    end
+
+    subgraph M5["M5: حافظه‌ی رویه‌ای"]
+        M5_IN["ورودی:<br/>کامپایل مهارت"]
+        M5_FROZEN["تثبیت‌شده:<br/>فقط خواندنی"]
+        M5_OUT["خروجی:<br/>مهارت‌ها"]
+    end
+
+    M1 -->|توجه| M2
+    M2 -->|ذخیره| M3
+    M3 -->|تثبیت (خواب)| M4
+    M2 -->|تمرین| M5
+    M5 -->|استفاده| M2
+
+    style M1 fill:#e3f2fd
+    style M2 fill:#e3f2fd
+    style M3 fill:#fff3e0
+    style M4 fill:#fff3e0
+    style M5 fill:#fce4ec

@@ -1,0 +1,28 @@
+flowchart LR
+    subgraph IN["ورودی‌های هر مؤلفه"]
+        I1["ASI: raw_sensor, timestamp"]
+        I2["M2: StateVector, salience"]
+        I3["G': StateVector, action"]
+        I4["PE: StateVector, horizon"]
+        I5["PEU: observed, predicted"]
+        I6["TSPL: error, state, pred"]
+        I7["MDIM: context dict"]
+        I8["CR: phi_current"]
+        I9["ATTN: chunks, goal, k"]
+        I10["RBTA: runtime, memory, energy"]
+    end
+
+    subgraph OUT["خروجی‌های هر مؤلفه"]
+        O1["ASI: StateVector, status"]
+        O2["M2: Chunk, is_full"]
+        O3["G': StateVector, confidence"]
+        O4["PE: StateVector, confidence"]
+        O5["PEU: error (float)"]
+        O6["TSPL: theta_new, compiled"]
+        O7["MDIM: GoalVector"]
+        O8["CR: (T, eta, alpha)"]
+        O9["ATTN: selected chunks"]
+        O10["RBTA: violations, action"]
+    end
+
+    IN --> OUT

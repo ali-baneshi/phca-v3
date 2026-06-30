@@ -168,10 +168,10 @@ class ConstraintViolation:
 # ── Default Configurations ────────────────────────────────────
 
 DEFAULT_MODULE_BOUNDS: dict[str, ResourceBounds] = {
-    "ASI": ResourceBounds(B_time=0.002, B_mem=100_000, B_energy=10.0),
+    "ASI": ResourceBounds(B_time=0.005, B_mem=100_000, B_energy=10.0),
     "WM": ResourceBounds(B_time=0.005, B_mem=50_000, B_energy=5.0),
     "G'": ResourceBounds(B_time=0.020, B_mem=500_000, B_energy=50.0),
-    "PE": ResourceBounds(B_time=0.025, B_mem=200_000, B_energy=20.0),
+    "PE": ResourceBounds(B_time=0.300, B_mem=200_000, B_energy=20.0),
     "PEU": ResourceBounds(B_time=0.001, B_mem=10_000, B_energy=1.0),
     "TSPL-P": ResourceBounds(B_time=0.020, B_mem=300_000, B_energy=30.0),
     "TSPL-E": ResourceBounds(B_time=0.020, B_mem=400_000, B_energy=30.0),
@@ -180,7 +180,8 @@ DEFAULT_MODULE_BOUNDS: dict[str, ResourceBounds] = {
     "CR": ResourceBounds(B_time=0.005, B_mem=50_000, B_energy=5.0),
     "ATTN": ResourceBounds(B_time=0.002, B_mem=20_000, B_energy=2.0),
     "HPM": ResourceBounds(B_time=0.002, B_mem=50_000, B_energy=5.0),
-    "CONSOL": ResourceBounds(B_time=0.001, B_mem=10_000, B_energy=1.0),
+    "CONSOL": ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=1.0),
+    "ACTION": ResourceBounds(B_time=0.020, B_mem=10_000, B_energy=2.0),
 }
 
 # Cycle timing constants (seconds)

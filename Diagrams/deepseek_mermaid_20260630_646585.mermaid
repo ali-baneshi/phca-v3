@@ -1,0 +1,66 @@
+flowchart TB
+    subgraph INPUT["ورودی"]
+        SENSOR["📡 حسگر<br/>raw: np.ndarray"]
+    end
+
+    subgraph ASI_BOX["ASI"]
+        SANITIZE["پالایش<br/>NaN/Inf/|v|>V_max"]
+        ADAPT["تطبیق سطح<br/>Level 0/1/2"]
+    end
+
+    subgraph MEM_BOX["حافظه"]
+        M1_BOX["M1<br/>بافر حسی"]
+        M2_BOX["M2<br/>کاری (۷±۲)"]
+        M3_BOX["M3<br/>رویدادی"]
+        M4_BOX["M4<br/>معنایی"]
+    end
+
+    subgraph WORLD_BOX["مدل جهان"]
+        G_BOX["G'<br/>گراف احتمالاتی"]
+        V_BOX["V<br/>VSA (فاز ۳.۳)"]
+        SIM_BOX["تشابه<br/>k-NN"]
+    end
+
+    subgraph PRED_BOX["پیش‌بینی"]
+        PE_BOX["موتور<br/>پیش‌بینی"]
+        PEU_BOX["PEU<br/>خطا"]
+    end
+
+    subgraph LEARN_BOX["یادگیری"]
+        P_BOX["P-Stream<br/>α=0.05"]
+        E_BOX["E-Stream<br/>GEM"]
+        S_BOX["S-Stream<br/>EWC"]
+    end
+
+    subgraph MOT_BOX["انگیزش"]
+        MDIM_BOX["MDIM<br/>۶ محرک"]
+        CR_BOX["تنظیم‌کننده<br/>PID"]
+        ATTN_BOX["توجه<br/>k-WTA"]
+    end
+
+    subgraph ACTION["خروجی"]
+        ACT["🎮 اقدام<br/>N/S/E/W/STAY"]
+    end
+
+    SENSOR --> SANITIZE
+    SANITIZE --> ADAPT
+    ADAPT --> M1_BOX
+    ADAPT --> M2_BOX
+    M2_BOX --> G_BOX
+    G_BOX --> PE_BOX
+    PE_BOX --> PEU_BOX
+    PEU_BOX --> P_BOX
+    P_BOX --> E_BOX
+    E_BOX --> S_BOX
+    P_BOX --> M5_BOX[("M5<br/>مهارت‌ها")]
+    MDIM_BOX --> ATTN_BOX
+    CR_BOX --> ATTN_BOX
+    ATTN_BOX --> M2_BOX
+    M3_BOX -->|تثبیت| M4_BOX
+    G_BOX --> SIM_BOX
+    SIM_BOX -->|جایگزین V| PE_BOX
+    PE_BOX --> ACT
+    ACT --> SENSOR
+
+    style INPUT fill:#e8f5e9
+    style ACTION fill:#e8f5e9

@@ -38,7 +38,7 @@ class StreamConfig:
 
 DEFAULT_STREAM_CONFIGS: Dict[StreamID, StreamConfig] = {
     StreamID.P_STREAM: StreamConfig(
-        alpha=0.05, lambda_=0.01, eta=0.1, accuracy_threshold=0.95,
+        alpha=0.08, lambda_=0.01, eta=0.1, accuracy_threshold=0.95,
     ),
     StreamID.E_STREAM: StreamConfig(
         alpha=0.005, lambda_=0.1, eta=0.01, accuracy_threshold=0.90,

@@ -1,0 +1,171 @@
+flowchart TB
+    subgraph EXTERNAL["🌍 EXTERNAL ENVIRONMENT"]
+        direction LR
+        ENV_IN["Sensor Stream<br/>(raw, bounded values)"]
+        ENV_OUT["Action Command<br/>(N/S/E/W/STAY)"]
+        FEEDBACK["Environmental Feedback<br/>(delayed, noisy)"]
+    end
+
+    subgraph CONSTRAINTS["⛓️ ARCHITECTURAL CONSTRAINTS (A1-A5)"]
+        direction TB
+        C1["⏱️ A2: TEMPORAL CAUSALITY<br/>• Information propagates at finite speed<br/>• Decisions use outdated data<br/>• Prediction compensates for delay<br/>• τ_sync, τ_comp bounded"]
+        C2["🧮 A1: RESOURCE BOUNDEDNESS<br/>• B_time per module (µs-ms)<br/>• B_mem (KB-MB)<br/>• B_energy (Joules)<br/>• No infinite loops or unbounded growth"]
+        C3["❓ A3: INCOMPLETE KNOWLEDGE<br/>• Entropy floor ε > 0<br/>• No perfect self-model<br/>• All beliefs carry uncertainty<br/>• Bayesian inference with priors"]
+        C4["🔄 A5: FEEDBACK-DRIVEN ADAPTATION<br/>• Closed-loop required<br/>• Open-loop systems not adaptive<br/>• Negative feedback stabilizes<br/>• Positive feedback drives learning"]
+        C5["📈 A4: PREDICTION AS PRIMARY<br/>• Predict next state from current<br/>• Learn from prediction error δ<br/>• Confidence decays with horizon<br/>• Ensemble of models (G' + V)"]
+    end
+
+    subgraph BOUNDARIES["🚧 DECISION BOUNDARIES"]
+        direction LR
+        B1["⚖️ Exploration vs Exploitation<br/>η (TSPL noise)<br/>T (MDIM temperature)<br/>κ (Attention Gumbel)"]
+        B2["🌀 Order vs Chaos (Criticality)<br/>Φ setpoint ~0.5<br/>PID controls T, η, α<br/>Orthogonality constraint"]
+        B3["💾 Memory vs Forgetting<br/>Consolidation interval<br/>EWC λ (S-Stream)<br/>GEM buffer size<br/>M3 eviction FIFO"]
+        B4["🎯 Precision vs Uncertainty<br/>Entropy floor (A3)<br/>Confidence threshold<br/>Precision weighting (Attention)<br/>Sensor precision decay"]
+        B5["⏳ Speed vs Accuracy<br/>Horizon length trade-off<br/>Inference method (exact/sample)<br/>RBTA budget enforcement"]
+    end
+
+    subgraph CORE["🏛️ PHCA CORE SYSTEM"]
+        direction TB
+
+        subgraph INPUT_LAYER["🔌 INPUT LAYER (ASI)"]
+            SANITIZER["Step 0: Sanitizer<br/>• NaN/Inf → last valid<br/>• precision *= 0.5<br/>• SENSOR_FAILURE after 7 failures<br/>• global failure if > d/3 sensors"]
+            ADAPTER["Grounding Adapter<br/>Level 0: Raw → Feature Encoder<br/>Level 1: Feature → State Vars<br/>Level 2: Semantic → VSA"]
+        end
+
+        subgraph MEMORY_LAYER["🧠 MEMORY HIERARCHY"]
+            M1["M1: Sensory Buffer<br/>• 10 × d samples<br/>• Circular, no-lock<br/>• ~100ms window"]
+            M2["M2: Working Memory<br/>• 7±2 chunks<br/>• Salience-based eviction<br/>• Atomic swap"]
+            M3["M3: Episodic Memory<br/>• SQLite + MVCC<br/>• Snapshot isolation<br/>• 10K episodes"]
+            M4["M4: Semantic Memory<br/>• RocksDB/SQLite<br/>• Write-lock on consolidation<br/>• Read without lock"]
+            M5["M5: Procedural Memory<br/>• Frozen skills<br/>• Read-only after compile<br/>• Immutable"]
+        end
+
+        subgraph WORLD_LAYER["🌐 WORLD MODEL"]
+            GPRIME["G': Probabilistic Graph<br/>• Bayesian Network<br/>• Discrete + Gaussian CPDs<br/>• Temporal edges (lag=1)<br/>• Causal edges (action→state)"]
+            VSA["V: Vector Symbolic (Phase 3.3)<br/>• HRR: ⊗ (bind), + (bundle)<br/>• Analogical reasoning<br/>• Conditional inclusion"]
+            SIM["k-NN Similarity<br/>• Euclidean distance<br/>• Replaces VSA in Phase 3.1<br/>• State history retrieval"]
+        end
+
+        subgraph PREDICT_LAYER["🔮 PREDICTION"]
+            PE["Prediction Engine<br/>• Horizon 1-100<br/>• Confidence = step_conf / horizon<br/>• Grounding level dispatch<br/>• Ensemble (G' + V)"]
+            PEU["Prediction Error Unit<br/>• δ = ‖obs - pred‖²<br/>• Precision-weighted: Σp_i·δ_i²<br/>• RMSE for monitoring"]
+        end
+
+        subgraph LEARN_LAYER["📚 LEARNING (TSPL)"]
+            PSTREAM["P-Stream (Procedural)<br/>• α=0.05 (fast)<br/>• λ=0.01 (low)<br/>• η=0.1 (high)<br/>• Skill compile ≥95%"]
+            ESTREAM["E-Stream (Episodic)<br/>• α=0.005<br/>• λ=0.1<br/>• η=0.01<br/>• GEM projection"]
+            SSTREAM["S-Stream (Semantic)<br/>• α=0.0005<br/>• λ=1.0 (high)<br/>• η=0.001<br/>• EWC penalty"]
+        end
+
+        subgraph MOTIV_LAYER["🎯 MOTIVATION & REGULATION"]
+            MDIM["MDIM: 6 Drives<br/>• D1: Prediction error<br/>• D2: Criticality<br/>• D3: Competence<br/>• D4: Epistemic curiosity<br/>• D5: Energy efficiency<br/>• D6: Empowerment<br/>• Pareto front + meta-stable"]
+            CR["Criticality Regulator<br/>• PID control<br/>• Orthogonality constraint<br/>• Output: T, η, α<br/>• Integral windup protection"]
+            ATTN["Precision-Weighted Attention<br/>• S = (α·S_bu + β·S_td)·p<br/>• k-WTA with Gumbel noise<br/>• Online precision learning"]
+            HPM["HPM Grammar<br/>• SEQUENCE (time=sum)<br/>• PARALLEL (time=max)<br/>• Type safety<br/>• Resource additivity"]
+            CONSOL["Consolidation Scheduler<br/>• Sleep cycle every 50 steps<br/>• MVCC snapshot<br/>• E→S transfer<br/>• Atomic write-lock"]
+        end
+
+        subgraph ACTION_LAYER["🎮 ACTION & ENFORCEMENT"]
+            ACTION["Action Selector<br/>• Score = goal_align·w_g + confidence·w_c<br/>• ε-greedy exploration (10%)<br/>• Drive-specific behavior<br/>• Bounded rationality (satisficing)"]
+            RBTA["RBTA Constraint Enforcer<br/>• Check: runtime, memory, energy<br/>• Entropy floor (A3)<br/>• Sensor failure limit<br/>• SEQUENCE/PARALLEL composition<br/>• Action: CONTINUE/INTERRUPT/TERMINATE"]
+        end
+
+        subgraph CYCLE_LAYER["🔄 COGNITIVE CYCLE (20 steps)"]
+            CYCLE["CognitiveCycle<br/>• Steps 0-19<br/>• ~0.25ms latency<br/>• 2000× faster than target<br/>• Metrics collection"]
+        end
+    end
+
+    subgraph FEEDBACK_LOOPS["🔄 FEEDBACK LOOPS"]
+        direction LR
+        NEG["Negative Feedback<br/>(Stabilizing)<br/>• Homeostatic drives (MDIM)<br/>• PID regulation (CR)<br/>• RBTA enforcement<br/>• Entropy floor"]
+        POS["Positive Feedback<br/>(Amplifying)<br/>• Prediction error → learning<br/>• Skill compilation<br/>• Consolidation (E→S)<br/>• Exploration noise"]
+        PREDICT_F["Predictive Feedback<br/>(Feedforward)<br/>• Horizon rolling<br/>• Action simulation<br/>• Confidence weighting<br/>• Anti-oscillation"]
+    end
+
+    subgraph EXTERNAL_IF["🔌 EXTERNAL INTERFACES"]
+        API["API / ROS2 / Simulator<br/>• Abstract Sensorimotor<br/>• State vector M<br/>• Command buffer N<br/>• Temporal alignment"]
+    end
+
+    %% CONSTRAINTS → COMPONENTS
+    C1 -.-> PE
+    C1 -.-> PREDICT_F
+    C2 -.-> RBTA
+    C2 -.-> M2
+    C3 -.-> GPRIME
+    C3 -.-> PEU
+    C4 -.-> ACTION
+    C4 -.-> NEG
+    C5 -.-> LEARN_LAYER
+    C5 -.-> PE
+
+    %% BOUNDARIES → COMPONENTS
+    B1 -.-> PSTREAM
+    B1 -.-> MDIM
+    B1 -.-> ATTN
+    B2 -.-> CR
+    B2 -.-> MDIM
+    B3 -.-> CONSOL
+    B3 -.-> M3
+    B4 -.-> GPRIME
+    B4 -.-> PEU
+    B5 -.-> PE
+    B5 -.-> RBTA
+
+    %% DATA FLOW
+    ENV_IN --> SANITIZER
+    SANITIZER --> ADAPTER
+    ADAPTER --> M1
+    ADAPTER --> M2
+    M2 --> GPRIME
+    GPRIME --> PE
+    PE --> PEU
+    PEU --> PSTREAM
+    PSTREAM --> ESTREAM
+    ESTREAM --> SSTREAM
+    SSTREAM --> M4
+    PSTREAM --> M5
+    M2 --> ATTN
+    MDIM --> ATTN
+    CR --> ATTN
+    MDIM --> ACTION
+    ATTN --> ACTION
+    PE --> ACTION
+    ACTION --> ENV_OUT
+    ENV_OUT --> FEEDBACK
+    FEEDBACK --> ENV_IN
+    M3 --> CONSOL
+    CONSOL --> M4
+
+    %% RBTA enforcement (checks all components)
+    RBTA -.-> SANITIZER
+    RBTA -.-> M2
+    RBTA -.-> GPRIME
+    RBTA -.-> PE
+    RBTA -.-> PEU
+    RBTA -.-> PSTREAM
+    RBTA -.-> MDIM
+    RBTA -.-> CR
+    RBTA -.-> ATTN
+    RBTA -.-> ACTION
+
+    %% Feedback loops
+    NEG -.-> MDIM
+    NEG -.-> CR
+    NEG -.-> RBTA
+    POS -.-> PSTREAM
+    POS -.-> ESTREAM
+    POS -.-> SSTREAM
+    PREDICT_F -.-> PE
+    PREDICT_F -.-> ACTION
+
+    %% External interface
+    ENV_IN <--> API
+    ENV_OUT <--> API
+    API --> ENV_IN
+    API --> ENV_OUT
+
+    style CONSTRAINTS fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style BOUNDARIES fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    style CORE fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style FEEDBACK_LOOPS fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style EXTERNAL fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px

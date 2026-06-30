@@ -233,7 +233,21 @@ class CognitiveCycle:
                     timestamp=float(self.cycle_count),
                     grounding_level=1,
                 )
+                t_glearn = time.perf_counter()
                 self.gprime.learn(self.current_state, action_vec, next_state, metrics.prediction_error)
+                metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
+
+                # Store episode in M3 episodic memory (Task B fix)
+                m3_drive_id = self.current_goal.drive_id if self.current_goal else None
+                self.consolidation.m3.store_episode(
+                    state_before=self.current_state,
+                    action_taken=action_vec,
+                    state_after=next_state,
+                    prediction_error=metrics.prediction_error,
+                    confidence=metrics.prediction_confidence,
+                    drive_id=m3_drive_id,
+                    timestamp=self.cycle_count,
+                )
 
             self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
             self.last_action[action_idx] = 1.0
@@ -383,6 +397,7 @@ class CognitiveCycle:
             metrics.module_timings["consolidation"] = (
                 time.perf_counter() - t_consol
             ) * 1000
+            self.runtime_log["CONSOL"] = metrics.module_timings["consolidation"] / 1000.0
 
             # Step 19: Increment cycle counter
             self.cycle_count += 1
@@ -395,6 +410,10 @@ class CognitiveCycle:
                 metrics.module_timings["sleep_cycle"] = (
                     time.perf_counter() - t_sleep
                 ) * 1000
+                self.runtime_log["CONSOL"] = max(
+                    self.runtime_log.get("CONSOL", 0.0),
+                    metrics.module_timings["sleep_cycle"] / 1000.0,
+                )
 
         except Exception as e:
             _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
@@ -406,34 +425,34 @@ class CognitiveCycle:
     def _select_action(self) -> int:
         """Select action using goal-directed planning with MDIM goal awareness.
 
-        Blends three signals:
-          1. GridWorld goal alignment: how much the action moves toward the
-             environment's goal position (uses env state directly)
-          2. State-space alignment: how close the predicted next state is to
-             the MDIM goal's target_state vector (P2-F fix — was previously
-             ignored)
-          3. Prediction confidence: how well the model knows the outcome
+        Uses continuous distance gain rather than discrete goal alignment,
+        with ε-greedy exploration and drive-appropriate scoring.
 
         The blend depends on the MDIM goal's drive_id:
-          D1/D3 (error/competence): goal-aligned + state-space + confidence
-          D2/D4 (exploration): seek uncertainty
-          D5 (energy): prefer STAY
-          D6 (empowerment): state-space alignment only
+          D1/D3 (error/competence): distance gain + confidence
+          D2/D4 (exploration): uncertainty + distance gain
+          D5 (energy): STAY
+          D6 (empowerment): state-space alignment
         """
         if self.current_state is None:
             return 4  # STAY
 
-        # Determine goal-directed behavior from MDIM goal
         goal = self.current_goal
         goal_id = goal.drive_id if goal else 1
         target = goal.target_state if goal else None
 
-        # D5 (Energy Efficiency): prefer STAY to minimize energy
+        # ε-greedy exploration (5% random action)
+        rng = np.random.RandomState(self.cycle_count)
+        if rng.random() < 0.05:
+            return int(rng.randint(0, self.env.action_space_size))
+
+        # D5 (Energy Efficiency): prefer STAY
         if goal_id == 5:
-            return 4  # STAY
+            return 4
 
         best_action = 4
         best_score = -float("inf")
+        action_confidences = []
 
         for action_idx in range(self.env.action_space_size):
             action = np.zeros(self.env.action_space_size, dtype=np.float32)
@@ -444,21 +463,19 @@ class CognitiveCycle:
                 predicted, confidence = self.engine.predict(
                     self.current_state, horizon=1,
                 )
+                action_confidences.append(confidence)
+
+                # Continuous distance gain (0 = toward goal, 1 = away)
+                distance_gain = self._compute_distance_gain(action_idx)
 
                 if goal_id in (1, 3):
-                    # D1/D3: Goal alignment + state-space alignment + confidence
-                    goal_align = self._action_goal_alignment(action_idx)
-                    state_align = self._state_space_alignment(predicted, target)
-                    score = (
-                        0.4 * goal_align
-                        + 0.3 * state_align
-                        + 0.3 * min(confidence, 1.0)
-                    )
+                    # D1/D3: strongly prioritize reducing distance, confidence secondary
+                    score = (1.0 - distance_gain) * 0.8 + min(confidence, 1.0) * 0.2
                 elif goal_id in (2, 4):
-                    # D2/D4: Seek uncertainty for exploration
-                    score = 1.0 - min(confidence, 1.0)
+                    # D2/D4: seek uncertainty, penalize moving away
+                    score = (1.0 - min(confidence, 1.0)) * 0.7 + (1.0 - distance_gain) * 0.3
                 else:
-                    # D6 (Empowerment): state-space alignment
+                    # D6 (Empowerment): state-space alignment only
                     state_align = self._state_space_alignment(predicted, target)
                     score = state_align
 
@@ -466,7 +483,11 @@ class CognitiveCycle:
                     best_score = score
                     best_action = action_idx
             except Exception:
+                action_confidences.append(0.0)
                 continue
+
+        # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
+        self._cached_confidences = action_confidences
 
         return best_action
 
@@ -512,67 +533,56 @@ class CognitiveCycle:
         # Map [-1, 1] → [0, 1]
         return float(np.clip((cos_sim + 1.0) / 2.0, 0.0, 1.0))
 
-    def _action_goal_alignment(self, action_idx: int) -> float:
-        """Compute how much an action moves toward the environment's goal.
+    def _compute_distance_gain(self, action_idx: int) -> float:
+        """Compute normalized distance gain for an action.
 
-        Uses duck typing to detect GridWorld-specific spatial interface:
-        if env has agent_pos, goal_pos, and grid, uses Manhattan distance
-        with wall/boundary checks (GridWorld path).
+        Returns 0.0 if action moves directly toward goal, 1.0 if away,
+        0.5 if same distance or non-GridWorld environment.
+        Continuous metric: (current_dist - new_dist) / current_dist mapped
+        to [0, 1] where lower = better.
 
-        For non-GridWorld environments, falls back to state-space alignment
-        using MDIM target_state (via _state_space_alignment). This ensures
-        the method never crashes or produces garbage when the environment
-        type changes.
-
-        Args:
-            action_idx: 0=N, 1=S, 2=E, 3=W, 4=STAY
-
-        Returns:
-            1.0 if closer to goal, 0.5 if same distance, 0.0 if farther/blocked,
-            or state-space alignment for non-GridWorld environments.
+        STAY (idx=4) penalized when not at goal (0.7 vs 0.5) to discourage
+        lingering. For non-GridWorld environments, falls back to 0.5 (neutral).
         """
-        # Duck-type check: does env have a GridWorld spatial interface?
         env = self.env
         if hasattr(env, "agent_pos") and hasattr(env, "goal_pos") and hasattr(env, "grid"):
             dr, dc = ACTION_DELTAS[action_idx]
             new_row = env.agent_pos[0] + dr
             new_col = env.agent_pos[1] + dc
 
-            # Check bounds
+            # Out of bounds or wall → worst score
             if not (0 <= new_row < env.size and 0 <= new_col < env.size):
-                return 0.0  # out of bounds
-
-            # Check walls
+                return 1.0
             if env.grid[new_row, new_col] == env.WALL:
-                return 0.0  # blocked by wall
+                return 1.0
 
-            # Manhattan distances to goal
             g_row, g_col = env.goal_pos
             current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
             new_dist = abs(new_row - g_row) + abs(new_col - g_col)
 
-            if new_dist < current_dist:
-                return 1.0  # closer to goal
-            elif new_dist == current_dist:
-                return 0.5  # same distance
-            else:
-                return 0.0  # farther from goal
+            if current_dist == 0:
+                return 0.0
+
+            # Penalize STAY when not at goal to discourage lingering
+            if action_idx == 4 and new_dist == current_dist:
+                return 0.7
+
+            # Normalized gain: (current - new) / current → [-1, 1], map to [0, 1]
+            gain = (current_dist - new_dist) / current_dist
+            return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
         else:
-            # Non-GridWorld environment: fall back to state-space alignment
-            # with the MDIM goal's target_state (handled by P2-F)
-            target = self.current_goal.target_state if self.current_goal else None
-            if self.last_prediction is not None:
-                return self._state_space_alignment(self.last_prediction, target)
             return 0.5
 
     def _estimate_empowerment(self) -> float:
         """Estimate empowerment (action-effect channel capacity).
 
-        Approximation: compute variance of prediction confidences
-        across all possible actions. If different actions lead to
-        different confidence levels, empowerment is high.
+        Uses cached confidences from _select_action when available to
+        avoid duplicating the 5× predict loop. Falls back to fresh
+        computation when cache is missing or stale.
 
-        Phase 3.2: Simple heuristic based on confidence spread.
+        Approximation: compute variance of prediction confidences
+        across all possible actions.
+
         Phase 3.3+: Full I(state_{t+1}; a_t | state_t) computation.
 
         Returns:
@@ -581,16 +591,20 @@ class CognitiveCycle:
         if self.current_state is None:
             return 0.3
 
-        confidences = []
-        for action_idx in range(self.env.action_space_size):
-            action = np.zeros(self.env.action_space_size, dtype=np.float32)
-            action[action_idx] = 1.0
-            self.engine.update_action(action)
-            try:
-                _, confidence = self.engine.predict(self.current_state, horizon=1)
-                confidences.append(confidence)
-            except Exception:
-                confidences.append(0.0)
+        # Use cached confidences from _select_action if available
+        if hasattr(self, '_cached_confidences') and self._cached_confidences:
+            confidences = self._cached_confidences
+        else:
+            confidences = []
+            for action_idx in range(self.env.action_space_size):
+                action = np.zeros(self.env.action_space_size, dtype=np.float32)
+                action[action_idx] = 1.0
+                self.engine.update_action(action)
+                try:
+                    _, confidence = self.engine.predict(self.current_state, horizon=1)
+                    confidences.append(confidence)
+                except Exception:
+                    confidences.append(0.0)
 
         # Restore engine action
         if self.last_action is not None:
@@ -598,8 +612,6 @@ class CognitiveCycle:
 
         if not confidences:
             return 0.3
-
-        # Empowerment ≈ std(confidences) — higher spread = more discriminative actions
         empowerment = float(np.std(confidences))
         return float(np.clip(empowerment, 0.0, 1.0))
 
@@ -669,10 +681,12 @@ class CognitiveCycle:
             "peu": "PEU",
             "tspl": "TSPL-P",
             "action_selection": "ACTION",
+            "gprime_learn": "G'",
             "mdim": "MDIM",
             "cr": "CR",
             "attn": "ATTN",
             "hpm": "HPM",
+            "consolidation": "CONSOL",
             "rbta": "CYCLE",
         }
         if metrics is not None:
@@ -686,26 +700,37 @@ class CognitiveCycle:
                 module_id: 0.001 for module_id in set(timing_map.values())
             }
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
-        # Synthetic resource logs consistent with DEFAULT_MODULE_BOUNDS
-        # Values are set at 10-30% of bound to avoid spurious violations
-        # Phase 3.3+: real instrumentation replaces these placeholders
+        # Memory estimates from state dimensionality
+        sd = self.state_dim
         self.memory_log = {
-            "ASI": 10_000, "WM": 20_000, "G'": 100_000,
-            "PE": 30_000, "PEU": 1_000, "TSPL-P": 50_000,
-            "TSPL-E": 80_000, "TSPL-S": 80_000,
+            "ASI": max(1_000, sd * 4 * 2),
+            "WM": max(1_000, sd * 4 * 7),
+            "G'": max(10_000, sd * sd * 4 * 5),
+            "PE": max(1_000, sd * 4 * 3),
+            "PEU": max(500, sd * 4),
+            "TSPL-P": max(5_000, sd * 4 * 10),
+            "TSPL-E": max(5_000, sd * 4 * 10),
+            "TSPL-S": max(5_000, sd * 4 * 10),
             "MDIM": 20_000, "CR": 10_000, "ATTN": 5_000,
             "HPM": 10_000, "CONSOL": 2_000,
         }
-        self.energy_log = {
-            "ASI": 2.0, "WM": 1.0, "G'": 10.0,
-            "PE": 4.0, "PEU": 0.2, "TSPL-P": 6.0,
-            "TSPL-E": 6.0, "TSPL-S": 6.0,
-            "MDIM": 2.0, "CR": 1.0, "ATTN": 0.5,
-            "HPM": 1.0, "CONSOL": 0.2,
-        }
-        self.belief_entropies = {
-            "G'": max(0.01, 0.5 - self.cycle_count * 0.001),
-        }
+        # Energy estimates from actual module runtimes (scaled to match original magnitude)
+        self.energy_log = {}
+        for mod, runtime_s in self.runtime_log.items():
+            self.energy_log[mod] = max(0.1, min(10.0, runtime_s * 50.0))
+        # Fill any missing standard modules at realistic baseline
+        baseline = {"ASI": 2.0, "WM": 1.0, "G'": 5.0, "TSPL-E": 3.0, "TSPL-S": 3.0, "CONSOL": 0.5}
+        for mod, val in baseline.items():
+            if mod not in self.energy_log:
+                self.energy_log[mod] = val
+        # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
+        if len(self.metrics_history) >= 5:
+            recent_errs = [m.prediction_error for m in self.metrics_history[-10:]]
+            err_var = float(np.var(recent_errs)) if len(recent_errs) > 1 else 0.5
+            entropy_val = min(1.0, max(0.01, err_var * 10.0))
+        else:
+            entropy_val = 0.5
+        self.belief_entropies = {"G'": entropy_val}
 
     @classmethod
     def build_for_env(

@@ -1,0 +1,131 @@
+%%{init: { 'theme': 'dark' } }%%
+flowchart TB
+    classDef building fill:#1a2332,stroke:#4fc3f7,stroke-width:2px,color:#e0e0e0
+    classDef floor fill:#0d1b2a,stroke:#4fc3f7,stroke-width:1px,color:#b0bec5
+    classDef component fill:#0a1628,stroke:#ffb74d,stroke-width:1.5px,color:#ffffff
+    classDef constraint fill:#1a0e0e,stroke:#ef5350,stroke-width:2px,color:#ef9a9a
+    classDef flow fill:none,stroke:#4fc3f7,stroke-width:2px,color:#4fc3f7
+
+    subgraph Building["🏛️ PHCA v3.0 ARCHITECTURAL BLUEPRINT"]
+        direction TB
+
+        subgraph F7["**Floor 7: Orchestration**"]
+            direction LR
+            Cycle["CognitiveCycle<br/>(20‑step loop)"]
+        end
+
+        subgraph F6["**Floor 6: Execution & Enforcement**"]
+            direction LR
+            Action["Action Selector<br/>(Goal‑directed + ε‑greedy)"]
+            RBTA["RBTA<br/>(Time / Memory / Energy / Entropy)"]
+            Consolidation["Consolidation<br/>(E→S transfer + MVCC)"]
+        end
+
+        subgraph F5["**Floor 5: Motivation & Regulation**"]
+            direction LR
+            MDIM["MDIM<br/>(6 Drives + Pareto Front)"]
+            CR["Criticality Regulator<br/>(PID + Orthogonality)"]
+            Attention["Precision‑Weighted Attention<br/>(k‑WTA + Gumbel)"]
+            HPM["HPM Grammar<br/>(SEQUENCE / PARALLEL)"]
+        end
+
+        subgraph F4["**Floor 4: Core Processing**"]
+            direction LR
+            WorldModel["World Model (G')<br/>(Bayesian Network + k‑NN)"]
+            Prediction["Prediction Engine<br/>(Horizon 1‑100 + Confidence)"]
+            Learning["TSPL<br/>(P‑Stream / E‑Stream / S‑Stream)"]
+        end
+
+        subgraph F3["**Floor 3: Memory Hierarchy**"]
+            direction LR
+            M1["M1: Sensory Buffer<br/>(10 × d)"]
+            M2["M2: Working Memory<br/>(7±2 chunks)"]
+            M3["M3: Episodic<br/>(SQLite + MVCC)"]
+            M4["M4: Semantic<br/>(Facts + Write‑lock)"]
+            M5["M5: Procedural<br/>(Skills, Read‑only)"]
+        end
+
+        subgraph F2["**Floor 2: Interface (ASI)**"]
+            direction LR
+            Sanitizer["Sanitizer<br/>(NaN/Inf → last valid)"]
+            Adapter["Grounding Adapter<br/>(Level 0 / 1 / 2)"]
+        end
+
+        subgraph F1["**Floor 1: Environment**"]
+            direction LR
+            Sensors["Sensors<br/>(Raw Input)"]
+            Actuators["Actuators<br/>(Output Commands)"]
+        end
+    end
+
+    subgraph Constraints["⛓️ CONSTRAINT WALLS"]
+        direction LR
+        C1["A1: Resource Boundedness<br/>(B_time / B_mem / B_energy)"]
+        C2["A2: Temporal Causality<br/>(Prediction compensates delay)"]
+        C3["A3: Incomplete Knowledge<br/>(Entropy floor ε > 0)"]
+        C4["A4: Prediction as Primary<br/>(Learn from prediction error δ)"]
+        C5["A5: Feedback‑Driven Adaptation<br/>(Closed‑loop required)"]
+    end
+
+    %% —— Data Flow (Top to Bottom) ——
+    Sensors -->|Raw sensor vector| Sanitizer
+    Sanitizer -->|Cleaned vector| Adapter
+    Adapter -->|StateVector| M1
+    Adapter -->|StateVector| M2
+    M2 -->|Selected chunks| WorldModel
+    WorldModel -->|Prediction| Prediction
+    Prediction -->|Error signal δ| Learning
+    Learning -->|Drive deficits| MDIM
+    MDIM -->|Goal| Attention
+    MDIM -->|Goal| Action
+    Attention -->|Salience update| M2
+    Prediction -->|Confidence| Action
+    Action -->|Command| Actuators
+    Actuators -->|Feedback| Sensors
+
+    %% —— Memory Internal Flow ——
+    M1 -->|Attention gating| M2
+    M2 -->|Store episodes| M3
+    M3 -->|Snapshot| Consolidation
+    Consolidation -->|Write facts| M4
+    M2 -->|Compile skills| M5
+    M5 -->|Skill parameters| M2
+
+    %% —— Regulation & Control ——
+    CR -->|T, η, α| Attention
+    CR -->|η| Learning
+    MDIM -->|Pareto front status| CR
+    MDIM -->|Meta‑stable| CR
+    HPM -->|Composition tree| RBTA
+
+    %% —— RBTA Enforcement ——
+    RBTA -.->|Checks bounds| Sanitizer
+    RBTA -.->|Checks bounds| M2
+    RBTA -.->|Checks bounds| WorldModel
+    RBTA -.->|Checks bounds| Prediction
+    RBTA -.->|Checks bounds| Learning
+    RBTA -.->|Checks bounds| MDIM
+    RBTA -.->|Checks bounds| Action
+
+    %% —— Cross‑Floor Coordination ——
+    Cycle -->|Triggers| RBTA
+    Cycle -->|Triggers| Consolidation
+    Cycle -->|Triggers| Action
+    Cycle -->|Receives metrics| Sanitizer
+    Cycle -->|Receives metrics| M2
+    Cycle -->|Receives metrics| Prediction
+
+    %% —— Constraint Walls (A1–A5) ——
+    C1 -.->|Applies to all modules| RBTA
+    C2 -.->|Enforced by prediction engine| Prediction
+    C3 -.->|Maintained by entropy floor| RBTA
+    C4 -.->|Drives learning loop| Learning
+    C5 -.->|Required for adaptation| Action
+
+    %% —— Styling ——
+    class Building building
+    class F1,F2,F3,F4,F5,F6,F7 floor
+    class Sanitizer,Adapter,M1,M2,M3,M4,M5,WorldModel,Prediction,Learning,MDIM,CR,Attention,HPM,Action,RBTA,Consolidation,Cycle component
+    class C1,C2,C3,C4,C5 constraint
+    class Sensors,Actuators component
+    linkStyle default stroke:#4fc3f7,stroke-width:2px

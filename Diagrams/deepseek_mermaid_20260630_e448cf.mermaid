@@ -1,0 +1,86 @@
+classDiagram
+    class CognitiveCycle {
+        -ASISanitizer sanitizer
+        -M1SensoryBuffer m1
+        -M2WorkingMemory m2
+        -M3EpisodicMemory m3
+        -WorldModelGPrime gprime
+        -PredictionEngine engine
+        -PredictionErrorUnit peu
+        -TSPL tspl
+        -RBTAEnforcer rbta
+        -MDIM mdim
+        -Attention attention
+        -CriticalityRegulator cr
+        -HPMValidator hpm
+        -ConsolidationScheduler consolidation
+        -GridWorld env
+        +step() CycleMetrics
+        +run(n_cycles) dict
+        -_select_action() int
+        -_collect_runtime_log()
+        -_approximate_phi() float
+        -_estimate_empowerment() float
+    }
+
+    class StateVector {
+        +ndarray values
+        +ndarray precision
+        +float timestamp
+        +int grounding_level
+        +to_bytes() bytes
+        +from_bytes(bytes) StateVector
+    }
+
+    class WorldModelGPrime {
+        -Dict nodes
+        -List temporal_edges
+        -List causal_edges
+        -List state_history
+        +predict(state, action) (StateVector, float)
+        +learn(state_t, action, state_t1, error)
+        +similarity_search(query, k) List
+        +has_gaussian_nodes() bool
+        +predict_continuous(state, action) (StateVector, float)
+    }
+
+    class TSPL {
+        -Dict theta
+        -Dict theta_protected
+        -bool skill_compiled
+        +update(stream, error, state, pred) (Dict, bool)
+        -_compute_gradient(error, state, pred) Dict
+        -_estimate_accuracy(pred, state, error) float
+        +freeze_skill(skill_id)
+        +init_parameters(name, shape)
+    }
+
+    class MDIM {
+        -Dict drives
+        -GoalStack goal_stack
+        -MetaStableState meta_stable
+        -float temperature
+        +generate_goal(context) GoalVector
+        +compute_drives(context) Dict
+        +compute_pareto_front() List
+        -_is_deeply_meta_stable() bool
+        +get_drive_summary() Dict
+    }
+
+    class RBTAEnforcer {
+        -Dict _bounds
+        -int _asi_failure_limit
+        +check_cycle(runtime, mem, energy, entropy, sensor_fail, limit, tree) (List, EnforcerAction)
+        -_classify_action(violations) EnforcerAction
+        -_check_composition_tree(tree, runtime, violations)
+        +update_bounds(module_id, bounds)
+    }
+
+    CognitiveCycle --> StateVector
+    CognitiveCycle --> WorldModelGPrime
+    CognitiveCycle --> TSPL
+    CognitiveCycle --> MDIM
+    CognitiveCycle --> RBTAEnforcer
+    CognitiveCycle --> GridWorld
+    CognitiveCycle --> M3EpisodicMemory
+    CognitiveCycle --> ConsolidationScheduler
