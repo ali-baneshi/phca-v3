@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
 
-from phca.config import StateVector, EnforcerAction
+from phca.config import StateVector
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.regulation.rbta_enforcer import RBTAEnforcer
 
 # Reduce G' inference test load — use small graphs
 pytestmark = pytest.mark.timeout(30)
@@ -92,8 +90,8 @@ class TestCognitiveCycleRun:
         """Run should store one metrics entry per cycle."""
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         summary = cycle.run(n_cycles=5)
-        assert len(summary["early_errors"]) == 10  # 5 cycles × 2 halves
-        assert len(summary["late_errors"]) == 10
+        assert len(summary["early_errors"]) == 5  # 5 cycles, [:10] returns 5
+        assert len(summary["late_errors"]) == 5   # 5 cycles, [-10:] returns 5
         assert len(summary["actions_taken"]) == 5
 
     def test_run_empty_returns_safe_defaults(self):

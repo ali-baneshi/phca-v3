@@ -1,1 +1,42 @@
-"""\nPHCA v3.0 — MDIM (Multi-Drive Intrinsic Motivation) Stub.\n\nPhase 3.1: Stub — always returns default GoalVector(D1: prediction error minimization).\nPhase 3.2+: Full Pareto front with D1-D6 drives and meta-stable state selection.\n\nv3.0 Reference: §3.3 Definition 3.5, §3.3 Definition 3.6\n"""\n\nfrom __future__ import annotations\n\nfrom typing import Any\n\nimport numpy as np\n\nfrom phca.config import GoalVector, StateVector\n\n\nclass MDIM:\n    """Multi-Drive Intrinsic Motivation — Phase 3.1 stub.\n\n    Phase 3.1: Always generates a default goal vector with drive_id=D1\n    (prediction error minimization). Action selection in Phase 3.1 is:\n    choose action that minimizes predicted prediction error at t+1\n    (i.e., go where you're most certain).\n\n    Phase 3.2+: Generates goals from D1-D6 drives with Pareto-optimal\n    meta-stable state selection.\n    """\n\n    def __init__(self, state_dim: int = 4):\n        self.state_dim = state_dim\n        self._cycle = 0\n\n    def generate_goal(self, context: Any = None) -> GoalVector:\n        """Generate a default goal (Phase 3.1 stub).\n\n        Args:\n            context: Optional context from the cognitive cycle (ignored in Phase 3.1).\n\n        Returns:\n            GoalVector with drive_id=D1 (prediction error minimization).\n        """\n        self._cycle += 1\n        return GoalVector(\n            drive_id=1,  # D1: prediction error\n            target_state=StateVector(\n                values=np.zeros(self.state_dim, dtype=np.float32),\n                precision=np.ones(self.state_dim, dtype=np.float32),\n            ),\n            tolerance=0.1,\n            creation_cycle=self._cycle,\n            priority=1.0,\n        )\n\n    def reset(self) -> None:\n        """Reset MDIM state for a new training run."""\n        self._cycle = 0\n", "allowMultiple": false}
+"""
+PHCA v3.0 - MDIM (Multi-Drive Intrinsic Motivation) Stub.
+
+Phase 3.1: Stub - always returns default GoalVector(D1: prediction error minimization).
+Phase 3.2+: Full Pareto front with D1-D6 drives and meta-stable state selection.
+
+v3.0 Reference: xa7.3.3 Definition 3.5, xa7.3.3 Definition 3.6
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from phca.config import GoalVector, StateVector
+
+
+class MDIM:
+    """Multi-Drive Intrinsic Motivation - Phase 3.1 stub."""
+
+    def __init__(self, state_dim: int = 4):
+        self.state_dim = state_dim
+        self._cycle = 0
+
+    def generate_goal(self, context: Any = None) -> GoalVector:
+        """Generate a default goal (Phase 3.1 stub)."""
+        self._cycle += 1
+        return GoalVector(
+            drive_id=1,
+            target_state=StateVector(
+                values=np.zeros(self.state_dim, dtype=np.float32),
+                precision=np.ones(self.state_dim, dtype=np.float32),
+            ),
+            tolerance=0.1,
+            creation_cycle=self._cycle,
+            priority=1.0,
+        )
+
+    def reset(self) -> None:
+        """Reset MDIM state for a new training run."""
+        self._cycle = 0

@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 from phca.logging import logger, _log
 
-from ..config import StateVector, ASIStatus, DEFAULT_MODULE_BOUNDS
+from ..config import StateVector, ASIStatus
 
 
 class ASISanitizer:

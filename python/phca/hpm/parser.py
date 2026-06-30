@@ -1,1 +1,24 @@
-"""\nPHCA v3.0 — HPM (Hierarchical Predictive Module) Grammar Stub.\n\nPhase 3.1: Stub — validates all compositions as correct.\nPhase 3.2+: Typed grammar for module composition with SEQUENCE/PARALLEL combinators.\n\nv3.0 Reference: §2.1 Definition 2.1 (composition tree), §4\n"""\n\nfrom __future__ import annotations\n\nfrom typing import Any, Dict, List\n\n\nclass HPMValidator:\n    """HPM Grammar Validator — Phase 3.1 stub.\n\n    The HPM Grammar provides a typed language for composing cognitive\n    modules into pipelines. It validates that compositions are\n    type-correct according to v3.0 §2.1 Definition 2.1.\n\n    Phase 3.1: Pass-through — all compositions are valid.\n    Phase 3.2+: Type-checking against module signatures.\n    """\n\n    def validate(self, spec: Dict[str, Any]) -> bool:\n        """Validate a composition specification (Phase 3.1: always valid).\n\n        Args:\n            spec: Composition specification dict with module IDs and connections.\n\n        Returns:\n            True (all compositions valid in Phase 3.1).\n        """\n        return True\n\n    def get_valid_compositions(self) -> List[str]:\n        """Get list of valid composition types (Phase 3.1 stub).\n\n        Returns:\n            List of valid composition names.\n        """\n        return [\"SEQUENCE\", \"PARALLEL\", \"PIPELINE\"]\n", "allowMultiple": false}
+"""
+PHCA v3.0 - HPM (Hierarchical Predictive Module) Grammar Stub.
+
+Phase 3.1: Stub - validates all compositions as correct.
+Phase 3.2+: Typed grammar for module composition with SEQUENCE/PARALLEL combinators.
+
+v3.0 Reference: xa7.2.1 Definition 2.1 (composition tree), xa7.4
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+
+class HPMValidator:
+    """HPM Grammar Validator - Phase 3.1 stub."""
+
+    def validate(self, spec: Dict[str, Any]) -> bool:
+        """Validate a composition specification (Phase 3.1: always valid)."""
+        return True
+
+    def get_valid_compositions(self) -> List[str]:
+        """Get list of valid composition types."""
+        return ["SEQUENCE", "PARALLEL", "PIPELINE"]

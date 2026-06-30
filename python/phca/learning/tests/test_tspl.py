@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from phca.config import StateVector, StreamID
-from phca.learning.tspl import TSPL, DEFAULT_STREAM_CONFIGS, StreamConfig
+from phca.learning.tspl import TSPL
 from phca.learning.skill_compilation import SkillLibrary
 
 

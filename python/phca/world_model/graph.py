@@ -13,7 +13,7 @@ v3.0 References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 from pgmpy.models import DiscreteBayesianNetwork
@@ -505,9 +505,8 @@ def _result_to_dict(
 
     for var_name in expected_vars:
         if var_name in scope:
-            # Find position in scope to extract marginal
-            var_idx = all_vars.index(var_name)
-            var_card = values.shape[var_idx] if len(values.shape) > 1 else len(values)
+            # Phase 3.1 uses flat values for single-var queries.
+            # Phase 3.2: marginalize over scope using var_idx = all_vars.index(var_name)
             # For Phase 3.1: use flat values since we mostly query single var
             result_dict[var_name] = values.flatten() if len(all_vars) == 1 else values
         else:

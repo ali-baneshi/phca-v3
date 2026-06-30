@@ -1,1 +1,28 @@
-"""\nPHCA v3.0 — Criticality Regulator (PID Controller) Stub.\n\nPhase 3.1: Stub — returns fixed default parameters (T=1.0, eta=0.1, alpha=0.5).\nPhase 3.2+: PID controller regulating criticality φ toward target setpoint.\n\nv3.0 Reference: §3.4 Definition 3.7, §3.4 — Criticality Regulation Loop\n"""\n\nfrom __future__ import annotations\n\n\nclass CriticalityRegulator:\n    """Criticality Regulator — Phase 3.1 stub.\n\n    The CR maintains the system near the edge of chaos by regulating\n    the criticality parameter φ. It uses a PID controller to keep\n    φ within the meta-stable range [0.4, 0.7].\n\n    Phase 3.1: Returns fixed parameters (T=1.0, eta=0.1, alpha=0.5).\n    Phase 3.2+: PID feedback loop with error correction.\n    """\n\n    def __init__(self, setpoint: float = 0.5):\n        self.setpoint = setpoint\n        self._integral: float = 0.0\n        self._prev_error: float = 0.0\n\n    def regulate(self, phi_current: float = 0.5) -> tuple[float, float, float]:\n        """Regulate criticality (Phase 3.1: fixed default).\n\n        Args:\n            phi_current: Current criticality estimate (ignored in Phase 3.1).\n\n        Returns:\n            Tuple of (temperature T, exploration noies eta, learning rate alpha).\n        """\n        # Phase 3.1: return fixed defaults\n        return (1.0, 0.1, 0.5)\n\n    def reset(self) -> None:\n        """Reset PID state for a new training run."""\n        self._integral = 0.0\n        self._prev_error = 0.0\n", "allowMultiple": false}
+"""
+PHCA v3.0 - Criticality Regulator (PID Controller) Stub.
+
+Phase 3.1: Stub - returns fixed default parameters (T=1.0, eta=0.1, alpha=0.5).
+Phase 3.2+: PID controller regulating criticality phi toward target setpoint.
+
+v3.0 Reference: xa7.3.4 Definition 3.7
+"""
+
+from __future__ import annotations
+
+
+class CriticalityRegulator:
+    """Criticality Regulator - Phase 3.1 stub."""
+
+    def __init__(self, setpoint: float = 0.5):
+        self.setpoint = setpoint
+        self._integral: float = 0.0
+        self._prev_error: float = 0.0
+
+    def regulate(self, phi_current: float = 0.5) -> tuple[float, float, float]:
+        """Regulate criticality (Phase 3.1: fixed default)."""
+        return (1.0, 0.1, 0.5)
+
+    def reset(self) -> None:
+        """Reset PID state for a new training run."""
+        self._integral = 0.0
+        self._prev_error = 0.0

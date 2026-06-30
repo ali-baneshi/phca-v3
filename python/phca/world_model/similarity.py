@@ -10,7 +10,7 @@ insufficient for analogical retrieval, activate V = python/phca/world_model/vsa.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 

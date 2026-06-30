@@ -5,9 +5,8 @@ Verifies: all 5 actions valid, state vector dimension, terminal conditions, obst
 """
 
 import numpy as np
-import pytest
 
-from environments.grid_world import GridWorld, ACTION_NAMES
+from environments.grid_world import GridWorld
 
 
 class TestGridWorld:

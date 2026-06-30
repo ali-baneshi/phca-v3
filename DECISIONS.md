@@ -84,3 +84,33 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Hard dependency on orjson, replace entirely with stdlib json
 - **Rationale:** orjson is faster (3-4x) for Phase 3.2 SQLite BLOBs. stdlib fallback ensures no crash if not installed. The fallback pattern is consistent with the structlog approach in D-004.
 - **v3.0 trace:** Audit Finding V-2 (`12-sprint-0-audit.md`)
+
+## Decision D-009: G' graph structure for Phase 3.1 — 10 binary nodes
+
+- **Date:** 2026-06-30
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2 (implementation-dependent)
+- **Option chosen:** G' model has 10 binary discrete nodes in `build_for_env()`, each representing one state dimension with a 60/40 temporal CPD
+- **Alternatives:** Full 84-dim continuous model with Gaussian CPDs, hierarchical model with per-cell nodes
+- **Rationale:** Binary nodes with simple CPDs keep pgmpy inference under 1ms for Phase 3.1. Full continuous modeling deferred to Phase 3.2 when VSA or differentiable G' is available. The simplified graph means prediction errors are near-zero and skill compilation triggers immediately — acceptable for infrastructure validation.
+- **v3.0 trace:** §2.2 Def 2.4b (simplified, Phase 3.1)
+
+## Decision D-010: Action selection — confidence maximization as D1 proxy
+
+- **Date:** 2026-06-30
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** Phase 3.1 action selection picks the action with highest G' prediction confidence (minimizing prediction uncertainty)
+- **Alternatives:** Random action, heuristic rule-based, full MDIM (Phase 3.2+)
+- **Rationale:** Without MDIM (Phase 3.2), we need a simple action policy. Confidence maximization is equivalent to D1 (prediction error minimization) since higher confidence = lower expected error. This works for simple grid-world tasks where staying in familiar regions is beneficial.
+- **v3.0 trace:** §3.3 Def 3.5 (D1), §3.1 Def 3.2 (P-Stream action selection note)
+
+## Decision D-011: Skill compilation triggers at 0 error — Phase 3.1 limitation
+
+- **Date:** 2026-06-30
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Skill compiles immediately when prediction error is 0 (accuracy = 1.0)
+- **Alternatives:** Require sustained accuracy over N cycles, require non-zero error threshold
+- **Rationale:** With the simplified G' graph (D-009), prediction errors are near-zero, causing accuracy = 1.0. This is a Phase 3.1 artifact. In Phase 3.2 with proper continuous CPDs, error will be non-zero and the 95% threshold will gate compilation meaningfully.
+- **v3.0 trace:** §3.1 Def 3.3.3 (skill compilation)

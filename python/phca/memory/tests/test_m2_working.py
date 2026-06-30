@@ -7,7 +7,7 @@ Covers: capacity 7±2 bounds, salience-based eviction, read/write, clear, resize
 import numpy as np
 import pytest
 
-from phca.memory.m2_working import M2WorkingMemory, Chunk
+from phca.memory.m2_working import M2WorkingMemory
 from phca.config import StateVector
 
 

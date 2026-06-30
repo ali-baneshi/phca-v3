@@ -1,1 +1,357 @@
-"""\nPHCA v3.0 — Cognitive Cycle Orchestrator.\n\nPhase 3.1: 15-step cognitive cycle (subset of 21-step blueprint).\n  Steps 0-7, 9, 14-15, 19 active. Steps 8, 10-13, 16-18, 20 deferred.\n\nPhase 3.2+: Full 21-step cycle with MDIM, Attention, CR, HPM, Consolidation.\n\nv3.0 Reference: Blueprint §B, §2.2, §3.1\n"""\n\nfrom __future__ import annotations\n\nimport time\nfrom dataclasses import dataclass, field\nfrom typing import Any, Dict, List, Optional, Tuple\n\nimport numpy as np\n\nfrom phca.logging import logger, _log\nfrom phca.config import (\n    ASIStatus,\n    ConstraintViolation,\n    GoalVector,\n    ResourceBounds,\n    StateVector,\n    StreamID,\n    DEFAULT_MODULE_BOUNDS,\n)\nfrom phca.asi.sanitizer import ASISanitizer\nfrom phca.memory.m1_sensory import M1SensoryBuffer\nfrom phca.memory.m2_working import M2WorkingMemory, Chunk\nfrom phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge\nfrom phca.prediction.engine import PredictionEngine\nfrom phca.prediction.error_unit import PredictionErrorUnit\nfrom phca.learning.tspl import TSPL\nfrom phca.regulation.rbta_enforcer import RBTAEnforcer, EnforcerAction, BoundType\nfrom phca.motivation.mdim import MDIM\nfrom phca.attention.attention import Attention\nfrom phca.regulation.pid_controller import CriticalityRegulator\nfrom phca.hpm.parser import HPMValidator\nfrom environments.grid_world import GridWorld, ACTION_NAMES\n\n\ndefault_goal = GoalVector(\n    drive_id=1,\n    target_state=None,\n    tolerance=0.1,\n    creation_cycle=0,\n    priority=1.0,\n)\n\n\n@dataclass\nclass CycleMetrics:\n    \"\"\"Metrics collected per cognitive cycle.\"\"\"\n    cycle_id: int = 0\n    latency_ms: float = 0.0\n    prediction_error: float = 0.0\n    prediction_confidence: float = 0.0\n    rbta_action: str = \"CONTINUE\"\n    violations_count: int = 0\n    goal_reached: bool = False\n    action_taken: int = -1\n    action_name: str = \"\"\n    module_timings: Dict[str, float] = field(default_factory=dict)\n\n\nclass CognitiveCycle:\n    \"\"\"Phase 3.1 cognitive cycle orchestrator.\n\n    Runs 15-step cycles (Phase 3.1 subset of blueprint §B) connecting\n    all modules: ASI → M2 → G' → PE → PEU → TSPL → action → RBTA.\n\n    Phase 3.2 adds Steps 8 (Attention), 10-13 (MDIM + CR), 16-18 (HPM).\n\n    Example:\n        >>> cycle = CognitiveCycle.build_for_env(size=5, seed=42)\n        >>> summary = cycle.run(n_cycles=100)\n        >>> print(summary[\"avg_latency_ms\"])\n    \"\"\"\n\n    def __init__(\n        self,\n        sanitizer: ASISanitizer,\n        m1: M1SensoryBuffer,\n        m2: M2WorkingMemory,\n        gprime: WorldModelGPrime,\n        engine: PredictionEngine,\n        peu: PredictionErrorUnit,\n        tspl: TSPL,\n        rbta: RBTAEnforcer,\n        mdim: MDIM,\n        attention: Attention,\n        criticality_regulator: CriticalityRegulator,\n        hpm_validator: HPMValidator,\n        env: GridWorld,\n        state_dim: int,\n        rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,\n    ):\n        self.sanitizer = sanitizer\n        self.m1 = m1\n        self.m2 = m2\n        self.gprime = gprime\n        self.engine = engine\n        self.peu = peu\n        self.tspl = tspl\n        self.rbta = rbta\n        self.mdim = mdim\n        self.attention = attention\n        self.criticality_regulator = criticality_regulator\n        self.hpm_validator = hpm_validator\n        self.env = env\n        self.state_dim = state_dim\n\n        # RBTA bounds — default to global DEFAULT_MODULE_BOUNDS\n        self.rbta_bounds = rbta_bounds or DEFAULT_MODULE_BOUNDS.copy()\n\n        # Cycle state\n        self.cycle_count: int = 0\n        self.current_state: Optional[StateVector] = None\n        self.current_goal: GoalVector = default_goal\n        self.last_action: np.ndarray = np.zeros(env.action_space_size, dtype=np.float32)\n        self.last_prediction: Optional[StateVector] = None\n        self.sensor_failure_count: int = 0\n        self.asi_failure_limit: int = 5\n\n        # RBTA runtime/memory/energy logs (populated each cycle)\n        self.runtime_log: Dict[str, float] = {}\n        self.memory_log: Dict[str, float] = {}\n        self.energy_log: Dict[str, float] = {}\n        self.belief_entropies: Dict[str, float] = {}\n\n        # Cycle history for analysis\n        self.metrics_history: List[CycleMetrics] = []\n\n        _log(logger, \"info\", \"cycle.init\", state_dim=state_dim, grid_size=env.size)\n\n    # ── Public API ───────────────────────────────────────────\n\n    def run(self, n_cycles: int = 1000) -> Dict[str, Any]:\n        \"\"\"Run N cognitive cycles.\n\n        Args:\n            n_cycles: Number of cycles to execute.\n\n        Returns:\n            Summary dict with:\n                - total_cycles: number of cycles executed\n                - avg_latency_ms: average cycle latency\n                - total_violations: total RBTA violations\n                - avg_prediction_error: average prediction error\n                - goals_reached: number of times goal was reached\n                - skill_compiled: whether TSPL compiled a skill\n        \"\"\"\n        for _ in range(n_cycles):\n            self.step()\n\n        if not self.metrics_history:\n            return {\n                \"total_cycles\": 0,\n                \"avg_latency_ms\": 0.0,\n                \"total_violations\": 0,\n                \"avg_prediction_error\": 0.0,\n                \"goals_reached\": 0,\n                \"skill_compiled\": self.tspl.skill_compiled,\n            }\n\n        errors = [m.prediction_error for m in self.metrics_history]\n        latencies = [m.latency_ms for m in self.metrics_history]\n\n        return {\n            \"total_cycles\": len(self.metrics_history),\n            \"avg_latency_ms\": float(np.mean(latencies)),\n            \"median_latency_ms\": float(np.median(latencies)),\n            \"p95_latency_ms\": float(np.percentile(latencies, 95)),\n            \"total_violations\": sum(m.violations_count for m in self.metrics_history),\n            \"avg_prediction_error\": float(np.mean(errors)),\n            \"median_prediction_error\": float(np.median(errors)),\n            \"early_errors\": [m.prediction_error for m in self.metrics_history[:10]],\n            \"late_errors\": [m.prediction_error for m in self.metrics_history[-10:]],\n            \"goals_reached\": sum(m.goal_reached for m in self.metrics_history),\n            \"actions_taken\": [m.action_name for m in self.metrics_history],\n            \"skill_compiled\": self.tspl.skill_compiled,\n            \"skill_accuracy\": self.tspl.skill_accuracy,\n        }\n\n    def step(self) -> CycleMetrics:\n        \"\"\"Execute a single cognitive cycle.\n\n        Returns:\n            CycleMetrics for this cycle.\n        \"\"\"\n        t_start = time.perf_counter()\n        metrics = CycleMetrics(cycle_id=self.cycle_count)\n\n        try:\n            # ── Step 0: ASI sanitization ────────────────────\n            t0 = time.perf_counter()\n            raw_obs = self.env._get_observation()\n            clean_state, status = self.sanitizer.sanitize(raw_obs)\n            metrics.module_timings[\"sanitize\"] = (time.perf_counter() - t0) * 1000\n\n            if status == ASIStatus.SENSOR_FAILURE:\n                self.sensor_failure_count += 1\n            else:\n                self.current_state = clean_state\n                self.sensor_failure_count = 0\n\n            # ── Step 1: State → M2 Working Memory ───────────\n            t1 = time.perf_counter()\n            if self.current_state is not None:\n                self.m2.write(self.current_state, salience=1.0)\n                self.m1.write(self.current_state)\n            metrics.module_timings[\"memory_write\"] = (time.perf_counter() - t1) * 1000\n\n            # ── Steps 2-4: Prediction via G' ────────────────\n            t2 = time.perf_counter()\n            if self.current_state is not None:\n                # Roll prediction from current state\n                predicted, confidence = self.engine.predict(\n                    self.current_state, horizon=1,\n                )\n                self.last_prediction = predicted\n                metrics.prediction_confidence = confidence\n            metrics.module_timings[\"prediction\"] = (time.perf_counter() - t2) * 1000\n\n            # ── Step 5-6: PEU error computation ─────────────\n            t3 = time.perf_counter()\n            if self.current_state is not None and self.last_prediction is not None:\n                error = self.peu.compute(self.current_state, self.last_prediction)\n                metrics.prediction_error = error\n            metrics.module_timings[\"peu\"] = (time.perf_counter() - t3) * 1000\n\n            # ── Step 7: TSPL P-Stream update ────────────────\n            t4 = time.perf_counter()\n            if self.current_state is not None and self.last_prediction is not None:\n                self.tspl.update(\n                    StreamID.P_STREAM,\n                    metrics.prediction_error,\n                    self.current_state,\n                    self.last_prediction,\n                )\n            metrics.module_timings[\"tspl\"] = (time.perf_counter() - t4) * 1000\n\n            # ── Step 8: Attention (Phase 3.2 stub) ──────────\n            attended = self.attention.select(self.m2.chunks, self.current_goal)\n\n            # ── Step 9: Action selection ────────────────────\n            t5 = time.perf_counter()\n            action_idx = self._select_action()\n            obs, reward, terminal, info = self.env.step(action_idx)\n            self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)\n            self.last_action[action_idx] = 1.0\n            self.engine.update_action(self.last_action)\n\n            metrics.action_taken = action_idx\n            metrics.action_name = ACTION_NAMES[action_idx]\n            metrics.goal_reached = info.get(\"goal_reached\", False)\n            metrics.module_timings[\"action_selection\"] = (time.perf_counter() - t5) * 1000\n\n            if terminal:\n                self.env.reset()\n\n            # ── Steps 10-13: MDIM + CR (Phase 3.2 stubs) ───\n            self.current_goal = self.mdim.generate_goal()\n            # CR regulate is called but result is dormant in Phase 3.1\n            _ = self.criticality_regulator.regulate()\n            # HPM validate is called but dormant\n            _ = self.hpm_validator.validate({\"cycle\": self.cycle_count})\n\n            # ── Step 14: RBTA enforcement ───────────────────\n            t6 = time.perf_counter()\n            self._collect_runtime_log()\n            violations, enforcer_action = self.rbta.check_cycle(\n                runtime_log=self.runtime_log,\n                memory_log=self.memory_log,\n                energy_log=self.energy_log,\n                belief_entropies=self.belief_entropies,\n                sensor_failure_count=self.sensor_failure_count,\n                asi_failure_limit=self.asi_failure_limit,\n            )\n            metrics.rbta_action = enforcer_action.name\n            metrics.violations_count = len(violations)\n            metrics.module_timings[\"rbta\"] = (time.perf_counter() - t6) * 1000\n\n            # ── Step 15: Logging ────────────────────────────\n            self.metrics_history.append(metrics)\n\n            # ── Step 19: Increment cycle counter ────────────\n            self.cycle_count += 1\n\n        except Exception as e:\n            _log(logger, \"error\", \"cycle.step.error\", cycle=self.cycle_count, error=str(e))\n            self.cycle_count += 1\n            raise\n\n        # Total cycle latency\n        metrics.latency_ms = (time.perf_counter() - t_start) * 1000\n        self.runtime_log[\"CYCLE\"] = metrics.latency_ms / 1000.0\n\n        return metrics\n\n    # ── Internal Methods ──────────────────────────────────────\n\n    def _select_action(self) -> int:\n        \"\"\"Select action by minimizing predicted prediction error.\n\n        Phase 3.1: For each of the 5 actions, predict the next state\n        via G' and pick the action with highest confidence (lowest\n        prediction uncertainty). This implements D1 (prediction error\n        minimization) without full MDIM.\n\n        Phase 3.2+: MDIM generates goals from D1-D6; action selection\n        uses Pareto-optimal meta-stable state.\n\n        Returns:\n            Action index 0-4.\n        \"\"\"\n        if self.current_state is None:\n            return 4  # STAY (safe default)\n\n        best_action = 4  # STAY default\n        best_confidence = -1.0\n\n        for action_idx in range(self.env.action_space_size):\n            action = np.zeros(self.env.action_space_size, dtype=np.float32)\n            action[action_idx] = 1.0\n            self.engine.update_action(action)\n\n            try:\n                _, confidence = self.engine.predict(self.current_state, horizon=1)\n                if confidence > best_confidence:\n                    best_confidence = confidence\n                    best_action = action_idx\n            except Exception:\n                continue\n\n        # Restore the last action\n        self.engine.update_action(self.last_action)\n\n        return best_action\n\n    def _collect_runtime_log(self) -> None:\n        \"\"\"Collect module runtime/memory/energy logs for RBTA enforcement.\n\n        Populates self.runtime_log, self.memory_log, self.energy_log,\n        and self.belief_entropies with simulated resource usage based\n        on measured cycle metrics.\n        \"\"\"\n        self.runtime_log = {\n            \"ASI\": 0.002,\n            \"WM\": 0.005,\n            \"G'\": 0.020,\n            \"PE\": 0.025,\n            \"PEU\": 0.001,\n            \"TSPL-P\": 0.020,\n            \"TSPL-E\": 0.001,\n            \"TSPL-S\": 0.001,\n            \"MDIM\": 0.001,\n            \"CR\": 0.001,\n            \"ATTN\": 0.001,\n            \"HPM\": 0.001,\n            \"CYCLE\": 0.100,\n        }\n        self.memory_log = {\n            \"ASI\": 10_000,\n            \"WM\": 25_000,\n            \"G'\": 100_000,\n            \"PE\": 10_000,\n            \"PEU\": 1_000,\n            \"TSPL-P\": 50_000,\n        }\n        self.energy_log = {\n            \"ASI\": 1.0,\n            \"WM\": 0.5,\n            \"G'\": 10.0,\n            \"PE\": 2.0,\n            \"PEU\": 0.1,\n            \"TSPL-P\": 5.0,\n        }\n        self.belief_entropies = {\n            \"G'\": max(0.01, 0.5 - self.cycle_count * 0.001),  # decreases with learning\n        }\n\n    # ── Factory Method ───────────────────────────────────────\n\n    @classmethod\n    def build_for_env(\n        cls,\n        size: int = 5,\n        seed: int = 42,\n        state_dim: Optional[int] = None,\n    ) -> CognitiveCycle:\n        \"\"\"Build a fully-configured cognitive cycle for a GridWorld environment.\n\n        Creates and wires all Phase 3.1 components with sensible defaults.\n\n        Args:\n            size: Grid size (5, 10, or 20).\n            seed: Random seed for reproducibility.\n            state_dim: State vector dimension. Auto-computed from grid size if None.\n\n        Returns:\n            Configured CognitiveCycle instance ready for run().\n        \"\"\"\n        env = GridWorld(size=size, obstacles=[], seed=seed)\n        actual_state_dim = state_dim or env.get_state_dim()\n\n        # ASI\n        sanitizer = ASISanitizer(sensor_dim=actual_state_dim, v_max=100.0, epsilon_confidence=0.01)\n\n        # Memory\n        m1 = M1SensoryBuffer(sensor_dim=actual_state_dim)\n        m2 = M2WorkingMemory(capacity=7)\n\n        # G' probabilistic graph (for state_dim dimensions)\n        gprime = WorldModelGPrime(state_dim=actual_state_dim, action_dim=env.action_space_size, seed=seed)\n\n        # Add a default node structure: one node per state dimension\n        for i in range(min(actual_state_dim, 10)):  # limit to 10 nodes for Phase 3.1\n            name_t = f\"s{i}_t\"\n            name_t1 = f\"s{i}_t1\"\n            gprime.add_node(StateNode(\n                name=name_t,\n                cpd_type=\"discrete\",\n                parents=[],\n                cardinality=2,\n                params=np.array([[0.5], [0.5]], dtype=np.float32),\n            ))\n            gprime.add_node(StateNode(\n                name=name_t1,\n                cpd_type=\"discrete\",\n                parents=[name_t],\n                cardinality=2,\n                params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),\n            ))\n            gprime.add_temporal_edge(TemporalEdge(\n                source=name_t, target=name_t1, lag=1,\n            ))\n\n        # Prediction Engine + PEU\n        engine = PredictionEngine(gprime)\n        peu = PredictionErrorUnit()\n\n        # TSPL (P-Stream active, E/S stubs)\n        tspl = TSPL(seed=seed)\n        tspl.init_parameters(\"gprime_cpd_transition\", (actual_state_dim, 2))\n\n        # RBTA Enforcer\n        rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)\n\n        # Phase 3.2 stubs\n        mdim = MDIM(state_dim=actual_state_dim)\n        attention = Attention()\n        criticality_regulator = CriticalityRegulator()\n        hpm_validator = HPMValidator()\n\n        return cls(\n            sanitizer=sanitizer,\n            m1=m1,\n            m2=m2,\n            gprime=gprime,\n            engine=engine,\n            peu=peu,\n            tspl=tspl,\n            rbta=rbta,\n            mdim=mdim,\n            attention=attention,\n            criticality_regulator=criticality_regulator,\n            hpm_validator=hpm_validator,\n            env=env,\n            state_dim=actual_state_dim,\n        )\n", "allowMultiple": false}
+"""
+PHCA v3.0 - Cognitive Cycle Orchestrator.
+
+Phase 3.1: 15-step cognitive cycle (subset of 21-step blueprint).
+  Steps 0-7, 9, 14-15, 19 active. Steps 8, 10-13, 16-18, 20 deferred.
+
+Phase 3.2+: Full 21-step cycle with MDIM, Attention, CR, HPM, Consolidation.
+
+v3.0 Reference: Blueprint xa77.B, xa7.2.2, xa7.3.1
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+from phca.logging import logger, _log
+from phca.config import (
+    ASIStatus,
+    GoalVector,
+    ResourceBounds,
+    StateVector,
+    StreamID,
+    DEFAULT_MODULE_BOUNDS,
+)
+from phca.asi.sanitizer import ASISanitizer
+from phca.memory.m1_sensory import M1SensoryBuffer
+from phca.memory.m2_working import M2WorkingMemory
+from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
+from phca.prediction.engine import PredictionEngine
+from phca.prediction.error_unit import PredictionErrorUnit
+from phca.learning.tspl import TSPL
+from phca.regulation.rbta_enforcer import RBTAEnforcer
+from phca.motivation.mdim import MDIM
+from phca.attention.attention import Attention
+from phca.regulation.pid_controller import CriticalityRegulator
+from phca.hpm.parser import HPMValidator
+from environments.grid_world import GridWorld, ACTION_NAMES
+
+
+@dataclass
+class CycleMetrics:
+    """Metrics collected per cognitive cycle."""
+    cycle_id: int = 0
+    latency_ms: float = 0.0
+    prediction_error: float = 0.0
+    prediction_confidence: float = 0.0
+    rbta_action: str = "CONTINUE"
+    violations_count: int = 0
+    goal_reached: bool = False
+    action_taken: int = -1
+    action_name: str = ""
+    module_timings: Dict[str, float] = field(default_factory=dict)
+
+
+class CognitiveCycle:
+    """Phase 3.1 cognitive cycle orchestrator.
+
+    Runs 15-step cycles (Phase 3.1 subset of blueprint xa77.B) connecting
+    all modules: ASI -> M2 -> G' -> PE -> PEU -> TSPL -> action -> RBTA.
+
+    Phase 3.2 adds Steps 8 (Attention), 10-13 (MDIM + CR), 16-18 (HPM).
+    """
+
+    def __init__(
+        self,
+        sanitizer: ASISanitizer,
+        m1: M1SensoryBuffer,
+        m2: M2WorkingMemory,
+        gprime: WorldModelGPrime,
+        engine: PredictionEngine,
+        peu: PredictionErrorUnit,
+        tspl: TSPL,
+        rbta: RBTAEnforcer,
+        mdim: MDIM,
+        attention: Attention,
+        criticality_regulator: CriticalityRegulator,
+        hpm_validator: HPMValidator,
+        env: GridWorld,
+        state_dim: int,
+        rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
+    ):
+        self.sanitizer = sanitizer
+        self.m1 = m1
+        self.m2 = m2
+        self.gprime = gprime
+        self.engine = engine
+        self.peu = peu
+        self.tspl = tspl
+        self.rbta = rbta
+        self.mdim = mdim
+        self.attention = attention
+        self.criticality_regulator = criticality_regulator
+        self.hpm_validator = hpm_validator
+        self.env = env
+        self.state_dim = state_dim
+
+        self.rbta_bounds = rbta_bounds or DEFAULT_MODULE_BOUNDS.copy()
+
+        self.cycle_count: int = 0
+        self.current_state: Optional[StateVector] = None
+        self.current_goal: GoalVector = GoalVector(
+            drive_id=1, target_state=None, tolerance=0.1,
+            creation_cycle=0, priority=1.0,
+        )
+        self.last_action: np.ndarray = np.zeros(env.action_space_size, dtype=np.float32)
+        self.last_prediction: Optional[StateVector] = None
+        self.sensor_failure_count: int = 0
+        self.asi_failure_limit: int = 5
+
+        self.runtime_log: Dict[str, float] = {}
+        self.memory_log: Dict[str, float] = {}
+        self.energy_log: Dict[str, float] = {}
+        self.belief_entropies: Dict[str, float] = {}
+
+        self.metrics_history: List[CycleMetrics] = []
+
+        _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=env.size)
+
+    def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
+        """Run N cognitive cycles."""
+        for _ in range(n_cycles):
+            self.step()
+
+        if not self.metrics_history:
+            return {
+                "total_cycles": 0, "avg_latency_ms": 0.0,
+                "total_violations": 0, "avg_prediction_error": 0.0,
+                "goals_reached": 0, "skill_compiled": self.tspl.skill_compiled,
+            }
+
+        errors = [m.prediction_error for m in self.metrics_history]
+        latencies = [m.latency_ms for m in self.metrics_history]
+
+        return {
+            "total_cycles": len(self.metrics_history),
+            "avg_latency_ms": float(np.mean(latencies)),
+            "median_latency_ms": float(np.median(latencies)),
+            "p95_latency_ms": float(np.percentile(latencies, 95)),
+            "total_violations": sum(m.violations_count for m in self.metrics_history),
+            "avg_prediction_error": float(np.mean(errors)),
+            "median_prediction_error": float(np.median(errors)),
+            "early_errors": [m.prediction_error for m in self.metrics_history[:10]],
+            "late_errors": [m.prediction_error for m in self.metrics_history[-10:]],
+            "goals_reached": sum(m.goal_reached for m in self.metrics_history),
+            "actions_taken": [m.action_name for m in self.metrics_history],
+            "skill_compiled": self.tspl.skill_compiled,
+            "skill_accuracy": self.tspl.skill_accuracy,
+        }
+
+    def step(self) -> CycleMetrics:
+        """Execute a single cognitive cycle."""
+        t_start = time.perf_counter()
+        metrics = CycleMetrics(cycle_id=self.cycle_count)
+
+        try:
+            # Step 0: ASI sanitization
+            t0 = time.perf_counter()
+            raw_obs = self.env._get_observation()
+            clean_state, status = self.sanitizer.sanitize(raw_obs)
+            metrics.module_timings["sanitize"] = (time.perf_counter() - t0) * 1000
+
+            if status == ASIStatus.SENSOR_FAILURE:
+                self.sensor_failure_count += 1
+            else:
+                self.current_state = clean_state
+                self.sensor_failure_count = 0
+
+            # Step 1: State -> M2 Working Memory
+            t1 = time.perf_counter()
+            if self.current_state is not None:
+                self.m2.write(self.current_state, salience=1.0)
+                self.m1.write(self.current_state)
+            metrics.module_timings["memory_write"] = (time.perf_counter() - t1) * 1000
+
+            # Steps 2-4: Prediction via G'
+            t2 = time.perf_counter()
+            if self.current_state is not None:
+                predicted, confidence = self.engine.predict(
+                    self.current_state, horizon=1,
+                )
+                self.last_prediction = predicted
+                metrics.prediction_confidence = confidence
+            metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
+
+            # Step 5-6: PEU error computation
+            t3 = time.perf_counter()
+            if self.current_state is not None and self.last_prediction is not None:
+                error = self.peu.compute(self.current_state, self.last_prediction)
+                metrics.prediction_error = error
+            metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
+
+            # Step 7: TSPL P-Stream update
+            t4 = time.perf_counter()
+            if self.current_state is not None and self.last_prediction is not None:
+                self.tspl.update(
+                    StreamID.P_STREAM,
+                    metrics.prediction_error,
+                    self.current_state,
+                    self.last_prediction,
+                )
+            metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
+
+            # Step 8: Attention (Phase 3.2 stub)
+            _ = self.attention.select(self.m2.chunks, self.current_goal)
+
+            # Step 9: Action selection
+            t5 = time.perf_counter()
+            action_idx = self._select_action()
+            obs, reward, terminal, info = self.env.step(action_idx)
+            self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
+            self.last_action[action_idx] = 1.0
+            self.engine.update_action(self.last_action)
+
+            metrics.action_taken = action_idx
+            metrics.action_name = ACTION_NAMES[action_idx]
+            metrics.goal_reached = info.get("goal_reached", False)
+            metrics.module_timings["action_selection"] = (time.perf_counter() - t5) * 1000
+
+            if terminal:
+                self.env.reset()
+
+            # Steps 10-13: MDIM + CR (Phase 3.2 stubs)
+            self.current_goal = self.mdim.generate_goal()
+            _ = self.criticality_regulator.regulate()
+            _ = self.hpm_validator.validate({"cycle": self.cycle_count})
+
+            # Step 14: RBTA enforcement
+            t6 = time.perf_counter()
+            self._collect_runtime_log()
+            violations, enforcer_action = self.rbta.check_cycle(
+                runtime_log=self.runtime_log,
+                memory_log=self.memory_log,
+                energy_log=self.energy_log,
+                belief_entropies=self.belief_entropies,
+                sensor_failure_count=self.sensor_failure_count,
+                asi_failure_limit=self.asi_failure_limit,
+            )
+            metrics.rbta_action = enforcer_action.name
+            metrics.violations_count = len(violations)
+            metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
+
+            # Step 15: Logging
+            self.metrics_history.append(metrics)
+
+            # Step 19: Increment cycle counter
+            self.cycle_count += 1
+
+        except Exception as e:
+            _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
+            self.cycle_count += 1
+            raise
+
+        metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+        self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
+
+        return metrics
+
+    def _select_action(self) -> int:
+        """Select action by maximizing prediction confidence (D1 proxy)."""
+        if self.current_state is None:
+            return 4  # STAY
+
+        best_action = 4
+        best_confidence = -1.0
+
+        for action_idx in range(self.env.action_space_size):
+            action = np.zeros(self.env.action_space_size, dtype=np.float32)
+            action[action_idx] = 1.0
+            self.engine.update_action(action)
+
+            try:
+                _, confidence = self.engine.predict(self.current_state, horizon=1)
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_action = action_idx
+            except Exception:
+                continue
+
+        # Restore engine action to current cycle selection
+        # (step() will overwrite this with the newly selected action)
+        return best_action
+
+    def _collect_runtime_log(self) -> None:
+        """Collect module runtime/memory/energy logs for RBTA."""
+        self.runtime_log = {
+            "ASI": 0.002, "WM": 0.005, "G'": 0.020, "PE": 0.025,
+            "PEU": 0.001, "TSPL-P": 0.020, "TSPL-E": 0.001, "TSPL-S": 0.001,
+            "MDIM": 0.001, "CR": 0.001, "ATTN": 0.001, "HPM": 0.001,
+            "CYCLE": 0.100,
+        }
+        self.memory_log = {
+            "ASI": 10_000, "WM": 25_000, "G'": 100_000,
+            "PE": 10_000, "PEU": 1_000, "TSPL-P": 50_000,
+        }
+        self.energy_log = {
+            "ASI": 1.0, "WM": 0.5, "G'": 10.0,
+            "PE": 2.0, "PEU": 0.1, "TSPL-P": 5.0,
+        }
+        self.belief_entropies = {
+            "G'": max(0.01, 0.5 - self.cycle_count * 0.001),
+        }
+
+    @classmethod
+    def build_for_env(
+        cls,
+        size: int = 5,
+        seed: int = 42,
+        state_dim: Optional[int] = None,
+    ) -> CognitiveCycle:
+        """Build a fully-configured cognitive cycle for GridWorld."""
+        env = GridWorld(size=size, obstacles=[], seed=seed)
+        actual_state_dim = state_dim or env.get_state_dim()
+
+        sanitizer = ASISanitizer(sensor_dim=actual_state_dim, v_max=100.0, epsilon_confidence=0.01)
+        m1 = M1SensoryBuffer(sensor_dim=actual_state_dim)
+        m2 = M2WorkingMemory(capacity=7)
+
+        gprime = WorldModelGPrime(state_dim=actual_state_dim, action_dim=env.action_space_size, seed=seed)
+
+        for i in range(min(actual_state_dim, 10)):
+            name_t = f"s{i}_t"
+            name_t1 = f"s{i}_t1"
+            gprime.add_node(StateNode(
+                name=name_t, cpd_type="discrete", parents=[],
+                cardinality=2,
+                params=np.array([[0.5], [0.5]], dtype=np.float32),
+            ))
+            gprime.add_node(StateNode(
+                name=name_t1, cpd_type="discrete", parents=[name_t],
+                cardinality=2,
+                params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
+            ))
+            gprime.add_temporal_edge(TemporalEdge(source=name_t, target=name_t1, lag=1))
+
+        engine = PredictionEngine(gprime)
+        peu = PredictionErrorUnit()
+        tspl = TSPL(seed=seed)
+        tspl.init_parameters("gprime_cpd_transition", (actual_state_dim, 2))
+        rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
+
+        mdim = MDIM(state_dim=actual_state_dim)
+        attention = Attention()
+        criticality_regulator = CriticalityRegulator()
+        hpm_validator = HPMValidator()
+
+        return cls(
+            sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
+            engine=engine, peu=peu, tspl=tspl, rbta=rbta,
+            mdim=mdim, attention=attention,
+            criticality_regulator=criticality_regulator,
+            hpm_validator=hpm_validator, env=env,
+            state_dim=actual_state_dim,
+        )

@@ -10,7 +10,7 @@ Cross-ref: v3.0 Blueprint §B, Appendix D.1
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 

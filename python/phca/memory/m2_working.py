@@ -11,9 +11,7 @@ Cross-ref: v3.0 §3.1 Table, Blueprint §B.1
 
 from __future__ import annotations
 
-import numpy as np
 
-from typing import Any
 
 from phca.logging import logger, _log
 from ..config import StateVector
