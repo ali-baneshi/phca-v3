@@ -734,8 +734,9 @@ class WorldModelGPrime:
                 observed = float(state_t1.values[i]) if i < len(state_t1.values) else 0.0
                 delta = observed - predicted
 
-                # Delta-rule update of betas
-                lr = 0.05
+                # Delta-rule update of betas with error-modulated learning rate (A5 fix)
+                lr_mod = float(np.clip(1.0 + abs(error) * 0.1, 0.5, 2.0))
+                lr = 0.05 * lr_mod
                 beta[0] += lr * delta * 1.0  # intercept
                 for j, pv in enumerate(parent_vals):
                     if j + 1 < len(beta):

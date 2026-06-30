@@ -45,12 +45,12 @@ class WorldModelMLP:
         self,
         state_dim: int = 84,
         action_dim: int = 5,
-        hidden_dim: int = 32,
+        hidden_dim: int = 128,
         seed: int = 42,
         lr: float = 0.1,
         replay_capacity: int = 500,
-        batch_size: int = 64,
-        train_steps: int = 8,
+        batch_size: int = 32,
+        train_steps: int = 4,
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -122,6 +122,11 @@ class WorldModelMLP:
     ) -> None:
         """Learn from observed transition via SGD with experience replay.
 
+        The error parameter modulates the effective learning rate:
+          lr_effective = self.lr * (1.0 + abs(error) * 0.1)
+        Higher error → larger learning steps (correct mistakes faster).
+        Lower error → smaller learning steps (fine-tune).
+
         Stores the transition in a replay buffer and trains on a
         mini-batch of random samples from the buffer each cycle.
 
@@ -129,8 +134,12 @@ class WorldModelMLP:
             state_t: State at time t.
             action: Action taken.
             state_t1: Observed state at time t+1 (target).
-            error: Scalar prediction error (unused — MSE gradient used instead).
+            error: Scalar prediction error (modulates learning rate).
         """
+        # Compute error-modulated learning rate (A5: Feedback-Driven Adaptation)
+        lr_mod = float(np.clip(1.0 + abs(error) * 0.1, 0.5, 2.0))
+        effective_lr = self.lr * lr_mod
+
         # Redo forward pass with the actual action for immediate learning
         x = np.concatenate([state_t.values.astype(np.float32), action.astype(np.float32)])
         self._last_input = x
@@ -146,20 +155,30 @@ class WorldModelMLP:
             self._replay_buffer[self._replay_idx % self.replay_capacity] = (x.copy(), target.copy())
         self._replay_idx += 1
 
+        # Apply attention-weighted per-dimension gradient if weights are available
+        attention_weights = None
+        if hasattr(self, '_attention_weights') and self._attention_weights is not None:
+            attention_weights = self._attention_weights
+            # Clear after use to avoid stale weights
+            self._attention_weights = None
+
         # Skip batch training if buffer not big enough yet
         if len(self._replay_buffer) < self.batch_size:
-            grad = self._backward(x, z1, z2, out, target)
-            self._apply_gradient(grad, lr=self.lr)
+            grad = self._backward(x, z1, z2, out, target, attention_weights)
+            self._apply_gradient(grad, lr=effective_lr)
             return
 
         # Train on mini-batches from replay buffer (current transition included via buffer)
+        # Note: attention_weights are NOT passed to batch replay gradients because
+        # replayed samples come from different past states with different attention
+        # profiles. Only the online (immediate) gradient uses attention modulation.
         for _ in range(self.train_steps):
                 indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
                 avg_grad: Optional[Dict[str, np.ndarray]] = None
                 for idx in indices:
                     bx, btarget = self._replay_buffer[idx]
                     bz1, bz2, bout = self._forward(bx)
-                    bgrad = self._backward(bx, bz1, bz2, bout, btarget)
+                    bgrad = self._backward(bx, bz1, bz2, bout, btarget, attention_weights=None)
                     if avg_grad is None:
                         avg_grad = {k: v.copy() for k, v in bgrad.items()}
                     else:
@@ -168,12 +187,13 @@ class WorldModelMLP:
                 if avg_grad is not None:
                     for k in avg_grad:
                         avg_grad[k] /= float(self.batch_size)
-                    self._apply_gradient(avg_grad, lr=self.lr * 0.5)
+                    self._apply_gradient(avg_grad, lr=effective_lr * 0.5)
 
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
         self._last_input = None
         self._last_activations = None
+        self._attention_weights = None
 
     # ── Internal Methods ──────────────────────────────────────
 
@@ -204,15 +224,16 @@ class WorldModelMLP:
         z2: np.ndarray,
         out: np.ndarray,
         target: np.ndarray,
+        attention_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, np.ndarray]:
-        """Backward pass of MSE loss.
+        """Backward pass of MSE loss with optional attention weighting.
 
         Computes gradients of MSE = 0.5 * mean((out - target)²) w.r.t.
         all parameters, with gradient clipping to [-1, 1].
 
-        Note: For linear output + MSE, dL/d(z) = (z - target) / state_dim,
-        which is identical to the sigmoid+BCE combined gradient formula.
-        The backward pass code is unchanged from the BCE version.
+        If attention_weights is provided, gradients are modulated
+        per-dimension so that high-salience dimensions receive larger
+        updates (A5: Feedback-Driven Adaptation).
 
         Args:
             x: Input vector (state_dim + action_dim,).
@@ -220,6 +241,8 @@ class WorldModelMLP:
             z2: Pre-activation of layer 2 (hidden_dim,).
             out: Linear output (state_dim,).
             target: Target vector (state_dim,).
+            attention_weights: Optional per-dimension salience weights
+                for modulating gradients (state_dim,).
 
         Returns:
             Dict mapping parameter keys to gradient arrays.
@@ -227,6 +250,10 @@ class WorldModelMLP:
         # dL/d(out) for MSE: (out - target) / state_dim
         n = float(out.shape[0])
         d_out = (out - target) / n
+
+        # Apply per-dimension attention weighting (A5 fix)
+        if attention_weights is not None and attention_weights.shape[0] == d_out.shape[0]:
+            d_out = d_out * attention_weights.astype(np.float32)
         a1 = np.maximum(0, z1)
         a2 = np.maximum(0, z2)
 

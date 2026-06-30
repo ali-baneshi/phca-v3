@@ -336,6 +336,45 @@ class ConsolidationScheduler:
 
     # ── Queries ──────────────────────────────────────────────
 
+    def get_relevant_facts(
+        self,
+        state: StateVector,
+        n: int = 5,
+        min_confidence: float = 0.3,
+    ) -> List[SemanticFact]:
+        """Return top-N facts most relevant to the given state.
+
+        Uses cosine similarity between fact state_patterns and the
+        given state to find the most relevant semantic facts.
+        Facts are sorted by relevance (cosine sim * confidence).
+
+        Args:
+            state: Current state to find relevant facts for.
+            n: Maximum number of facts to return.
+            min_confidence: Minimum confidence threshold.
+
+        Returns:
+            List of SemanticFact objects ordered by relevance.
+        """
+        candidates = [
+            f for f in self._committed_facts
+            if f.confidence >= min_confidence and f.state_pattern is not None
+        ]
+        if not candidates:
+            return []
+
+        # Score each fact by cosine similarity to current state * confidence
+        state_vec = state.values.astype(np.float64)
+        scored = []
+        for fact in candidates:
+            fact_vec = fact.state_pattern.values[:len(state_vec)].astype(np.float64)
+            sim = self._cosine_similarity(state_vec, fact_vec)
+            scored.append((sim * fact.confidence, fact))
+
+        # Sort by relevance score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [f for _, f in scored[:n]]
+
     def get_semantic_facts(
         self,
         fact_type: Optional[str] = None,

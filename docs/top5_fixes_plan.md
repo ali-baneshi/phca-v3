@@ -1,617 +1,680 @@
-# PHCA v3.0 — Top 5 Critical Gap Fix Plan
+# PHCA v3.0 — Top 5 Critical Gap Fix Plan (Post-Phase 3.3 Audit)
 
 **Date:** 2026-06-30  
 **Author:** Chief Architect  
-**Audit Scope:** All 22+ source files in `python/phca/`, 4 spec documents, 3 audit reports, benchmark suite, test suite  
+**Audit Scope:** All source files, 4 spec documents, 3 audit reports, benchmark suite, test suite, gate reports  
 **Status:** PLAN MODE — no code changes; execute in order  
-**Gate:** Phase 3.3 → Phase 4 readiness
+**Gate:** Phase 3.3 → Phase 4 readiness (re-assessment)
 
 ---
 
 ## 0. Executive Summary
 
-The PHCA v3.0 codebase is architecturally sound at the structural level — invariants A1–A5 are satisfied, the 21-step cognitive cycle is correctly sequenced, and the modular decomposition follows the spec. However, a deep audit reveals **5 critical issues** that must be fixed before Phase 3.3 can be considered complete and the system ready for Phase 4. These issues span three dimensions:
+Phase 3.3 successfully addressed the original 5 critical issues (G'.learn() wiring, M4 write-lock, benchmark infrastructure, attention output discarding, RBTA timing). The system now passes all 4 pass criteria in MLP mode (Φ-IQ = 0.626, failure rate = 3.4%, latency p95 = 52ms, goal autonomy achieved) with 289 tests passing.
 
-1. **Learning never happens** — the world model's `learn()` method is never called (Issue #1)
-2. **Output is produced but never consumed** — consolidation, attention, HPM, and MDIM all compute results that are discarded (Issues #2, #4)
-3. **Benchmark infrastructure is a stub** — Φ-IQ scores cannot be reproduced (Issue #3)
-4. **Spec violations in critical paths** — M4 write-lock, meta-stable disruption detection, RBTA energy bounds (Issue #5)
+**However, a deep re-audit of the post-Phase 3.3 codebase reveals 5 new critical issues** that must be resolved before Phase 3.3 can be considered truly complete and the system ready for Phase 4:
 
-**Total estimated repair time:** 5–7 engineering days.
+1. **MLP hidden_dim mismatch** — Documentation claims 128 hidden units (38,868 params), implementation uses 32 hidden units (6,708 params). This 4× capacity reduction directly limits the MLP's ability to learn complex transitions, explaining the Level 2 Φ-IQ = 0.320 bottleneck.
+
+2. **Consolidation facts never consumed by prediction** — The consolidation pipeline (M3 snapshot → extract facts → store M4) produces 210+ semantic facts per run, but `get_semantic_facts()` is only called for logging. No module reads facts to bias the prediction prior.
+
+3. **MLP/Gaussian learn() ignores the error parameter** — The `attn_weighted_error` computed every cycle is passed to `gprime.learn()` but accepted as a no-op: MLP's `learn()` comments "unused — MSE gradient used instead"; Gaussian's `learn()` uses only the state-action pair. Attention-weight modulation of learning is non-functional.
+
+4. **MDIM target_state never used in action selection** — `_goal_from_drive()` creates full StateVector targets with per-dimension precision, but `_select_action()` reads only `goal.drive_id` (integer 1-6). The `_state_space_alignment()` method exists but is never reached for the drives that produce it.
+
+5. **Energy bounds computed but never enforced by RBTA** — HPM `_compute_bounds()` returns `B_energy`, but the composition tree passed to `check_cycle()` only uses `B_time`. 2/3 of the spec's three-dimensional resource bound enforcement (Def 3.6: time, memory, energy) is unimplemented in practice.
+
+**Total estimated repair time:** 4–6 engineering days.
 
 ---
 
-## Issue #1: G'.learn() Never Called — System Cannot Learn
+## Issue #1: MLP hidden_dim = 32 (Documented as 128) — Capacity Mismatch
 
 **Severity:** P0 CRITICAL  
 
 ### What is wrong
 
-The world model `WorldModelGPrime.learn()` (and `WorldModelMLP.learn()`) is **never called** from the cognitive cycle. Every cycle:
+The `WorldModelMLP` in `python/phca/world_model/mlp.py` uses `hidden_dim: int = 32` as its default parameter (line 41). However, the architecture documentation (`docs/architecture.md`), release notes (`docs/phase3.3_release_notes.md`), and README all describe the MLP with hidden_dim=128 and 38,868 parameters:
 
-1. `env.step(action_idx)` returns `obs` — the actual next observation
-2. The cycle computes prediction error against the *previous* prediction
-3. **But `gprime.learn(state, action, next_state, error)` is never invoked**
+- **README.md**: "MLP mode: The MLP world model (38,868 params) replaces the Gaussian G'..."
+- **architecture.md**: References MLP dimensions implicitly via the module map
+- **mlp.py**: `self.hidden_dim = 32` with He initialization scaled for 89→32
 
-The `learn()` method exists with a fully implemented frequency-count CPD update (discrete) and delta-rule parameter update (Gaussian), but **no code path reaches it**.
+The actual parameter count with hidden_dim=32:
+- Input 89 → W1 (89×32=2,848), b1 (32)
+- Hidden → W2 (32×32=1,024), b2 (32)
+- Output → W3 (32×84=2,688), b3 (84)
+- **Total: ~6,708 parameters** (not 38,868)
 
 ### Where
 
 | File | Lines | What |
 |------|-------|------|
-| `python/phca/core/cycle.py` | ~191–196 | After `env.step()` returns `obs`, the cycle computes `corrected_prediction` and PEU error, then calls `tspl.update()` — **but never calls `gprime.learn()`** |
-| `python/phca/world_model/graph.py` | 406–447 | `learn()` method: fully implemented (frequency-count for discrete, delta-rule for Gaussian) — **never called** |
-| `python/phca/world_model/mlp.py` | 129–198 | `learn()` method: SGD with experience replay — **never called** from cycle (but was added to cycle.py in Phase 3.3 cycle version) |
+| `python/phca/world_model/mlp.py` | 41 | `hidden_dim: int = 32` default |
+| `python/phca/world_model/mlp.py` | 176 | `__repr__` computes param count from `self.hidden_dim` |
+| `README.md` | — | "38,868 params" in technical notes |
+| `docs/architecture.md` | — | References MLP capacity implicitly |
+| `logs/benchmark_mlp_final.json` | — | Level 2 Φ-IQ = 0.320 (symptom) |
 
 ### Why it matters (invariant violation)
 
-The architecture's core claim is **A4: Prediction as Primary** — the system learns from prediction error to improve its world model. Without `gprime.learn()`, the world model never updates its parameters. All predictions use the hand-tuned initial parameters (β₀=0, β₁=0.95, β₂..=0.1 for Gaussian; uniform 50/50 for discrete). The system achieves apparent Φ-IQ scores through static prior accuracy, not learning.
+**A4: Prediction as Primary** requires the world model to have sufficient representational capacity to learn the environment's transition dynamics. With 6,708 parameters (versus the 38,868 the architecture assumes), the MLP has ~17% of the documented capacity:
 
-- The Gaussian BN's fixed identity betas (β₁=0.95, β₂=0.1) produce constant ~0.82 MSE on GridWorld states
-- The `/10` normalization in Φ-IQ (`max(0, 1 - error/10)`) converts this to ~0.92 "prediction accuracy"  
-- This gives the **illusion of learning** — the score is driven by initialization quality, not emergent improvement
+| Hidden Dim | Parameters | Level 2 Transitions Representable | Level 2 Φ-IQ |
+|-----------|-----------|-----------------------------------|--------------|
+| 32 (current) | ~6,708 | ~5-7 distinct patterns | 0.320 |
+| 64 | ~17,992 | ~15-20 distinct patterns | (est.) 0.40-0.45 |
+| 128 (documented) | ~38,868 | ~35-50 distinct patterns | (est.) > 0.50 |
+
+The Level 2 benchmark (5×5 maze with wall barrier) requires the MLP to learn that walls block movement, that the goal is in a fixed position, and that taking path A vs path B leads to different outcomes. With hidden_dim=32, the network has ~7K parameters to model ~84 dimensional binary state transitions — this is likely capacity-constrained for the maze navigation task.
 
 ### Concrete surgical fix
 
-**1. Wire `gprime.learn()` into the cognitive cycle** (4 hours):
-
-In `cycle.py` `step()`, after the PEU error computation and TSPL update (~line 196), add:
+**Option A (Recommended): Increase hidden_dim to 128** (1 hour):
 
 ```python
-# LEARN: update G' with observed transition
-if self.current_state is not None:
-    action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
-    action_vec[action_idx] = 1.0
-    next_state = StateVector(
-        values=obs.astype(np.float32),
-        precision=np.ones(self.state_dim, dtype=np.float32),
-        timestamp=float(self.cycle_count),
-        grounding_level=1,
-    )
-    self.gprime.learn(
-        state_t=self.current_state,
-        action=action_vec,
-        state_t1=next_state,
-        error=metrics.prediction_error,
-    )
+# In mlp.py __init__():
+# Change default from 32 to 128
+hidden_dim: int = 128
 ```
 
-**Note:** The `obs` variable is already captured at line ~184 from `env.step(action_idx)` — it must be promoted from loop-local to accessible in the learn block. The `action_vec` must be constructed fresh (not using the aged `self.last_action`).
-
-**2. Add cache invalidation after Gaussian learn** (30 minutes):
-
-In `WorldModelGPrime.learn()`, after the Gaussian beta update, call `self.invalidate_cache()` so the next `predict_continuous()` uses the updated parameters:
+Then adjust batch training to avoid latency regression:
 
 ```python
-# After updating betas and sigmas:
-self.invalidate_cache()  # force recompute of joint moments
+# Ensure train_steps and batch_size are appropriate for larger network
+# Current: train_steps=8, batch_size=64 → 8×64 = 512 forward+backward passes per cycle
+# With hidden_dim=128, each pass is ~4x more expensive
+# Reduce to: train_steps=4, batch_size=32 → still effective but ~4x fewer passes
+# This keeps total compute roughly constant
 ```
 
-**3. Verify that Gaussian `learn()` actually mutates parameters** (20 minutes):
+**Option B (Conservative): Increase to 64 with tuned hyperparameters** (2 hours):
 
-The current Gaussian delta-rule in `learn()` writes updated betas to `node.params` and `node.std`. This correctly feeds into `_get_gaussian_topology()` → `compute_joint_moments()`. The `invalidate_cache()` call ensures the stale joint moments are recomputed.
+```python
+hidden_dim: int = 64
+# Re-tune lr, train_steps, batch_size for the larger network
+lr: float = 0.05  # reduce from 0.1 for larger network
+batch_size: int = 32
+train_steps: int = 6
+```
+
+**Must also update** `build_for_env()` and `build_for_mujoco()` to pass `hidden_dim` through, OR change the default to 128 so the constructor parameter suffices.
+
+**Must update documentation** (30 min):
+- README.md: Update parameter count from 38,868 to actual
+- docs/architecture.md: Add MLP config section
 
 ### Acceptance criteria
 
 | # | Criterion | Method | Pass condition |
 |---|-----------|--------|----------------|
-| A1.1 | Prediction error decreases over learning cycles | Run 200 cycles with MLP, record MSE per cycle | Late MSE (last 50) ≤ 80% of early MSE (first 50) |
-| A1.2 | G' parameters change after learn | Compare `gprime.state_history` size before/after 100 cycles | `state_history` has ≥ 50 entries (populated by learn) |
-| A1.3 | Discrete CPDs update after observation | Create discrete G', run 50 cycles | CPD transition matrix differs from initial 50/50 |
-| A1.4 | No regression on existing tests | `pytest python/tests/ -v --tb=short` | All 289 tests pass |
+| A1.1 | MLP has documented capacity | `repr(model)` | Shows ≥ 38,000 parameters |
+| A1.2 | No latency regression | Run benchmark Level 0 | p95 latency < 100ms |
+| A1.3 | Level 2 Φ-IQ improves | `python scripts/benchmark.py --levels=2 --use-mlp --cycles=500` | Level 2 Φ-IQ > 0.40 |
+| A1.4 | All 289 tests pass | `make test-all` | All pass |
 
 ### Architectural principle
 
-The fix preserves **A4 (Prediction as Primary)** by completing the observe→predict→learn feedback loop. It also satisfies **A5 (Feedback-Driven Adaptation)** — without this fix, adaptation is simulated rather than actual. The `invalidate_cache()` call ensures the O(n³) matrix inversion is not wasted on stale parameters.
+The fix restores **A4 (Prediction as Primary)** by ensuring the MLP has the representational capacity the architecture design depends on. The documented 38,868-parameter MLP was the architect's intended capacity for GridWorld tasks — the 32-hidden-unit default was a implementation expedient that should have been updated before Phase 3.3 release. This is not a design flaw but a configuration/documentation error.
 
 **Dependency:** None (standalone fix).
 
 ---
 
-## Issue #2: Consolidation Facts Produced But Never Consumed — Write-Only Architecture
+## Issue #2: Consolidation Facts Produced But Never Consumed — Write-Only Pipeline
 
 **Severity:** P0 CRITICAL  
 
 ### What is wrong
 
-The `ConsolidationScheduler` extracts semantic facts from M3 episodes every 10 cycles and stores them in `self._semantic_facts` via `_store_facts()`. However, **no module anywhere in the codebase calls `get_semantic_facts()`** or reads the fact store. Consolidation runs, extracts, stores, prunes — and the output is consumed by nothing.
+The `ConsolidationScheduler` extracts semantic facts from M3 episodes every 10 cycles, stores them in `_committed_facts` via M4 write-lock, and returns statistics. The cycle logs fact types. **But no module reads the facts to bias prediction or inform action selection.**
 
-Additionally, the **M4 write-lock semantics** required by the spec (§2.3.2 Patch C) are not implemented. Facts are simply appended to an in-memory list with no locking, no atomic transaction, and no snapshot isolation.
-
-### Where
-
-| File | Lines | What |
-|------|-------|------|
-| `python/phca/consolidation/scheduler.py` | 277–293 | `_store_facts()` appends to `self._semantic_facts` — **no reader** |
-| `python/phca/consolidation/scheduler.py` | 226–230 | `get_semantic_facts()` exists — **never called by any module** |
-| `python/phca/core/cycle.py` | 330–340 | `consol_report = self.consolidation.step(...)` — return value only logged, facts never wired |
-| `research/outputs/spec_compliance_audit.md` | C2 | **Spec violation:** M4 write-lock not implemented; facts stored as plain list append |
-| `research/outputs/phca-v3-patch.md` | §2.3.2 | Spec requires: MVCC snapshots, write-lock acquisition with timeout, atomic transaction commit |
-
-### Why it matters (invariant violation)
-
-The architecture's **S-Stream (Semantic Memory)** is defined as producing facts that inform future prediction and action selection. Without this feedback path:
-
-1. **Consolidation is pure overhead** — ~200ms of computation per sleep cycle (CPU, memory, I/O) with zero behavioral effect
-2. **The S-Stream pipeline** (M3 → Consolidation → M4 → Prediction) is **broken at the last hop**
-3. **Spec violation C2** — no write-lock, no MVCC, no atomic transactions on M4. Theorem 3.3 (Consolidation Atomicity) cannot be relied upon
-4. The system cannot benefit from cross-episode knowledge transfer — every episode is learned and forgotten independently
-
-### Concrete surgical fix
-
-**1. Wire facts into the prediction engine's prior** (2 hours):
-
-In `ConsolidationScheduler`, expose a method that returns the most confident facts matching a given state. In `PredictionEngine`, before calling `G'.predict()`, query for relevant facts and use them to bias the prior:
-
+In `cycle.py` lines 329-340:
 ```python
-# In ConsolidationScheduler:
-def get_relevant_facts(self, state: StateVector, n: int = 5) -> List[SemanticFact]:
-    """Return top-N facts closest to the given state by cosine similarity."""
-    if not self._semantic_facts:
-        return []
-    # Simple: return most recent high-confidence facts
-    candidates = sorted(
-        self._semantic_facts, key=lambda f: f.confidence, reverse=True,
-    )
-    return candidates[:n]
-
-# In cycle.py (after consolidation step, ~line 340):
-if consol_report.success and consol_report.facts_generated > 0:
+consol_report = self.consolidation.step(self.cycle_count)
+if consol_report.success and consol_report.episodes_processed > 0:
     recent_facts = self.consolidation.get_semantic_facts(
         min_confidence=0.3, max_results=10,
     )
-    # Facts are logged but NOT yet wired into prediction.
-    # Phase 4 integration: pass facts to engine.predict() as context priors.
+    fact_types = {}
+    for f in recent_facts:
+        fact_types[f.fact_type] = fact_types.get(f.fact_type, 0) + 1
+    _log(logger, "info", "cycle.consolidation",
+         episodes=consol_report.episodes_processed,
+         facts=consol_report.facts_generated,
+         fact_types=fact_types,
+         ...)
 ```
 
-**2. Implement M4 write-lock semantics** (1–2 days):
+The facts are retrieved, categorised by type, logged, and **discarded**. The `fact_types` dict is never stored, never passed to the prediction engine, never used to adjust priors.
 
-```python
-# In ConsolidationScheduler.__init__():
-import threading
-self._m4_lock = threading.Lock()
-self._m4_lock_timeout = 0.5  # τ_lock_wait = 500ms
-self._semantic_facts: List[SemanticFact] = []  # active version
-self._staging_facts: List[SemanticFact] = []   # staging buffer
-
-# In _store_facts():
-def _store_facts(self, facts: List[SemanticFact]) -> int:
-    """Atomically swap staging facts into active store."""
-    self._staging_facts = list(facts)  # build in staging buffer
-    acquired = self._m4_lock.acquire(timeout=self._m4_lock_timeout)
-    if not acquired:
-        log.warning("consolidation.m4_lock_timeout")
-        return 0  # skip this cycle per spec
-    try:
-        # Atomic swap: readers see either old or new, never partial
-        self._semantic_facts = self._staging_facts
-        return len(facts)
-    finally:
-        self._m4_lock.release()
-```
-
-**3. Wire facts into TSPL S-Stream bias** (Phase 4 — estimate 2 days):
-
-Facts should inform the prediction engine's prior for familiar states. For each cycle, query top-5 relevant facts and adjust the G' prior distribution:
-
-```python
-# In PredictionEngine.predict() [Phase 4]:
-relevant_facts = self.consolidation.get_relevant_facts(state, n=5)
-if relevant_facts:
-    # Adjust G' prior toward fact-confirmed state transitions
-    fact_bias = sum(f.state_after.values * f.confidence for f in relevant_facts)
-    fact_bias /= (sum(f.confidence for f in relevant_facts) + 1e-8)
-    prior = 0.9 * gprime_prior + 0.1 * fact_bias
-```
-
-**Phase 4 only** — the core fix for Phase 3.3 is items 1 and 2.
-
-### Acceptance criteria
-
-| # | Criterion | Method | Pass condition |
-|---|-----------|--------|----------------|
-| A2.1 | Facts are produced and stored | Run 50 cycles, check `get_stats()["total_facts_stored"]` | ≥ 5 facts stored |
-| A2.2 | Facts are readable | Call `get_semantic_facts(min_confidence=0.0)` | Returns list of facts with valid types |
-| A2.3 | M4 write-lock times out gracefully | Set artificially short timeout, run consolidation | Logs warning, returns 0, no crash |
-| A2.4 | No regression on existing tests | `pytest python/tests/ -v --tb=short` | All 289 tests pass |
-
-### Architectural principle
-
-The fix preserves **A3 (Incomplete Knowledge)** — semantic facts represent accumulated knowledge that should inform prediction and reduce uncertainty. Without consuming facts, the S-Stream violates its own raison d'être. The write-lock semantics restore compliance with the formal **Theorem 3.3 (Consolidation Atomicity)**.
-
-**Dependency:** Issue #1 (G'.learn must be working for facts to be meaningful — facts are extracted from episodes stored by learn).
-
----
-
-## Issue #3: Benchmark Infrastructure is a Stub — Φ-IQ Claims Unverifiable
-
-**Severity:** P0 CRITICAL  
-
-### What is wrong
-
-The official benchmark runner `python/phca/benchmarks/runner.py` returns `{"status": "not_implemented", "message": "Benchmarks start in Phase 3.3"}` for all levels. All benchmark results in `logs/benchmark_*.json` are produced by `scripts/benchmark.py` — a standalone script that is not part of the `phca` package, has no CI integration, and produces results that cannot be independently reproduced from the package itself.
-
-The `phca.benchmarks.runner` is explicitly deferred to ticket `PHCA-3.3-003` per the gate report.
+Meanwhile, the benchmark shows 215 facts stored (Level 3 MLP run) — each representing a learned transition pattern — with zero influence on system behaviour.
 
 ### Where
 
 | File | Lines | What |
 |------|-------|------|
-| `python/phca/benchmarks/runner.py` | 18–26 | `run_level_0()` returns `{"status": "not_implemented"}` |
-| `python/benchmarks/runner.py` | 25 | `run_level_0()` — same stub; "Benchmarks start in Phase 3.3" |
-| `gate_phase3.3_final.md` | §5 | Runner deferred to `PHCA-3.3-003` in remaining items |
-| `logs/benchmark_mlp_final.json` | — | Produced by `scripts/benchmark.py`, not by `runner.py` |
-| `.github/workflows/ci.yml` | — | No benchmark gate job configured |
+| `python/phca/core/cycle.py` | 329–340 | Facts logged but discarded |
+| `python/phca/consolidation/scheduler.py` | 226–230 | `get_semantic_facts()` exists, called for logging only |
+| `python/phca/prediction/engine.py` | — | `predict()` accepts no fact context |
+| `python/phca/consolidation/scheduler.py` | 65–81 | `_extract_facts()` produces transition/novelty/well_known facts but they have no consumer |
 
 ### Why it matters (invariant violation)
 
-Without a working benchmark runner:
+**A3: Incomplete Knowledge** requires the system to accumulate and use knowledge to reduce uncertainty over time. The consolidation pipeline is the S-Stream's mechanism for this — it extracts stable patterns from episodic experience. Without consuming facts:
 
-1. **Φ-IQ scores cannot be independently verified** — the `gate_phase3.3_final.md` claims Φ-IQ = 0.626 (MLP) and 0.495 (Gaussian), but these numbers come from a standalone script with no versioned output format
-2. **No regression detection** — future changes could silently reduce performance without automated detection
-3. **Phase 3.3 gate condition unfulfilled** — the gate report explicitly lists this as a deferred item
-4. **The v3.0 specification §1.3 success criteria cannot be validated** — pass/fail is determined by manual script runs
+1. The entire consolidation pipeline (M3 SQLite reads, serialization, fact extraction, M4 write-lock) is **pure overhead** — ~5ms per consolidation cycle with zero behavioural effect
+2. The system exhibits **no long-term memory** — every episode contributes to M3 episodes count (510 on Level 3) but has zero effect on future predictions
+3. The S-Stream (semantic memory) is **formally non-functional**: facts accumulate in M4 but no decision-making pathway reads them
+4. **Phase 4 cannot start** with a write-only semantic pipeline — the entire Phase 4 plan depends on facts informing prediction (Phase 4 scope: "merge into G' CPDs or use as priors for MLP pre-training")
 
 ### Concrete surgical fix
 
-**1. Implement `run_level_0()` through `run_level_3()` in `runner.py`** (2–3 days):
+**1. Wire facts into the prediction engine's prior** (2 days):
+
+Add a method to `ConsolidationScheduler` that returns the most relevant facts for a given state:
 
 ```python
-def run_level_0(output_path: Optional[str] = None) -> dict:
-    """Level 0: Stationary prediction — no action, just observe and predict."""
-    cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_continuous=True)
-    # Run 50 warmup + 500 benchmark cycles
-    errors = []
-    for _ in range(550):
-        metrics = cycle.step()
-        errors.append(metrics.prediction_error)
-    
-    result = {
-        "level": 0,
-        "status": "completed",
-        "mean_error": float(np.mean(errors[-500:])),
-        "error_trend": "improving" if errors[-50] < errors[:50] else "stable",
-        "total_cycles": 550,
-    }
-    if output_path:
-        Path(output_path).write_text(json.dumps(result, indent=2))
-    return result
+def get_relevant_facts(self, state: StateVector, n: int = 5) -> List[SemanticFact]:
+    """Return top-N facts closest to the given state by cosine similarity."""
+    if not self._committed_facts:
+        return []
+    # Sort by confidence (simple heuristic — cosine similarity would be more precise)
+    candidates = sorted(
+        self._committed_facts, key=lambda f: f.confidence, reverse=True,
+    )
+    return candidates[:n]
 ```
 
-Implement levels 1–3 following the same pattern from `scripts/benchmark.py`.
+Then in `cycle.py`, pass relevant facts through `mdim_context` so MDIM can bias goals toward fact-confirmed states:
 
-**2. Add CI benchmark gate** (1 day):
-
-In `.github/workflows/ci.yml`, add a benchmark step that runs Level 0 and compares against a baseline:
-
-```yaml
-- name: Benchmark Level 0
-  run: |
-    PYTHONPATH=python:$PYTHONPATH python -m phca.benchmarks.runner \
-      --level=0 --output=logs/ci_benchmark.json
-    python scripts/check_benchmark.py \
-      --current=logs/ci_benchmark.json \
-      --baseline=logs/benchmark_baseline.json \
-      --threshold=0.95
+```python
+# Before MDIM goal generation:
+relevant_facts = self.consolidation.get_relevant_facts(self.current_state, n=5)
+mdim_context["consolidation_facts"] = total_facts
+mdim_context["relevant_fact_count"] = len(relevant_facts)
+mdim_context["fact_confidence_mean"] = float(np.mean([f.confidence for f in relevant_facts])) if relevant_facts else 0.0
 ```
 
-**3. Create baseline snapshot** (1 hour):
+In `PredictionEngine`, add a `fact_bias` parameter to `predict()`:
 
-Run the new benchmark on the current HEAD, save the result as `logs/benchmark_baseline.json`. This becomes the regression reference.
+```python
+# Phase 3.3+: bias G' prior toward fact-confirmed state transitions
+def predict(self, state: StateVector, horizon: int = 1,
+            action: Optional[np.ndarray] = None,
+            fact_bias: Optional[np.ndarray] = None) -> Tuple[StateVector, float]:
+    # ... existing prediction logic ...
+    if fact_bias is not None and fact_bias.shape == predicted.values.shape:
+        # Blend prediction toward fact-biased direction
+        predicted.values = 0.9 * predicted.values + 0.1 * fact_bias
+```
+
+**2. Gate the fact consumption cost** (30 min):
+
+Add a `max_relevant_facts` constructor parameter to `ConsolidationScheduler` (default 5). The fact similarity search should be capped to avoid latency regression.
 
 ### Acceptance criteria
 
 | # | Criterion | Method | Pass condition |
 |---|-----------|--------|----------------|
-| A3.1 | `runner.py` produces valid output | `python -m phca.benchmarks.runner --level=0 --output=/tmp/test.json` | Output JSON has `status: "completed"` and valid metrics |
-| A3.2 | All 4 basic levels produce output | Run levels 0–3 sequentially | Each produces valid JSON with no errors |
-| A3.3 | CI gate passes | Push to PR branch | CI benchmark step completes within 5 minutes |
-| A3.4 | Baseline comparison detects regression | Artificially break prediction (disable learn) | CI benchmark gate fails with Φ-IQ regression > 5% |
+| A2.1 | Facts retrievable by relevance | Unit test: store facts, query by state | Returns matching facts ordered by confidence |
+| A2.2 | Fact bias changes prediction | Run 50 cycles with/without fact consumption | Prediction output differs when facts present |
+| A2.3 | No latency regression | Run benchmark Level 0 | p95 latency < 55ms (within 10% of baseline) |
+| A2.4 | All tests pass | `make test-all` | All pass |
 
 ### Architectural principle
 
-The benchmark infrastructure is the **validation layer** for the entire architecture. Without it, no claim about Φ-IQ, learning rate, or goal autonomy can be verified. The v3.0 specification §5 (Φ-IQ Composite Metric) and the implementation blueprint §D.2 (Benchmark Suite) both require this infrastructure. This fix completes the validation feedback loop that the architecture depends on for empirical claims.
+The fix completes the **S-Stream (Semantic Memory)** feedback loop that the architecture depends on for **A3 (Incomplete Knowledge)**. Facts represent accumulated knowledge that should reduce prediction uncertainty for familiar states. Without this connection, the S-Stream is write-only overhead. The fix does not change the core prediction algorithm — it adds a small bias term that pulls predictions toward fact-confirmed transitions.
 
-**Dependency:** Issue #1 (benchmarks won't show learning without G'.learn working).
+**Dependency:** Issue #1 (MLP capacity must be sufficient for facts to be meaningful — low-capacity MLP would produce noisy predictions that facts cannot usefully bias).
 
 ---
 
-## Issue #4: Attention, HPM Validator, and MDIM Output Discarded — Computed But Never Used
+## Issue #3: MLP/Gaussian learn() Ignore the error Parameter — Attention Weights Decorative
 
 **Severity:** P1 MAJOR  
 
 ### What is wrong
 
-Three modules compute results every cycle that are **immediately discarded**:
+The cognitive cycle computes `attn_weighted_error` in `cycle.py` (lines ~304-310) and passes it to `self.gprime.learn()`. However, both world model implementations treat the `error` parameter as a no-op:
 
-| Module | Output | Where discarded | Lines |
-|--------|--------|----------------|-------|
-| **Attention** | Selected chunks from `select()` | Return value not captured in `cycle.py` | `cycle.py:319-321` |
-| **HPM Validator** | Validation result from `validate()` | Return value assigned to `_` in earlier version; currently `compute_bounds()` used for RBTA but full composition validation unused | `cycle.py:~335` (removed in Phase 3.3) |
-| **MDIM** | `target_state` in `GoalVector` | `_select_action()` only uses `drive_id` — the full 84-dim target state with precision is computed but never compared against current state | `cycle.py:109-150`, `mdim.py:265-310` |
+**WorldModelMLP.learn()** (mlp.py:129-198):
+```python
+def learn(
+    self,
+    state_t: StateVector,
+    action: np.ndarray,
+    state_t1: StateVector,
+    error: float,  # <-- accepted but NOT CONSUMED
+) -> None:
+    """...
+    Args:
+        error: Scalar prediction error (unused — MSE gradient used instead).
+    """
+```
 
-Additionally, the **MDIM Pareto front evaluation** violates the spec (§2.4.1 Def 3.10): it operates on deficits (derived quantity) rather than actual configuration values (v1, v3, v5), making the front ambiguous.
+**WorldModelGPrime.learn()** (graph.py:406-447):
+```python
+def learn(
+    self,
+    state_t: StateVector,
+    action: np.ndarray,
+    state_t1: StateVector,
+    error: float,
+) -> None:
+    # error is only used to decide whether to append to state_history
+    # not to modulate learning rate, per-dimension weight, or anything else
+```
+
+The attention weights computed every cycle (`self._attention_weights` in cycle.py line ~326) are averaged to a scalar and passed as `error` — but since `error` is ignored, the entire attention-weight computation is **cosmetic**.
 
 ### Where
 
 | File | Lines | What |
 |------|-------|------|
-| `python/phca/core/cycle.py` | 319–321 | `attention_chunks = self.attention.select(...)` — assigned but never used downstream |
-| `python/phca/motivation/mdim.py` | 229–269 | `compute_pareto_front()` evaluates on deficits, not (v1, v3, v5) configuration |
-| `python/phca/core/cycle.py` | 109–150 | `_select_action()` uses `goal.drive_id` only — ignores `goal.target_state` |
-| `research/outputs/spec_compliance_audit.md` | C4 | Spec violation: Pareto front must use (v1, v3, v5) |
+| `python/phca/world_model/mlp.py` | 129-130, 151 | `error` param documented as "unused" in docstring and implementation |
+| `python/phca/world_model/graph.py` | 406, 424 | `error` param used only for `state_history` append decision |
+| `python/phca/core/cycle.py` | 304–310 | `attn_weighted_error` computed and passed to `learn()` — no effect |
+| `python/phca/core/cycle.py` | 311–326 | `self._attention_weights` computed from chunk saliences — averaged to scalar, loses per-dimension information |
 
 ### Why it matters (invariant violation)
 
-1. **Attention computation is 100% waste** — k-WTA selection with Gumbel noise runs every cycle but the result is discarded. This is CPU time that affects the cycle's latency budget without any behavioral benefit.
+**A5: Feedback-Driven Adaptation** requires that prediction error and attention modulate what the system learns. Currently:
 
-2. **MDIM target states are decorative** — The elaborate goal instantiation in `_goal_from_drive()` creates detailed target vectors with per-dimension precision values, but action selection only reads `drive_id`. The `target_state` carries information that could guide action toward specific state regions but is ignored.
-
-3. **Pareto front spec violation** — Evaluating on deficits means two different configurations can yield the same deficits, making the detection of Pareto-optimality non-unique. This could cause the meta-stable state to activate or fail to activate in ambiguous cases.
+1. **Attention weights are 100% computational waste** — the k-WTA selection runs, Gumbel noise is applied, saliences are computed, and the result is averaged to a scalar that is passed to a method that ignores it
+2. **No per-dimension learning** — the attention weights are computed at full `state_dim` resolution but then averaged to a scalar, discarding all spatial information about which dimensions are more/less salient
+3. **The `attn_weighted_error` variable is misleading** — it creates the impression that attention modulates learning, but it has zero effect on either world model's parameter updates
+4. **The Phase 3.3 completion report claims this is fixed** — the completion report says "Attention weights modulate learning" (A5 evidence), but this is incorrect. Weights are computed and passed but never consumed.
 
 ### Concrete surgical fix
 
-**1. Wire attention output into prediction** (1 hour):
+**1. Wire error into MLP learning rate modulation** (2 hours):
 
-Use selected chunks to weight prediction examples — high-attention chunks get higher weight in the learn step:
-
-```python
-# In cycle.py, after attention.select():
-attention_chunks = self.attention.select(self.m2.chunks, self.current_goal)
-# Apply attention weights: give more weight to high-salience predictions
-if attention_chunks and self.current_state is not None:
-    weights = np.array([c.salience for c in attention_chunks])
-    weights = weights / (weights.sum() + 1e-8)
-    # Store for learn() to use as per-dimension weight
-    self._attention_weights = weights[:self.state_dim] if len(weights) >= self.state_dim else np.ones(self.state_dim)
-else:
-    self._attention_weights = np.ones(self.state_dim)
-```
-
-Then in the PEU/TSPL step, use `self._attention_weights` to weight the precision-weighted error.
-
-**2. Fix Pareto front to evaluate on (v1, v3, v5) configuration** (1 day):
-
-In `mdim.py`:
+Modify `WorldModelMLP.learn()` to use the error parameter to modulate the learning rate:
 
 ```python
-def compute_pareto_front(self, config: Optional[Dict[int, float]] = None) -> List[int]:
-    """Compute Pareto-optimal drives over actual configuration values.
+def learn(
+    self,
+    state_t: StateVector,
+    action: np.ndarray,
+    state_t1: StateVector,
+    error: float,
+) -> None:
+    """Learn from observed transition with error-modulated learning rate.
     
-    Uses (v1, v3, v5) = (prediction_error, competence_deficit, energy_cost)
-    as specified in §2.4.1 Def 3.10 — not deficits.
+    The error parameter modulates the effective learning rate:
+      lr_effective = self.lr * (1.0 + error * 0.1)
+    
+    Higher error → larger learning steps (correct mistakes quickly).
+    Lower error → smaller learning steps (fine-tune).
     """
-    if config is None:
-        config = {
-            1: self.drives[1].value,    # v1: prediction error (minimize)
-            3: self.drives[3].value,     # v3: competence deficit (minimize) 
-            5: self.drives[5].value,     # v5: energy cost (minimize)
-        }
+    # Map error to learning rate modifier
+    lr_mod = float(np.clip(1.0 + abs(error) * 0.1, 0.5, 2.0))
+    effective_lr = self.lr * lr_mod
     
-    pareto_ids = []
-    for i in config:
-        dominated = False
-        for j in config:
-            if i == j:
-                continue
-            # j dominates i if j is strictly better or equal on all dimensions
-            # and strictly better on at least one
-            if all(config.get(k, 0) <= config.get(j if k == i else k, 0) 
-                   for k in config) and config[j] < config[i]:
-                dominated = True
-                break
-        if not dominated:
-            pareto_ids.append(i)
-    return pareto_ids
+    # ... existing learn() logic ...
+    self._apply_gradient(avg_grad, lr=effective_lr * 0.5)
 ```
 
-**3. Wire MDIM target_state into action selection** (Phase 4 — 2 hours):
+**2. Wire per-dimension attention weights into gradient** (3 hours):
 
-In `_select_action()`, when scoring candidate actions, compute distance from predicted next state to the MDIM goal target_state:
+Instead of averaging attention weights, pass them as per-dimension multipliers on the loss gradients:
 
 ```python
-# After computing distance_gain:
-target = goal.target_state
-if target is not None and goal.drive_id in (1, 3, 4):
-    # Compute cosine similarity between predicted and target
-    alignment = self._state_space_alignment(predicted, target)
-    score = 0.6 * (1.0 - distance_gain) + 0.2 * min(confidence, 1.0) + 0.2 * alignment
+# In MLP._backward():
+# The d_out already has shape (state_dim,)
+# Multiply by attention weights to modulate per-dimension learning
+if attention_weights is not None:
+    d_out = d_out * attention_weights.astype(np.float32)
+```
+
+This requires passing `attention_weights` through the learn() interface — or storing them on the cycle and having the MLP read them from its own state. Storing them on the MLP (set before learn() is called, cleared after) is the minimal change:
+
+```python
+# In cycle.py, before calling learn():
+self.gprime._attention_weights = self._attention_weights  # set before learn
+
+# In MLP.learn():
+if hasattr(self, '_attention_weights') and self._attention_weights is not None:
+    weights = self._attention_weights
+else:
+    weights = np.ones(self.state_dim, dtype=np.float32)
+# Use weights in backward pass
+```
+
+**3. Clean up the Gaussian learn() path** (30 min):
+
+For `WorldModelGPrime.learn()`, the error parameter can modulate the delta-rule learning rate:
+
+```python
+# In Gaussian learn(), modify the delta rule:
+lr_mod = float(np.clip(1.0 + abs(error) * 0.1, 0.5, 2.0))
+lr = 0.05 * lr_mod  # was: lr = 0.05
 ```
 
 ### Acceptance criteria
 
 | # | Criterion | Method | Pass condition |
 |---|-----------|--------|----------------|
-| A4.1 | Attention weights affect prediction | Compare cycle with/without attention weights | MSE differs when weights are non-uniform |
-| A4.2 | Pareto front is correct | Hand-crafted test with (v1=0.1, v3=0.05, v5=0.2) | Front identifies Pareto-optimal drives correctly |
-| A4.3 | Meta-stable activates on front | Run 200 cycles, check meta-stable transitions | Meta-stable activated ≥ 1 time |
-| A4.4 | No regression on existing tests | `pytest python/tests/ -v --tb=short` | All 289 tests pass |
+| A3.1 | Error modulates MLP learning rate | Set error=0 vs error=10, compare gradient magnitudes | Higher error → proportionally larger gradients |
+| A3.2 | Attention weights affect per-dimension gradients | Set uniform vs non-uniform weights, compare d_out | Non-uniform weights produce non-uniform gradient across dims |
+| A3.3 | No regression on prediction accuracy | Run benchmark Level 0 | Mean error within ±10% of baseline |
+| A3.4 | All tests pass | `make test-all` | All pass |
 
 ### Architectural principle
 
-This fix addresses two invariants:
-- **A5 (Feedback-Driven Adaptation)**: Attention should modulate what the system learns from — without wiring the output, adaptation is blind.
-- **G5 (MDIM Drive Satisfaction)**: The Pareto front is the mechanism that prevents drive thrashing. A wrong evaluation function makes the front unreliable, risking oscillation between D1/D3/D5.
+This fix completes **A5 (Feedback-Driven Adaptation)** by making the attention-weight modulation of learning **actually functional**. The architecture's design intent is clear: attention selects what matters, and the learning system should weight its updates accordingly. Without this fix, A5 is satisfied in documentation but not in runtime behaviour. The per-dimension weight approach (rather than scalar averaging) preserves the spatial information that attention computes, making the mechanism consistent with the theoretical design.
 
-**Dependency:** Issue #1 (attention weights only matter if G' learns from weighted examples).
+**Dependency:** Issue #1 (larger MLP capacity makes per-dimension weight modulation more meaningful — with 32 hidden units, the gradient is already capacity-constrained).
 
 ---
 
-## Issue #5: RBTA Energy Bounds Missing + Composition Tree Timing Bug
+## Issue #4: MDIM target_state Never Used in Action Selection
 
-**Severity:** P1 MAJOR (with P0 sub-findings)  
+**Severity:** P1 MAJOR  
 
 ### What is wrong
 
-**Sub-issue 5a: Energy dimension absent from RBTA/HPM bound computation**
+MDIM's `_goal_from_drive()` creates detailed `GoalVector.target_state` objects with per-dimension values and precision arrays. These are full `StateVector` instances designed to represent the agent's desired state:
 
-The spec (Definition 3.6 Corrected) defines three resource dimensions for composite bound computation:
-- **SEQUENCE:** `B_energy = B_energy(M1) + B_energy(M2) + ε_overhead`
-- **PARALLEL:** `B_energy = B_energy(M1) + B_energy(M2) + ε_comm`
+```python
+# D1: Explore uncertain regions where confidence is low
+target = StateVector(
+    values=np.ones(self.state_dim, dtype=np.float32) * 0.5,
+    precision=np.ones(self.state_dim, dtype=np.float32) * 0.3,
+)
+# D2: Seek criticality
+target = StateVector(
+    values=np.zeros(self.state_dim, dtype=np.float32),
+    precision=np.ones(self.state_dim, dtype=np.float32) * 0.8,
+)
+# D3: Practice — seek familiar states near current
+target = StateVector(
+    values=np.zeros(self.state_dim, dtype=np.float32),
+    precision=np.ones(self.state_dim, dtype=np.float32) * 0.9,
+)
+# etc.
+```
 
-The HPM `_compute_bounds()` only returns `B_time` and `B_mem` — **energy is never computed or verified**.
+But `_select_action()` in `cycle.py` (lines 109-158) reads only `goal.drive_id` to determine action scoring strategy:
 
-**Sub-issue 5b: CYCLE timing in composition tree set AFTER check_cycle()**
+```python
+goal = self.current_goal
+goal_id = goal.drive_id if goal else 1
+target = goal.target_state if goal else None  # <-- captured but mostly unused
 
-In `cycle.py`, `self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0` is set at line ~380 (after `check_cycle()`), but the composition tree's CYCLE leaf is checked by `check_cycle()` at line ~350. The value seen by RBTA is the stale value from `_collect_runtime_log()` (~0.1ms from RBTA's own timing) instead of the actual total cycle time (~12ms–52ms).
+# D5 (Energy Efficiency): prefer STAY
+if goal_id == 5:
+    return self.env.stay_action
+
+# For action scoring:
+if goal_id in (1, 3):
+    score = (1.0 - distance_gain) * 0.8 + min(confidence, 1.0) * 0.2
+elif goal_id in (2, 4):
+    score = (1.0 - min(confidence, 1.0)) * 0.7 + (1.0 - distance_gain) * 0.3
+else:
+    state_align = self._state_space_alignment(predicted, target)  # D6 only
+    score = state_align
+```
+
+The `target` variable is captured but **only used in the D6 branch** (`else` clause) via `_state_space_alignment()`. For D1-D5, target is completely ignored.
+
+Additionally, the `_state_space_alignment()` method exists (lines ~164-196) and correctly computes weighted cosine similarity between predicted and target states — but it's only called for D6 (empowerment), which has a generic all-ones target.
 
 ### Where
 
 | File | Lines | What |
 |------|-------|------|
-| `python/phca/hpm/parser.py` | 394–479 | `_compute_bounds()` returns only `B_time` and `B_mem` — **energy missing** |
-| `python/phca/regulation/rbta_enforcer.py` | 159–161, 183–254 | `_check_composition_tree()` only checks time bounds — **memory and energy unchecked** |
-| `python/phca/core/cycle.py` | ~350, ~380 | CYCLE runtime set **after** RBTA check — timing bug |
-| `research/outputs/spec_compliance_audit.md` | M3, M4 | Spec violations documented |
+| `python/phca/motivation/mdim.py` | 265–310 | `_goal_from_drive()` creates full StateVector targets — decorative |
+| `python/phca/core/cycle.py` | 115–118 | `target = goal.target_state` captured but unused for D1-D5 |
+| `python/phca/core/cycle.py` | 130–148 | Action scoring uses `goal_id` only, not `target` |
+| `python/phca/core/cycle.py` | 164–196 | `_state_space_alignment()` exists — only called for D6 |
 
 ### Why it matters (invariant violation)
 
-1. **Spec violation:** The formal spec explicitly defines three-dimensional resource bounds. Missing energy means the system is running with **2/3 of the constraint enforcer's specification** unimplemented. If energy consumption ever becomes a real constraint (battery-powered robot, thermal limits), the RBTA will not detect violations.
+**G5 (MDIM Drive Satisfaction):** The MDIM module's goal generation creates targets that have **zero effect on action selection** for drives D1-D5. This means:
 
-2. **Timing bug masks real latency violations:** The composition tree thinks the total cycle time is ~0.1ms (RBTA module timing) when it's actually ~52ms (MLP mode). If cycle times approach 500ms, the RBTA will not flag CYCLE violations because it's checking the wrong value. A real latency emergency could go undetected.
+1. **Goal generation is decorative computation** — ~100 lines of MDIM code produce elaborate target vectors that the action selection ignores
+2. **Drive diversity is unrealised** — D1 (error minimisation) and D3 (competence) produce identical action-selection behaviour because they share the same scoring branch (distance_gain + confidence)
+3. **D2 (criticality) and D4 (curiosity) produce identical behaviour** — same scoring branch (uncertainty + distance_gain)
+4. **The system cannot distinguish between "explore uncertain region D1 goal" and "practice skill D3 goal" at the action level** — they both map to the same equation
 
 ### Concrete surgical fix
 
-**5a: Add energy to composite bound computation** (1 day):
+**1. Wire target_state into D1/D3 action scoring** (1 day):
 
-In `python/phca/hpm/parser.py`:
+Modify `_select_action()` to use `_state_space_alignment()` for D1/D3 goals when target_state is available and meaningful:
 
 ```python
-# Constants per spec:
-EPSILON_OVERHEAD = 0.001  # composition overhead
-EPSILON_COMM = 0.002       # communication overhead
-
-def _compute_bounds(self, node: dict, runtime_log: dict) -> Dict[str, float]:
-    """Compute composite resource bounds per Def 3.6 (Corrected).
-    
-    Returns dict with B_time, B_mem, B_energy.
-    """
-    if node["type"] == "SEQUENCE":
-        children_bounds = [self._compute_bounds(c, runtime_log) for c in node["children"]]
-        return {
-            "B_time": sum(c["B_time"] for c in children_bounds) + EPSILON_OVERHEAD,
-            "B_mem": max(c["B_mem"] for c in children_bounds),
-            "B_energy": sum(c["B_energy"] for c in children_bounds) + EPSILON_OVERHEAD,
-        }
-    elif node["type"] == "PARALLEL":
-        children_bounds = [self._compute_bounds(c, runtime_log) for c in node["children"]]
-        return {
-            "B_time": max(c["B_time"] for c in children_bounds) + EPSILON_COMM,
-            "B_mem": sum(c["B_mem"] for c in children_bounds),
-            "B_energy": sum(c["B_energy"] for c in children_bounds) + EPSILON_COMM,
-        }
+if goal_id in (1, 3):
+    # D1/D3: use distance_gain + confidence + goal alignment
+    base_score = (1.0 - distance_gain) * 0.6 + min(confidence, 1.0) * 0.2
+    # Add state-space alignment with goal target
+    if target is not None:
+        alignment = self._state_space_alignment(predicted, target)
+        score = base_score + alignment * 0.2
     else:
-        # Leaf node: read from runtime_log
-        module_id = node.get("id", "UNKNOWN")
-        return {
-            "B_time": runtime_log.get(module_id, 0.0),
-            "B_mem": 0.0,  # memory per module not tracked per-cycle yet
-            "B_energy": runtime_log.get(f"{module_id}_energy", 0.0),
-        }
+        score = base_score
+elif goal_id in (2, 4):
+    # D2/D4: use uncertainty + distance_gain + goal alignment
+    base_score = (1.0 - min(confidence, 1.0)) * 0.5 + (1.0 - distance_gain) * 0.2
+    if target is not None:
+        alignment = self._state_space_alignment(predicted, target)
+        score = base_score + alignment * 0.3
+    else:
+        score = base_score
 ```
 
-In `python/phca/regulation/rbta_enforcer.py`, extend `_check_composition_tree()` to check all three dimensions:
+**2. Improve goal target quality for D1-D3** (1 hour):
+
+The current targets are generic (all-0.5, all-0.0). Make them state-dependent:
+- **D1 target**: Use current state with low precision (encourage exploring variation from current)
+- **D3 target**: Use predicted state with high precision (encourage staying near what's known)
+- **D4 target**: Use states with high prediction error (encourage exploring surprising regions)
 
 ```python
-# After computing actual composite:
-actual_time = sum(runtime_log.get(c.get("id", ""), 0.0) for c in children)
-actual_energy = sum(energy_log.get(c.get("id", ""), 0.0) for c in children)
-if composite_bounds.get("B_time", 0) > 0 and actual_time > composite_bounds["B_time"]:
+# D1: Explore uncertain regions — specific to current uncertainty profile
+current_uncertain_dims = np.where(state.precision < 0.5)[0]
+target = StateVector(
+    values=np.ones(self.state_dim, dtype=np.float32) * 0.5,
+    precision=np.where(current_uncertain_dims, 0.1, 0.5).astype(np.float32),
+)
+```
+
+**3. Remove decorative target generation for D5/D6 if unused** (30 min):
+
+If D5 (energy) and D6 (empowerment) targets are never used, either make them meaningful or skip target generation for these drives.
+
+### Acceptance criteria
+
+| # | Criterion | Method | Pass condition |
+|---|-----------|--------|----------------|
+| A4.1 | D1/D3 action selection differs | Same state, different D1 vs D3 targets | Different actions selected |
+| A4.2 | D2/D4 action selection differs | Same state, different D2 vs D4 targets | Different actions selected |
+| A4.3 | Drive diversity increases | Run 200 cycles, count unique goal_id→action_id pairs | Each drive generates measurably different action distribution |
+| A4.4 | No regression on existing tests | `make test-all` | All pass |
+
+### Architectural principle
+
+The fix completes the **MDIM goal → action selection pipeline** that the architecture specifies. Goal vectors carry a drive_id (which drive) AND a target_state (what the goal is). Using only the drive_id reduces MDIM to a single-integer signal, discarding the rich state information that goal generation computes. This fix makes **each drive's target_state influence action selection** in a drive-appropriate way, restoring the architectural intent of **G5 (MDIM Drive Satisfaction)**.
+
+**Dependency:** Issue #1 (MLP must accurately predict state transitions for alignment scoring to be meaningful — with hidden_dim=32, predictions may be too noisy for alignment to help).
+
+---
+
+## Issue #5: Energy Bounds Computed But Not Enforced by RBTA
+
+**Severity:** P1 MAJOR  
+
+### What is wrong
+
+The formal specification (Definition 3.6 Corrected) defines three resource dimensions for composite bound computation: **B_time, B_mem, B_energy**. The HPM `_compute_bounds()` (parser.py:394-479) correctly returns all three:
+
+```python
+# SEQUENCE (from parser.py):
+return {
+    "B_time": sum(c["B_time"] for c in child_bounds) + TAU_COMP,
+    "B_mem": max(c["B_mem"] for c in child_bounds) + DELTA_SHARED,
+    "B_energy": sum(c.get("B_energy", 1.0) for c in child_bounds) + EPSILON_OVERHEAD,
+}
+```
+
+However, the cognitive cycle's composition tree in `cycle.py` lines 275-300 only uses `B_time`:
+
+```python
+hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
+reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
+# ...composition tree only has bounds for B_time:
+composition_tree = {
+    ...
+    "bounds": {"B_time": reg_b_time * 2 + 0.050},
+}
+```
+
+The `hpm_bounds["B_energy"]` value is computed by HPM but **never consumed**. The composition tree passes only `B_time` bounds to `RBTA.check_cycle()`. Energy violations (e.g., a module consuming more than its `B_energy` budget) go undetected.
+
+This means 2/3 of the RBTA specification's three-dimensional resource enforcement is effectively unimplemented in the runtime control loop.
+
+### Where
+
+| File | Lines | What |
+|------|-------|------|
+| `python/phca/core/cycle.py` | 275-278 | `hpm_bounds["B_time"]` extracted, `B_energy` ignored |
+| `python/phca/core/cycle.py` | 280-300 | Composition tree only has `"bounds": {"B_time": ...}` — no `B_energy` |
+| `python/phca/hpm/parser.py` | 394-479 | `_compute_bounds()` correctly returns `B_energy` — output discarded |
+| `python/phca/regulation/rbta_enforcer.py` | — | `_check_composition_tree()` verifies time — energy dimension unchecked |
+| `python/phca/config.py` | 140-155 | `ResourceBounds` includes `B_energy` — correctly defined but not enforced |
+
+### Why it matters (invariant violation)
+
+**A1: Resource Boundedness** requires enforcement of all three resource dimensions (time, memory, energy). The current implementation enforces only time:
+
+1. **Spec violation** — Definition 3.6 explicitly defines three-dimensional bounds. Operating with 1/3 enforcement is a clear spec deviation
+2. **Energy consumption cannot balloon undetected** — if a module starts consuming 100× its energy budget (e.g., MLP training diverges, causing excessive recomputation), the RBTA will not flag it
+3. **Battery-constrained deployment is impossible** — the energy dimension is specifically designed for power-aware deployment (robotics, edge devices). Without enforcement, energy-aware scheduling is blind
+4. **The energy dimension exists in two places but the connection is broken** — HPM computes it, config defines it, but the cycle doesn't pass it to RBTA
+
+### Concrete surgical fix
+
+**1. Extract and pass B_energy to composition tree** (30 min):
+
+In `cycle.py`, modify the composition tree construction to include energy bounds:
+
+```python
+hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
+reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
+reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
+
+composition_tree = {
+    "type": "SEQUENCE", "id": "cognitive_cycle",
+    "children": [
+        "ASI", "WM", "PE", "PEU", "TSPL-P",
+        {
+            "type": "PARALLEL", "id": "regulation_block",
+            "children": ["MDIM", "CR", "ATTN", "HPM"],
+            "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy},
+        },
+        "CYCLE",
+    ],
+    "bounds": {
+        "B_time": reg_b_time * 2 + 0.050,
+        "B_energy": reg_b_energy * 2 + 0.010,
+    },
+}
+```
+
+**2. Ensure RBTA checks energy in composition tree** (1 hour):
+
+In `python/phca/regulation/rbta_enforcer.py`, modify `_check_composition_tree()` to compute and verify energy composite bounds:
+
+```python
+# After computing composite time for a node:
+actual_time = ...
+actual_energy = sum(
+    self.energy_log.get(child.get("id", ""), 0.0) 
+    if isinstance(child, dict) else self.energy_log.get(child, 0.0)
+    for child in children
+)
+
+# Check against node bounds
+bounds = node.get("bounds", {})
+if bounds.get("B_time", 0) > 0 and actual_time > bounds["B_time"]:
     violations.append(...)
-if composite_bounds.get("B_energy", 0) > 0 and actual_energy > composite_bounds["B_energy"]:
+if bounds.get("B_energy", 0) > 0 and actual_energy > bounds["B_energy"]:
     violations.append(...)
 ```
 
-**5b: Fix CYCLE timing ordering** (15 minutes):
+**3. Verify energy_log accuracy** (1 hour):
 
-In `cycle.py`, move the latency computation before `check_cycle()`:
+The current `energy_log` in `_collect_runtime_log()` estimates energy as `runtime_s * 50.0` — this is a scaling heuristic, not a measurement. For Phase 3.3, add a TODO to instrument actual energy measurement:
 
 ```python
-# Compute total cycle latency BEFORE check_cycle
-metrics.latency_ms = (time.perf_counter() - t_start) * 1000
-self._collect_runtime_log(metrics)
-self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
-
-# Now call check_cycle with correct CYCLE runtime
-violations, enforcer_action = self.rbta.check_cycle(...)
-
-# Remove the duplicate latency assignment after check_cycle
-# (was: metrics.latency_ms = (time.perf_counter() - t_start) * 1000 — remove this)
+# Energy estimates from actual module runtimes (scaled to match original magnitude)
+# TODO: Replace with actual energy measurement in Phase 4 (power monitoring hardware)
+self.energy_log[mod] = max(0.1, min(10.0, runtime_s * 50.0))
 ```
 
 ### Acceptance criteria
 
 | # | Criterion | Method | Pass condition |
 |---|-----------|--------|----------------|
-| A5.1 | Energy composite computed | Parse a SEQUENCE tree, call `compute_bounds()` | Returned dict has `B_energy` key with plausible value |
-| A5.2 | Energy violation detected | Set artificially low energy bound, run cycle | RBTA flags ENERGY violation |
-| A5.3 | CYCLE timing correct | Run 100 cycles, check `runtime_log["CYCLE"]` | Value matches `metrics.latency_ms / 1000` (±1%) |
-| A5.4 | Latency violation detected | Inject `time.sleep(0.6)` into cycle | RBTA flags CYCLE timeout violation |
-| A5.5 | No regression on existing tests | `pytest python/tests/ -v --tb=short` | All 289 tests pass |
+| A5.1 | Energy bounds in composition tree | Inspect `cycle.py` composition_tree | `bounds` dict contains `B_energy` key |
+| A5.2 | Energy violation detected | Set artificially low B_energy bound, run cycle | RBTA flags ENERGY violation |
+| A5.3 | HPM energy output consumed | Trace `hpm_bounds["B_energy"]` through cycle | Value flows from HPM → composition tree → RBTA |
+| A5.4 | No regression on existing tests | `make test-all` | All pass |
 
 ### Architectural principle
 
-The fix restores **complete compliance with Definition 3.6 (Resource Additivity — Corrected)** from the formal patch. Three-dimensional resource bounds (time, memory, energy) are required for the **RBTA to fulfill its mandate as the resource-bounded supervisor** (§2.1, A1). The timing bug corrects a violation of **Theorem 2.1 (Constraint Composition)** — the composition tree must reflect actual execution timing to be monotonic.
+The fix restores **full compliance with Definition 3.6 (Resource Additivity — Corrected)** by completing the three-dimensional bound enforcement that the RBTA supervisor requires for **A1 (Resource Boundedness)**. The energy dimension is particularly important for the architecture's claim of being deployable on resource-constrained hardware (robotics, edge devices). Without energy enforcement, the RBTA is effectively a time-bound supervisor that ignores 2/3 of its mandate.
 
-**Dependency:** Fix 5a is independent. Fix 5b depends only on understanding the cycle.py temporal flow.
+**Dependency:** None (standalone fix — the energy dimension infrastructure already exists in HPM and config; only the wiring from cycle → RBTA is missing).
 
 ---
 
 ## Execution Order & Dependency Graph
 
 ```
-Issue #1: G'.learn() Never Called
-  └── Issue #2: Consolidation Facts Never Consumed
-        └── Issue #3: Benchmark Infrastructure Stub
-              └── Issue #4: Attention/MDIM Output Discarded
-                    └── Issue #5: RBTA Energy + Timing
+Issue #1: MLP hidden_dim (capacity foundation)
+  └── Issue #3: learn() error param (needs capacity to matter)
+        └── Issue #4: MDIM target_state (needs learning to give meaningful targets)
+              └── Issue #2: Consolidation facts (needs facts to improve prediction)
+Issue #5: Energy bounds (independent)
 ```
 
-| Order | Issue | Time | Dependencies | Independent sub-fixes |
-|-------|-------|------|-------------|----------------------|
-| **1** | #1: G'.learn | 4–5h | None | — |
-| **2** | #2: Consolidation | 2.5–3d | #1 (facts need learning) | Write-lock fix (1–2d) can start in parallel |
-| **3** | #3: Benchmarks | 2–3d | #1 (benchmarks need learning) | — |
-| **4** | #4: Attention/MDIM | 2.5h | #1 (attention weights need learning) | Pareto front fix (1d) independent |
-| **5** | #5: RBTA Energy + Timing | 1.5d | None (5b); 5a is independent | **Fix 5b first (15 min)** — timing bug is trivially fixable |
+| Order | Issue | Time | Dependencies | Parallel? |
+|-------|-------|------|-------------|-----------|
+| **1** | #1: MLP hidden_dim | 3h | None | #5 can run in parallel |
+| **2** | #3: learn() error param | 5.5h | #1 (needs capacity) | — |
+| **3** | #4: MDIM target_state | 1.5d | #1, #3 (needs learning) | — |
+| **4** | #2: Consolidation facts | 2d | #1, #3 (needs learning for meaningful facts) | — |
+| **5** | #5: Energy bounds | 2.5h | None | **Can start immediately in parallel with #1** |
 
-**Total:** ~5–7 engineering days.
+**Total:** ~4-6 engineering days (with #5 parallelised).
 
-**Parallelization opportunities:**
-- #2 write-lock fix can start in parallel with #1 (2 engineers)
-- #5 (both sub-fixes) can start immediately — no dependencies (1 engineer)
-- #4 Pareto front fix can start in parallel with #4 attention wiring (1 engineer)
-
-### Escalation
-
-If any fix reveals deeper architectural issues (e.g., the Gaussian BN `learn()` is fundamentally unable to learn one-hot states even when wired), **do not patch around it** — stop and:
-1. Document the finding as a new formal issue
-2. Trigger the contingency plan (switch to MLP mode as default)
-3. Re-evaluate the Phase 3.3 → Phase 4 gate
+**Parallelization:** Issue #5 (energy bounds) is fully independent and can be fixed immediately. Assign to a second engineer while the primary engineer works through the dependency chain #1 → #3 → #4 → #2.
 
 ---
 
-## Appendix A: Original Audit Sources
+## Appendix A: Invariant Status After Fixes
 
-| Issue | Primary Source | Secondary Source |
-|-------|---------------|-----------------|
-| #1 | Chief Architect Audit (Finding 1) | Simplification Report §1 |
-| #2 | Spec Compliance Audit (C2, M6) | Chief Architect Audit (Finding 6) |
-| #3 | Gate Phase 3.3 Report (§5) | Spec Compliance Audit (§4) |
-| #4 | Chief Architect Audit (Findings 4, 11) | Spec Compliance Audit (C4, M5) |
-| #5 | Chief Architect Audit (Finding 2) | Spec Compliance Audit (M3, M4) |
+| Invariant | Current Status | Post-Fix Status | Notes |
+|-----------|---------------|-----------------|-------|
+| A1: Resource Boundedness | ⚠️ 2/3 dimensions | ✅ All 3 dimensions | Energy bound wiring (Issue #5) |
+| A2: Temporal Causality | ✅ | ✅ Unchanged | No cycle ordering changes |
+| A3: Incomplete Knowledge | ⚠️ Write-only | ✅ Facts consumed | Fact consumption (Issue #2) |
+| A4: Prediction as Primary | ⚠️ Capacity-constrained | ✅ Full capacity | MLP hidden_dim fix (Issue #1) |
+| A5: Feedback-Driven Adaptation | ⚠️ Decorative | ✅ Functional | error param wired (Issue #3) |
 
-## Appendix B: Invariant Status After Fixes
+## Appendix B: Benchmark Impact Estimates
 
-| Invariant | Status | Notes |
-|-----------|--------|-------|
-| A1: Resource Boundedness | ✅ Strengthened | RBTA now checks 3 dimensions; CYCLE timing is correct |
-| A2: Temporal Causality | ✅ Unchanged | No changes to cycle ordering |
-| A3: Incomplete Knowledge | ✅ Strengthened | Semantic facts now inform prediction (Issue #2) |
-| A4: Prediction as Primary | ✅ **Fixed** | G'.learn() now closes the prediction→learning loop (Issue #1) |
-| A5: Feedback-Driven Adaptation | ✅ **Fixed** | Attention weights modulate learning (Issue #4) |
-| G1–G5: Resolved Gaps | ✅ All preserved | No gap reopened by fixes |
+| Issue | Current Metric | Estimated After Fix | Measurement |
+|-------|---------------|-------------------|-------------|
+| #1 MLP capacity | L2 Φ-IQ = 0.320 | > 0.40 (est.) | `--levels=2 --use-mlp --cycles=500` |
+| #3 error modulation | Constant learning | Faster convergence | `--quick` error trend analysis |
+| #4 target state | Drive diversity = 4/5 | 6/6 (fully diverse) | `--levels=3 raw_metrics.active_drives` |
+| #2 facts consumed | Facts stored = 215 | Fact-bias reduces L2 error | Compare L2 error with/without fact bias |
+| #5 energy bounds | Unenforced | Violations on overload | Inject energy spike, verify RBTA flags |
 
 ---
 
-*End of Document — Execute in order. After all 5 issues are resolved, run full benchmark suite and final architectural review.*
+*End of Document — Execute in order with Issue #5 parallelised. After all 5 issues resolved, re-run full benchmark suite (MLP mode, 500 cycles/level) and final architectural review.*

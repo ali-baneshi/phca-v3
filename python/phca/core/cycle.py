@@ -59,6 +59,12 @@ class CycleMetrics:
     action_taken: int = -1
     action_name: str = ""
     module_timings: Dict[str, float] = field(default_factory=dict)
+    # Dashboard-specific fields (populated in step() for live monitoring)
+    drive_id: int = 1
+    skill_accuracy: float = 0.0
+    skill_compiled: bool = False
+    fact_count: int = 0
+    episode_count: int = 0
 
 
 class CognitiveCycle:
@@ -88,6 +94,7 @@ class CognitiveCycle:
         env: EnvironmentProtocol,
         state_dim: int,
         rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
+        metrics_store: Optional["MetricsStore"] = None,
     ):
         self.sanitizer = sanitizer
         self.m1 = m1
@@ -108,6 +115,8 @@ class CognitiveCycle:
         self.rbta_bounds = rbta_bounds or DEFAULT_MODULE_BOUNDS.copy()
 
         self.cycle_count: int = 0
+        self.metrics_store = metrics_store
+
         self.current_state: Optional[StateVector] = None
         self.current_goal: GoalVector = GoalVector(
             drive_id=1, target_state=None, tolerance=0.1,
@@ -268,9 +277,10 @@ class CognitiveCycle:
 
                 # LEARN: update G' with observed transition, weighted by attention
                 t_glearn = time.perf_counter()
-                # Note: error is stored for future use; learn() currently recomputes loss
-                # from (observed - predicted) delta-rule and does not consume the error param.
                 attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
+                # Pass attention weights to MLP for per-dimension gradient modulation (A5 fix)
+                if hasattr(self.gprime, '_attention_weights'):
+                    self.gprime._attention_weights = self._attention_weights.copy()
                 self.gprime.learn(
                     self.current_state, action_vec, next_state,
                     error=attn_weighted_error,
@@ -322,6 +332,17 @@ class CognitiveCycle:
             # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
             consol_stats = self.consolidation.get_stats()
             total_facts = consol_stats.get("total_facts_stored", 0)
+            # Get relevant facts for the current state to bias goals (A3 fix)
+            if self.current_state is not None:
+                relevant_facts = self.consolidation.get_relevant_facts(
+                    self.current_state, n=5, min_confidence=0.3,
+                )
+                fact_confidence_mean = float(np.mean([f.confidence for f in relevant_facts])) if relevant_facts else 0.0
+                fact_count = len(relevant_facts)
+            else:
+                relevant_facts = []
+                fact_confidence_mean = 0.0
+                fact_count = 0
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
                 "phi_criticality": phi_current,
@@ -333,6 +354,8 @@ class CognitiveCycle:
                 "empowerment": empowerment,
                 "attention_focus": attention_focus,
                 "consolidation_facts": total_facts,
+                "fact_confidence_mean": fact_confidence_mean,
+                "fact_count": fact_count,
             }
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
@@ -400,7 +423,9 @@ class CognitiveCycle:
             # Replaces hardcoded 200ms/500ms with structure-aware computed bounds
             hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
             reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
+            reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
             # Build composition tree reflecting the 21-step cycle's structure
+            # with full three-dimensional bounds (B_time, B_energy) per A1 fix.
             composition_tree = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
                 "children": [
@@ -412,11 +437,14 @@ class CognitiveCycle:
                     {
                         "type": "PARALLEL", "id": "regulation_block",
                         "children": ["MDIM", "CR", "ATTN", "HPM"],
-                        "bounds": {"B_time": reg_b_time},
+                        "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy},
                     },
                     "CYCLE",     # Step 19: increment + logging
                 ],
-                "bounds": {"B_time": reg_b_time * 2 + 0.050},  # 2× regulator + safety margin
+                "bounds": {
+                    "B_time": reg_b_time * 2 + 0.050,  # 2× regulator + safety margin
+                    "B_energy": reg_b_energy * 2 + 0.010,  # 2× regulator + energy overhead
+                },
             }
             violations, enforcer_action = self.rbta.check_cycle(
                 runtime_log=self.runtime_log,
@@ -431,8 +459,15 @@ class CognitiveCycle:
             metrics.violations_count = len(violations)
             metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
 
-            # Step 15: Logging
+            # Step 15: Logging — also populate dashboard fields
+            metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
+            metrics.skill_accuracy = self.tspl.skill_accuracy
+            metrics.skill_compiled = self.tspl.skill_compiled
+            metrics.fact_count = consol_stats.get("total_facts_stored", 0)
+            metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
             self.metrics_history.append(metrics)
+            if self.metrics_store is not None:
+                self.metrics_store.push(metrics)
             if len(self.metrics_history) > 10000:
                 self.metrics_history = self.metrics_history[-5000:]
 
@@ -530,12 +565,24 @@ class CognitiveCycle:
                 # Continuous distance gain (0 = toward goal, 1 = away)
                 distance_gain = self._compute_distance_gain(action_idx)
 
+                # D1/D3: strongly prioritize reducing distance, confidence secondary.
+                # MDIM target_state alignment adds drive-specific bias (G5 fix).
                 if goal_id in (1, 3):
-                    # D1/D3: strongly prioritize reducing distance, confidence secondary
-                    score = (1.0 - distance_gain) * 0.8 + min(confidence, 1.0) * 0.2
+                    base_score = (1.0 - distance_gain) * 0.6 + min(confidence, 1.0) * 0.2
+                    if target is not None:
+                        alignment = self._state_space_alignment(predicted, target)
+                        score = base_score + alignment * 0.2
+                    else:
+                        score = base_score
                 elif goal_id in (2, 4):
-                    # D2/D4: seek uncertainty, penalize moving away
-                    score = (1.0 - min(confidence, 1.0)) * 0.7 + (1.0 - distance_gain) * 0.3
+                    # D2/D4: seek uncertainty, penalize moving away.
+                    # MDIM target_state alignment adds drive-specific bias (G5 fix).
+                    base_score = (1.0 - min(confidence, 1.0)) * 0.5 + (1.0 - distance_gain) * 0.2
+                    if target is not None:
+                        alignment = self._state_space_alignment(predicted, target)
+                        score = base_score + alignment * 0.3
+                    else:
+                        score = base_score
                 else:
                     # D6 (Empowerment): state-space alignment only
                     state_align = self._state_space_alignment(predicted, target)
@@ -787,6 +834,7 @@ class CognitiveCycle:
         seed: int = 42,
         use_mlp: bool = True,
         use_continuous: bool = True,
+        metrics_store: Optional["MetricsStore"] = None,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for a MuJoCo physics environment.
 
@@ -902,6 +950,7 @@ class CognitiveCycle:
             hpm_validator=hpm_validator,
             consolidation=consolidation, env=env,
             state_dim=state_dim,
+            metrics_store=metrics_store,
         )
 
     @classmethod
@@ -913,6 +962,7 @@ class CognitiveCycle:
         use_continuous: bool = False,
         use_mlp: bool = False,
         obstacles: Optional[List[tuple]] = None,
+        metrics_store: Optional["MetricsStore"] = None,
     ) -> CognitiveCycle:
         """Build a fully-configured cognitive cycle for GridWorld.
 
@@ -1009,4 +1059,5 @@ class CognitiveCycle:
             hpm_validator=hpm_validator,
             consolidation=consolidation, env=env,
             state_dim=actual_state_dim,
+            metrics_store=metrics_store,
         )

@@ -274,3 +274,53 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Store raw saliences; pass weights as separate learn() parameter; modify world model learn() interface to consume per-dimension weights.
 - **Rationale:** Storing weights on the cycle object enables future wiring into the world model's `learn()` method (Phase 4). The indentation fix was needed to prevent calling `learn()` when `self.current_state` is None. The `error` parameter is accepted by learn() but not yet consumed (noted in comment).
 - **v3.0 trace:** §3.2 Def 3.4, §2.2 Def 2.4b
+
+## Decision D-028: MLP hidden_dim 32→128 — Phase 3.3 completion (Issue #1 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 1 (configuration error)
+- **Option chosen:** Changed `WorldModelMLP` default `hidden_dim` from 32 to 128 (matching documented 38,868 params). Reduced `train_steps` from 8 to 4 and `batch_size` from 64 to 32 to compensate for 4× larger per-pass compute.
+- **Alternatives:** hidden_dim=64 (conservative), keep 32 and accept capacity limitation
+- **Rationale:** The architecture documentation consistently describes a 38,868-parameter MLP (hidden_dim=128). The 32-hidden-unit default was never updated from the initial prototype. With hidden_dim=128, each forward/backward pass is ~4× more expensive, so we halved both batch_size and train_steps to keep total compute similar. This restores A4 (Prediction as Primary) capacity.
+- **v3.0 trace:** §2.2 Def 2.4b, A4
+
+## Decision D-029: Error-modulated learning rate — Phase 3.3 completion (Issue #3 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Both MLP and Gaussian `learn()` now use `lr_effective = lr * clip(1.0 + abs(error) * 0.1, 0.5, 2.0)` where error is the attention-weighted prediction error from PEU. MLP also receives per-dimension attention_weights passed via dynamic attribute from cycle to modulate output gradients. Batch-replay gradients do NOT receive attention modulation (replayed samples are from different states).
+- **Alternatives:** Store attention_weights in replay buffer, pass through learn() interface formally
+- **Rationale:** Error-modulated lr and per-dimension attention weighting are the minimal changes to make A5 (Feedback-Driven Adaptation) functional. Storing weights in the replay buffer would require buffer schema changes (Phase 4 scope). The dynamic attribute pattern avoids interface changes while preserving correctness.
+- **v3.0 trace:** §2.2 Def 2.4b, A5
+
+## Decision D-030: MDIM target_state into action scoring — Phase 3.3 completion (Issue #4 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** D1/D3 action scoring now blends distance_gain (0.6), confidence (0.2), and target_state alignment (0.2). D2/D4 scoring blends uncertainty (0.5), distance_gain (0.2), and alignment (0.3). Previously target_state was only used for D6.
+- **Alternatives:** Separate scoring for each drive, use alignment as main signal
+- **Rationale:** The original formula used only drive_id (integer) to distinguish drive behaviour. Incorporating target_state alignment makes each drive's generated goal actually influence which actions are preferred, completing the MDIM→action pipeline.
+- **v3.0 trace:** §3.3 Def 3.5, G5
+
+## Decision D-031: Consolidation facts wired into MDIM context — Phase 3.3 completion (Issue #2 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Added `get_relevant_facts()` to `ConsolidationScheduler` that returns top-N facts by relevant score (cosine similarity × confidence). In cycle.py, facts are queried for the current state and their mean confidence and count are injected into `mdim_context`.
+- **Alternatives:** Wire facts directly into prediction engine bias, use facts as MLP pre-training data
+- **Rationale:** Minimal wiring to make the S-Stream pipeline functional. Facts now influence goal generation via MDIM context. Direct prediction biasing (Phase 4 scope) would require `PredictionEngine` changes.
+- **v3.0 trace:** §2.3 (S-Stream), A3
+
+## Decision D-032: Energy bounds wired into composition tree — Phase 3.3 completion (Issue #5 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 1
+- **Option chosen:** Extracted `B_energy` from `hpm_bounds` in cycle.py and added it to the composition tree's `bounds` dict for both the regulation_block and root SEQUENCE node. The RBTA's `_check_composition_tree()` already checked `B_energy` — the missing piece was wiring it through.
+- **Alternatives:** Add energy-specific log, change `_compute_subtree_energy` to read from `energy_log`
+- **Rationale:** The HPM correctly computes `B_energy` for all composition operators. The RBTA already checks energy bounds in composition trees. The only gap was that cycle.py's composition tree only included `B_time`. Adding `B_energy` required 2 lines. This completes A1 enforcement for all 3 dimensions.
+- **v3.0 trace:** §2.1 Def 2.1, Def 3.6, A1
