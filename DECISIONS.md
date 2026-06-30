@@ -254,3 +254,23 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Add manual np.isnan/np.isfinite checks everywhere; keep floating-point exceptions suppressed.
 - **Rationale:** `all="ignore"` silently converts all FP exceptions to NaN, which then propagates silently. Raising on divide-by-zero and invalid operations forces NaN to surface immediately at the source. `over="ignore"` is retained because overflow to ±inf is recoverable.
 - **v3.0 trace:** §2.1 Def 2.1a
+
+## Decision D-026: Benchmark runner implementation — Phase 3.3 (Issue #3 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 1
+- **Option chosen:** Rewrote `python/benchmarks/runner.py` with full `run_level_0()` through `run_level_3()` implementations, porting logic from `scripts/benchmark.py`. Added `run_all_levels()` for composite reports with pass criteria.
+- **Alternatives:** Keep as deferred stub per PHCA-3.3-003; move `scripts/benchmark.py` into `phca` package.
+- **Rationale:** The benchmark stub violated the Phase 3.3 gate condition — Φ-IQ scores could not be independently verified from the package itself. Porting `scripts/benchmark.py` logic was the minimal, faithful implementation.
+- **v3.0 trace:** §1.3 success criteria, §5 Φ-IQ composite metric
+
+## Decision D-027: Attention weights wired into cognitive cycle — Phase 3.3 (Issue #4 fix)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** After `attention.select()`, chose to normalize chunk saliences and tile/truncate them to `state_dim` dimensions, storing as `self._attention_weights`. The mean weight is multiplied with prediction error and passed to `gprime.learn()`. Also fixed an indentation bug where `gprime.learn()` was outside the `if self.current_state is not None:` guard.
+- **Alternatives:** Store raw saliences; pass weights as separate learn() parameter; modify world model learn() interface to consume per-dimension weights.
+- **Rationale:** Storing weights on the cycle object enables future wiring into the world model's `learn()` method (Phase 4). The indentation fix was needed to prevent calling `learn()` when `self.current_state` is None. The `error` parameter is accepted by learn() but not yet consumed (noted in comment).
+- **v3.0 trace:** §3.2 Def 3.4, §2.2 Def 2.4b

@@ -129,6 +129,9 @@ class CognitiveCycle:
         self._phi_error_window: List[float] = []
         self._phi_window_size: int = 20
 
+        # Attention weights for modulating G'.learn() (Issue #4 fix)
+        self._attention_weights: np.ndarray = np.ones(self.state_dim, dtype=np.float32)
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=env.size)
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
@@ -263,9 +266,15 @@ class CognitiveCycle:
                 )
                 metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
-                # LEARN: update G' with observed transition
+                # LEARN: update G' with observed transition, weighted by attention
                 t_glearn = time.perf_counter()
-                self.gprime.learn(self.current_state, action_vec, next_state, metrics.prediction_error)
+                # Note: error is stored for future use; learn() currently recomputes loss
+                # from (observed - predicted) delta-rule and does not consume the error param.
+                attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
+                self.gprime.learn(
+                    self.current_state, action_vec, next_state,
+                    error=attn_weighted_error,
+                )
                 metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
                 # Store episode in M3 episodic memory (Task B fix)
@@ -342,6 +351,23 @@ class CognitiveCycle:
                 self.attention.update_precision(
                     chunk.chunk_id, metrics.prediction_error,
                 )
+            # Wire attention weights into learning: high-salience chunks get more weight
+            if attention_chunks:
+                weights = np.array([c.salience for c in attention_chunks])
+                w_sum = weights.sum()
+                if w_sum > 1e-8:
+                    weights = weights / w_sum
+                else:
+                    weights = np.ones_like(weights) / max(len(weights), 1)
+                # Pad/truncate to state_dim for per-dimension weight
+                if len(weights) >= self.state_dim:
+                    self._attention_weights = weights[:self.state_dim]
+                else:
+                    # Repeat weights to match state_dim
+                    reps = int(np.ceil(self.state_dim / max(len(weights), 1)))
+                    self._attention_weights = np.tile(weights, reps)[:self.state_dim]
+            else:
+                self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
