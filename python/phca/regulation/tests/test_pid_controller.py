@@ -1,8 +1,11 @@
 """
-Tests for Criticality Regulator PID Controller (PHCA-3.2-005).
+Tests for Adaptive Parameter Controller (PID Controller).
 
 Covers: PID regulation, error dynamics, orthogonality constraint,
 parameter freeze/unfreeze, reset.
+
+Note: Previously called CriticalityRegulator. Renamed in Phase 3.3
+gap audit (G-004) to avoid implying self-organized criticality.
 
 v3.0 Reference: §3.4 Definition 3.7, v3.0 Patch §2.6
 """
@@ -12,23 +15,23 @@ from __future__ import annotations
 import pytest
 import numpy as np
 
-from phca.regulation.pid_controller import CriticalityRegulator
+from phca.regulation.pid_controller import AdaptiveParameterController
 
 
 @pytest.fixture
-def cr() -> CriticalityRegulator:
-    return CriticalityRegulator(
+def cr() -> AdaptiveParameterController:
+    return AdaptiveParameterController(
         setpoint=0.5, k_p=1.0, k_i=0.1, k_d=0.05,
         T_base=1.0, eta_base=0.1, alpha_base=0.5,
     )
 
 
-class TestCriticalityRegulatorInit:
+class TestAdaptiveParameterControllerInit:
     """Initialization tests."""
 
     def test_default_params(self):
         """Default parameters should be set correctly."""
-        cr = CriticalityRegulator()
+        cr = AdaptiveParameterController()
         assert cr.setpoint == 0.5
         assert cr.k_p == 1.0
         assert cr.k_i == 0.1
@@ -48,6 +51,9 @@ class TestCriticalityRegulatorInit:
 class TestPIDRegulation:
     """PID control loop tests."""
 
+class TestPIDRegulation:
+    """PID control loop tests."""
+
     def test_regulate_returns_tuple(self, cr):
         """regulate() should return (T, eta, alpha) tuple."""
         result = cr.regulate(0.5)
@@ -59,44 +65,40 @@ class TestPIDRegulation:
         assert 0.01 <= alpha <= 1.0
 
     def test_regulate_at_setpoint(self, cr):
-        """When phi == setpoint, output should be near baseline."""
+        """When error_volatility == setpoint, output should be near baseline."""
         T, eta, alpha = cr.regulate(0.5)
         assert T == pytest.approx(cr.T_base, abs=0.01)
         assert eta == pytest.approx(cr.eta_base, abs=0.001)
         assert alpha == pytest.approx(cr.alpha_base, abs=0.01)
 
     def test_regulate_below_setpoint(self, cr):
-        """When phi < setpoint, temperature should increase."""
-        _, eta_low, alpha_low = cr.regulate(0.3)
-        _, eta_high, alpha_high = cr.regulate(0.5)
-        # Actually both calls have different states because integral accumulates
-        # Let me test differently
-        cr2 = CriticalityRegulator()
+        """When error_volatility < setpoint, temperature should increase."""
+        cr2 = AdaptiveParameterController()
         T_below, eta_below, alpha_below = cr2.regulate(0.3)
-        cr3 = CriticalityRegulator()
+        cr3 = AdaptiveParameterController()
         T_at, eta_at, alpha_at = cr3.regulate(0.5)
         assert T_below > T_at  # Need more heat when below setpoint
 
     def test_regulate_above_setpoint(self, cr):
-        """When phi > setpoint, temperature should decrease."""
-        cr_below = CriticalityRegulator()
-        cr_above = CriticalityRegulator()
+        """When error_volatility > setpoint, temperature should decrease."""
+        cr_below = AdaptiveParameterController()
+        cr_above = AdaptiveParameterController()
         T_below, _, _ = cr_below.regulate(0.3)
         T_above, _, _ = cr_above.regulate(0.7)
         assert T_below > T_above
 
     def test_exploration_noise_increases_with_error(self, cr):
         """Eta should increase with larger error."""
-        cr1 = CriticalityRegulator()
-        cr2 = CriticalityRegulator()
+        cr1 = AdaptiveParameterController()
+        cr2 = AdaptiveParameterController()
         _, eta_small, _ = cr1.regulate(0.45)  # small error
         _, eta_large, _ = cr2.regulate(0.0)   # large error
         assert eta_large > eta_small
 
     def test_attention_spread_decreases_with_error(self, cr):
         """Alpha should decrease (narrower focus) with larger error."""
-        cr1 = CriticalityRegulator()
-        cr2 = CriticalityRegulator()
+        cr1 = AdaptiveParameterController()
+        cr2 = AdaptiveParameterController()
         _, _, alpha_small = cr1.regulate(0.45)  # small error
         _, _, alpha_large = cr2.regulate(0.0)   # large error
         assert alpha_large < alpha_small
@@ -111,7 +113,7 @@ class TestPIDRegulation:
 
     def test_anti_windup(self):
         """Integral should be clipped to prevent windup."""
-        cr = CriticalityRegulator(integral_limit=1.0)
+        cr = AdaptiveParameterController(integral_limit=1.0)
         for _ in range(100):
             cr.regulate(0.0)  # large persistent error
         assert abs(cr._integral) <= 1.0
@@ -140,7 +142,7 @@ class TestOrthogonalityConstraint:
 
     def test_freeze_with_high_correlation(self):
         """Highly correlated parameters should trigger freeze."""
-        cr = CriticalityRegulator(orthogonality_threshold=0.5)
+        cr = AdaptiveParameterController(orthogonality_threshold=0.5)
         rng = np.random.RandomState(42)
 
         # Simulate highly correlated T and eta
@@ -160,7 +162,7 @@ class TestOrthogonalityConstraint:
 
     def test_frozen_param_not_updated(self):
         """A frozen parameter should remain at its previous value."""
-        cr = CriticalityRegulator()
+        cr = AdaptiveParameterController()
         # First regulate to establish a baseline
         T0, eta0, alpha0 = cr.regulate(0.5)
         # Freeze T
@@ -193,27 +195,27 @@ class TestOutputScaling:
 
     def test_temperature_range(self):
         """Temperature should be clamped to minimum 0.1."""
-        cr = CriticalityRegulator(k_p=100.0)  # Extreme gain
+        cr = AdaptiveParameterController(k_p=100.0)  # Extreme gain
         T, _, _ = cr.regulate(0.6)  # error = -0.1 → pid_out = -10
         assert T >= 0.1
 
     def test_exploration_noise_range(self):
         """Exploration noise should be at least 0.001."""
-        cr = CriticalityRegulator()
+        cr = AdaptiveParameterController()
         _, eta, _ = cr.regulate(0.5)  # zero error → baseline
         assert eta > 0.0
         assert eta < 1.0
 
     def test_attention_spread_range(self):
         """Attention spread should be clamped to [0.01, 1.0]."""
-        cr = CriticalityRegulator()
+        cr = AdaptiveParameterController()
         _, _, alpha = cr.regulate(0.5)
         assert 0.01 <= alpha <= 1.0
 
     def test_custom_gains(self):
         """Custom PID gains should affect output."""
-        cr_default = CriticalityRegulator()
-        cr_custom = CriticalityRegulator(k_p=5.0, k_i=0.5, k_d=0.25)
+        cr_default = AdaptiveParameterController()
+        cr_custom = AdaptiveParameterController(k_p=5.0, k_i=0.5, k_d=0.25)
 
         T1, _, _ = cr_default.regulate(0.3)
         T2, _, _ = cr_custom.regulate(0.3)

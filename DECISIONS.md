@@ -441,10 +441,45 @@ Every entry must reference the v3.0 specification section it affects.
 
 ## Decision D-044: D6 empowerment blend reverted — old logic was correct (Phase 3.3 gap closure — B-003)
 
+---
+
+## Decision D-045: Rename `phi` → `error_volatility` to stop claiming IIT (Phase 4 gap audit — G-001)
+
 - **Date:** 2026-06-30
 - **Author:** Chief Architect
-- **Category:** Tier 2
-- **Option chosen:** Reverted `empowerment_blend = 0.7 * empowerment + 0.3 * (1.0 - min(error, 1.0))` back to the original `0.7 * empowerment + 0.3 * min(error * 0.5, 1.0)`.
-- **Alternatives:** Keep inverted logic; use different formula
-- **Rationale:** The original formula causes D6 deficit to be small when error is high (agent doesn't seek empowerment when confused) and larger when error is low (agent seeks empowerment when it understands action-outcome relationships). The plan's suggested fix inverted this, making D6 push harder for empowerment when error is high — which contradicts the intended behavior.
-- **v3.0 trace:** §3.3 Def 3.5
+- **Category:** Tier 2 (architectural honesty)
+- **Option chosen:** Renamed `_approximate_phi()` → `_approximate_error_volatility()`, `phi_current` → `error_volatility`, `_phi_error_window` → `_error_vol_window`, `"phi_criticality"` context key → `"error_volatility"` throughout `cycle.py`, `mdim.py`, `pid_controller.py`, and all test files.
+- **Rationale:** The original name claimed to approximate Φ (integrated information from IIT 3.0). The actual computation is `cv(prediction_error)` — the coefficient of variation of recent prediction errors, which measures prediction-error volatility, not integration. Keeping the name "phi" misleads readers into thinking the system implements actual IIT, which it does not. The rename is purely cosmetic — no behavioural change.
+- **v3.0 trace:** §2.2 Def 2.4b (prediction engine), Phase 4 gap report finding G-001
+
+## Decision D-046: Rename `CriticalityRegulator` → `AdaptiveParameterController` (Phase 4 gap audit — G-004)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2 (architectural honesty)
+- **Option chosen:** Renamed `CriticalityRegulator` class to `AdaptiveParameterController`, removed all "edge of chaos" and "self-organized criticality" language from docstrings, updated all imports and test references in `cycle.py`, `regulation/__init__.py`, and `test_pid_controller.py`.
+- **Rationale:** The class is a textbook PID controller that regulates prediction-error volatility toward a fixed setpoint (0.5). Calling it a "Criticality Regulator" implies it implements self-organized criticality (SOC) à la Langton/Packard, which it does not. A PID loop with fixed gains does not model phase transitions, bifurcations, or self-organization. The rename accurately reflects what the component does: adaptively adjust three scalar parameters (T, eta, alpha) based on a PID error signal.
+- **v3.0 trace:** §3.4 Def 3.7 (parameter modulation), Phase 4 gap report finding G-004
+
+## Decision D-047: Unify `build_for_env`/`build_for_mujoco` → `CognitiveCycle.build(env)` (Phase 4 gap audit — G-008)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2 (architectural debt)
+- **Option chosen:** Created `CognitiveCycle.build(env, ...)` as the canonical builder that accepts any `EnvironmentProtocol`. `build_for_env` and `build_for_mujoco` are now thin wrappers that create their respective environments and delegate to `build()` with environment-appropriate defaults (e.g., MLP LR=0.05, G' B_time=0.080, ACTION B_time=0.050 for MuJoCo; G' B_time=0.050 for MLP with GridWorld).
+- **Alternatives:** Keep two separate builders with ~50 lines of duplicated module wiring; create a factory pattern with registry.
+- **Rationale:** The original `build_for_env` and `build_for_mujoco` each independently wired all ~13 PHCA modules with identical logic but slightly different parameters (LR, bounds, state_dim). This duplication caused maintenance issues (fixes in one builder didn't propagate to the other) and made the module wiring a hidden architecture concern. The unified builder eliminates duplication, makes the module wiring visible as a single canonical reference, and allows any EnvironmentProtocol to drive the system without adding a new builder method. All 47 existing call sites continue to work unchanged.
+- **v3.0 trace:** §2.2 Def 2.4b, G1 (embodiment), Phase 4 gap report finding G-008
+
+## Decision D-048: Wire Pareto front into meta-stable drive suppression (Phase 4 gap audit — G-006/G-012)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2 (zombie feature activated)
+- **Option chosen:** Uncommented `self.compute_pareto_front()` in `mdim.py:generate_goal()`, stored result in `self._pareto_front_ids`, and changed the meta-stable suppression block to only suppress drives NOT on the Pareto front (rather than suppressing all D1/D3/D5 unconditionally). Added empty-Pareto fallback (suppress all) for edge cases.
+- **Rationale:** The Pareto front computation (60+ lines) existed as a zombie function — called in a commented-out line, with output discarded. The meta-stable state was suppressing ALL D1/D3/D5 drives, ignoring the Pareto front's purpose of identifying optimal trade-offs between conflicting objectives. Drives on the Pareto front represent configurations where no single drive can be improved without worsening another — these should NOT be suppressed, as they represent the system's best compromise. Non-Pareto drives (dominated by others) are still suppressed, as their suppression frees the system to focus on drives that are at their optimal frontier.
+- **v3.0 trace:** §2.4.1 Def 3.10 (Drive Pareto Front), §3.3 Def 3.6, Phase 4 gap report findings G-006/G-012
+
+---
+
+*End of Decision Log (as of Phase 4 gap audit, Week 1-2 critical + G-006/G-012 Pareto wiring).*

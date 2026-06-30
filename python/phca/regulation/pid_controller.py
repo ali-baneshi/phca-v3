@@ -1,9 +1,13 @@
 """
-PHCA v3.0 — Criticality Regulator (PID Controller).
+PHCA v3.0 — Adaptive Parameter Controller (PID Controller).
 
-Phase 3.2: Full PID controller regulating system criticality phi toward
+Phase 3.2: Full PID controller regulating system error_volatility toward
 a target setpoint. Computes temperature (T), exploration noise (eta),
 and attention spread (alpha) based on PID error dynamics.
+
+Note: This was previously called "CriticalityRegulator" but the signal it
+regulates is prediction-error volatility, not self-organized criticality.
+Renamed in Phase 3.3 gap audit (G-004) to avoid implying SOC.
 
 v3.0 Reference: §3.4 Definition 3.7, v3.0 Patch §2.6 (orthogonality constraint)
 """
@@ -17,20 +21,25 @@ import numpy as np
 from phca.logging import logger, _log
 
 
-class CriticalityRegulator:
-    """Criticality Regulator — PID controller with orthogonality constraint.
+class AdaptiveParameterController:
+    """Adaptive Parameter Controller — PID controller with orthogonality constraint.
 
-    Phase 3.2:
+    Regulates a scalar signal (prediction-error volatility) toward a target
+    setpoint using a PID loop, and outputs three parameters that control
+    downstream module behaviour: temperature (T), exploration noise (eta),
+    and attention spread (alpha).
+
+    Mechanism:
         - PID control: T = T0 + k_p·Δ + k_i·∫Δ + k_d·dΔ/dt
-          where Δ = phi_setpoint - phi_current
+          where Δ = setpoint - error_volatility
         - Orthogonality constraint (v3.0 Patch §2.6.1):
           Monitors covariance between T, eta, alpha.
           Freezes slowest parameter if covariance exceeds threshold.
         - Output: (temperature, exploration_noise, attention_spread)
 
-    Phase 3.3+:
-        - Adaptive gains (k_p, k_i, k_d tuned online)
-        - Meta-parameter optimization
+    Note: This regulates prediction-error volatility, NOT self-organized
+    criticality. The "edge of chaos" language from the v3.0 spec has been
+    removed to avoid implying SOC where a simpler PID loop exists.
 
     v3.0 Reference: §3.4 Definition 3.7, §2.6 Orthogonality constraint
     """
@@ -50,7 +59,7 @@ class CriticalityRegulator:
         """Initialize PID controller with default gains.
 
         Args:
-            setpoint: Target criticality phi* (default 0.5, edge of chaos).
+            setpoint: Target setpoint (default 0.5).
             k_p: Proportional gain.
             k_i: Integral gain.
             k_d: Derivative gain.
@@ -90,15 +99,15 @@ class CriticalityRegulator:
         self._param_history_buffer: list[Dict[str, float]] = []
         self._frozen_params: set[str] = set()
 
-        # Freeze priority by PID gain timescale (v3.0 §2.6.1 Def 2.8a)
+        # Freeze priority by PID gain timescale
         # T (slowest, 1st to freeze) > alpha (medium, 2nd) > eta (fastest, last)
         self._freeze_priority: List[str] = ["T", "alpha", "eta"]
 
-    def regulate(self, phi_current: float = 0.5) -> Tuple[float, float, float]:
-        """Regulate criticality toward setpoint using PID control.
+    def regulate(self, error_volatility: float = 0.5) -> Tuple[float, float, float]:
+        """Regulate system toward setpoint using PID control.
 
         Computes:
-            Δ = setpoint - phi_current
+            Δ = setpoint - error_volatility
             ∫Δ = accumulated integral (with anti-windup)
             dΔ/dt = Δ - prev_Δ
             T = T_base + k_p·Δ + k_i·∫Δ + k_d·dΔ/dt
@@ -108,8 +117,8 @@ class CriticalityRegulator:
         Then applies orthogonality constraint check.
 
         Args:
-            phi_current: Current estimated criticality (approximated as
-                -H(module_states) for Phase 3.2).
+            error_volatility: Current prediction-error volatility signal
+                (formerly called phi_criticality). Ranges ~0.1-0.99.
 
         Returns:
             Tuple of (temperature, exploration_noise, attention_spread):
@@ -119,14 +128,14 @@ class CriticalityRegulator:
         """
         self._cycle += 1
 
-        # G6: NaN gate — clamp phi_current to previous value if degenerate
-        if not np.isfinite(phi_current):
-            _log(logger, "warning", "cr.nan_phi_input",
-                 phi_current=phi_current, fallback="previous")
-            phi_current = self._prev_output[0] if self._cycle > 1 else self.setpoint
+        # G6: NaN gate — clamp error_volatility to previous value if degenerate
+        if not np.isfinite(error_volatility):
+            _log(logger, "warning", "cr.nan_input",
+                 error_volatility=error_volatility, fallback="previous")
+            error_volatility = self._prev_output[0] if self._cycle > 1 else self.setpoint
 
         # Compute PID error
-        error = self.setpoint - phi_current
+        error = self.setpoint - error_volatility
 
         # Update integral with anti-windup
         self._integral += error

@@ -25,7 +25,7 @@ def mdim() -> MDIM:
 def default_context() -> dict:
     return {
         "prediction_error": 0.5,
-        "phi_criticality": 0.3,
+        "error_volatility": 0.3,
         "skill_accuracy": 0.85,
         "model_entropy": 0.4,
         "energy_cost": 0.1,
@@ -66,44 +66,44 @@ class TestDriveComputation:
 
     def test_d1_increases_with_error(self, mdim):
         """D1 deficit should increase with prediction error."""
-        drives_low = mdim.compute_drives({"prediction_error": 0.1, "phi_criticality": 0.5,
+        drives_low = mdim.compute_drives({"prediction_error": 0.1, "error_volatility": 0.5,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
 
-        drives_high = mdim.compute_drives({"prediction_error": 5.0, "phi_criticality": 0.5,
+        drives_high = mdim.compute_drives({"prediction_error": 5.0, "error_volatility": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
         assert drives_low[1].deficit < drives_high[1].deficit
 
     def test_d3_decreases_with_accuracy(self, mdim):
         """D3 deficit should decrease as skill accuracy increases."""
-        drives_low = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
+        drives_low = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.5,
                                            "skill_accuracy": 0.5, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
 
-        drives_high = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
+        drives_high = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.5,
                                             "skill_accuracy": 0.99, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
         assert drives_low[3].deficit > drives_high[3].deficit
 
     def test_d2_criticality_setpoint(self, mdim):
         """D2 deficit is minimal near criticality setpoint (0.5)."""
-        drives_near = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
+        drives_near = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
 
-        drives_far = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.1,
+        drives_far = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.1,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
         assert drives_near[2].deficit < drives_far[2].deficit
 
     def test_d5_increases_with_energy(self, mdim):
         """D5 deficit should increase with energy cost."""
-        drives_low = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
+        drives_low = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.5,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.0})
 
-        drives_high = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
+        drives_high = mdim.compute_drives({"prediction_error": 0.5, "error_volatility": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 1.0})
         assert drives_low[5].deficit < drives_high[5].deficit
@@ -173,12 +173,12 @@ class TestGoalGeneration:
     def test_generate_goal_different_drives(self, mdim):
         """generate_goal() should produce different drives for different contexts."""
         # High prediction error → likely D1
-        goal1 = mdim.generate_goal({"prediction_error": 5.0, "phi_criticality": 0.5,
+        goal1 = mdim.generate_goal({"prediction_error": 5.0, "error_volatility": 0.5,
                                      "skill_accuracy": 0.99, "model_entropy": 0.5,
                                      "energy_cost": 0.0})
 
         # High competence deficit → likely D3
-        goal2 = mdim.generate_goal({"prediction_error": 0.0, "phi_criticality": 0.5,
+        goal2 = mdim.generate_goal({"prediction_error": 0.0, "error_volatility": 0.5,
                                      "skill_accuracy": 0.2, "model_entropy": 0.5,
                                      "energy_cost": 0.0})
         # Due to random sampling, we check that at least some of the time
@@ -220,7 +220,7 @@ class TestGoalStack:
     def test_goal_stack_max_depth(self, mdim):
         """Goal stack should not exceed max depth."""
         for i in range(10):
-            ctx = {"prediction_error": 0.1 + i * 0.1, "phi_criticality": 0.5,
+            ctx = {"prediction_error": 0.1 + i * 0.1, "error_volatility": 0.5,
                     "skill_accuracy": 0.9, "model_entropy": 0.5,
                     "energy_cost": 0.1}
             mdim.generate_goal(ctx)
@@ -228,7 +228,7 @@ class TestGoalStack:
 
     def test_d1_goal_has_subgoals(self, mdim):
         """D1 goals should have exploration sub-goals."""
-        mdim.generate_goal({"prediction_error": 5.0, "phi_criticality": 0.5,
+        mdim.generate_goal({"prediction_error": 5.0, "error_volatility": 0.5,
                              "skill_accuracy": 0.99, "model_entropy": 0.5,
                              "energy_cost": 0.0})
         if mdim.goal_stack:
@@ -247,7 +247,7 @@ class TestMetaStableState:
     def test_meta_stable_when_all_drives_satisfied(self, mdim):
         """Meta-stable when all drives have low deficit."""
         for _ in range(5):
-            ctx = {"prediction_error": 0.0, "phi_criticality": 0.5,
+            ctx = {"prediction_error": 0.0, "error_volatility": 0.5,
                     "skill_accuracy": 1.0, "model_entropy": 0.5,
                     "energy_cost": 0.0}
             mdim.generate_goal(ctx)
@@ -258,11 +258,11 @@ class TestMetaStableState:
     def test_meta_stable_resets_on_high_deficit(self, mdim):
         """High deficit should break meta-stability."""
         for _ in range(3):
-            mdim.generate_goal({"prediction_error": 0.0, "phi_criticality": 0.5,
+            mdim.generate_goal({"prediction_error": 0.0, "error_volatility": 0.5,
                                 "skill_accuracy": 1.0, "model_entropy": 0.5,
                                 "energy_cost": 0.0})
         # High error should break meta-stability
-        mdim.generate_goal({"prediction_error": 5.0, "phi_criticality": 0.5,
+        mdim.generate_goal({"prediction_error": 5.0, "error_volatility": 0.5,
                             "skill_accuracy": 0.5, "model_entropy": 0.5,
                             "energy_cost": 0.5})
         assert not mdim.is_meta_stable()

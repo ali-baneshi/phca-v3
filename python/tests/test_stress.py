@@ -81,13 +81,13 @@ class TestStressRun:
         phi_values: list[float] = []
         for _ in range(100):
             cycle.step()
-            phi = cycle._approximate_phi()
-            phi_values.append(phi)
+            ev = cycle._approximate_error_volatility()
+            phi_values.append(ev)
 
-        # Phi should stay in meaningful range (> 0.1)
-        last_20_phi = phi_values[-20:]
-        mean_phi = float(np.mean(last_20_phi))
-        assert mean_phi > 0.1, (
-            f"Mean Φ over last 20 cycles is {mean_phi:.3f} — "
-            f"criticality detection has collapsed"
+        # Error volatility should stay in meaningful range (> 0.1)
+        last_20_ev = phi_values[-20:]
+        mean_ev = float(np.mean(last_20_ev))
+        assert mean_ev > 0.1, (
+            f"Mean error_volatility over last 20 cycles is {mean_ev:.3f} — "
+            f"volatility detection has collapsed"
         )

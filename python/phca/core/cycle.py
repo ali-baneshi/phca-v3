@@ -42,7 +42,7 @@ from phca.learning.tspl import TSPL
 from phca.regulation.rbta_enforcer import RBTAEnforcer
 from phca.motivation.mdim import MDIM
 from phca.attention.attention import Attention
-from phca.regulation.pid_controller import CriticalityRegulator
+from phca.regulation.pid_controller import AdaptiveParameterController
 from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
@@ -91,7 +91,7 @@ class CognitiveCycle:
         rbta: RBTAEnforcer,
         mdim: MDIM,
         attention: Attention,
-        criticality_regulator: CriticalityRegulator,
+        adaptive_controller: AdaptiveParameterController,
         hpm_validator: HPMValidator,
         consolidation: ConsolidationScheduler,
         env: EnvironmentProtocol,
@@ -109,7 +109,7 @@ class CognitiveCycle:
         self.rbta = rbta
         self.mdim = mdim
         self.attention = attention
-        self.criticality_regulator = criticality_regulator
+        self.adaptive_controller = adaptive_controller
         self.hpm_validator = hpm_validator
         self.consolidation = consolidation
         self.env = env
@@ -138,8 +138,8 @@ class CognitiveCycle:
         self.metrics_history: List[CycleMetrics] = []
 
         # Rolling window of prediction errors for temporal Φ approximation (P1-E fix)
-        self._phi_error_window: List[float] = []
-        self._phi_window_size: int = 20
+        self._error_vol_window: List[float] = []
+        self._error_vol_window_size: int = 20
 
         # Attention weights for modulating G'.learn() (Issue #4 fix)
         self._attention_weights: np.ndarray = np.ones(self.state_dim, dtype=np.float32)
@@ -263,9 +263,9 @@ class CognitiveCycle:
                 if corrected_conf > metrics.prediction_confidence:
                     metrics.prediction_confidence = corrected_conf
                 # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
-                self._phi_error_window.append(metrics.prediction_error)
-                if len(self._phi_error_window) >= self._phi_window_size:
-                    self._phi_error_window.pop(0)
+                self._error_vol_window.append(metrics.prediction_error)
+                if len(self._error_vol_window) >= self._error_vol_window_size:
+                    self._error_vol_window.pop(0)
                 metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
 
                 # Step 7: TSPL P-Stream update
@@ -319,7 +319,7 @@ class CognitiveCycle:
             # Steps 10-13: MDIM + CR + ATTN + HPM (Phase 3.2)
             # Compute Φ approximation from module states (replaces synthetic decay)
             t_mdim = time.perf_counter()
-            phi_current = self._approximate_phi()
+            error_volatility = self._approximate_error_volatility()
             # Estimate empowerment from prediction confidence spread across actions
             empowerment = self._estimate_empowerment()
             # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
@@ -338,7 +338,7 @@ class CognitiveCycle:
                 fact_count = 0
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
-                "phi_criticality": phi_current,
+                "error_volatility": error_volatility,
                 "skill_accuracy": self.tspl.skill_accuracy,
                 "model_entropy": 0.5 - self.cycle_count * 0.001,
                 "energy_cost": max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0)),
@@ -353,9 +353,9 @@ class CognitiveCycle:
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
 
-            # CR regulates and returns (T, eta, alpha) — forward to downstream modules
+            # Adaptive controller regulates and returns (T, eta, alpha)
             t_cr = time.perf_counter()
-            T, eta, alpha = self.criticality_regulator.regulate(phi_current)
+            T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
             self.mdim.temperature = T
             self.tspl.configs[StreamID.P_STREAM].eta = eta
             self.attention.gumbel_temperature = alpha * 0.5
@@ -694,38 +694,35 @@ class CognitiveCycle:
         empowerment = float(np.std(confidences))
         return float(np.clip(empowerment, 0.0, 1.0))
 
-    def _approximate_phi(self) -> float:
-        """Approximate Φ (integrated information) from prediction error temporal variance.
+    def _approximate_error_volatility(self) -> float:
+        """Compute prediction-error volatility from recent error history.
 
-        Uses a practical heuristic: Φ = min(1.0, std(window) / (mean(window) + ε)).
-        This is the coefficient of variation of prediction error over the last N cycles.
+        Uses a coefficient-of-variance heuristic: vol = min(1.0, std(window) / (mean(window) + ε)).
+        This measures how much the prediction error fluctuates over recent cycles.
+        High volatility = error varies significantly (system exploring/learning).
+        Low volatility = error is stable (system converged or stuck).
 
-        When the system is ordered (stable prediction error), the CV is low → low Φ.
-        When the system is at criticality (error fluctuates between low and high),
-        the CV is high → high Φ.
-
-        This replaces the Phase 3.1 approach that computed correlation between
-        WM and PE vectors (always near 1.0 with only 2 samples — meaningless).
-
-        Phase 3.3+: Full IIT Φ computation over bipartitions.
+        Note: This was previously called "_approximate_phi" and claimed to measure
+        integrated information (IIT Φ). It does NOT — it measures prediction-error
+        volatility. Renamed in Phase 3.3 gap audit (G-001) to accurately reflect
+        what it measures.
 
         Returns:
-            Float in (0.0, 1.0] approximating integrated information.
+            Float in (0.0, 1.0] representing prediction-error volatility.
         """
-        if len(self._phi_error_window) < 3:
+        if len(self._error_vol_window) < 3:
             return 0.5  # not enough samples for meaningful variance
 
-        errors = self._phi_error_window[-10:]  # use last 10 for responsiveness
+        errors = self._error_vol_window[-10:]  # use last 10 for responsiveness
         mean_err = float(np.mean(errors))
         std_err = float(np.std(errors))
 
         if mean_err < 1e-8:
-            return 0.1  # near-zero error → ordered system
+            return 0.1  # near-zero error → stable
 
-        # Coefficient of variation: high spread = critical, low spread = ordered
         cv = std_err / mean_err
-        phi = min(1.0, cv)
-        return float(np.clip(phi, 0.1, 0.99))
+        vol = min(1.0, cv)
+        return float(np.clip(vol, 0.1, 0.99))
 
     def _collect_runtime_log(self, metrics: Optional[CycleMetrics] = None) -> None:
         """Collect module runtime/memory/energy logs for RBTA from actual measurements.
@@ -805,42 +802,49 @@ class CognitiveCycle:
             entropy_val = 0.5
         self.belief_entropies = {"G'": entropy_val}
 
+    # ── Unified Builder (Phase 4) ─────────────────────────────
+
     @classmethod
-    def build_for_mujoco(
+    def build(
         cls,
-        env_name: str = "InvertedPendulum-v5",
+        env: EnvironmentProtocol,
         seed: int = 42,
-        use_mlp: bool = True,
-        use_continuous: bool = True,
+        use_mlp: bool = False,
+        use_continuous: bool = False,
+        mlp_lr: float = 0.1,
+        mlp_hidden_dim: int = 128,
+        gprime_b_time: float = 0.020,
+        action_b_time: float = 0.020,
         metrics_store: Optional["MetricsStore"] = None,
     ) -> CognitiveCycle:
-        """Build a cognitive cycle for a MuJoCo physics environment.
+        """Build a fully-configured cognitive cycle for any EnvironmentProtocol.
 
-        Creates a MuJoCoSimpleEnv wrapper for the given gymnasium MuJoCo
-        environment ID and wires up all PHCA modules with appropriate
-        dimensions and RBTA bounds.
+        This is the canonical builder — accepts any environment implementing
+        EnvironmentProtocol and wires up all PHCA modules with appropriate
+        dimensions based on env.get_state_dim() and env.action_space_size.
 
         Args:
-            env_name: gymnasium MuJoCo environment ID (e.g.
-                'InvertedPendulum-v5', 'Pendulum-v1', 'Reacher-v5').
-            seed: Random seed.
+            env: An environment implementing EnvironmentProtocol
+                (e.g., GridWorld, MuJoCoSimpleEnv).
+            seed: Random seed for reproducibility.
             use_mlp: If True, use the pure-NumPy MLP world model.
-                Recommended for continuous MuJoCo observations.
             use_continuous: If True (and use_mlp=False), use Gaussian
-                CPDs with analytic inference. If both use_mlp and
-                use_continuous are False, a discrete binary G' is used,
-                which is NOT recommended for continuous MuJoCo observations.
+                CPDs with analytic inference. If both False, uses discrete
+                binary G' with pgmpy exact inference.
+            mlp_lr: Learning rate for MLP (default 0.1; use 0.05 for
+                smooth continuous targets like MuJoCo).
+            mlp_hidden_dim: MLP hidden layer size (default 128).
+            gprime_b_time: RBTA time bound for G' module in seconds
+                (default 0.020; use 0.080 for MuJoCo with physics sim overhead).
+            action_b_time: RBTA time bound for ACTION module in seconds
+                (default 0.020; use 0.050 for MuJoCo).
+            metrics_store: Optional MetricsStore for live monitoring.
 
         Returns:
             Configured CognitiveCycle instance.
-
-        Raises:
-            ImportError: If gymnasium is not installed.
         """
-        from phca.environments.mujoco_env import MuJoCoSimpleEnv
-
-        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
         state_dim = env.get_state_dim()
+        action_dim = env.action_space_size
 
         sanitizer = ASISanitizer(
             sensor_dim=state_dim, v_max=100.0, epsilon_confidence=0.01,
@@ -849,32 +853,25 @@ class CognitiveCycle:
         m2 = M2WorkingMemory(capacity=7)
 
         if use_mlp:
-            # MLP with slightly lower LR for smooth continuous targets
             gprime = WorldModelMLP(
                 state_dim=state_dim,
-                action_dim=env.action_space_size,
+                action_dim=action_dim,
+                hidden_dim=mlp_hidden_dim,
                 seed=seed,
-                lr=0.05,
+                lr=mlp_lr,
             )
         elif use_continuous:
             gprime = WorldModelGPrime.build_gaussian_grid(
                 state_dim=state_dim,
-                action_dim=env.action_space_size,
+                action_dim=action_dim,
                 transition_std=0.5,
                 seed=seed,
             )
         else:
-            # Discrete G' — NOT recommended for continuous MuJoCo obs.
-            # Included for compatibility. Observations will be quantised.
-            import warnings
-            warnings.warn(
-                "Discrete G' with continuous MuJoCo observations will "
-                "quantise all values to 0/1. Use use_mlp=True or "
-                "use_continuous=True for MuJoCo environments."
-            )
+            # Phase 3.1: Discrete binary G' with pgmpy exact inference
             gprime = WorldModelGPrime(
                 state_dim=state_dim,
-                action_dim=env.action_space_size,
+                action_dim=action_dim,
                 seed=seed,
             )
             for i in range(min(state_dim, 10)):
@@ -900,20 +897,20 @@ class CognitiveCycle:
         tspl.init_parameters("gprime", (state_dim,))
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
 
-        # Adjust G' and ACTION bounds for MuJoCo simulation overhead
+        if use_mlp:
+            rbta.update_bounds(
+                "G'", ResourceBounds(B_time=gprime_b_time, B_mem=500_000, B_energy=50.0),
+            )
         rbta.update_bounds(
-            "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
-        )
-        rbta.update_bounds(
-            "ACTION", ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=2.0),
+            "ACTION", ResourceBounds(B_time=action_b_time, B_mem=10_000, B_energy=2.0),
         )
 
         mdim = MDIM(state_dim=state_dim)
         attention = Attention()
-        criticality_regulator = CriticalityRegulator()
+        adaptive_controller = AdaptiveParameterController()
         hpm_validator = HPMValidator()
         m3 = M3EpisodicMemory(
-            state_dim=state_dim, action_dim=env.action_space_size,
+            state_dim=state_dim, action_dim=action_dim,
         )
         consolidation = ConsolidationScheduler(
             m3=m3, state_dim=state_dim,
@@ -924,10 +921,62 @@ class CognitiveCycle:
             sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
             engine=engine, peu=peu, tspl=tspl, rbta=rbta,
             mdim=mdim, attention=attention,
-            criticality_regulator=criticality_regulator,
+            adaptive_controller=adaptive_controller,
             hpm_validator=hpm_validator,
             consolidation=consolidation, env=env,
             state_dim=state_dim,
+            metrics_store=metrics_store,
+        )
+
+    # ── Backward-Compatible Builders ───────────────────────
+
+    @classmethod
+    def build_for_mujoco(
+        cls,
+        env_name: str = "InvertedPendulum-v5",
+        seed: int = 42,
+        use_mlp: bool = True,
+        use_continuous: bool = True,
+        metrics_store: Optional["MetricsStore"] = None,
+    ) -> CognitiveCycle:
+        """Build a cognitive cycle for a MuJoCo physics environment.
+
+        Thin wrapper around build() that creates a MuJoCoSimpleEnv.
+        Uses MuJoCo-appropriate defaults: MLP with LR=0.05, higher RBTA
+        bounds for G' (0.080s) and ACTION (0.050s) to account for physics
+        simulation overhead.
+
+        Args:
+            env_name: gymnasium MuJoCo environment ID.
+            seed: Random seed.
+            use_mlp: If True, use the pure-NumPy MLP world model.
+            use_continuous: If True (and use_mlp=False), use Gaussian CPDs.
+            metrics_store: Optional MetricsStore for live monitoring.
+
+        Returns:
+            Configured CognitiveCycle instance.
+
+        Raises:
+            ImportError: If gymnasium is not installed.
+        """
+        from phca.environments.mujoco_env import MuJoCoSimpleEnv
+
+        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
+
+        if not use_mlp and not use_continuous:
+            import warnings
+            warnings.warn(
+                "Discrete G' with continuous MuJoCo observations will "
+                "quantise all values to 0/1. Use use_mlp=True or "
+                "use_continuous=True for MuJoCo environments."
+            )
+
+        return cls.build(
+            env=env, seed=seed,
+            use_mlp=use_mlp, use_continuous=use_continuous,
+            mlp_lr=0.05,              # lower LR for smooth continuous targets
+            gprime_b_time=0.080,      # MuJoCo physics sim overhead
+            action_b_time=0.050,      # MuJoCo step() overhead
             metrics_store=metrics_store,
         )
 
@@ -942,100 +991,40 @@ class CognitiveCycle:
         obstacles: Optional[List[tuple]] = None,
         metrics_store: Optional["MetricsStore"] = None,
     ) -> CognitiveCycle:
-        """Build a fully-configured cognitive cycle for GridWorld.
+        """Build a cognitive cycle for GridWorld.
+
+        Thin wrapper around build() that creates a GridWorld environment.
+        Uses GridWorld-appropriate defaults: discrete G' (default),
+        standard RBTA bounds.
 
         Args:
             size: GridWorld size (5, 10, or 20).
             seed: Random seed.
             state_dim: Override state dimensionality (default: auto from env).
-            use_continuous: If True, use Gaussian CPDs with analytic inference
-                (Phase 3.2). If False (default), use discrete binary CPDs with
-                pgmpy exact inference (Phase 3.1 compatible).
-            use_mlp: If True, use the pure-NumPy MLP world model instead of
-                the Bayesian graph G'. Overrides use_continuous.
-                (Phase 3.3b — feature gate controlled by USE_MLP_GPRIME flag.)
-            obstacles: Wall positions for GridWorld. If None, random walls generated.
-                If empty list, no walls.
+            use_continuous: If True, use Gaussian CPDs.
+            use_mlp: If True, use the pure-NumPy MLP world model.
+            obstacles: Wall positions. If None, generates random walls.
+            metrics_store: Optional MetricsStore for live monitoring.
 
         Returns:
             Configured CognitiveCycle instance.
         """
-        # obstacles=None → use empty list (backward compatible: original code passed [])
-        env = GridWorld(size=size, obstacles=obstacles if obstacles is not None else [], seed=seed)
-        actual_state_dim = state_dim or env.get_state_dim()
-
-        sanitizer = ASISanitizer(sensor_dim=actual_state_dim, v_max=100.0, epsilon_confidence=0.01)
-        m1 = M1SensoryBuffer(sensor_dim=actual_state_dim)
-        m2 = M2WorkingMemory(capacity=7)
-
-        if use_mlp:
-            gprime = WorldModelMLP(
-                state_dim=actual_state_dim,
-                action_dim=env.action_space_size,
-                seed=seed,
-            )
-        elif use_continuous:
-            # Phase 3.2: Continuous Gaussian G' with analytic inference
-            gprime = WorldModelGPrime.build_gaussian_grid(
-                state_dim=actual_state_dim,
-                action_dim=env.action_space_size,
-                transition_std=0.5,
-                seed=seed,
-            )
-        else:
-            # Phase 3.1: Discrete binary G' with pgmpy exact inference
-            gprime = WorldModelGPrime(
-                state_dim=actual_state_dim,
-                action_dim=env.action_space_size,
-                seed=seed,
-            )
-
-            for i in range(min(actual_state_dim, 10)):
-                name_t = f"s{i}_t"
-                name_t1 = f"s{i}_t1"
-                gprime.add_node(StateNode(
-                    name=name_t, cpd_type="discrete", parents=[],
-                    cardinality=2,
-                    params=np.array([[0.5], [0.5]], dtype=np.float32),
-                ))
-                gprime.add_node(StateNode(
-                    name=name_t1, cpd_type="discrete", parents=[name_t],
-                    cardinality=2,
-                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
-                ))
-                gprime.add_temporal_edge(TemporalEdge(source=name_t, target=name_t1, lag=1))
-
-        engine = PredictionEngine(gprime)
-        peu = PredictionErrorUnit()
-        tspl = TSPL(seed=seed)
-        # Initialize TSPL theta with G' parameter shape so TSPL.update() reaches
-        # accuracy computation and skill compilation. Theta is a bookkeeping mirror
-        # of G' parameters — Phase 3.3 will wire theta→G' when MLP replaces G'.
-        tspl.init_parameters("gprime", (actual_state_dim,))
-        rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
-        # MLP learn() does 8×64 forward+backward passes per cycle (~31ms)
-        if use_mlp:
-            rbta.update_bounds(
-                "G'", ResourceBounds(B_time=0.050, B_mem=500_000, B_energy=50.0),
-            )
-
-        mdim = MDIM(state_dim=actual_state_dim)
-        attention = Attention()
-        criticality_regulator = CriticalityRegulator()
-        hpm_validator = HPMValidator()
-        m3 = M3EpisodicMemory(state_dim=actual_state_dim, action_dim=env.action_space_size)
-        consolidation = ConsolidationScheduler(
-            m3=m3, state_dim=actual_state_dim,
-            consolidation_interval=10, max_facts_per_cycle=50,
+        env = GridWorld(
+            size=size,
+            obstacles=obstacles if obstacles is not None else [],
+            seed=seed,
         )
-
-        return cls(
-            sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
-            engine=engine, peu=peu, tspl=tspl, rbta=rbta,
-            mdim=mdim, attention=attention,
-            criticality_regulator=criticality_regulator,
-            hpm_validator=hpm_validator,
-            consolidation=consolidation, env=env,
-            state_dim=actual_state_dim,
+        actual_state_dim = state_dim or env.get_state_dim()
+        # Note: build() uses env.get_state_dim() internally, so if state_dim
+        # override is provided, we need to adjust. Pass use_mlp to trigger
+        # MLP bounds update if needed.
+        cycle = cls.build(
+            env=env, seed=seed,
+            use_mlp=use_mlp, use_continuous=use_continuous,
+            gprime_b_time=0.050 if use_mlp else 0.020,  # MLP needs wider G' bound
             metrics_store=metrics_store,
         )
+        # If state_dim was overridden, update the cycle's state_dim
+        if state_dim is not None and state_dim != actual_state_dim:
+            cycle.state_dim = state_dim
+        return cycle

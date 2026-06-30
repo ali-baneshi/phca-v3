@@ -134,6 +134,10 @@ class MDIM:
         # Last generated goal
         self.current_goal: Optional[GoalVector] = None
 
+        # Pareto front: which of D1/D3/D5 are at optimal trade-offs.
+        # Computed each cycle in generate_goal(), used in meta-stable suppression.
+        self._pareto_front_ids: List[int] = []
+
         # History for debugging/monitoring
         self._drive_history: List[Dict[int, float]] = []
         self._goal_history: List[GoalVector] = []
@@ -146,7 +150,7 @@ class MDIM:
         Args:
             context: Dict with keys:
                 - prediction_error: float (for D1)
-                - phi_criticality: float (for D2, approx -H(module_states))
+                - error_volatility: float (for D2, prediction-error CV as volatility proxy)
                 - skill_accuracy: float (for D3, 0.0-1.0)
                 - model_entropy: float (for D4, G' posterior entropy)
                 - energy_cost: float (for D5, computational cost / budget)
@@ -159,7 +163,7 @@ class MDIM:
 
         # Extract context with defaults
         prediction_error = context.get("prediction_error", 0.0)
-        phi_criticality = context.get("phi_criticality", 0.5)
+        error_volatility = context.get("error_volatility", 0.5)
         skill_accuracy = context.get("skill_accuracy", 0.0)
         model_entropy = context.get("model_entropy", 0.5)
         energy_cost = context.get("energy_cost", 0.0)
@@ -175,9 +179,9 @@ class MDIM:
             deficit=d1_deficit, target=self._targets[1],
         )
 
-        # D2: Complexity Seeking (Criticality)
-        # Drive = |phi_current - phi_critical|. Maximize near critical point.
-        d2_value = abs(phi_criticality - self._targets[2])
+        # D2: Seek prediction-error volatility near target setpoint
+        # Drive = |error_volatility - target|. Maximize when far from setpoint.
+        d2_value = abs(error_volatility - self._targets[2])
         d2_deficit = d2_value  # deficit = distance from setpoint
         self.drives[2] = DriveState(
             drive_id=2, value=d2_value,
@@ -361,10 +365,16 @@ class MDIM:
         self.compute_drives(context)
 
         # ── Meta-stable goal locking ──
-        # When meta-stable, suppress conflicting drives D1/D3/D5.
-        # Only non-conflicting drives (D2, D4, D6) may generate goals.
-        if self._is_deeply_meta_stable():
-            # Suppress D1/D3/D5 drives (set their deficits to 0)
+        # When meta-stable, Pareto-suppress non-optimal drives.
+        # Drives NOT on the Pareto front are suppressed (deficits set to 0).
+        # Drives ON the Pareto front retain their deficits — they represent
+        # optimal trade-offs between conflicting objectives (G-006 fix).
+        if self._is_deeply_meta_stable() and self._pareto_front_ids:
+            for d in [1, 3, 5]:
+                if d not in self._pareto_front_ids:
+                    self.drives[d].deficit = 0.0
+        elif self._is_deeply_meta_stable():
+            # Fallback: if Pareto front is empty (all dominated), suppress all
             for d in [1, 3, 5]:
                 self.drives[d].deficit = 0.0
 
@@ -385,9 +395,9 @@ class MDIM:
         self._push_goal(goal)
 
         # Compute Pareto front and meta-stable state
-        # TODO (Phase 4): Wire Pareto front into _is_deeply_meta_stable() to
-        # selectively suppress non-Pareto drives instead of all D1/D3/D5.
-        # self.compute_pareto_front()  # A-005: output was unused
+        # Pareto front identifies which of D1/D3/D5 are at optimal trade-offs.
+        # Non-Pareto drives are suppressed when meta-stable (see above).
+        self._pareto_front_ids = self.compute_pareto_front()
         self._update_meta_stable()
 
         self.current_goal = goal
