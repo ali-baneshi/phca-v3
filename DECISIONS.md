@@ -114,3 +114,63 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Require sustained accuracy over N cycles, require non-zero error threshold
 - **Rationale:** With the simplified G' graph (D-009), prediction errors are near-zero, causing accuracy = 1.0. This is a Phase 3.1 artifact. In Phase 3.2 with proper continuous CPDs, error will be non-zero and the 95% threshold will gate compilation meaningfully.
 - **v3.0 trace:** §3.1 Def 3.3.3 (skill compilation)
+
+## Decision D-012: E/S-Stream feature gate via single `enabled` field (Phase 3.3a)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 2 (implementation-dependent)
+- **Option chosen:** Added `enabled: bool = True` to `StreamConfig` dataclass; E-Stream and S-Stream set to `False` by default; wrapped E/S stream logic in `if config.enabled:` gates
+- **Alternatives:** Separate `enabled_e/enabled_s` flags, removing E/S code entirely, passing env vars
+- **Rationale:** Single `enabled` field is cleaner and general (can extend to future streams). Disabled by default to match Phase 3.3a scope (P-Stream only). Wrapping in-condition prevents dead code without removing it. No env vars or config files needed — pure Python toggle for CI determinism.
+- **v3.0 trace:** §3.1 Def 3.2, §3.2 Def 3.2a/b
+
+## Decision D-013: TSPL configs deep-copied in __init__ to prevent test pollution (Phase 3.3a)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** `TSPL.__init__()` deep-copies `DEFAULT_STREAM_CONFIGS` via `dataclasses.asdict()` + re-construction instead of storing references
+- **Alternatives:** `copy.deepcopy()`, requiring callsites to pass their own copies, defensive copying in each stream handler
+- **Rationale:** The global `DEFAULT_STREAM_CONFIGS` dict was shared across all TSPL instances, causing test pollution when tests modified configs. `dataclasses.asdict()` + re-construction is faster than `copy.deepcopy()` for simple dataclasses and avoids accidental reference sharing.
+- **v3.0 trace:** §3.1 Def 3.2
+
+## Decision D-014: Batch SQLite commits with periodic flush (Phase 3.3a)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** Replaced per-episode `commit()` with `flush()` (non-durable write + counter); call `m3.flush()` from consolidation scheduler every 10 cycles before `mark_consolidated`
+- **Alternatives:** Single commit after all episodes, WAL mode, no commits until consolidation
+- **Rationale:** Per-episode commit caused ~90% of cycle time in fsync. Batch commit (interval=10) reduces fsync overhead 10× while ensuring episodes written to disk before consolidation reads them. `flush()` with counter is simpler than tracking dirty pages. WAL mode deferred to Phase 3.3+ for potential speedup.
+- **v3.0 trace:** §2.2 Def 2.7, §4.1 Def 4.1a
+
+## Decision D-015: Pure NumPy MLP G' (Phase 3.3b)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 1 (must match v3.0 spec)
+- **Option chosen:** 3-layer MLP (89→128→128→84) with ReLU, Sigmoid output, BCE loss, manual backward pass, gradient clipping to [-1, 1], confidence = exp(-mean_BCE)
+- **Alternatives:** PyTorch MLP (fails CI — 1.1GB dep dropped in D-006), Gaussian CPD continuation, sklearn MLPRegressor, custom CUDA
+- **Rationale:** No PyTorch dependency — Phase 3.3b requirement (confirmed `import torch` fails). Pure NumPy backward pass is ~40 lines and verified via finite-difference gradient checking (rel_error < 1% on all params). He initialization matches standard practice. 38,868 parameters (~3× Gaussian betas) provides enough capacity for GridWorld transitions.
+- **v3.0 trace:** §2.2 Def 2.4b
+
+## Decision D-016: MLP learn() redoes forward pass with correct action (Phase 3.3b)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 3
+- **Option chosen:** `WorldModelMLP.learn()` calls `predict()` internally with the actual `action` parameter before computing gradients, overwriting the cached activations from the cycle's prediction step (which used `last_action` from the previous cycle)
+- **Alternatives:** Change cycle order to compute gradient before action selection, pass `last_action` to compute_gradient, store per-action caches
+- **Rationale:** The forward pass during `step()` (via `engine.predict()`) uses `last_action` from the previous cycle, but `learn()` needs the gradient w.r.t. the actual action taken. Redoing the forward pass in `learn()` is the minimal change — no cycle restructuring, no TSPL changes, one extra ~1ms forward pass per cycle.
+- **v3.0 trace:** §2.2 Def 2.4b, Phase 3.3b Strategic Report §3.2
+
+## Decision D-017: MLP gradient NOT passed to TSPL (Phase 3.3b)
+
+- **Date:** 2026-06-30
+- **Author:** Implementation Engineer
+- **Category:** Tier 2
+- **Option chosen:** `WorldModelMLP.learn()` applies SGD gradient directly to internal weights. TSPL.update() continues to use its own delta-rule gradient for theta bookkeeping. No gradient kwarg passed from MLP to TSPL.
+- **Alternatives:** Pass MLP gradient as TSPL `gradient=` kwarg, requiring TSPL theta key mapping. Sync TSPL theta from MLP after each learn step.
+- **Rationale:** MLP gradient keys (`gprime_w1`, `gprime_b1`, ...) don't match TSPL theta keys (`gprime`). Mapping would require TSPL changes (forbidden by Phase 3.3b constraint: zero TSPL internals changes). MLP internal weights are the authoritative copy; TSPL theta is a bookkeeping mirror for skill compilation. Decoupling simplifies integration and avoids accidental gradient double-counting.
+- **v3.0 trace:** §2.2 Def 2.4b, §3.1 Def 3.2

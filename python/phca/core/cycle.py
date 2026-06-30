@@ -31,6 +31,10 @@ from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
 from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
+from phca.world_model.mlp import WorldModelMLP
+
+# Feature flag: set to True to replace Gaussian G' with MLP
+USE_MLP_GPRIME = False
 from phca.prediction.engine import PredictionEngine
 from phca.prediction.error_unit import PredictionErrorUnit
 from phca.learning.tspl import TSPL
@@ -194,36 +198,23 @@ class CognitiveCycle:
                 metrics.prediction_confidence = confidence
             metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
 
-            # Step 5-6: PEU error computation
-            t3 = time.perf_counter()
-            if self.current_state is not None and self.last_prediction is not None:
-                error = self.peu.compute(self.current_state, self.last_prediction)
-                metrics.prediction_error = error
-            # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
-            self._phi_error_window.append(metrics.prediction_error)
-            if len(self._phi_error_window) > self._phi_window_size:
-                self._phi_error_window.pop(0)
-            metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
+            # (Step 5-6: PEU — deferred after env.step for correct action context)
 
-            # Step 7: TSPL P-Stream update
-            t4 = time.perf_counter()
-            if self.current_state is not None and self.last_prediction is not None:
-                self.tspl.update(
-                    StreamID.P_STREAM,
-                    metrics.prediction_error,
-                    self.current_state,
-                    self.last_prediction,
-                )
-            metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
+            # (Step 7: TSPL — deferred after PEU)
 
             # (Step 8: Attention moved after MDIM/CR to use CR-controlled parameters)
 
-            # Step 9: Action selection
+            # Step 9a: Action selection + environment step
             t5 = time.perf_counter()
             action_idx = self._select_action()
             obs, reward, terminal, info = self.env.step(action_idx)
+            metrics.module_timings["action_selection"] = (time.perf_counter() - t5) * 1000
 
-            # LEARN: update G' with observed transition (P0-A fix — was never called!)
+            # Step 5-7: PEU + TSPL + LEARN with correct action context.
+            # PEU now compares the actual next_state against a prediction
+            # conditioned on the action that was taken (not last_action
+            # from the previous cycle). This makes the error meaningful for
+            # learned world models like the MLP.
             if self.current_state is not None:
                 action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
                 action_vec[action_idx] = 1.0
@@ -233,6 +224,34 @@ class CognitiveCycle:
                     timestamp=float(self.cycle_count),
                     grounding_level=1,
                 )
+
+                # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
+                corrected_prediction, corrected_conf = self.gprime.predict(
+                    self.current_state, action_vec
+                )
+                t3 = time.perf_counter()
+                error = self.peu.compute(next_state, corrected_prediction)
+                metrics.prediction_error = error
+                # Update confidence to reflect the corrected prediction
+                if corrected_conf > metrics.prediction_confidence:
+                    metrics.prediction_confidence = corrected_conf
+                # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
+                self._phi_error_window.append(metrics.prediction_error)
+                if len(self._phi_error_window) > self._phi_window_size:
+                    self._phi_error_window.pop(0)
+                metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
+
+                # Step 7: TSPL P-Stream update
+                t4 = time.perf_counter()
+                self.tspl.update(
+                    StreamID.P_STREAM,
+                    metrics.prediction_error,
+                    self.current_state,
+                    self.last_prediction,
+                )
+                metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
+
+                # LEARN: update G' with observed transition
                 t_glearn = time.perf_counter()
                 self.gprime.learn(self.current_state, action_vec, next_state, metrics.prediction_error)
                 metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
@@ -256,7 +275,6 @@ class CognitiveCycle:
             metrics.action_taken = action_idx
             metrics.action_name = ACTION_NAMES[action_idx]
             metrics.goal_reached = info.get("goal_reached", False)
-            metrics.module_timings["action_selection"] = (time.perf_counter() - t5) * 1000
 
             if terminal:
                 self.env.reset()
@@ -726,6 +744,7 @@ class CognitiveCycle:
         seed: int = 42,
         state_dim: Optional[int] = None,
         use_continuous: bool = False,
+        use_mlp: bool = False,
         obstacles: Optional[List[tuple]] = None,
     ) -> CognitiveCycle:
         """Build a fully-configured cognitive cycle for GridWorld.
@@ -737,6 +756,9 @@ class CognitiveCycle:
             use_continuous: If True, use Gaussian CPDs with analytic inference
                 (Phase 3.2). If False (default), use discrete binary CPDs with
                 pgmpy exact inference (Phase 3.1 compatible).
+            use_mlp: If True, use the pure-NumPy MLP world model instead of
+                the Bayesian graph G'. Overrides use_continuous.
+                (Phase 3.3b — feature gate controlled by USE_MLP_GPRIME flag.)
             obstacles: Wall positions for GridWorld. If None, random walls generated.
                 If empty list, no walls.
 
@@ -751,7 +773,13 @@ class CognitiveCycle:
         m1 = M1SensoryBuffer(sensor_dim=actual_state_dim)
         m2 = M2WorkingMemory(capacity=7)
 
-        if use_continuous:
+        if use_mlp:
+            gprime = WorldModelMLP(
+                state_dim=actual_state_dim,
+                action_dim=env.action_space_size,
+                seed=seed,
+            )
+        elif use_continuous:
             # Phase 3.2: Continuous Gaussian G' with analytic inference
             gprime = WorldModelGPrime.build_gaussian_grid(
                 state_dim=actual_state_dim,
@@ -790,6 +818,11 @@ class CognitiveCycle:
         # of G' parameters — Phase 3.3 will wire theta→G' when MLP replaces G'.
         tspl.init_parameters("gprime", (actual_state_dim,))
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
+        # MLP learn() does 8×64 forward+backward passes per cycle (~31ms)
+        if use_mlp:
+            rbta.update_bounds(
+                "G'", ResourceBounds(B_time=0.050, B_mem=500_000, B_energy=50.0),
+            )
 
         mdim = MDIM(state_dim=actual_state_dim)
         attention = Attention()

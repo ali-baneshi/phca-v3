@@ -5,6 +5,7 @@
     "seed": 42,
     "grid_size": 5,
     "use_continuous": true,
+    "use_mlp": true,
     "weights": {
       "prediction_accuracy": 0.2,
       "adaptation_speed": 0.2,
@@ -18,33 +19,98 @@
     {
       "level": 0,
       "level_name": "Stationary Prediction",
-      "n_cycles": 50,
-      "prediction_accuracy": 0.9179799985241885,
-      "adaptation_speed": 0.9180199985253806,
-      "goal_complexity": 0.8,
-      "transfer_efficiency": 0.8427239968915045,
-      "resource_efficiency": 0.9267979967594147,
-      "failure_rate": 0.02,
-      "phi_iq": 0.7969681982955225,
+      "n_cycles": 200,
+      "prediction_accuracy": 0.6366972673626451,
+      "adaptation_speed": 0.7232595437490033,
+      "goal_complexity": 0.6,
+      "transfer_efficiency": 0.46049737509894384,
+      "resource_efficiency": 0.9508878766870476,
+      "failure_rate": 0.005,
+      "phi_iq": 0.6207435438245807,
       "raw_metrics": {
-        "mean_error": 0.8202000147581147,
-        "mean_confidence": 0.7999999999999997,
-        "mean_latency_ms": 36.601001620292664,
-        "p95_latency_ms": 199.79121040523734,
+        "mean_error": 3.633027326373549,
+        "mean_confidence": 0.9826462963181279,
+        "mean_latency_ms": 24.55606165647623,
+        "p95_latency_ms": 38.04333338048309,
         "violations": 1,
-        "skill_accuracy": 0.9014993343868789,
-        "skill_compiled": true,
-        "active_drives": 4
+        "skill_accuracy": 0.7858883064626663,
+        "skill_compiled": false,
+        "active_drives": 3
+      }
+    },
+    {
+      "level": 1,
+      "level_name": "Reactive Control",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.6390979676506259,
+      "adaptation_speed": 0.7629277656299902,
+      "goal_complexity": 0.8,
+      "transfer_efficiency": 0.48758558447835976,
+      "resource_efficiency": 0.9523156827699859,
+      "failure_rate": 0.0,
+      "phi_iq": 0.6640061208818744,
+      "raw_metrics": {
+        "mean_error": 3.6090203234937417,
+        "mean_latency_ms": 23.842158615007065,
+        "p95_latency_ms": 38.36719430692028,
+        "violations": 0,
+        "unique_actions": 4,
+        "skill_accuracy": 0.8868124494977322,
+        "skill_compiled": false
+      }
+    },
+    {
+      "level": 2,
+      "level_name": "Goal Pursuit",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.30125811361707855,
+      "adaptation_speed": 0.0,
+      "goal_complexity": 0.23,
+      "transfer_efficiency": 0.0,
+      "resource_efficiency": 0.9519139101606561,
+      "failure_rate": 0.0,
+      "phi_iq": 0.28513440475554697,
+      "raw_metrics": {
+        "mean_error": 6.987418863829214,
+        "mean_latency_ms": 24.043044919671956,
+        "p95_latency_ms": 35.43099988746687,
+        "violations": 0,
+        "goals_reached": 46,
+        "goal_rate": 0.23,
+        "skill_accuracy": 0.8112478548515416
+      }
+    },
+    {
+      "level": 3,
+      "level_name": "Self-Motivated Exploration",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.5910767002975058,
+      "adaptation_speed": 1.0,
+      "goal_complexity": 0.6,
+      "transfer_efficiency": 0.5910767002975058,
+      "resource_efficiency": 0.9494957845585305,
+      "failure_rate": 0.005,
+      "phi_iq": 0.6862760020158333,
+      "raw_metrics": {
+        "mean_error": 4.089232997024942,
+        "mean_latency_ms": 25.252107720734784,
+        "p95_latency_ms": 40.34588575741509,
+        "violations": 1,
+        "unique_actions": 5,
+        "active_drives": 3,
+        "m3_episodes": 210,
+        "consolidation_facts": 103,
+        "skill_accuracy": 0.7352834020385617
       }
     }
   ],
-  "overall_phi_iq": 0.7969681982955225,
-  "total_cycles": 50,
-  "duration_s": 2.1646113310125656,
+  "overall_phi_iq": 0.5640400178694588,
+  "total_cycles": 800,
+  "duration_s": 19.870776821975596,
   "pass_criteria": {
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,
-    "goal_autonomy_achieved": false,
+    "goal_autonomy_achieved": true,
     "phi_iq_above_0_5": true
   }
 }

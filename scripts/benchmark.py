@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.config import GoalVector, StateVector, CYCLE_TARGET
+from phca.config import GoalVector, ResourceBounds, StateVector, CYCLE_TARGET
 
 
 # ── Φ-IQ Sub-Metric Weights ────────────────────────────────
@@ -56,6 +56,7 @@ class BenchmarkConfig:
     seed: int = 42
     grid_size: int = 5
     use_continuous: bool = True
+    use_mlp: bool = False
     weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
 
 
@@ -165,7 +166,8 @@ class BenchmarkRunner:
 
     def _run_level(self, level: int) -> BenchmarkResult:
         """Run a single benchmark level and compute metrics."""
-        n = self.config.n_cycles
+        # MLP needs more cycles to learn (200 vs 50)
+        n = self.config.n_cycles if not self.config.use_mlp else max(self.config.n_cycles, 200)
         warmup = self.config.warmup
 
         # Build a cycle configured for this level
@@ -178,8 +180,15 @@ class BenchmarkRunner:
             size=self.config.grid_size,
             seed=self.config.seed + level,
             use_continuous=self.config.use_continuous,
+            use_mlp=self.config.use_mlp,
             obstacles=obstacles,
         )
+
+        # Override G' timing bound for MLP (learn() takes ~31ms with 8×64 batch)
+        if self.config.use_mlp:
+            cycle.rbta.update_bounds(
+                "G'", ResourceBounds(B_time=0.050, B_mem=500_000, B_energy=50.0),
+            )
 
         # Warmup
         for _ in range(warmup):
@@ -465,9 +474,10 @@ def print_report(report: BenchmarkReport) -> None:
     print(f"\n{'='*60}")
     print(f"  PHCA v3.0 — Φ-IQ Benchmark Report")
     print(f"{'='*60}")
+    model = "MLP" if report.config.use_mlp else ("Gaussian G'" if report.config.use_continuous else "Discrete G'")
     print(f"  Config: {report.config.n_cycles} cycles/level, "
           f"grid={report.config.grid_size}x{report.config.grid_size}, "
-          f"{'continuous' if report.config.use_continuous else 'discrete'} G'")
+          f"{model}")
     print(f"  Duration: {report.duration_s:.1f}s")
     print(f"\n  {'Level':<8} {'Φ-IQ':<8} {'Pred':<8} {'Adapt':<8} {'Goals':<8} {'Transfer':<8} {'Resource':<8} {'Fail':<8}")
     print(f"  {'-'*64}")
@@ -513,6 +523,8 @@ def main() -> None:
                         help="Number of cognitive cycles per level (default: 50)")
     parser.add_argument("--quick", action="store_true",
                         help="Quick mode: Level 0 only, 20 cycles")
+    parser.add_argument("--use-mlp", action="store_true",
+                        help="Use MLP world model instead of Gaussian G'")
     parser.add_argument("--output", type=str, default=None,
                         help="Output JSON report path")
     args = parser.parse_args()
@@ -524,7 +536,7 @@ def main() -> None:
         levels = [int(l.strip()) for l in args.levels.split(",")]
         n_cycles = args.cycles
 
-    config = BenchmarkConfig(n_cycles=n_cycles)
+    config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp)
     runner = BenchmarkRunner(config)
     report = runner.run_all(levels)
     print_report(report)
