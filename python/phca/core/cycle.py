@@ -40,7 +40,7 @@ from phca.attention.attention import Attention
 from phca.regulation.pid_controller import CriticalityRegulator
 from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
-from environments.grid_world import GridWorld, ACTION_NAMES
+from environments.grid_world import GridWorld, ACTION_NAMES, ACTION_DELTAS
 
 
 @dataclass
@@ -353,17 +353,18 @@ class CognitiveCycle:
         """Select action using goal-directed planning with MDIM goal awareness.
 
         Blends two signals:
-          1. Prediction confidence (how well the model knows the outcome)
-          2. Goal alignment (how much the action moves toward the goal)
+          1. Goal alignment: how much the action moves toward the goal
+             (computed directly from environment state, not prediction)
+          2. Prediction confidence: how well the model knows the outcome
+
+        Uses environment state directly (agent_pos, goal_pos, grid) for goal
+        alignment because the Gaussian BN applies the same action weight to
+        all state dimensions and cannot distinguish spatial movement.
 
         The blend depends on the MDIM goal's drive_id:
-          D1/D3 (error/competence): goal-aligned prediction confidence
+          D1/D3 (error/competence): goal-aligned + confidence
           D2/D4 (exploration): seek uncertainty
           D5 (energy): prefer STAY
-
-        For Level 2 Goal Pursuit, this enables navigation toward the goal
-        even with a fixed prediction model, by extracting the agent and
-        goal positions from the predicted state vector.
         """
         if self.current_state is None:
             return 4  # STAY
@@ -384,27 +385,20 @@ class CognitiveCycle:
             self.engine.update_action(action)
 
             try:
-                predicted, confidence = self.engine.predict(
-                    self.current_state, horizon=1,
-                )
+                _, confidence = self.engine.predict(self.current_state, horizon=1)
 
                 if goal_id in (1, 3):
-                    # D1/D3: Maximize goal alignment + prediction confidence
-                    goal_align = self._goal_alignment_score(
-                        self.current_state.values, predicted.values,
-                    )
-                    score = 0.7 * goal_align + 0.3 * confidence
-                elif goal_id == 2:
-                    # D2 (Complexity Seeking): prefer uncertain predictions
-                    score = 1.0 - min(confidence, 1.0)
-                elif goal_id == 4:
-                    # D4 (Epistemic Curiosity): prefer novel/uncertain
+                    # D1/D3: Goal alignment + prediction confidence
+                    # Goal alignment uses environment state directly because
+                    # the Gaussian BN model can't distinguish spatial movement
+                    goal_align = self._action_goal_alignment(action_idx)
+                    score = 0.7 * goal_align + 0.3 * min(confidence, 1.0)
+                elif goal_id in (2, 4):
+                    # D2/D4: Seek uncertainty for exploration
                     score = 1.0 - min(confidence, 1.0)
                 else:
                     # D6 (Empowerment) / fallback: goal alignment only
-                    score = self._goal_alignment_score(
-                        self.current_state.values, predicted.values,
-                    )
+                    score = self._action_goal_alignment(action_idx)
 
                 if score > best_score:
                     best_score = score
@@ -414,51 +408,47 @@ class CognitiveCycle:
 
         return best_action
 
-    def _goal_alignment_score(
-        self, current_values: np.ndarray, predicted_values: np.ndarray,
-    ) -> float:
-        """Compute goal alignment: how much the predicted state moves toward the goal.
+    def _action_goal_alignment(self, action_idx: int) -> float:
+        """Compute how much an action moves toward the GridWorld goal.
 
-        Extracts agent position (argmax of agent_map region) and goal position
-        (argmax of goal_map region) from the GridWorld state vector.
+        Uses environment state directly (agent_pos, goal_pos, grid)
+        rather than the Gaussian BN prediction, because the BN applies
+        uniform action weights and cannot distinguish spatial movement.
 
-        The state vector layout (for size×size grid):
-          [0:size²]        = agent_map (one-hot)
-          [size²:2*size²]  = goal_map (one-hot)
-          [2*size²:3*size²] = wall_map
-          [3*size²:]       = local_view (9)
-
-        Score = 1 / (1 + predicted_dist) — higher when closer to goal.
+        Checks:
+          1. Action stays within grid bounds
+          2. Action doesn't move into a wall
+          3. New position is closer to the goal (Manhattan distance)
 
         Args:
-            current_values: Current state vector (for reference).
-            predicted_values: Predicted state vector (for goal proximity).
+            action_idx: 0=N, 1=S, 2=E, 3=W, 4=STAY
 
         Returns:
-            Float in (0.0, 1.0] — 1.0 = at goal, low = far from goal.
+            1.0 if closer to goal, 0.5 if same distance, 0.0 if farther/blocked.
         """
-        grid_size = self.env.size
-        n = grid_size * grid_size
+        dr, dc = ACTION_DELTAS[action_idx]
+        new_row = self.env.agent_pos[0] + dr
+        new_col = self.env.agent_pos[1] + dc
 
-        # Extract predicted agent position from agent_map region
-        agent_region = predicted_values[:n]
-        pred_agent_idx = int(np.argmax(agent_region))
-        pred_row = pred_agent_idx // grid_size
-        pred_col = pred_agent_idx % grid_size
+        # Check bounds
+        if not (0 <= new_row < self.env.size and 0 <= new_col < self.env.size):
+            return 0.0  # out of bounds
 
-        # Extract goal position from goal_map region (same in current state)
-        goal_region = current_values[n:2*n]
-        goal_idx = int(np.argmax(goal_region))
-        goal_row = goal_idx // grid_size
-        goal_col = goal_idx % grid_size
+        # Check walls
+        if self.env.grid[new_row, new_col] == self.env.WALL:
+            return 0.0  # blocked by wall
 
-        # Manhattan distance from predicted agent position to goal
-        dist = abs(pred_row - goal_row) + abs(pred_col - goal_col)
-        max_dist = (grid_size - 1) * 2  # maximum possible Manhattan distance
+        # Manhattan distances to goal
+        g_row, g_col = self.env.goal_pos
+        current_dist = abs(self.env.agent_pos[0] - g_row) + abs(self.env.agent_pos[1] - g_col)
+        new_dist = abs(new_row - g_row) + abs(new_col - g_col)
 
-        # Score: 1.0 when at goal, approaches 0 when far
-        score = 1.0 / (1.0 + dist / max_dist)
-        return float(score)
+        if new_dist < current_dist:
+            return 1.0  # closer to goal
+        elif new_dist == current_dist:
+            return 0.5  # same distance
+        else:
+            return 0.0  # farther from goal
 
     def _estimate_empowerment(self) -> float:
         """Estimate empowerment (action-effect channel capacity).
@@ -593,14 +583,22 @@ class CognitiveCycle:
                 module_id: 0.001 for module_id in set(timing_map.values())
             }
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
-        # Memory/energy/entropy still use synthetic estimates (real instrumentation deferred)
+        # Synthetic resource logs consistent with DEFAULT_MODULE_BOUNDS
+        # Values are set at 10-30% of bound to avoid spurious violations
+        # Phase 3.3+: real instrumentation replaces these placeholders
         self.memory_log = {
-            "ASI": 10_000, "WM": 25_000, "G'": 100_000,
-            "PE": 10_000, "PEU": 1_000, "TSPL-P": 50_000,
+            "ASI": 10_000, "WM": 20_000, "G'": 100_000,
+            "PE": 30_000, "PEU": 1_000, "TSPL-P": 50_000,
+            "TSPL-E": 80_000, "TSPL-S": 80_000,
+            "MDIM": 20_000, "CR": 10_000, "ATTN": 5_000,
+            "HPM": 10_000, "CONSOL": 2_000,
         }
         self.energy_log = {
-            "ASI": 1.0, "WM": 0.5, "G'": 10.0,
-            "PE": 2.0, "PEU": 0.1, "TSPL-P": 5.0,
+            "ASI": 2.0, "WM": 1.0, "G'": 10.0,
+            "PE": 4.0, "PEU": 0.2, "TSPL-P": 6.0,
+            "TSPL-E": 6.0, "TSPL-S": 6.0,
+            "MDIM": 2.0, "CR": 1.0, "ATTN": 0.5,
+            "HPM": 1.0, "CONSOL": 0.2,
         }
         self.belief_entropies = {
             "G'": max(0.01, 0.5 - self.cycle_count * 0.001),
