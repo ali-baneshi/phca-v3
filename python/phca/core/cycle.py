@@ -406,25 +406,27 @@ class CognitiveCycle:
     def _select_action(self) -> int:
         """Select action using goal-directed planning with MDIM goal awareness.
 
-        Blends two signals:
-          1. Goal alignment: how much the action moves toward the goal
-             (computed directly from environment state, not prediction)
-          2. Prediction confidence: how well the model knows the outcome
-
-        Uses environment state directly (agent_pos, goal_pos, grid) for goal
-        alignment because the Gaussian BN applies the same action weight to
-        all state dimensions and cannot distinguish spatial movement.
+        Blends three signals:
+          1. GridWorld goal alignment: how much the action moves toward the
+             environment's goal position (uses env state directly)
+          2. State-space alignment: how close the predicted next state is to
+             the MDIM goal's target_state vector (P2-F fix — was previously
+             ignored)
+          3. Prediction confidence: how well the model knows the outcome
 
         The blend depends on the MDIM goal's drive_id:
-          D1/D3 (error/competence): goal-aligned + confidence
+          D1/D3 (error/competence): goal-aligned + state-space + confidence
           D2/D4 (exploration): seek uncertainty
           D5 (energy): prefer STAY
+          D6 (empowerment): state-space alignment only
         """
         if self.current_state is None:
             return 4  # STAY
 
         # Determine goal-directed behavior from MDIM goal
-        goal_id = self.current_goal.drive_id if self.current_goal else 1
+        goal = self.current_goal
+        goal_id = goal.drive_id if goal else 1
+        target = goal.target_state if goal else None
 
         # D5 (Energy Efficiency): prefer STAY to minimize energy
         if goal_id == 5:
@@ -439,20 +441,26 @@ class CognitiveCycle:
             self.engine.update_action(action)
 
             try:
-                _, confidence = self.engine.predict(self.current_state, horizon=1)
+                predicted, confidence = self.engine.predict(
+                    self.current_state, horizon=1,
+                )
 
                 if goal_id in (1, 3):
-                    # D1/D3: Goal alignment + prediction confidence
-                    # Goal alignment uses environment state directly because
-                    # the Gaussian BN model can't distinguish spatial movement
+                    # D1/D3: Goal alignment + state-space alignment + confidence
                     goal_align = self._action_goal_alignment(action_idx)
-                    score = 0.7 * goal_align + 0.3 * min(confidence, 1.0)
+                    state_align = self._state_space_alignment(predicted, target)
+                    score = (
+                        0.4 * goal_align
+                        + 0.3 * state_align
+                        + 0.3 * min(confidence, 1.0)
+                    )
                 elif goal_id in (2, 4):
                     # D2/D4: Seek uncertainty for exploration
                     score = 1.0 - min(confidence, 1.0)
                 else:
-                    # D6 (Empowerment) / fallback: goal alignment only
-                    score = self._action_goal_alignment(action_idx)
+                    # D6 (Empowerment): state-space alignment
+                    state_align = self._state_space_alignment(predicted, target)
+                    score = state_align
 
                 if score > best_score:
                     best_score = score
@@ -462,47 +470,100 @@ class CognitiveCycle:
 
         return best_action
 
+    def _state_space_alignment(
+        self,
+        predicted: StateVector,
+        target: Optional[StateVector],
+    ) -> float:
+        """Compute how well the predicted state matches the MDIM goal target.
+
+        Uses weighted cosine similarity between predicted and target state
+        vectors, where target precision weights each dimension's importance.
+
+        When target is None or has no meaningful values, returns 0.5
+        (neutral — no preference).
+
+        Args:
+            predicted: Predicted next state from G'.
+            target: MDIM goal target_state (may be None).
+
+        Returns:
+            0.0-1.0 alignment score (1.0 = exact match).
+        """
+        if target is None:
+            return 0.5
+
+        # Use minimum dimension to avoid shape mismatch
+        min_dim = min(
+            predicted.values.shape[0],
+            target.values.shape[0],
+        )
+        p = predicted.values[:min_dim].astype(np.float64)
+        t = target.values[:min_dim].astype(np.float64)
+        w = target.precision[:min_dim].astype(np.float64)
+
+        # Weighted cosine similarity
+        p_norm = np.linalg.norm(p * w)
+        t_norm = np.linalg.norm(t * w)
+        if p_norm < 1e-8 or t_norm < 1e-8:
+            return 0.5
+
+        cos_sim = float(np.dot(p * w, t * w) / (p_norm * t_norm))
+        # Map [-1, 1] → [0, 1]
+        return float(np.clip((cos_sim + 1.0) / 2.0, 0.0, 1.0))
+
     def _action_goal_alignment(self, action_idx: int) -> float:
-        """Compute how much an action moves toward the GridWorld goal.
+        """Compute how much an action moves toward the environment's goal.
 
-        Uses environment state directly (agent_pos, goal_pos, grid)
-        rather than the Gaussian BN prediction, because the BN applies
-        uniform action weights and cannot distinguish spatial movement.
+        Uses duck typing to detect GridWorld-specific spatial interface:
+        if env has agent_pos, goal_pos, and grid, uses Manhattan distance
+        with wall/boundary checks (GridWorld path).
 
-        Checks:
-          1. Action stays within grid bounds
-          2. Action doesn't move into a wall
-          3. New position is closer to the goal (Manhattan distance)
+        For non-GridWorld environments, falls back to state-space alignment
+        using MDIM target_state (via _state_space_alignment). This ensures
+        the method never crashes or produces garbage when the environment
+        type changes.
 
         Args:
             action_idx: 0=N, 1=S, 2=E, 3=W, 4=STAY
 
         Returns:
-            1.0 if closer to goal, 0.5 if same distance, 0.0 if farther/blocked.
+            1.0 if closer to goal, 0.5 if same distance, 0.0 if farther/blocked,
+            or state-space alignment for non-GridWorld environments.
         """
-        dr, dc = ACTION_DELTAS[action_idx]
-        new_row = self.env.agent_pos[0] + dr
-        new_col = self.env.agent_pos[1] + dc
+        # Duck-type check: does env have a GridWorld spatial interface?
+        env = self.env
+        if hasattr(env, "agent_pos") and hasattr(env, "goal_pos") and hasattr(env, "grid"):
+            dr, dc = ACTION_DELTAS[action_idx]
+            new_row = env.agent_pos[0] + dr
+            new_col = env.agent_pos[1] + dc
 
-        # Check bounds
-        if not (0 <= new_row < self.env.size and 0 <= new_col < self.env.size):
-            return 0.0  # out of bounds
+            # Check bounds
+            if not (0 <= new_row < env.size and 0 <= new_col < env.size):
+                return 0.0  # out of bounds
 
-        # Check walls
-        if self.env.grid[new_row, new_col] == self.env.WALL:
-            return 0.0  # blocked by wall
+            # Check walls
+            if env.grid[new_row, new_col] == env.WALL:
+                return 0.0  # blocked by wall
 
-        # Manhattan distances to goal
-        g_row, g_col = self.env.goal_pos
-        current_dist = abs(self.env.agent_pos[0] - g_row) + abs(self.env.agent_pos[1] - g_col)
-        new_dist = abs(new_row - g_row) + abs(new_col - g_col)
+            # Manhattan distances to goal
+            g_row, g_col = env.goal_pos
+            current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
+            new_dist = abs(new_row - g_row) + abs(new_col - g_col)
 
-        if new_dist < current_dist:
-            return 1.0  # closer to goal
-        elif new_dist == current_dist:
-            return 0.5  # same distance
+            if new_dist < current_dist:
+                return 1.0  # closer to goal
+            elif new_dist == current_dist:
+                return 0.5  # same distance
+            else:
+                return 0.0  # farther from goal
         else:
-            return 0.0  # farther from goal
+            # Non-GridWorld environment: fall back to state-space alignment
+            # with the MDIM goal's target_state (handled by P2-F)
+            target = self.current_goal.target_state if self.current_goal else None
+            if self.last_prediction is not None:
+                return self._state_space_alignment(self.last_prediction, target)
+            return 0.5
 
     def _estimate_empowerment(self) -> float:
         """Estimate empowerment (action-effect channel capacity).
@@ -595,13 +656,19 @@ class CognitiveCycle:
                 If None (e.g., during testing), uses hardcoded fallback.
         """
         # Map metric keys → RBTA module IDs
+        # Map metric keys → RBTA module IDs.
+        # NOTE: action_selection uses "ACTION" (not "WM") to avoid overwriting
+        # the WM memory_write timing in runtime_log. Previously both mapped to
+        # "WM", causing WM's runtime_log entry to show action_selection time
+        # (~10ms) instead of memory_write time (~0.02ms), which exceeded WM's
+        # B_time=0.005 bound every cycle (P2-G fix: timing_map collision).
         timing_map = {
             "sanitize": "ASI",
             "memory_write": "WM",
             "prediction": "PE",
             "peu": "PEU",
             "tspl": "TSPL-P",
-            "action_selection": "WM",
+            "action_selection": "ACTION",
             "mdim": "MDIM",
             "cr": "CR",
             "attn": "ATTN",
@@ -706,7 +773,8 @@ class CognitiveCycle:
         engine = PredictionEngine(gprime)
         peu = PredictionErrorUnit()
         tspl = TSPL(seed=seed)
-        tspl.init_parameters("gprime_cpd_transition", (actual_state_dim, 2))
+        # Note: tspl.init_parameters() not called — TSPL theta params never feed back
+        # into G' (P2-C fix). Re-enable when TSPL → G' parameter wiring is implemented.
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
 
         mdim = MDIM(state_dim=actual_state_dim)

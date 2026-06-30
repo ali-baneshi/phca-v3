@@ -111,7 +111,8 @@ class WorldModelGPrime:
 
         # Inference cache: topology and joint moments are static for a given graph
         # Avoids recomputing O(n³) matrix inversion on every predict() call.
-        self._cached_topology: Tuple[bool, List[str], Dict[str, List[float]],
+        # Tuple stores (node_order, betas, sigmas, parents_dict) — no redundant boolean flag.
+        self._cached_topology: Tuple[List[str], Dict[str, List[float]],
                                      Dict[str, float], Dict[str, List[str]]] | None = None
         self._cached_joint_moments: Tuple[np.ndarray, np.ndarray] | None = None
 
@@ -378,8 +379,7 @@ class WorldModelGPrime:
             Gaussian BN inference engine.
         """
         # Return cached topology if available
-        if self._cached_topology is not None:
-            return self._cached_topology[1], self._cached_topology[2], self._cached_topology[3], self._cached_topology[4]
+        if self._cached_topology is not None:                return self._cached_topology[0], self._cached_topology[1], self._cached_topology[2], self._cached_topology[3]
 
         # Get topological ordering from temporal + causal + parent edges
         node_order = list(self.nodes.keys())
@@ -438,7 +438,7 @@ class WorldModelGPrime:
             sigmas[node_name] = max(node.std, 0.001)
 
         # Cache the topology
-        self._cached_topology = (True, sorted_order, betas, sigmas, parents_dict)
+        self._cached_topology = (sorted_order, betas, sigmas, parents_dict)
 
         return sorted_order, betas, sigmas, parents_dict
 

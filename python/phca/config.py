@@ -12,7 +12,6 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any
 
 
 class ASIStatus(Enum):
@@ -67,43 +66,38 @@ class StateVector:
     def dim(self) -> int:
         return self.values.shape[0]
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a JSON-compatible dict (numpy arrays → lists)."""
-        return {
+    def to_bytes(self) -> bytes:
+        """Serialize state vector to bytes for SQLite BLOB storage (M3 dependency)."""
+        data = {
             "values": self.values.tolist(),
             "precision": self.precision.tolist(),
             "timestamp": self.timestamp,
             "grounding_level": self.grounding_level,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> StateVector:
-        """Deserialize from a dict."""
-        return cls(
-            values=np.array(data["values"], dtype=np.float32),
-            precision=np.array(data["precision"], dtype=np.float32),
-            timestamp=data["timestamp"],
-            grounding_level=data["grounding_level"],
-        )
-
-    def to_bytes(self) -> bytes:
-        """Serialize to bytes for SQLite BLOB storage."""
         try:
             import orjson
-            return orjson.dumps(self.to_dict())
+            return orjson.dumps(data)
         except ImportError:
             import json
-            return json.dumps(self.to_dict()).encode()
+            return json.dumps(data).encode()
 
     @classmethod
     def from_bytes(cls, data: bytes) -> StateVector:
-        """Deserialize from bytes (SQLite BLOB)."""
+        """Deserialize state vector from bytes (M3 dependency)."""
         try:
             import orjson
-            return cls.from_dict(orjson.loads(data))
+            parsed = orjson.loads(data)
         except ImportError:
             import json
-            return cls.from_dict(json.loads(data.decode()))
+            parsed = json.loads(data.decode())
+        return cls(
+            values=np.array(parsed["values"], dtype=np.float32),
+            precision=np.array(parsed["precision"], dtype=np.float32),
+            timestamp=parsed["timestamp"],
+            grounding_level=parsed["grounding_level"],
+        )
+
+
 
 
 @dataclass
