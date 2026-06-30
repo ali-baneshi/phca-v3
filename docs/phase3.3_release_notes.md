@@ -16,6 +16,10 @@ with identical functional behaviour.
 **Total lines:** 12,071 → 10,290 (−14.8%)  
 **Tests:** 398 → 289 (−27.4%, dead-function test removal only — no coverage loss)
 
+> **Note (post gap-closure):** Tests further reduced to **283** with the removal of
+> `SkillLibrary` tests (dead code, never instantiated). No coverage loss.
+> See `docs/phase3.3_full_completion_report.md` for gap-closure details.
+
 ---
 
 ## Changes
@@ -74,10 +78,13 @@ Level 2 weakness (Φ-IQ ~0.30 in both modes) is the primary target for Phase 4 i
 
 ## Known Limitations
 
-1. **Benchmark runner** (`python/benchmarks/runner.py`) is a stub — real benchmarks run
-   from `scripts/benchmark.py`. Full `phca.benchmarks.runner` deferred to PHCA-3.3-003.
-2. **Level 2 (Goal Pursuit)** is the weakest level — goal-reaching in a maze with obstacles
-   (5×5 grid with wall barrier) challenges the agent's planning capability.
+1. ~~**Benchmark runner** (`python/benchmarks/runner.py`) is a stub~~ — ✅ **Fixed (D-026).**
+   `python/benchmarks/runner.py` now implements full `run_level_0()` through `run_level_3()`.
+   The primary benchmark CLI remains `scripts/benchmark.py`.
+2. **Level 2 (Goal Pursuit)** remains the weakest level — goal-reaching in a maze with obstacles
+   (5×5 grid with wall barrier) challenges the discrete binary G' model's representational capacity.
+   **Post gap-closure**: This is a known G' limitation (continuous Gaussian cannot model discrete
+   one-hot states effectively). The MLP model (hidden_dim=128, 38,868 params) achieves L2 Φ-IQ ~0.32.
 3. **M3 SQLite abstraction** deferred — single backend, no benefit from abstraction layer now.
 4. **MLP mode** needs ≥200 cycles to stabilise; at 100 cycles the prediction error is still
-   descending and Φ-IQ is depressed.
+   descending and Φ-IQ is depressed. For best results use `--use-mlp --cycles=500`.

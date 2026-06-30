@@ -50,10 +50,12 @@ phca-v3/
 ├── requirements.txt      # Python dependencies
 ├── Cargo.toml            # Rust workspace
 ├── python/
-│   ├── phca/             # Core implementation
-│   ├── environments/     # Simulated environments
-│   ├── benchmarks/       # Φ-IQ benchmark suite
+│   ├── phca/             # Core implementation (incl. environments/)
+│   │   └── environments/ # GridWorld + MuJoCo + EnvironmentProtocol
+│   ├── benchmarks/       # Φ-IQ benchmark suite *
 │   └── tests/            # Integration + acceptance tests
+│
+*Note: Use `python scripts/benchmark.py` (not `python -m phca.benchmarks.runner`).
 ├── rust/
 │   ├── common/           # Shared data types
 │   ├── rpta/             # RBTA Constraint Enforcer

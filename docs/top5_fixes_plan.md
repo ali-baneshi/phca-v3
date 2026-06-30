@@ -3,8 +3,19 @@
 **Date:** 2026-06-30  
 **Author:** Chief Architect  
 **Audit Scope:** All source files, 4 spec documents, 3 audit reports, benchmark suite, test suite, gate reports  
-**Status:** PLAN MODE — no code changes; execute in order  
+**Status:** ✅ **HISTORICAL** — all 5 issues resolved (see below)  
 **Gate:** Phase 3.3 → Phase 4 readiness (re-assessment)
+
+> **This plan has been fully executed and superseded.** All 5 issues were addressed:
+> 1. ✅ MLP hidden_dim changed from 32→128 (D-028)
+> 2. ✅ Consolidation facts wired into MDIM context (D-031)
+> 3. ✅ Error-modulated learning rate implemented (D-029)
+> 4. ✅ MDIM target_state in action scoring (D-030)
+> 5. ✅ Energy bounds wired into composition tree (D-032)
+>
+> An additional **architectural audit** (`docs/architectural_audit_report.md`) found 28
+> further issues, 22 of which were resolved in the gap-closure phase (`docs/gap_closure_plan.md`).
+> See `docs/phase3.3_full_completion_report.md` for the complete record.
 
 ---
 

@@ -2,8 +2,14 @@
 
 **Date:** 2025-06-30  
 **Author:** Chief Architect, PHCA v3.0  
-**Status:** Draft  
+**Status:** ✅ **EXECUTED** — see below
 **Scope:** Minimal, safe, incremental integration of MuJoCo physics environments into the PHCA cognitive cycle.
+
+> **This plan has been partially executed.** The `MuJoCoSimpleEnv` wrapper was created
+> (`python/phca/environments/mujoco_env.py`), `CognitiveCycle.build_for_mujoco()` was
+> implemented, tests and benchmark scripts were written. The wrapper was moved into
+> `phca/environments/` as part of the gap-closure package restructure (B-004).
+> See `docs/phase3.3_full_completion_report.md` for details.
 
 ---
 

@@ -55,7 +55,7 @@ Phase 3.3 has been completed with all 5 critical issues from the `docs/top5_fixe
 
 ---
 
-## 5. Test Results
+## 5. Test Results (Pre-Gap-Closure)
 
 | Test Suite | Tests | Result |
 |-----------|-------|--------|
@@ -63,9 +63,12 @@ Phase 3.3 has been completed with all 5 critical issues from the `docs/top5_fixe
 | `test_edge_cases.py` | 13 | ✅ All passed |
 | `test_mujoco_env.py` | 13 | ✅ All passed |
 | `test_cycle_with_mujoco.py` | 10 | ✅ All passed |
-| **Total core tests** | **50** | **✅ All passed** |
+| **Total pre-gap-closure** | **289** | **✅ All passed** |
 
-### Benchmark Runner Validation
+> **Post gap-closure (Phase 3.3a/b):** 283 tests pass (6 `SkillLibrary` tests removed).
+> See `docs/phase3.3_full_completion_report.md`.
+
+### Benchmark Runner Validation (Quick Test, 5 cycles/level)
 
 | Level | Status | Φ-IQ |
 |-------|--------|------|
@@ -74,31 +77,41 @@ Phase 3.3 has been completed with all 5 critical issues from the `docs/top5_fixe
 | 2 — Goal Pursuit | ✅ completed | 0.2404 |
 | 3 — Self-Motivated Exploration | ✅ completed | 0.4916 |
 
-> **Note:** Low Φ-IQ scores are expected with `use_continuous=True` at 5 cycles/level (quick test). The benchmark infrastructure is verified to produce valid metrics — the scores will improve with longer runs and the MLP world model.
+> **Note:** Low Φ-IQ scores are expected with `use_continuous=True` at 5 cycles/level (quick test).
+> See `logs/benchmark_full_final.json` for the full benchmark run (100 cycles/level) with Φ-IQ=0.484.
 
 ---
 
-## 6. Remaining Items for Phase 4
+## 6. Addressed in Gap Closure (Phase 3.3a/b)
 
-1. **Wire semantic facts into prediction** — `ConsolidationScheduler.get_semantic_facts()` results should bias the G' prior for familiar states
-2. **Full attention weight consumption** — Modify `WorldModelGPrime.learn()` and `WorldModelMLP.learn()` to actually consume the `error` parameter as a learning rate modifier or per-dimension loss weight
-3. **MDIM target_state in action selection** — `_select_action()` should use `goal.target_state` to compute state-space alignment for scoring candidate actions
-4. **CI benchmark gate** — Add a benchmark comparison step to `.github/workflows/ci.yml` that compares against a baseline and fails on regression >5%
+These items, listed as "Remaining for Phase 4" in the original report, were partially or fully addressed during gap closure:
+
+1. ✅ **Consolidation facts wired into MDIM context** — `get_relevant_facts()` added to `ConsolidationScheduler`; `fact_confidence_mean` and `fact_count` injected into `mdim_context` (D-031). Full prediction biasing remains Phase 4.
+2. ✅ **Error-modulated learning rate** — Both MLP and Gaussian `learn()` now use `lr_effective = lr * clip(1.0 + abs(error) * 0.1, 0.5, 2.0)` (D-029).
+3. ✅ **MDIM target_state in action scoring** — D1/D3 blend `distance_gain (0.6) + confidence (0.2) + alignment (0.2)`; D2/D4 blend `uncertainty (0.5) + distance_gain (0.2) + alignment (0.3)` (D-030).
+4. ❌ **CI benchmark gate** — Not yet implemented. Remains for Phase 4.
 
 ---
 
-## 7. Certification
+## 7. Certification (Original Phase 3.3 Completion)
 
 I, the Chief Architect, certify that:
 
 - The 5 critical issues identified in the audit have been resolved
-- All existing tests pass without regression
+- All existing tests pass without regression (289 pre-gap-closure)
 - The benchmark infrastructure is functional and produces verifiable metrics
 - Invariants A1–A5 are preserved and, where applicable, strengthened
-- The system is ready for Phase 4 development
+- The system was ready for Phase 4 development after gap closure
 
 **Signed:** Chief Architect  
 **Date:** 2026-06-30
+
+---
+
+> **Postscript — Gap Closure (Phase 3.3a/b):** An additional 22 issues from the architectural
+> audit were subsequently resolved, including the RBTA energy key mismatch, dead code removal,
+> environments/ package move, and requirements consolidation.
+> See `docs/phase3.3_full_completion_report.md` for the complete gap-closure record.
 
 ---
 

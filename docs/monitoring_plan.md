@@ -1,7 +1,16 @@
 # PHCA v3.0 — Terminal Monitoring & Live Dashboard Plan
 
-**Status:** PLAN MODE — no code changes
+**Status:** ✅ **EXECUTED** — see `docs/monitoring_completion_report.md` for results
 **Requirement:** Live terminal dashboard + easy log access, stdlib only, no performance impact
+
+> **This plan has been fully executed.** All 5 implementation steps are complete:
+> - `python/phca/monitoring/metrics_store.py` — thread-safe ring buffer
+> - `CognitiveCycle` wired with optional `metrics_store=` parameter
+> - `scripts/phca-monitor.py` — curses live dashboard
+> - `python/phca/logging.py` — `setup_file_logging()` with `RotatingFileHandler`
+> - `scripts/phca-logs.py` — structured log viewer with filtering
+>
+> All acceptance criteria (M1–M8) verified. 283 tests pass. See the completion report.
 
 ---
 
@@ -141,7 +150,7 @@ Add an optional `metrics_store` parameter to `CognitiveCycle.__init__()`. If pro
 
 ### Architectural justification
 - **Zero performance impact when unused:** `metrics_store` defaults to None; the `if self.metrics_store is not None` check is a single branch that compiles to a cmp+jne.
-- **Non-invasive:** No changes to existing test expectations. No changes to the 21-step cycle sequence.
+- **Non-invasive:** No changes to existing test expectations (the optional `metrics_store` parameter defaults to `None`).
 - **Extensible:** Future monitors (e.g., WebSocket server, Prometheus exporter) can use the same MetricsStore without further cycle changes.
 
 ---

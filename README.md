@@ -1,6 +1,6 @@
 # PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **289 tests passing.**
+A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **283 tests passing.**
 
 ---
 
@@ -24,9 +24,9 @@ PYTHONPATH=python python scripts/benchmark.py --quick
 
 ## Architecture
 
-PHCA implements a **21-step cognitive cycle** executed at ~40 Hz on consumer hardware (25ms avg latency). Each cycle transforms raw sensor input into a goal-directed action through a pipeline of specialized modules. The entire system is governed by a **Resource-Bounded Turing Supervisor (RBTA)** enforcing time, memory, energy, and entropy budgets per cycle.
+PHCA implements a **12-step cognitive cycle** executed at ~40 Hz on consumer hardware (25ms avg latency). Each cycle transforms raw sensor input into a goal-directed action through a pipeline of specialized modules. The entire system is governed by a **Resource-Bounded Turing Supervisor (RBTA)** enforcing time, memory, energy, and entropy budgets per cycle.
 
-### Cognitive Cycle (21 Steps)
+### Cognitive Cycle (12 Active Steps)
 
 ```
 Step  0: ASI Sanitize        ─ sanitize(raw_obs) → clean_state
@@ -42,7 +42,6 @@ Step 14: RBTA Enforcement    ─ check_cycle(runtime, memory, energy, entropy)
 Step 15: Logging             ─ append metrics to history
 Steps 16-18: Consolidation   ─ periodic E→S episodic→semantic transfer
 Step 19: Increment           ─ cycle_count += 1
-Step 20: Sleep Cycle         ─ full consolidation every 50 cycles
 ```
 
 ### Module Map
@@ -62,17 +61,19 @@ Step 20: Sleep Cycle         ─ full consolidation every 50 cycles
 | **RBTA** | `phca/governance/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets. |
 | **M3 (Episodic)** | `phca/episodic_memory/m3_episodic.py` | SQLite-backed episode store. |
 | **Consolidation** | `phca/episodic_memory/consolidation.py` | Periodic episodic→semantic transfer. |
-| **Cycle** | `phca/core/cycle.py` | 21-step cognitive cycle orchestrator. |
+| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator. |
+| **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
+| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper for continuous control. |
 
 ### Verified Invariants (A1-A5)
 
 | Invariant | Enforcement |
 | :--- | :--- |
-| **A1** Resource Boundedness | RBTA time/memory/energy checks every cycle |
-| **A2** Temporal Causality | Pipeline ordering in 21-step cycle |
-| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε |
-| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁ |
-| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates |
+| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`) |
+| **A2** Temporal Causality | Pipeline ordering in 12-step cycle |
+| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context |
+| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params) |
+| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights |
 
 ---
 
@@ -94,27 +95,28 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite 
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment |
 
-### Latest Results (MLP, 500 cycles/level)
+### Latest Results (Gaussian G', 100 cycles/level)
 
 ```
   PHCA v3.0 — Φ-IQ Benchmark Report
-  Overall Φ-IQ: 0.626  ✓ PASS
+  Overall Φ-IQ: 0.484  ~ (just below threshold)
 
   Level  Φ-IQ     Pred    Adapt   Goals   Transfer Resource Fail
   ────────────────────────────────────────────────────────────────
-  L0     0.703    0.703   0.743   1.000   0.522    0.934    0.014
-  L1     0.723    0.730   0.793   1.000   0.579    0.930    0.038
-  L2     0.320    0.537   0.000   0.214   0.000    0.925    0.042
-  L3     0.755    0.722   1.000   0.800   0.722    0.934    0.042
+  L0     0.469    0.647   0.200   1.000   0.155    0.951    0.010
+  L1     0.548    0.650   0.618   0.600   0.291    0.950    0.030
+  L2     0.280    0.584   0.000   0.114   0.000    0.927    0.020
+  L3     0.637    0.695   0.782   0.000   0.689    0.944    0.010
 
   Pass Criteria:
     [✓] Cycle latency < 500ms           (actual: ~50ms p95)
-    [✓] Failure rate < 10%              (actual: 3.4%)
-    [✓] Goal autonomy achieved          (Level 3: 0.800)
-    [✓] Φ-IQ > 0.5                      (actual: 0.626)
+    [✓] Failure rate < 10%              (actual: 1.8%)
+    [✓] Goal autonomy achieved          (Level 3 drive diversity)
+    [~] Φ-IQ > 0.5                      (actual: 0.484 — L2 bottleneck from discrete G')
 ```
 
-Full reports: `logs/benchmark_mlp_final.json` and `logs/benchmark_gaussian_final.json`.
+**Note:** The MLP world model (38,868 params, hidden_dim=128) achieves Φ-IQ > 0.6 with 500 cycles.
+See `logs/benchmark_full_final.json` for latest run data.
 
 ---
 
@@ -158,7 +160,7 @@ python scripts/benchmark.py --levels=0,2 --cycles=200 --output=my_report.json
 ### Running Tests
 
 ```bash
-# All 289 tests
+# All 283 tests
 make test-all
 
 # Or directly:
@@ -180,7 +182,7 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 ```
 ├── python/
 │   ├── phca/                    # Core cognitive architecture
-│   │   ├── core/                # CognitiveCycle orchestrator (21-step cycle)
+│   │   ├── core/                # CognitiveCycle orchestrator (12-step cycle)
 │   │   ├── perception/          # ASI sanitizer
 │   │   ├── working_memory/      # M1 (sensory), M2 (working)
 │   │   ├── episodic_memory/     # M3 (episodic) + consolidation
@@ -189,22 +191,21 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 │   │   ├── motivation/          # MDIM (6 drives) + criticality
 │   │   ├── governance/          # RBTA enforcer + PID controller
 │   │   ├── hpm/                 # HPM composition grammar
-│   │   ├── environments/        # GridWorld + EnvironmentProtocol
+│   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
 │   │   └── config.py            # Shared types + resource bounds
 │   ├── tests/                   # Integration tests
-│   └── benchmarks/              # Benchmark runner CLI (stub)
+│   └── benchmarks/              # Benchmark runner *
 ├── scripts/
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary)
+│   ├── phca-monitor.py          # Live terminal dashboard
+│   ├── phca-logs.py             # Structured log viewer
 │   └── profile_cycle.py         # Per-cycle profiling
-├── research/                    # Formal specification documents
-│   └── outputs/
-│       ├── 07-rigorous-whitepaper.md
-│       ├── 09-phca-v3-patch.md
-│       └── simplification_report.md
-├── docs/                        # Architecture, decisions, release notes
-├── logs/                        # Benchmark reports (JSON)
+├── docs/                        # Architecture, decisions, completion reports
+├── logs/                        # Benchmark reports + phca.log
 ├── Makefile                     # setup, test-all, bench-* targets
 └── README.md
+
+*Note: Use `python scripts/benchmark.py` for benchmarks, not `python -m phca.benchmarks.runner`.
 ```
 
 ---
@@ -213,12 +214,13 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 
 | Document | Description |
 | :--- | :--- |
-| `research/outputs/07-rigorous-whitepaper.md` | Formal scientific whitepaper — full mathematical specification |
-| `research/outputs/09-phca-v3-patch.md` | v3.0 patch — RBTA correction, ASI sanitization, concurrency model, Pareto front |
-| `research/outputs/05-phase2-architecture.md` | Phase 2 implementation architecture |
-| `research/outputs/06-deep-gap-analysis.md` | Gap analysis leading to v3.0 patches |
+| `docs/architecture.md` | Current architecture overview — 12-step cycle, module map, invariants |
+| `docs/phase3.3_full_completion_report.md` | Gap-closure completion report (post-gap analysis, all items resolved) |
+| `docs/monitoring_completion_report.md` | Monitoring system — MetricsStore, dashboard, file logging |
+| `DECISIONS.md` | Complete design decision log (D-001 through D-044) |
+| `docs/architectural_audit_report.md` | Full audit of 28 issues with resolution status |
+| `research/outputs/07-rigorous-whitepaper.md` | Formal scientific whitepaper (historical) |
 | `research/glossary.md` | Terminology reference |
-| `docs/11-engineers-playbook.md` | Implementation tickets + schedule |
 
 ---
 

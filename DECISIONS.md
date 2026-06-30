@@ -3,6 +3,10 @@
 This file records all significant design decisions made during implementation.
 Every entry must reference the v3.0 specification section it affects.
 
+> **Note on phase labels:** Entries below reference the phase in which each decision
+> was made (e.g., "Phase 3.1", "Phase 3.2", "Phase 3.3"). All referenced phases
+> are now complete. The system is at Phase 3.3 final, ready for Phase 4.
+
 ---
 
 ## Decision D-001: G' Inference Engine — pgmpy exact junction tree for Phase 3.1
