@@ -324,3 +324,33 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Add energy-specific log, change `_compute_subtree_energy` to read from `energy_log`
 - **Rationale:** The HPM correctly computes `B_energy` for all composition operators. The RBTA already checks energy bounds in composition trees. The only gap was that cycle.py's composition tree only included `B_time`. Adding `B_energy` required 2 lines. This completes A1 enforcement for all 3 dimensions.
 - **v3.0 trace:** §2.1 Def 2.1, Def 3.6, A1
+
+## Decision D-033: Thread-safe MetricsStore for live monitoring (Phase 3.3 monitoring)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Created `python/phca/monitoring/metrics_store.py` with a lock-guarded `deque` ring buffer. `MetricsStore` is injected as optional parameter into `CognitiveCycle.__init__()`, `build_for_env()`, and `build_for_mujoco()`. When present, `step()` pushes `CycleMetrics` to the store after each cycle.
+- **Alternatives:** Direct `cycle.metrics_history` access (thread-unsafe), multiprocessing shared memory (over-engineered), log-file parsing (delayed)
+- **Rationale:** Lock-guarded deque is the simplest non-blocking pattern. < 5 μs per push. Zero new dependencies. The forward reference `Optional["MetricsStore"]` with `from __future__ import annotations` avoids circular imports.
+- **v3.0 trace:** A1 (resource boundedness)
+
+## Decision D-034: Curses terminal dashboard for live metrics (Phase 3.3 monitoring)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Created `scripts/phca-monitor.py` using stdlib `curses` for a live terminal dashboard. Runs as a daemon thread reading from `MetricsStore` every 500ms. Main thread runs the cognitive cycle. CycleMetrics extended with `drive_id`, `skill_accuracy`, `skill_compiled`, `fact_count`, `episode_count` fields for richer dashboard rendering.
+- **Alternatives:** Web dashboard (needs HTTP server), TUI framework (external dep), ASCII art in terminal (no live update)
+- **Rationale:** Curses is stdlib, daemon thread avoids blocking the cycle. Push cost < 5 μs per cycle (< 0.02% of 25ms cycle). New CycleMetrics fields add ~40 bytes per entry (negligible).
+- **v3.0 trace:** A1 (resource boundedness)
+
+## Decision D-035: File logging with RotatingFileHandler (Phase 3.3 monitoring)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3
+- **Option chosen:** Added `setup_file_logging()` to `logging.py` that writes structured logs to `logs/phca.log` with 10MB rotation and 3 backups. Uses global `_FILE_LOGGING_CONFIGURED` flag for idempotency. Works with both structlog (JSON lines) and stdlib fallback (formatted key=value).
+- **Alternatives:** External log shipper (Loki, ELK), syslog, no file logging
+- **Rationale:** 10MB × 4 backups = 40MB max disk, acceptable for development. Log viewer (`scripts/phca-logs.py`) uses subprocess `tail -f` for zero-overhead following.
+- **v3.0 trace:** A1 (resource boundedness)
