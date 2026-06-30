@@ -229,12 +229,15 @@ class BenchmarkRunner:
         mean_error = float(np.mean(errors)) if errors else 0.0
         result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
 
-        # Adaptation speed: how fast error drops (negative slope = learning)
+        # Adaptation speed: blend of improvement and maintenance
+        # improvement = (early - late) / early  (relative error reduction)
+        # maintenance = 1 - late / 10.0          (sustained accuracy, same /10 scaling as pred_acc)
         if len(errors) >= 10:
             early = float(np.mean(errors[:len(errors)//2]))
             late = float(np.mean(errors[len(errors)//2:]))
             improvement = (early - late) / max(early, 0.001)
-            result.adaptation_speed = float(np.clip(improvement, 0.0, 1.0))
+            maintenance = max(0.0, 1.0 - late / 10.0)
+            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
 
         # Goal complexity: MDIM drive diversity in stationary env
         if hasattr(cycle, 'mdim') and cycle.mdim is not None:
@@ -284,7 +287,8 @@ class BenchmarkRunner:
             early = float(np.mean(errors[:max(1, len(errors)//4)]))
             late = float(np.mean(errors[-max(1, len(errors)//4):]))
             improvement = (early - late) / max(early, 0.001)
-            result.adaptation_speed = float(np.clip(improvement, 0.0, 1.0))
+            maintenance = max(0.0, 1.0 - late / 10.0)
+            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
 
         # Goal complexity: action diversity
         actions = [m.action_taken for m in history if m.action_taken >= 0]

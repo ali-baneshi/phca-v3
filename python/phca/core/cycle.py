@@ -350,12 +350,33 @@ class CognitiveCycle:
         return metrics
 
     def _select_action(self) -> int:
-        """Select action by maximizing prediction confidence (D1 proxy)."""
+        """Select action using goal-directed planning with MDIM goal awareness.
+
+        Blends two signals:
+          1. Prediction confidence (how well the model knows the outcome)
+          2. Goal alignment (how much the action moves toward the goal)
+
+        The blend depends on the MDIM goal's drive_id:
+          D1/D3 (error/competence): goal-aligned prediction confidence
+          D2/D4 (exploration): seek uncertainty
+          D5 (energy): prefer STAY
+
+        For Level 2 Goal Pursuit, this enables navigation toward the goal
+        even with a fixed prediction model, by extracting the agent and
+        goal positions from the predicted state vector.
+        """
         if self.current_state is None:
             return 4  # STAY
 
+        # Determine goal-directed behavior from MDIM goal
+        goal_id = self.current_goal.drive_id if self.current_goal else 1
+
+        # D5 (Energy Efficiency): prefer STAY to minimize energy
+        if goal_id == 5:
+            return 4  # STAY
+
         best_action = 4
-        best_confidence = -1.0
+        best_score = -float("inf")
 
         for action_idx in range(self.env.action_space_size):
             action = np.zeros(self.env.action_space_size, dtype=np.float32)
@@ -363,14 +384,81 @@ class CognitiveCycle:
             self.engine.update_action(action)
 
             try:
-                _, confidence = self.engine.predict(self.current_state, horizon=1)
-                if confidence > best_confidence:
-                    best_confidence = confidence
+                predicted, confidence = self.engine.predict(
+                    self.current_state, horizon=1,
+                )
+
+                if goal_id in (1, 3):
+                    # D1/D3: Maximize goal alignment + prediction confidence
+                    goal_align = self._goal_alignment_score(
+                        self.current_state.values, predicted.values,
+                    )
+                    score = 0.7 * goal_align + 0.3 * confidence
+                elif goal_id == 2:
+                    # D2 (Complexity Seeking): prefer uncertain predictions
+                    score = 1.0 - min(confidence, 1.0)
+                elif goal_id == 4:
+                    # D4 (Epistemic Curiosity): prefer novel/uncertain
+                    score = 1.0 - min(confidence, 1.0)
+                else:
+                    # D6 (Empowerment) / fallback: goal alignment only
+                    score = self._goal_alignment_score(
+                        self.current_state.values, predicted.values,
+                    )
+
+                if score > best_score:
+                    best_score = score
                     best_action = action_idx
             except Exception:
                 continue
 
         return best_action
+
+    def _goal_alignment_score(
+        self, current_values: np.ndarray, predicted_values: np.ndarray,
+    ) -> float:
+        """Compute goal alignment: how much the predicted state moves toward the goal.
+
+        Extracts agent position (argmax of agent_map region) and goal position
+        (argmax of goal_map region) from the GridWorld state vector.
+
+        The state vector layout (for size×size grid):
+          [0:size²]        = agent_map (one-hot)
+          [size²:2*size²]  = goal_map (one-hot)
+          [2*size²:3*size²] = wall_map
+          [3*size²:]       = local_view (9)
+
+        Score = 1 / (1 + predicted_dist) — higher when closer to goal.
+
+        Args:
+            current_values: Current state vector (for reference).
+            predicted_values: Predicted state vector (for goal proximity).
+
+        Returns:
+            Float in (0.0, 1.0] — 1.0 = at goal, low = far from goal.
+        """
+        grid_size = self.env.size
+        n = grid_size * grid_size
+
+        # Extract predicted agent position from agent_map region
+        agent_region = predicted_values[:n]
+        pred_agent_idx = int(np.argmax(agent_region))
+        pred_row = pred_agent_idx // grid_size
+        pred_col = pred_agent_idx % grid_size
+
+        # Extract goal position from goal_map region (same in current state)
+        goal_region = current_values[n:2*n]
+        goal_idx = int(np.argmax(goal_region))
+        goal_row = goal_idx // grid_size
+        goal_col = goal_idx % grid_size
+
+        # Manhattan distance from predicted agent position to goal
+        dist = abs(pred_row - goal_row) + abs(pred_col - goal_col)
+        max_dist = (grid_size - 1) * 2  # maximum possible Manhattan distance
+
+        # Score: 1.0 when at goal, approaches 0 when far
+        score = 1.0 / (1.0 + dist / max_dist)
+        return float(score)
 
     def _estimate_empowerment(self) -> float:
         """Estimate empowerment (action-effect channel capacity).
