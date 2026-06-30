@@ -640,6 +640,17 @@ class WorldModelGPrime:
 
         return model
 
+    # ── Cache Invalidation ────────────────────────────────────
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the inference caches (topology + joint moments).
+
+        Must be called whenever model parameters (betas, sigmas) change,
+        because the cached joint moments depend on them.
+        """
+        self._cached_topology = None
+        self._cached_joint_moments = None
+
     # ── Learning ──────────────────────────────────────────────
 
     def learn(
@@ -651,40 +662,117 @@ class WorldModelGPrime:
     ) -> None:
         """Update G' parameters from observed transition.
 
-        Phase 3.1: Frequency-based CPD update. Counts observed transitions
-        and normalizes to probabilities.
+        Phase 3.1: Frequency-based CPD update for discrete graphs.
+        Phase 3.2+: Delta-rule update for continuous Gaussian betas.
+        Phase 3.3+: Gradient-based learning with TSPL streams.
 
-        Phase 3.2+: Gradient-based learning with TSPL streams.
+        For Gaussian nodes (used in benchmarks):
+            Updates betas via delta rule: β += lr · (observed - predicted) · parent_val
+            Updates sigmas via running EMA of squared residual.
+
+        For discrete nodes:
+            Counts observed transitions and normalizes to probabilities.
 
         Args:
             state_t: State at time t.
-            action: Action taken.
+            action: Action taken (one-hot vector).
             state_t1: Observed state at time t+1.
-            error: Prediction error from PEU (for future gradient-based methods).
+            error: Prediction error from PEU.
         """
         # Store observation in history
         self.state_history.append(state_t)
 
-        # Extract discrete state values for node update
-        for i in range(min(self.state_dim, len(state_t.values))):
-            s_name = f"s{i}_t"
-            s1_name = f"s{i}_t1"
+        updated_gaussian = False
 
-            if s_name in self.nodes and s1_name in self.nodes:
+        for i in range(min(self.state_dim, len(state_t.values))):
+            t1_name = f"s{i}_t1"
+
+            if t1_name not in self.nodes:
+                continue
+
+            node = self.nodes[t1_name]
+
+            # ── Gaussian parameter update (continuous model) ──
+            if node.cpd_type in ("gaussian", "conditional_gaussian"):
+                if t1_name not in self._gaussian_betas:
+                    continue
+
+                beta = self._gaussian_betas[t1_name]
+                parents_list = self._gaussian_parents.get(t1_name, [])
+
+                # Collect parent values
+                parent_vals: List[float] = []
+                for p in parents_list:
+                    if p.startswith("s"):
+                        # State parent: extract index from name (e.g. "s3_t" → 3)
+                        try:
+                            p_idx = int(p.split("s")[1].split("_t")[0])
+                            parent_vals.append(float(state_t.values[p_idx]) if p_idx < len(state_t.values) else 0.0)
+                        except (IndexError, ValueError):
+                            parent_vals.append(0.0)
+                    elif p.startswith("a"):
+                        # Action parent: extract index from name (e.g. "a2_t" → 2)
+                        try:
+                            p_idx = int(p.split("a")[1].split("_t")[0])
+                            parent_vals.append(float(action[p_idx]) if p_idx < len(action) else 0.0)
+                        except (IndexError, ValueError):
+                            parent_vals.append(0.0)
+                    else:
+                        parent_vals.append(0.0)
+
+                # Predicted value: β₀ + Σ β_{j+1} · parent_j
+                predicted = beta[0]
+                for j, pv in enumerate(parent_vals):
+                    if j + 1 < len(beta):
+                        predicted += beta[j + 1] * pv
+
+                observed = float(state_t1.values[i]) if i < len(state_t1.values) else 0.0
+                delta = observed - predicted
+
+                # Delta-rule update of betas
+                lr = 0.05
+                beta[0] += lr * delta * 1.0  # intercept
+                for j, pv in enumerate(parent_vals):
+                    if j + 1 < len(beta):
+                        beta[j + 1] += lr * delta * pv
+
+                # Write updated betas back to node.params so predict_continuous() reads them
+                # (_get_gaussian_topology() reads from node.params, not _gaussian_betas)
+                node.params = np.array(beta, dtype=np.float32)
+
+                # Running EMA estimate of residual sigma
+                sigma_old = self._gaussian_sigmas.get(t1_name, 0.5)
+                lr_sigma = 0.01
+                sigma_new = np.sqrt(max(0.0, (1.0 - lr_sigma) * sigma_old**2 + lr_sigma * delta**2))
+                self._gaussian_sigmas[t1_name] = float(max(sigma_new, 0.01))
+                # Also update node.std so _get_gaussian_topology() reads the learned value
+                node.std = float(max(sigma_new, 0.01))
+
+                updated_gaussian = True
+
+            # ── Discrete parameter update (pgmpy model) ──
+            elif node.cpd_type == "discrete":
+                s_name = f"s{i}_t"
+                if s_name not in self.nodes:
+                    continue
+
                 s_val = int(round(state_t.values[i]))
                 s1_val = int(round(state_t1.values[i]))
                 card = self.nodes[s_name].cardinality
 
-                # Initialize CPD params if needed
-                key = f"{s_name}->{s1_name}"
+                key = f"{s_name}->{t1_name}"
                 if key not in self._cpd_params:
                     self._cpd_params[key] = np.ones((card, card), dtype=np.float32)
 
-                # Frequency count update
                 self._cpd_params[key][s_val, s1_val] += 1.0
 
-        # Normalize CPDs and rebuild the pgmpy model with updated params
-        self._normalize_cpds()
+        # Normalize discrete CPDs if any were updated
+        if any(n.cpd_type == "discrete" for n in self.nodes.values()):
+            self._normalize_cpds()
+
+        # Invalidate caches if Gaussian parameters changed
+        if updated_gaussian:
+            self.invalidate_cache()
 
         # Keep only recent history to bound memory
         if len(self.state_history) > 10_000:

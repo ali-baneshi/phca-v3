@@ -113,7 +113,7 @@ class CognitiveCycle:
         self.last_action: np.ndarray = np.zeros(env.action_space_size, dtype=np.float32)
         self.last_prediction: Optional[StateVector] = None
         self.sensor_failure_count: int = 0
-        self.asi_failure_limit: int = 5
+        self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
 
         self.runtime_log: Dict[str, float] = {}
         self.memory_log: Dict[str, float] = {}
@@ -214,6 +214,19 @@ class CognitiveCycle:
             t5 = time.perf_counter()
             action_idx = self._select_action()
             obs, reward, terminal, info = self.env.step(action_idx)
+
+            # LEARN: update G' with observed transition (P0-A fix — was never called!)
+            if self.current_state is not None:
+                action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
+                action_vec[action_idx] = 1.0
+                next_state = StateVector(
+                    values=obs.astype(np.float32),
+                    precision=np.ones(self.state_dim, dtype=np.float32),
+                    timestamp=float(self.cycle_count),
+                    grounding_level=1,
+                )
+                self.gprime.learn(self.current_state, action_vec, next_state, metrics.prediction_error)
+
             self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
             self.last_action[action_idx] = 1.0
             self.engine.update_action(self.last_action)
@@ -225,6 +238,7 @@ class CognitiveCycle:
 
             if terminal:
                 self.env.reset()
+                self.gprime.reset()
 
             # Steps 10-13: MDIM + CR + ATTN + HPM (Phase 3.2)
             # Compute Φ approximation from module states (replaces synthetic decay)
@@ -241,6 +255,7 @@ class CognitiveCycle:
                 "cycle": self.cycle_count,
                 "prediction_confidence": metrics.prediction_confidence,
                 "empowerment": empowerment,
+                "attention_focus": attention_focus,
             }
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
@@ -254,7 +269,17 @@ class CognitiveCycle:
             metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
 
             t_attn = time.perf_counter()
-            self.attention.select(self.m2.chunks, self.current_goal)
+            selected_chunks = self.attention.select(self.m2.chunks, self.current_goal)
+            # Compute attention focus: coefficient of variation of selected chunk saliences
+            # High focus (cv >> 0) = one chunk dominates salience → exploitation mode
+            # Low focus (cv ≈ 0)  = all chunks equally salient → exploration/uncertainty
+            if selected_chunks:
+                saliences = [c.salience for c in selected_chunks]
+                mean_sal = float(np.mean(saliences))
+                std_sal = float(np.std(saliences))
+                attention_focus = min(1.0, std_sal / (mean_sal + 1e-8))
+            else:
+                attention_focus = 0.5
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
@@ -280,7 +305,11 @@ class CognitiveCycle:
 
             # Step 14: RBTA enforcement
             t6 = time.perf_counter()
+            # Compute total cycle latency BEFORE check_cycle so composition tree's CYCLE
+            # leaf reads the correct total time (was being set AFTER check_cycle — P0-B fix)
+            metrics.latency_ms = (time.perf_counter() - t_start) * 1000
             self._collect_runtime_log(metrics)
+            self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
             # Build composition tree reflecting the 21-step cycle's structure
             composition_tree = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
@@ -343,9 +372,6 @@ class CognitiveCycle:
             _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
             self.cycle_count += 1
             raise
-
-        metrics.latency_ms = (time.perf_counter() - t_start) * 1000
-        self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
 
         return metrics
 
