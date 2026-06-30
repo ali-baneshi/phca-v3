@@ -122,6 +122,10 @@ class CognitiveCycle:
 
         self.metrics_history: List[CycleMetrics] = []
 
+        # Rolling window of prediction errors for temporal Φ approximation (P1-E fix)
+        self._phi_error_window: List[float] = []
+        self._phi_window_size: int = 20
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=env.size)
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
@@ -195,6 +199,10 @@ class CognitiveCycle:
             if self.current_state is not None and self.last_prediction is not None:
                 error = self.peu.compute(self.current_state, self.last_prediction)
                 metrics.prediction_error = error
+            # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
+            self._phi_error_window.append(metrics.prediction_error)
+            if len(self._phi_error_window) > self._phi_window_size:
+                self._phi_error_window.pop(0)
             metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
 
             # Step 7: TSPL P-Stream update
@@ -246,6 +254,19 @@ class CognitiveCycle:
             phi_current = self._approximate_phi()
             # Estimate empowerment from prediction confidence spread across actions
             empowerment = self._estimate_empowerment()
+            # Compute attention focus from current chunk saliences (set by prev cycle's attention)
+            # High focus (cv >> 0) = one chunk dominates → exploitation
+            # Low focus  (cv ≈ 0)  = all chunks similar → exploration
+            if self.m2.chunks:
+                curr_sal = [c.salience for c in self.m2.chunks]
+                mean_sal = float(np.mean(curr_sal))
+                std_sal = float(np.std(curr_sal))
+                attention_focus = min(1.0, std_sal / (mean_sal + 1e-8))
+            else:
+                attention_focus = 0.5
+            # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
+            consol_stats = self.consolidation.get_stats()
+            total_facts = consol_stats.get("total_facts_stored", 0)
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
                 "phi_criticality": phi_current,
@@ -256,6 +277,7 @@ class CognitiveCycle:
                 "prediction_confidence": metrics.prediction_confidence,
                 "empowerment": empowerment,
                 "attention_focus": attention_focus,
+                "consolidation_facts": total_facts,
             }
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
@@ -269,21 +291,11 @@ class CognitiveCycle:
             metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
 
             t_attn = time.perf_counter()
-            selected_chunks = self.attention.select(self.m2.chunks, self.current_goal)
-            # Compute attention focus: coefficient of variation of selected chunk saliences
-            # High focus (cv >> 0) = one chunk dominates salience → exploitation mode
-            # Low focus (cv ≈ 0)  = all chunks equally salient → exploration/uncertainty
-            if selected_chunks:
-                saliences = [c.salience for c in selected_chunks]
-                mean_sal = float(np.mean(saliences))
-                std_sal = float(np.std(saliences))
-                attention_focus = min(1.0, std_sal / (mean_sal + 1e-8))
-            else:
-                attention_focus = 0.5
+            self.attention.select(self.m2.chunks, self.current_goal)
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
-            # Validate the actual composition tree via HPM grammar
+            # Validate the composition tree via HPM grammar and capture errors
             hpm_spec = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
                 "children": [
@@ -300,7 +312,10 @@ class CognitiveCycle:
                     "CYCLE",
                 ],
             }
-            _ = self.hpm_validator.validate(hpm_spec)
+            hpm_result = self.hpm_validator.validate_structured(hpm_spec)
+            if not hpm_result.valid:
+                for err in hpm_result.errors:
+                    _log(logger, "warning", "cycle.hpm.error", error=err)
             metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
             # Step 14: RBTA enforcement
@@ -310,6 +325,10 @@ class CognitiveCycle:
             metrics.latency_ms = (time.perf_counter() - t_start) * 1000
             self._collect_runtime_log(metrics)
             self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
+            # Compute composite bounds from HPM validator using actual module timings
+            # Replaces hardcoded 200ms/500ms with structure-aware computed bounds
+            hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
+            reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
             # Build composition tree reflecting the 21-step cycle's structure
             composition_tree = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
@@ -322,11 +341,11 @@ class CognitiveCycle:
                     {
                         "type": "PARALLEL", "id": "regulation_block",
                         "children": ["MDIM", "CR", "ATTN", "HPM"],
-                        "bounds": {"B_time": 0.200},
+                        "bounds": {"B_time": reg_b_time},
                     },
                     "CYCLE",     # Step 19: increment + logging
                 ],
-                "bounds": {"B_time": 0.500},  # 500ms target
+                "bounds": {"B_time": reg_b_time * 2 + 0.050},  # 2× regulator + safety margin
             }
             violations, enforcer_action = self.rbta.check_cycle(
                 runtime_log=self.runtime_log,
@@ -348,9 +367,18 @@ class CognitiveCycle:
             t_consol = time.perf_counter()
             consol_report = self.consolidation.step(self.cycle_count)
             if consol_report.success and consol_report.episodes_processed > 0:
+                # Log consolidated fact types for transparency
+                recent_facts = self.consolidation.get_semantic_facts(
+                    min_confidence=0.3, max_results=10,
+                )
+                fact_types = {}
+                for f in recent_facts:
+                    fact_types[f.fact_type] = fact_types.get(f.fact_type, 0) + 1
                 _log(logger, "info", "cycle.consolidation",
                      episodes=consol_report.episodes_processed,
                      facts=consol_report.facts_generated,
+                     fact_types=fact_types,
+                     total_facts=self.consolidation.get_stats()["total_facts_stored"],
                      ms=f"{consol_report.duration_ms:.1f}")
             metrics.module_timings["consolidation"] = (
                 time.perf_counter() - t_consol
@@ -524,55 +552,37 @@ class CognitiveCycle:
         return 50  # sleep every 50 cognitive cycles
 
     def _approximate_phi(self) -> float:
-        """Approximate Φ (integrated information) from module state vectors.
+        """Approximate Φ (integrated information) from prediction error temporal variance.
 
-        Uses a practical heuristic: 1 / (1 + mean absolute pairwise correlation
-        between module state vectors). When modules are independent (correlation → 0),
-        Φ → 1 (critical/chaotic). When modules are perfectly correlated,
-        Φ → 0.5 (ordered).
+        Uses a practical heuristic: Φ = min(1.0, std(window) / (mean(window) + ε)).
+        This is the coefficient of variation of prediction error over the last N cycles.
 
-        Phase 3.2: Practical approximation using available module states.
+        When the system is ordered (stable prediction error), the CV is low → low Φ.
+        When the system is at criticality (error fluctuates between low and high),
+        the CV is high → high Φ.
+
+        This replaces the Phase 3.1 approach that computed correlation between
+        WM and PE vectors (always near 1.0 with only 2 samples — meaningless).
+
         Phase 3.3+: Full IIT Φ computation over bipartitions.
 
         Returns:
             Float in (0.0, 1.0] approximating integrated information.
         """
-        states: Dict[str, np.ndarray] = {}
-        if self.current_state is not None:
-            states["WM"] = self.current_state.values
-        if self.last_prediction is not None:
-            states["PE"] = self.last_prediction.values
+        if len(self._phi_error_window) < 3:
+            return 0.5  # not enough samples for meaningful variance
 
-        if len(states) < 2:
-            return 0.5  # default when insufficient data
+        errors = self._phi_error_window[-10:]  # use last 10 for responsiveness
+        mean_err = float(np.mean(errors))
+        std_err = float(np.std(errors))
 
-        # Compute correlation on matched dimensions (use min dim across states)
-        arrays_list = list(states.values())
-        min_dim = min(arr.shape[0] for arr in arrays_list)
-        stacked = np.column_stack([arr[:min_dim] for arr in arrays_list])
+        if mean_err < 1e-8:
+            return 0.1  # near-zero error → ordered system
 
-        # Each column is a module, each row is a dimension
-        # Transpose: each row is a module, each column is a dimension
-        mod_vectors = stacked.T  # shape: (n_modules, n_dims)
-
-        if mod_vectors.shape[0] < 2 or mod_vectors.shape[1] < 2:
-            return 0.5
-
-        # Compute pairwise correlation between module vectors
-        try:
-            corr = np.corrcoef(mod_vectors)
-            # Exclude diagonal (self-correlation)
-            mask = ~np.eye(corr.shape[0], dtype=bool)
-            mean_corr = float(np.mean(np.abs(corr[mask])))
-        except Exception:
-            return 0.5
-
-        if np.isnan(mean_corr):
-            return 0.5
-
-        # Φ ≈ 1 / (1 + mean|correlation|) — ranges (0.5, 1.0]
-        phi = 1.0 / (1.0 + mean_corr)
-        return float(np.clip(phi, 0.01, 0.99))
+        # Coefficient of variation: high spread = critical, low spread = ordered
+        cv = std_err / mean_err
+        phi = min(1.0, cv)
+        return float(np.clip(phi, 0.1, 0.99))
 
     def _collect_runtime_log(self, metrics: Optional[CycleMetrics] = None) -> None:
         """Collect module runtime/memory/energy logs for RBTA from actual measurements.
