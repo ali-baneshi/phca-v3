@@ -199,36 +199,62 @@ class TSPL:
         state: StateVector,
         prediction: StateVector,
     ) -> Dict[str, np.ndarray]:
-        """Compute approximate gradient of prediction error w.r.t. parameters.
+        """Compute proper per-dimension delta-rule gradient.
 
-        Phase 3.1: Simple delta-rule approximation:
-            ∇L ≈ (prediction - state) · δ_t · sign()
+        For each parameter θⱼ, the gradient is proportional to the signed
+        prediction error for that dimension:
+            ∇Lⱼ = (predictionⱼ - stateⱼ) · η_scale
 
-        Phase 3.2+: Exact backpropagation through G' if differentiable,
-            or REINFORCE-style gradient estimation.
+        Unlike the Phase 3.1 placeholder (which used sign(diff) × scalar error × 0.001,
+        discarding per-dimension error magnitude), this preserves the direction
+        AND magnitude of each dimension's prediction error.
+
+        The gradient is then shaped to match the parameter's dimensions via
+        broadcasting so each parameter component receives a gradient
+        proportional to the corresponding dimension's error.
+
+        Phase 3.3+: Exact backpropagation through G' if differentiable.
 
         Args:
-            prediction_error: Scalar error δ_t (for scaling).
+            prediction_error: Scalar error δ_t (unused — per-dim error used instead).
             state: Current state (target).
             prediction: Predicted state (output).
 
         Returns:
             Dict mapping parameter names to gradient arrays.
         """
+        # Per-dimension signed error (preserves magnitude per dimension)
+        error_per_dim = (
+            prediction.values.astype(np.float64) - state.values.astype(np.float64)
+        )
+        # Delta-rule scaling: 0.1 gives ~0.005 effective step with α=0.05
+        scaled_error = error_per_dim * 0.1
+
         gradient: Dict[str, np.ndarray] = {}
         for key in self.theta:
-            # Simple Hebbian-style gradient approximation
-            diff = prediction.values.astype(np.float64) - state.values.astype(np.float64)
-            grad = np.sign(diff) * np.abs(prediction_error) * 0.001
-
-            # Broadcast or reshape to match parameter shape
-            if grad.size == self.theta[key].size:
-                gradient[key] = grad.astype(np.float32).reshape(self.theta[key].shape)
-            else:
-                # Fallback: small random gradient
-                gradient[key] = (
-                    self.rng.randn(*self.theta[key].shape).astype(np.float32) * 0.001
+            param = self.theta[key]
+            if param.ndim == 1 and param.shape[0] == scaled_error.shape[0]:
+                # 1-D param: direct per-dimension gradient
+                gradient[key] = scaled_error.astype(np.float32)
+            elif param.ndim == 2 and param.shape[0] == scaled_error.shape[0]:
+                # 2-D param (e.g., (state_dim, n_features)): broadcast error across columns
+                grad = np.tile(
+                    scaled_error[:, np.newaxis], (1, param.shape[1])
                 )
+                gradient[key] = grad.astype(np.float32)
+            elif scaled_error.size == param.size:
+                # Same total size, different shape: reshape error
+                gradient[key] = scaled_error.astype(np.float32).reshape(param.shape)
+            else:
+                # Fallback: use mean absolute error across all param dims.
+                # When state and param dimensionalities don't align (e.g.,
+                # (state_dim=2) vs param_shape=(4,4)), fill with mean abs
+                # error so every parameter component receives a signal
+                # proportional to the aggregate prediction error magnitude.
+                # Mean abs (not mean) avoids sign cancellation from
+                # symmetric errors (e.g., [-0.002, 0.002] → mean=0 but |mean|=0.002).
+                mean_abs_error = float(np.mean(np.abs(scaled_error)))
+                gradient[key] = np.full_like(param, mean_abs_error, dtype=np.float32)
         return gradient
 
     def _estimate_accuracy(

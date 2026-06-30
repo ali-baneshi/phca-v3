@@ -162,14 +162,37 @@ class TestTSPLUpdate:
         assert len(tspl._ewc_fisher) > 0
         assert "gprime_cpd_transition" in tspl._ewc_fisher
 
-    def test_s_stream_ewc_fisher_accumulates(self, tspl, sample_state, sample_prediction):
-        """Fisher information should accumulate over multiple updates."""
-        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
+    def test_s_stream_ewc_fisher_accumulates(self, tspl):
+        """Fisher information should accumulate over multiple updates.
+
+        Uses different state/prediction inputs per update so the gradient
+        differs, which causes the EMA Fisher to update. With identical
+        inputs the gradient would be identical and the EMA would converge
+        instantly (correct behavior — the test uses different inputs).
+        """
+        state1 = StateVector(
+            values=np.array([0.5, -0.3], dtype=np.float32),
+            precision=np.array([0.9, 0.9], dtype=np.float32),
+        )
+        pred1 = StateVector(
+            values=np.array([0.48, -0.28], dtype=np.float32),
+            precision=np.array([0.9, 0.9], dtype=np.float32),
+        )
+        state2 = StateVector(
+            values=np.array([0.7, -0.1], dtype=np.float32),
+            precision=np.array([0.8, 0.8], dtype=np.float32),
+        )
+        pred2 = StateVector(
+            values=np.array([0.6, 0.0], dtype=np.float32),
+            precision=np.array([0.8, 0.8], dtype=np.float32),
+        )
+
+        tspl.update(StreamID.S_STREAM, 0.01, state1, pred1)
         f1 = tspl._ewc_fisher["gprime_cpd_transition"].copy()
 
-        tspl.update(StreamID.S_STREAM, 0.05, sample_state, sample_prediction)
+        tspl.update(StreamID.S_STREAM, 0.05, state2, pred2)
         f2 = tspl._ewc_fisher["gprime_cpd_transition"]
-        # Fisher should be updated (running average)
+        # Fisher should be updated (running average with different gradient)
         assert not np.allclose(f1, f2)
 
     def test_reset_clears_gem_and_ewc(self, tspl, sample_state, sample_prediction):
