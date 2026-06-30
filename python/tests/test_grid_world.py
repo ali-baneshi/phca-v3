@@ -6,7 +6,7 @@ Verifies: all 5 actions valid, state vector dimension, terminal conditions, obst
 
 import numpy as np
 
-from environments.grid_world import GridWorld
+from phca.environments.grid_world import GridWorld
 
 
 class TestGridWorld:

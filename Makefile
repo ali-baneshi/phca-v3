@@ -12,7 +12,7 @@ setup:
 	@echo "Setting up Python virtual environment..."
 	python3 -m venv .venv
 	. .venv/bin/activate && pip install --upgrade pip \
-	    && pip install -r requirements-phase-3.1.txt \
+	    && pip install -r requirements.txt \
 	    && pip install -r requirements-dev.txt
 	@echo "Setting up Rust workspace..."
 	cd rust && cargo fetch
@@ -45,15 +45,11 @@ lint:
 
 bench-level-0:
 	@echo "Running Level 0 benchmark (stationary prediction)..."
-	PYTHONPATH=python:$$PYTHONPATH python -m phca.benchmarks.runner --level=0 --output=results/level_0.json
-
-bench-level-1:
-	@echo "Running Level 1 benchmark (reactive control)..."
-	PYTHONPATH=python:$$PYTHONPATH python -m phca.benchmarks.runner --level=1 --output=results/level_1.json
+	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_l0.json
 
 bench-all:
-	@echo "Running all benchmarks (Levels 0-5)..."
-	PYTHONPATH=python:$$PYTHONPATH python -m phca.benchmarks.runner --output=results/full_benchmark.json
+	@echo "Running all benchmarks..."
+	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --levels=0-3 --cycles=100 --output=logs/benchmark_full.json
 
 # ── Gate 1 Verification ─────────────────────────────────────
 

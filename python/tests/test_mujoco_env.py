@@ -9,7 +9,7 @@ Cross-ref: docs/mujoco_integration_plan.md §5.1
 import numpy as np
 import pytest
 
-from environments.mujoco_env import MuJoCoSimpleEnv
+from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
 
 def test_cartpole_env_creation():

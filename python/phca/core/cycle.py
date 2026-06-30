@@ -1,10 +1,13 @@
 """
 PHCA v3.0 - Cognitive Cycle Orchestrator.
 
-Phase 3.1: 15-step cognitive cycle (subset of 21-step blueprint).
-  Steps 0-7, 9, 14-15, 19 active. Steps 8, 10-13, 16-18, 20 deferred.
+Phase 3.3: 12-step cognitive cycle (finalized subset of 21-step blueprint).
+  Active steps: 0 (ASI), 1 (Memory), 2-4 (Prediction), 5-6 (PEU),
+  7 (TSPL), 8 (Attention), 9 (Action), 10-13 (MDIM/CR/ATTN/HPM),
+  14 (RBTA), 15 (Logging), 16-18 (Consolidation), 19 (Increment).
+  Deferred: Step 8 (standalone attention — merged with MDIM/CR group).
 
-Phase 3.2+: Full 21-step cycle with MDIM, Attention, CR, HPM, Consolidation.
+Phase 4: Dynamic composition tree, full Empowerment (D6), M5 procedural memory.
 
 v3.0 Reference: Blueprint xa77.B, xa7.2.2, xa7.3.1
 """
@@ -42,8 +45,8 @@ from phca.attention.attention import Attention
 from phca.regulation.pid_controller import CriticalityRegulator
 from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
-from environments.grid_world import GridWorld
-from environments.protocol import EnvironmentProtocol
+from phca.environments.grid_world import GridWorld
+from phca.environments.protocol import EnvironmentProtocol
 
 
 @dataclass
@@ -661,7 +664,7 @@ class CognitiveCycle:
                 if current_dist == 0:
                     return 0.0
 
-                if action_idx == 4 and new_dist == current_dist:
+                if action_idx == self.env.stay_action and new_dist == current_dist:
                     return 0.7
 
                 gain = (current_dist - new_dist) / current_dist
@@ -834,7 +837,7 @@ class CognitiveCycle:
         Raises:
             ImportError: If gymnasium is not installed.
         """
-        from environments.mujoco_env import MuJoCoSimpleEnv
+        from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
         env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
         state_dim = env.get_state_dim()

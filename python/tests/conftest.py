@@ -12,7 +12,7 @@ from phca.config import StateVector, ResourceBounds
 from phca.asi.sanitizer import ASISanitizer
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
-from environments.grid_world import GridWorld
+from phca.environments.grid_world import GridWorld
 
 
 # ── Random seed fixture ──────────────────────────────────────

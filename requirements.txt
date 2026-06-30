@@ -1,7 +1,23 @@
-# PHCA v3.0 — Python Dependencies (Meta Requirements)
-# This is an aggregate file. Install the phase-specific file instead:
-#   pip install -r requirements-phase-3.1.txt  (Weeks 1-12)
-#   pip install -r requirements-phase-3.2.txt  (Weeks 13+)
-#   pip install -r requirements-dev.txt        (for development)
+# PHCA v3.0 — Core Dependencies
+# All phases. Install: pip install -r requirements.txt
 
--r requirements-phase-3.1.txt
+# Core scientific computing
+numpy==1.26.4
+scipy==1.12.0
+
+# Probabilistic programming (for G' Bayesian network)
+pgmpy==0.1.24
+
+# Graph operations
+networkx==3.2.1
+
+# Testing
+pytest==8.0.0
+pytest-benchmark==4.0.0
+pytest-timeout==2.2.0
+
+# Serialization
+orjson==3.9.13
+
+# CLI
+click==8.1.7
