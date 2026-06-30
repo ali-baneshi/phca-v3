@@ -94,11 +94,8 @@ class TestKWTASelection:
         for i, chunk in enumerate(sample_chunks):
             chunk.salience = float(i)
         selected = attn.select(sample_chunks, k=3)
-        saliences, indices = attn.get_last_selection()
-        if len(indices) > 1:
-            first_idx = indices[0]
-            second_idx = indices[1]
-            assert saliences[first_idx] >= saliences[second_idx]
+        if len(selected) > 1:
+            assert selected[0].salience >= selected[1].salience
 
 
 class TestBottomUpSalience:
@@ -137,8 +134,7 @@ class TestBottomUpSalience:
             precision=np.ones(4, dtype=np.float32),
         )
         _ = attn.select([chunk], prediction=prediction, k=1)
-        saliences, _ = attn.get_last_selection()
-        assert saliences[0] == pytest.approx(0.0, abs=1e-6)
+        assert attn._last_saliences[chunk.chunk_id] == pytest.approx(0.0, abs=1e-6)
 
 
 class TestTopDownRelevance:
@@ -231,11 +227,11 @@ class TestPrecisionLearning:
     def test_precision_persists(self, attn):
         """Precision should persist across calls."""
         attn.update_precision(chunk_id=3, prediction_error=2.0)
-        assert attn.get_precision(3) > 0.01
+        assert attn._precisions[3] > 0.01
 
     def test_default_precision(self, attn):
-        """Unknown chunk ID should return default precision 1.0."""
-        assert attn.get_precision(999) == 1.0
+        """Unknown chunk ID should have no precision entry."""
+        assert 999 not in attn._precisions
 
     def test_precision_clamped(self, attn):
         """Precision should be clamped to [0.01, 10.0]."""
@@ -269,47 +265,7 @@ class TestGumbelNoise:
         assert len(selections) >= 1
 
 
-class TestLastSelection:
-    """Last selection tracking."""
 
-    def test_get_last_selection(self, attn, sample_chunks):
-        """get_last_selection should return saliences and indices."""
-        attn.select(sample_chunks, k=3)
-        saliences, indices = attn.get_last_selection()
-        assert len(saliences) > 0
-        assert len(indices) > 0
-
-    def test_last_selection_empty_initially(self, attn):
-        """Before any selection, last selection should be empty."""
-        saliences, indices = attn.get_last_selection()
-        assert saliences == []
-        assert indices == []
-
-
-class TestReset:
-    """Reset behavior."""
-
-    def test_reset_clears_precisions(self, attn):
-        """Reset should clear precision history."""
-        attn.update_precision(chunk_id=0, prediction_error=1.0)
-        assert len(attn._precisions) > 0
-        attn.reset()
-        assert len(attn._precisions) == 0
-
-    def test_reset_clears_last_selection(self, attn, sample_chunks):
-        """Reset should clear last selection."""
-        attn.select(sample_chunks)
-        attn.reset()
-        saliences, indices = attn.get_last_selection()
-        assert saliences == []
-        assert indices == []
-
-    def test_reset_reseeds_rng(self, attn):
-        """Reset should reseed the RNG for reproducibility."""
-        old_state = attn._rng.get_state()
-        attn.reset()
-        new_state = attn._rng.get_state()
-        assert old_state is not new_state
 
 
 class TestCosineSimilarity:

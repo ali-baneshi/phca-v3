@@ -245,28 +245,4 @@ class CriticalityRegulator:
             _log(logger, "info", "cr.orthogonality.freeze",
                  frozen=freeze_name, unfrozen=other_name, covariance=float(max_cov))
 
-    def unfreeze_all(self) -> None:
-        """Unfreeze all parameters (for new training runs)."""
-        self._frozen_params.clear()
 
-    def get_frozen_params(self) -> set[str]:
-        """Get the set of currently frozen parameter names.
-
-        Returns:
-            Set of parameter names that are frozen ("T", "eta", "alpha").
-        """
-        return set(self._frozen_params)
-
-    # ── Reset ────────────────────────────────────────────────
-
-    def reset(self) -> None:
-        """Reset PID state and orthogonality tracking for a new training run."""
-        self._integral = 0.0
-        self._prev_error = 0.0
-        self._prev_output = (self.T_base, self.eta_base, self.alpha_base)
-        self._cycle = 0
-        self._param_history_buffer.clear()
-        self._frozen_params.clear()
-        self._param_history = {
-            "T": self.T_base, "eta": self.eta_base, "alpha": self.alpha_base,
-        }

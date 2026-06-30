@@ -827,49 +827,6 @@ class WorldModelGPrime:
         if self._bn is not None:
             self._build_graph()
 
-    # ── Utility ───────────────────────────────────────────────
-
-    def similarity_search(
-        self, query: StateVector, k: int = 5
-    ) -> List[Tuple[StateVector, float]]:
-        """Find k most similar states from history (v3.0 §D.3).
-
-        Phase 3.1: Euclidean distance k-NN over state_history.
-        Phase 3.2+: VSA hyperdimensional computing (conditional).
-
-        Args:
-            query: Query state vector.
-            k: Number of nearest neighbors to return.
-
-        Returns:
-            List of (state, similarity_score) tuples, sorted by
-            similarity descending (most similar first).
-        """
-        if not self.state_history or k == 0:
-            return []
-
-        k = min(k, len(self.state_history))
-
-        # Compute Euclidean distances
-        distances = []
-        for hist_state in self.state_history:
-            dist = np.linalg.norm(query.values - hist_state.values)
-            distances.append(dist)
-
-        # Find k nearest indices
-        idxs = np.argsort(distances)[:k]
-
-        # Convert distances to similarity scores (0-1, higher = more similar)
-        max_dist = max(distances) if distances else 1.0
-        max_dist = max(max_dist, 1e-8)  # avoid division by zero
-
-        results = []
-        for idx in idxs:
-            similarity = 1.0 - (distances[idx] / max_dist)
-            results.append((self.state_history[idx], float(similarity)))
-
-        return results
-
     def reset(self) -> None:
         """Reset G' to initial state (new episode)."""
         self.state_history.clear()

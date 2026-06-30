@@ -116,19 +116,6 @@ class TestASISanitizer:
         assert sani.precision[0] < sani.epsilon_confidence
         assert sani.precision[1] < sani.epsilon_confidence
 
-    def test_reset_clears_all_state(self, sanitizer):
-        """Reset should clear all per-sensor state."""
-        raw_valid = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        sanitizer.sanitize(raw_valid)
-
-        raw_fail = np.array([np.nan, 2.0, 3.0, 4.0], dtype=np.float32)
-        sanitizer.sanitize(raw_fail)
-        assert sanitizer.precision[0] == 0.5
-
-        sanitizer.reset()
-        np.testing.assert_array_equal(sanitizer.precision, np.ones(4))
-        np.testing.assert_array_equal(sanitizer.failure_count, np.zeros(4, dtype=np.int32))
-
     def test_sanitized_state_vector_has_correct_shape(self, sanitizer):
         """The returned StateVector should have the correct attributes."""
         raw = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)

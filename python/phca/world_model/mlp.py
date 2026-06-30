@@ -170,64 +170,6 @@ class WorldModelMLP:
                         avg_grad[k] /= float(self.batch_size)
                     self._apply_gradient(avg_grad, lr=self.lr * 0.5)
 
-    def compute_gradient(
-        self,
-        state_t: StateVector,
-        action: np.ndarray,
-        target: StateVector,
-    ) -> Dict[str, np.ndarray]:
-        """Compute gradient of BCE loss w.r.t. all parameters.
-
-        Used by TSPL.update() when MLP mode is active.
-        If no forward pass was cached (first cycle), returns zero gradients.
-
-        Args:
-            state_t: State at time t.
-            action: Action taken.
-            target: Observed next state (target).
-
-        Returns:
-            Dict mapping parameter keys to gradient arrays.
-        """
-        if self._last_activations is None:
-            return {
-                "gprime_w1": np.zeros_like(self.w1),
-                "gprime_b1": np.zeros_like(self.b1),
-                "gprime_w2": np.zeros_like(self.w2),
-                "gprime_b2": np.zeros_like(self.b2),
-                "gprime_w3": np.zeros_like(self.w3),
-                "gprime_b3": np.zeros_like(self.b3),
-            }
-
-        x = np.concatenate([state_t.values.astype(np.float32), action.astype(np.float32)])
-        z1, z2, out = self._last_activations
-        return self._backward(x, z1, z2, out, target.values.astype(np.float32))
-
-    def get_theta(self) -> Dict[str, np.ndarray]:
-        """Export weights for TSPL storage.
-
-        Returns:
-            Dict mapping parameter keys to weight arrays.
-        """
-        return {
-            "gprime_w1": self.w1.copy(),
-            "gprime_b1": self.b1.copy(),
-            "gprime_w2": self.w2.copy(),
-            "gprime_b2": self.b2.copy(),
-            "gprime_w3": self.w3.copy(),
-            "gprime_b3": self.b3.copy(),
-        }
-
-    def set_theta(self, theta: Dict[str, np.ndarray]) -> None:
-        """Import weights from TSPL after update.
-
-        Args:
-            theta: Dict with keys matching get_theta() output.
-        """
-        for key in ("gprime_w1", "gprime_b1", "gprime_w2", "gprime_b2", "gprime_w3", "gprime_b3"):
-            if key in theta:
-                setattr(self, key.replace("gprime_", ""), theta[key].astype(np.float32))
-
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
         self._last_input = None
@@ -353,10 +295,6 @@ class WorldModelMLP:
         self.b2 -= lr * grad["gprime_b2"]
         self.w3 -= lr * grad["gprime_w3"]
         self.b3 -= lr * grad["gprime_b3"]
-
-    def _clear_cache(self) -> None:
-        self._last_input = None
-        self._last_activations = None
 
     def __repr__(self) -> str:
         n_params = (

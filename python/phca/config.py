@@ -24,8 +24,6 @@ class ASIStatus(Enum):
 class StreamID(Enum):
     """TSPL stream identifiers (v3.0 §3.1)."""
     P_STREAM = "procedural"
-    E_STREAM = "episodic"
-    S_STREAM = "semantic"
 
 
 class DriveID(Enum):

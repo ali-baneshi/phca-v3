@@ -31,15 +31,6 @@ def predicted_state() -> StateVector:
     )
 
 
-@pytest.fixture
-def distant_prediction() -> StateVector:
-    return StateVector(
-        values=np.array([0.1, 0.8], dtype=np.float32),
-        precision=np.array([0.9, 0.9], dtype=np.float32),
-        timestamp=2.0,
-    )
-
-
 # ── PredictionEngine Tests ───────────────────────────────────
 
 
@@ -180,27 +171,6 @@ class TestPredictionEngine:
 class TestPredictionErrorUnit:
     """Tests for PredictionErrorUnit class."""
 
-    def test_compute_zero_error(self, sample_state):
-        """Identical states should produce zero error."""
-        peu = PredictionErrorUnit()
-        error = peu.compute(sample_state, sample_state)
-        assert error == 0.0
-
-    def test_compute_small_error(self, sample_state, predicted_state):
-        """Close states should produce small error."""
-        peu = PredictionErrorUnit()
-        error = peu.compute(sample_state, predicted_state)
-        # diff = [0.02, -0.02], dot = 0.0004 + 0.0004 = 0.0008
-        assert error == pytest.approx(0.0008, abs=1e-6)
-
-    def test_compute_large_error(self, sample_state, distant_prediction):
-        """Distant states should produce larger error."""
-        peu = PredictionErrorUnit()
-        error = peu.compute(sample_state, distant_prediction)
-        # diff = [0.4, -1.1], dot = 0.16 + 1.21 = 1.37
-        assert error == pytest.approx(1.37, abs=1e-6)
-        assert error > 1.0
-
     def test_compute_precision_weighted(self, sample_state, predicted_state):
         """Precision-weighted error should weigh dimensions differently."""
         peu = PredictionErrorUnit()
@@ -218,34 +188,4 @@ class TestPredictionErrorUnit:
                 sample_state, predicted_state, np.array([0.5], dtype=np.float32)
             )
 
-    def test_compute_rmse(self, sample_state, predicted_state):
-        """RMSE should return sqrt of mean squared error."""
-        peu = PredictionErrorUnit()
-        rmse = peu.compute_rmse(sample_state, predicted_state)
-        # mse = (0.0004 + 0.0004) / 2 = 0.0004
-        # rmse = sqrt(0.0004) = 0.02
-        assert rmse == pytest.approx(0.02, abs=1e-6)
 
-    def test_compute_rmse_zero(self, sample_state):
-        """RMSE of identical states should be zero."""
-        peu = PredictionErrorUnit()
-        rmse = peu.compute_rmse(sample_state, sample_state)
-        assert rmse == 0.0
-
-    def test_multiple_errors_ordering(self):
-        """Errors should be ordered: distant > close > zero."""
-        peu = PredictionErrorUnit()
-        state = StateVector(
-            values=np.zeros(3, dtype=np.float32),
-            precision=np.ones(3, dtype=np.float32),
-        )
-        close = StateVector(
-            values=np.array([0.01, 0.01, 0.01], dtype=np.float32),
-            precision=np.ones(3, dtype=np.float32),
-        )
-        far = StateVector(
-            values=np.array([1.0, -1.0, 0.5], dtype=np.float32),
-            precision=np.ones(3, dtype=np.float32),
-        )
-
-        assert peu.compute(far, state) > peu.compute(close, state) > peu.compute(state, state)

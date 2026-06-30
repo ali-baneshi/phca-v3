@@ -11,7 +11,7 @@ v3.0 Patch §2.4 (Pareto front + meta-stable state)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -505,33 +505,6 @@ class MDIM:
 
         self.goal_stack.append(entry)
 
-    def pop_completed_goal(self) -> Optional[GoalVector]:
-        """Pop the topmost completed goal from the stack.
-
-        Returns:
-            The completed GoalVector, or None if no completed goal.
-        """
-        while self.goal_stack:
-            top = self.goal_stack[-1]
-            if not top.sub_goals:
-                if top.completed:
-                    return self.goal_stack.pop().goal
-                else:
-                    return None  # Top is not completed
-            # Process sub-goals first
-            sub_done = all(sg.completed for sg in top.sub_goals)
-            if sub_done:
-                return self.goal_stack.pop().goal
-            return None
-        return None
-
-    def mark_current_goal_completed(self) -> None:
-        """Mark the current goal as completed."""
-        if self.goal_stack:
-            self.goal_stack[-1].completed = True
-        if self.current_goal is not None:
-            self.current_goal = None
-
     # ── Meta-Stable State ─────────────────────────────────────
 
     def _update_meta_stable(self) -> None:
@@ -591,43 +564,4 @@ class MDIM:
                 and self.meta_stable.cycles_since_entry >= self._meta_stable_min_cycles)
 
     def is_meta_stable(self) -> bool:
-        """Public API: check if system is meta-stable (any state).
-
-        Returns:
-            True if all drives below threshold.
-        """
         return self.meta_stable.is_meta_stable
-
-    # ── Drive Summary ─────────────────────────────────────────
-
-    def get_drive_summary(self) -> Dict[str, float]:
-        """Get a summary of current drive deficits.
-
-        Returns:
-            Dict mapping drive name → deficit value.
-        """
-        return {
-            f"D{d}": self.drives[d].deficit
-            for d in range(1, 7)
-        }
-
-    def get_winning_drive(self) -> int:
-        """Get the drive ID with the highest current deficit.
-
-        Returns:
-            Drive ID (1-6) with maximum deficit.
-        """
-        deficits = {d: self.drives[d].deficit for d in range(1, 7)}
-        return max(deficits, key=deficits.get)  # type: ignore[arg-type]
-
-    # ── Reset ─────────────────────────────────────────────────
-
-    def reset(self) -> None:
-        """Reset MDIM state for a new training run."""
-        self._cycle = 0
-        self.drives = {d: DriveState(drive_id=d) for d in range(1, 7)}
-        self.goal_stack.clear()
-        self.meta_stable = MetaStableState()
-        self.current_goal = None
-        self._drive_history.clear()
-        self._goal_history.clear()

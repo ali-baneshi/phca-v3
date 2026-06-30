@@ -33,8 +33,6 @@ from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
 from phca.world_model.mlp import WorldModelMLP
 
-# Feature flag: set to True to replace Gaussian G' with MLP
-USE_MLP_GPRIME = False
 from phca.prediction.engine import PredictionEngine
 from phca.prediction.error_unit import PredictionErrorUnit
 from phca.learning.tspl import TSPL
@@ -345,7 +343,6 @@ class CognitiveCycle:
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
-            # Validate the composition tree via HPM grammar and capture errors
             hpm_spec = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
                 "children": [
@@ -362,10 +359,6 @@ class CognitiveCycle:
                     "CYCLE",
                 ],
             }
-            hpm_result = self.hpm_validator.validate_structured(hpm_spec)
-            if not hpm_result.valid:
-                for err in hpm_result.errors:
-                    _log(logger, "warning", "cycle.hpm.error", error=err)
             metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
             # Step 14: RBTA enforcement

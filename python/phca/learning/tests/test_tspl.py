@@ -96,18 +96,6 @@ class TestTSPLInit:
         assert tspl.theta["gprime_cpd_transition"].shape == (4, 4)
         assert tspl.theta["gprime_cpd_transition"].dtype == np.float32
 
-    def test_reset(self, tspl):
-        """reset should clear all state."""
-        tspl.update(StreamID.P_STREAM, 0.01, StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2, dtype=np.float32)),
-                    StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2, dtype=np.float32)))
-        assert tspl.skill_accuracy > 0
-        tspl.reset()
-        assert tspl.theta == {}
-        assert not tspl.skill_compiled
-        assert tspl.skill_accuracy == 0.0
-        assert tspl.compiled_skill_ids == []
-
-
 class TestTSPLUpdate:
     """Tests for TSPL.update()."""
 
@@ -222,21 +210,6 @@ class TestTSPLUpdate:
         # Fisher should be updated (running average with different gradient)
         assert not np.allclose(f1, f2)
 
-    def test_reset_clears_gem_and_ewc(self, tspl, sample_state, sample_prediction):
-        """Reset clears GEM and EWC state."""
-        tspl.configs[StreamID.E_STREAM].enabled = True
-        tspl.configs[StreamID.S_STREAM].enabled = True
-        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
-        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
-        assert tspl._gem_tasks_seen > 0
-        assert len(tspl._ewc_fisher) > 0
-
-        tspl.reset()
-        assert tspl._gem_tasks_seen == 0
-        assert len(tspl._gem_reference_grads) == 0
-        assert len(tspl._ewc_fisher) == 0
-        assert len(tspl._ewc_theta_star) == 0
-
     def test_update_with_no_theta_returns_empty(self, sample_state, sample_prediction):
         """Update with no initialized parameters should return empty."""
         tspl = TSPL()
@@ -289,27 +262,6 @@ class TestTSPLUpdate:
         large_error = 10.0  # sqrt(10/2) ≈ 2.236 → max(0, 1-2.236) = 0
         acc2 = tspl._estimate_accuracy(state, state, large_error)
         assert acc2 == 0.0
-
-
-class TestSkillCompilation:
-    """Tests for skill compilation."""
-
-    def test_freeze_skill(self, tspl):
-        """freeze_skill should snapshot theta."""
-        tspl.freeze_skill("test_skill_v1")
-        assert "test_skill_v1" in tspl.compiled_skill_ids
-        assert "gprime_cpd_transition" in tspl.theta_protected
-        np.testing.assert_array_equal(
-            tspl.theta_protected["gprime_cpd_transition"],
-            tspl.theta["gprime_cpd_transition"],
-        )
-
-    def test_freeze_skill_is_snapshot_not_reference(self, tspl):
-        """Protected parameters should be a copy, not a reference."""
-        tspl.freeze_skill("test_skill_v1")
-        old_val = tspl.theta_protected["gprime_cpd_transition"][0, 0]
-        tspl.theta["gprime_cpd_transition"][0, 0] = 99.0
-        assert tspl.theta_protected["gprime_cpd_transition"][0, 0] == old_val
 
 
 class TestSkillLibrary:

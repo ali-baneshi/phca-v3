@@ -175,34 +175,6 @@ class Attention:
         self._precisions[chunk_id] = new_p
         return new_p
 
-    def get_precision(self, chunk_id: int) -> float:
-        """Get the current precision for a chunk.
-
-        Args:
-            chunk_id: Chunk identifier.
-
-        Returns:
-            Precision value (default 1.0 if no history).
-        """
-        return self._precisions.get(chunk_id, 1.0)
-
-    # ── Utility ──────────────────────────────────────────────
-
-    def get_last_selection(self) -> Tuple[List[float], List[int]]:
-        """Get the saliences and indices from the last selection.
-
-        Returns:
-            Tuple of (saliences, selected_indices).
-        """
-        return (self._last_saliences, self._last_selected_indices)
-
-    def reset(self) -> None:
-        """Reset attention state for a new training run."""
-        self._precisions.clear()
-        self._last_saliences.clear()
-        self._last_selected_indices.clear()
-        self._rng = np.random.RandomState(42)
-
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two vectors.

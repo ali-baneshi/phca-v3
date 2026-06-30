@@ -200,8 +200,8 @@ class TestRBTAEnforcer:
         assert action == EnforcerAction.CONTINUE
 
         # New module enforces its bounds
-        assert enforcer.get_bounds("NEW_MOD") is not None
-        assert enforcer.get_bounds("NONEXISTENT") is None
+        assert "NEW_MOD" in enforcer._bounds
+        assert "NONEXISTENT" not in enforcer._bounds
 
 
 class TestCompositionTree:

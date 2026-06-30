@@ -89,30 +89,6 @@ class TestWorldModelGPrime:
         pred, confidence = deterministic_chain.predict(state, np.zeros(0))
         assert confidence > 0.5  # should be fairly confident
 
-    def test_similarity_search_empty_history(self, empty_model: WorldModelGPrime):
-        """Empty state history returns empty list."""
-        state = StateVector(values=np.ones(4, dtype=np.float32), precision=np.ones(4, dtype=np.float32))
-        results = empty_model.similarity_search(state, k=5)
-        assert results == []
-
-    def test_similarity_search_returns_k_results(self, empty_model: WorldModelGPrime):
-        """State history with N entries returns up to k results."""
-        for i in range(10):
-            sv = StateVector(
-                values=np.full(4, float(i), dtype=np.float32),
-                precision=np.ones(4, dtype=np.float32),
-            )
-            empty_model.state_history.append(sv)
-
-        query = StateVector(values=np.ones(4, dtype=np.float32), precision=np.ones(4, dtype=np.float32))
-        results = empty_model.similarity_search(query, k=3)
-        assert len(results) == 3
-
-        # Most similar should be closest in value
-        most_similar, score = results[0]
-        assert score >= 0.0
-        assert most_similar.values[0] == 1.0  # closest to query
-
     def test_learn_updates_params(self, empty_model: WorldModelGPrime):
         """learn() stores state in history for similarity search."""
         state_t = StateVector(
@@ -143,21 +119,4 @@ class TestWorldModelGPrime:
         empty_model.reset()
         assert len(empty_model.state_history) == 0
 
-    def test_similarity_search_closest_is_first(self):
-        """Nearest state vector is returned first in results."""
-        model = WorldModelGPrime(state_dim=2, action_dim=1, seed=42)
 
-        # Add states at (0,0), (5,5), (10,10)
-        for val in [0.0, 5.0, 10.0]:
-            model.state_history.append(StateVector(
-                values=np.full(2, val, dtype=np.float32),
-                precision=np.ones(2, dtype=np.float32),
-            ))
-
-        # Query at (1,1) — should be closest to (0,0)
-        query = StateVector(values=np.full(2, 1.0, dtype=np.float32), precision=np.ones(2, dtype=np.float32))
-        results = model.similarity_search(query, k=3)
-
-        assert len(results) == 3
-        assert results[0][0].values[0] == 0.0  # closest to (0,0)
-        assert results[0][1] >= results[1][1]  # sorted by similarity descending

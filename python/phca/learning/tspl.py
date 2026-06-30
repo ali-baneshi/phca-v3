@@ -42,14 +42,6 @@ DEFAULT_STREAM_CONFIGS: Dict[StreamID, StreamConfig] = {
     StreamID.P_STREAM: StreamConfig(
         alpha=0.08, lambda_=0.01, eta=0.1, accuracy_threshold=0.95,
     ),
-    StreamID.E_STREAM: StreamConfig(
-        alpha=0.005, lambda_=0.1, eta=0.01, accuracy_threshold=0.90,
-        enabled=False,
-    ),
-    StreamID.S_STREAM: StreamConfig(
-        alpha=0.0005, lambda_=1.0, eta=0.001, accuracy_threshold=0.90,
-        enabled=False,
-    ),
 }
 
 
@@ -98,18 +90,7 @@ class TSPL:
         # Deterministic noise
         self.rng = np.random.RandomState(seed)
 
-        # ── Phase 3.2: E-Stream (GEM) state ──
-        # Reference gradients from previous tasks (for GEM projection)
-        self._gem_reference_grads: List[Dict[str, np.ndarray]] = []
-        # Number of GEM reference tasks seen
-        self._gem_tasks_seen: int = 0
-        # Max reference gradients to store (memory bound)
-        self._gem_max_references: int = 100
 
-        # ── Phase 3.2: S-Stream (EWC) state ──
-        # Fisher information matrix diagonal (for EWC penalty)
-        self._ewc_fisher: Dict[str, np.ndarray] = {}
-        self._ewc_theta_star: Dict[str, np.ndarray] = {}  # optimal params before new task
 
     def init_parameters(self, name: str, shape: Tuple[int, ...]) -> None:
         """Initialize a parameter group with random values.
@@ -159,14 +140,6 @@ class TSPL:
         if gradient is None:
             gradient = self._compute_gradient(prediction_error, state, prediction)
 
-        # Phase 3.2: E-Stream — apply GEM projection to prevent forgetting
-        if stream == StreamID.E_STREAM:
-            gradient = self._gem_project(gradient)
-
-        # Phase 3.2: S-Stream — add EWC penalty gradient
-        if stream == StreamID.S_STREAM:
-            gradient = self._ewc_add_penalty(gradient)
-
         # Unfrozen parameter update
         theta_new: Dict[str, np.ndarray] = {}
         for key in self.theta:
@@ -178,14 +151,6 @@ class TSPL:
             )
 
         self.theta = theta_new
-
-        # Store reference gradient for E-Stream (GEM memory update)
-        if stream == StreamID.E_STREAM:
-            self._gem_add_reference(gradient)
-
-        # Update Fisher information for S-Stream (EWC)
-        if stream == StreamID.S_STREAM:
-            self._ewc_update_fisher(gradient)
 
         # Skill compilation check (P-Stream only)
         skill_compiled = False
@@ -315,152 +280,6 @@ class TSPL:
         self.theta_protected = {key: val.copy() for key, val in self.theta.items()}
         self.compiled_skill_ids.append(skill_id)
 
-    def freeze_skill(self, skill_id: str) -> None:
-        """External API to freeze a skill (v3.0 Definition 3.3.3).
 
-        Args:
-            skill_id: Unique identifier for the skill.
-        """
-        self._compile_skill(skill_id)
 
-    # ── Phase 3.2: GEM Projection (E-Stream) ─────────────────
 
-    def _gem_project(
-        self, gradient: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
-        """Apply GEM projection to prevent catastrophic forgetting.
-
-        Projects the current gradient onto the feasible region where
-        inner product with all stored reference gradients is ≥ 0.
-        Uses the quadratic programming formulation from
-        Lopez-Paz & Ranzato (2017).
-
-        If no references or all inner products ≥ 0, returns gradient unchanged.
-
-        Args:
-            gradient: Current gradient dict (param_name → array).
-
-        Returns:
-            Projected gradient (or original if no projection needed).
-        """
-        if not self._gem_reference_grads:
-            return gradient
-
-        # Check if projection is needed
-        needs_projection = False
-        for ref in self._gem_reference_grads:
-            dot_product = 0.0
-            for key in gradient:
-                if key in ref:
-                    dot_product += float(np.sum(gradient[key] * ref[key]))
-            if dot_product < 0:
-                needs_projection = True
-                break
-
-        if not needs_projection:
-            return gradient
-
-        # Simple projection: average current gradient with nearest reference
-        # that has negative inner product. For full QP, we'd need cvxopt.
-        # Phase 3.3+: Full quadratic programming.
-        proj: Dict[str, np.ndarray] = {}
-        for key in gradient:
-            proj[key] = gradient[key].copy()
-
-        for ref in self._gem_reference_grads:
-            dot_product = 0.0
-            for key in gradient:
-                if key in ref:
-                    dot_product += float(np.sum(gradient[key] * ref[key]))
-            if dot_product < 0:
-                # Average with reference (linear interpolation toward feasible)
-                for key in gradient:
-                    if key in ref:
-                        ref_norm = float(np.linalg.norm(ref[key]))
-                        if ref_norm > 1e-8:
-                            # Project onto feasible direction
-                            alpha = min(1.0, abs(dot_product) / (  # type: ignore[operator]
-                                float(np.linalg.norm(gradient[key])) * ref_norm + 1e-8
-                            ))
-                            proj[key] = (1.0 - alpha * 0.5) * proj[key] + alpha * 0.5 * ref[key]
-
-        return proj
-
-    def _gem_add_reference(self, gradient: Dict[str, np.ndarray]) -> None:
-        """Add a reference gradient to GEM memory.
-
-        Args:
-            gradient: Gradient to store as reference.
-        """
-        if len(self._gem_reference_grads) >= self._gem_max_references:
-            # Remove oldest
-            self._gem_reference_grads.pop(0)
-        self._gem_reference_grads.append(
-            {k: v.copy() for k, v in gradient.items()}
-        )
-        self._gem_tasks_seen += 1
-
-    # ── Phase 3.2: EWC Penalty (S-Stream) ────────────────────
-
-    def _ewc_add_penalty(
-        self, gradient: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
-        """Add EWC penalty gradient to prevent catastrophic forgetting.
-
-        EWC penalty: penalty = Σ (λ · Fisher · (θ - θ_star))
-        The gradient of this penalty is added to the parameter update.
-
-        Args:
-            gradient: Current gradient dict.
-
-        Returns:
-            Gradient with EWC penalty added.
-        """
-        if not self._ewc_fisher or not self._ewc_theta_star:
-            return gradient
-
-        result: Dict[str, np.ndarray] = {}
-        config = self.configs[StreamID.S_STREAM]
-
-        for key in gradient:
-            penalty = np.zeros_like(gradient[key])
-            if key in self._ewc_fisher and key in self._ewc_theta_star:
-                # EWC penalty gradient = λ · Fisher · (θ - θ*)
-                fisher = self._ewc_fisher[key]
-                theta_diff = self.theta[key] - self._ewc_theta_star[key]
-                penalty = config.lambda_ * fisher * theta_diff
-            result[key] = gradient[key] + penalty
-
-        return result
-
-    def _ewc_update_fisher(self, gradient: Dict[str, np.ndarray]) -> None:
-        """Update Fisher information matrix diagonal for EWC.
-
-        Fisher information is approximated as the squared gradient.
-        Running average: F ← (1 - β) · F + β · g²
-
-        Args:
-            gradient: Current gradient dict.
-        """
-        beta = 0.1  # Fisher update rate
-
-        for key in gradient:
-            g_squared = gradient[key] ** 2
-            if key in self._ewc_fisher:
-                self._ewc_fisher[key] = (1.0 - beta) * self._ewc_fisher[key] + beta * g_squared
-            else:
-                self._ewc_fisher[key] = g_squared
-                if key in self.theta:
-                    self._ewc_theta_star[key] = self.theta[key].copy()
-
-    def reset(self) -> None:
-        """Reset TSPL state for a new training run."""
-        self.theta.clear()
-        self.theta_protected.clear()
-        self.skill_compiled = False
-        self.skill_accuracy = 0.0
-        self.compiled_skill_ids.clear()
-        self._gem_reference_grads.clear()
-        self._gem_tasks_seen = 0
-        self._ewc_fisher.clear()
-        self._ewc_theta_star.clear()

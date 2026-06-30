@@ -224,43 +224,6 @@ class M3EpisodicMemory:
         _log(logger, "debug", "m3.store", episode_id=episode_id, timestamp=timestamp)
         return episode_id or 0
 
-    def store_batch(
-        self,
-        episodes: List[EpisodeRecord],
-    ) -> List[int]:
-        """Store multiple episodes in a single transaction.
-
-        Args:
-            episodes: List of episode records to store.
-
-        Returns:
-            List of inserted episode_ids.
-        """
-        ids: List[int] = []
-        with self._lock:
-            for ep in episodes:
-                cursor = self._connection.execute(
-                    """INSERT INTO episodes
-                       (version, state_before, action_taken, state_after,
-                        prediction_error, confidence, timestamp, drive_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        self._current_version,
-                        ep.state_before.to_bytes() if ep.state_before else b"",
-                        ep.action_taken.tobytes() if ep.action_taken is not None else b"",
-                        ep.state_after.to_bytes() if ep.state_after else b"",
-                        float(ep.prediction_error),
-                        float(ep.confidence),
-                        ep.timestamp,
-                        ep.drive_id,
-                    ),
-                )
-                ids.append(cursor.lastrowid or 0)
-            self._connection.commit()
-
-        self._evict_if_needed()
-        return ids
-
     def flush(self) -> None:
         """Force a commit of any pending writes.
 
@@ -272,82 +235,6 @@ class M3EpisodicMemory:
             self._pending_commits = 0
 
     # ── Read ──────────────────────────────────────────────────
-
-    def get_episode(self, episode_id: int) -> Optional[EpisodeRecord]:
-        """Retrieve a single episode by ID.
-
-        Args:
-            episode_id: The episode ID to retrieve.
-
-        Returns:
-            EpisodeRecord if found, None otherwise.
-        """
-        cursor = self._connection.execute(
-            "SELECT * FROM episodes WHERE episode_id = ?", (episode_id,)
-        )
-        row = cursor.fetchone()
-        return self._row_to_episode(row) if row else None
-
-    def query_episodes(
-        self,
-        limit: int = 100,
-        offset: int = 0,
-        consolidated: Optional[int] = None,
-        min_timestamp: Optional[int] = None,
-        max_timestamp: Optional[int] = None,
-    ) -> List[EpisodeRecord]:
-        """Query episodes with optional filters.
-
-        Args:
-            limit: Maximum number of episodes to return.
-            offset: Number of episodes to skip.
-            consolidated: Filter by consolidated status (0=unconsolidated, 1=consolidated).
-            min_timestamp: Minimum timestamp (inclusive).
-            max_timestamp: Maximum timestamp (inclusive).
-
-        Returns:
-            List of matching EpisodeRecord objects.
-        """
-        clauses: List[str] = []
-        params: List[Any] = []
-
-        if consolidated is not None:
-            clauses.append("consolidated = ?")
-            params.append(consolidated)
-        if min_timestamp is not None:
-            clauses.append("timestamp >= ?")
-            params.append(min_timestamp)
-        if max_timestamp is not None:
-            clauses.append("timestamp <= ?")
-            params.append(max_timestamp)
-
-        where = " AND ".join(clauses) if clauses else "1=1"
-        cursor = self._connection.execute(
-            f"SELECT * FROM episodes WHERE {where} ORDER BY timestamp ASC LIMIT ? OFFSET ?",
-            params + [limit, offset],
-        )
-        return [self._row_to_episode(row) for row in cursor.fetchall()]
-
-    def sample_batch(self, batch_size: int, seed: int = 42) -> List[EpisodeRecord]:
-        """Random sample of episodes for experience replay.
-
-        Args:
-            batch_size: Number of episodes to sample.
-            seed: Random seed.
-
-        Returns:
-            List of sampled EpisodeRecord objects (up to batch_size).
-        """
-        rng = np.random.RandomState(seed)
-        total = self.count()
-        if total == 0:
-            return []
-        n = min(batch_size, total)
-        # Use ORDER BY RANDOM() for reservoir sampling
-        cursor = self._connection.execute(
-            "SELECT * FROM episodes ORDER BY RANDOM() LIMIT ?", (n,)
-        )
-        return [self._row_to_episode(row) for row in cursor.fetchall()]
 
     def count(self, consolidated: Optional[int] = None) -> int:
         """Count episodes, optionally filtered by consolidated status.
@@ -448,15 +335,6 @@ class M3EpisodicMemory:
                 )
                 self._connection.commit()
                 _log(logger, "debug", "m3.evict", count=excess)
-
-    def reset(self) -> None:
-        """Clear all episodes and reset M3 state."""
-        with self._lock:
-            self._connection.execute("DELETE FROM episodes")
-            self._connection.execute("DELETE FROM consolidation_log")
-            self._connection.commit()
-            self._current_version = 1
-        _log(logger, "info", "m3.reset")
 
     def close(self) -> None:
         """Close the database connection."""

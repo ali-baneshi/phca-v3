@@ -130,13 +130,13 @@ class TestOrthogonalityConstraint:
 
     def test_no_freeze_initially(self, cr):
         """No parameters should be frozen initially."""
-        assert cr.get_frozen_params() == set()
+        assert cr._frozen_params == set()
 
     def test_orthogonality_check_not_enough_data(self, cr):
         """With < 10 data points, no freeze should occur."""
         for _ in range(5):
             cr.regulate(0.5)
-        assert cr.get_frozen_params() == set()
+        assert cr._frozen_params == set()
 
     def test_freeze_with_high_correlation(self):
         """Highly correlated parameters should trigger freeze."""
@@ -154,16 +154,9 @@ class TestOrthogonalityConstraint:
             })
 
         cr._check_orthogonality()
-        frozen = cr.get_frozen_params()
+        frozen = cr._frozen_params
         # At least one parameter should be frozen
         assert len(frozen) >= 1, f"No params frozen: corr={np.corrcoef([p['T'] for p in cr._param_history_buffer[-50:]],[p['eta'] for p in cr._param_history_buffer[-50:]])[0,1]}"
-
-    def test_unfreeze_all(self, cr):
-        """unfreeze_all should clear frozen params."""
-        cr._frozen_params.add("T")
-        assert "T" in cr.get_frozen_params()
-        cr.unfreeze_all()
-        assert cr.get_frozen_params() == set()
 
     def test_frozen_param_not_updated(self):
         """A frozen parameter should remain at its previous value."""
@@ -191,40 +184,8 @@ class TestOrthogonalityConstraint:
         cr._check_orthogonality()
         # T and eta are perfectly correlated, one should be frozen
         # but the other might be unfrozen
-        frozen = cr.get_frozen_params()
+        frozen = cr._frozen_params
         assert len(frozen) >= 1
-
-
-class TestReset:
-    """Reset behavior."""
-
-    def test_reset_clears_pid_state(self, cr):
-        """Reset should clear integral, prev_error, and cycle."""
-        cr.regulate(0.3)
-        cr.regulate(0.3)
-        assert cr._integral != 0.0
-        assert cr._cycle > 0
-
-        cr.reset()
-        assert cr._integral == 0.0
-        assert cr._prev_error == 0.0
-        assert cr._cycle == 0
-
-    def test_reset_clears_orthogonality(self, cr):
-        """Reset should clear frozen params and history."""
-        cr._frozen_params.add("T")
-        cr._param_history_buffer.append({"T": 1.0, "eta": 0.1, "alpha": 0.5})
-        cr.reset()
-        assert cr._frozen_params == set()
-        assert cr._param_history_buffer == []
-
-    def test_reset_restores_base_output(self, cr):
-        """After reset, first regulate should return baseline."""
-        cr.regulate(0.3)  # Change state
-        cr.reset()
-        T, eta, alpha = cr.regulate(0.5)
-        assert T == pytest.approx(cr.T_base, abs=0.01)
-        assert eta == pytest.approx(cr.eta_base, abs=0.001)
 
 
 class TestOutputScaling:

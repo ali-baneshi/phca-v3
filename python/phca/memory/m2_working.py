@@ -11,8 +11,6 @@ Cross-ref: v3.0 §3.1 Table, Blueprint §B.1
 
 from __future__ import annotations
 
-
-
 from phca.logging import logger, _log
 from ..config import StateVector
 
@@ -93,55 +91,4 @@ class M2WorkingMemory:
         _log(logger, "debug", "m2.write", chunk_id=chunk.chunk_id, salience=salience, size=len(self.chunks))
         return chunk
 
-    def read(self, chunk_id: int | None = None) -> list[Chunk]:
-        """
-        Read chunks from working memory.
 
-        Args:
-            chunk_id: If provided, read a specific chunk. If None, read all.
-
-        Returns:
-            List of matching chunks.
-        """
-        if chunk_id is None:
-            return list(self.chunks)
-        return [c for c in self.chunks if c.chunk_id == chunk_id]
-
-    def update_salience(self, chunk_id: int, salience: float) -> None:
-        """Update the salience (attention weight) of a chunk."""
-        for c in self.chunks:
-            if c.chunk_id == chunk_id:
-                c.salience = salience
-                break
-
-    def get_state_vectors(self) -> list[StateVector]:
-        """Get all state vectors currently in working memory."""
-        return [c.state for c in self.chunks]
-
-    @property
-    def is_full(self) -> bool:
-        return len(self.chunks) >= self.capacity
-
-    @property
-    def usage(self) -> float:
-        """Return fraction of capacity used."""
-        return len(self.chunks) / self.capacity
-
-    def clear(self) -> None:
-        """Clear all chunks from working memory."""
-        self.chunks.clear()
-        _log(logger, "info", "m2.clear")
-
-    def resize(self, new_capacity: int) -> None:
-        """
-        Change the working memory capacity.
-
-        If shrinking, evict lowest-salience chunks first.
-        """
-        assert self.min_capacity <= new_capacity <= self.max_capacity
-        while len(self.chunks) > new_capacity:
-            evict_idx = min(range(len(self.chunks)), key=lambda i: self.chunks[i].salience)
-            evicted = self.chunks.pop(evict_idx)
-            _log(logger, "debug", "m2.resize_evict", chunk_id=evicted.chunk_id)
-        self.capacity = new_capacity
-        _log(logger, "info", "m2.resize", new_capacity=new_capacity)

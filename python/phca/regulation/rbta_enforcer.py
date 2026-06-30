@@ -369,6 +369,4 @@ class RBTAEnforcer:
         """
         self._bounds[module_id] = bounds
 
-    def get_bounds(self, module_id: str) -> Optional[ResourceBounds]:
-        """Get bounds for a module, or None if not registered."""
-        return self._bounds.get(module_id)
+

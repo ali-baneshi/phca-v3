@@ -15,16 +15,11 @@ Cross-ref: v3.0 §2.2, §4, §D.3
 """
 
 from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
-from phca.world_model.inference import forward_inference, infer_next_state
-from phca.world_model.similarity import knn_similarity
 from phca.world_model.mlp import WorldModelMLP
 
 __all__ = [
     "WorldModelGPrime",
     "StateNode",
     "TemporalEdge",
-    "forward_inference",
-    "infer_next_state",
-    "knn_similarity",
     "WorldModelMLP",
 ]

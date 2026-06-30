@@ -69,7 +69,7 @@ class TestDriveComputation:
         drives_low = mdim.compute_drives({"prediction_error": 0.1, "phi_criticality": 0.5,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
-        mdim.reset()
+
         drives_high = mdim.compute_drives({"prediction_error": 5.0, "phi_criticality": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
@@ -80,7 +80,7 @@ class TestDriveComputation:
         drives_low = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
                                            "skill_accuracy": 0.5, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
-        mdim.reset()
+
         drives_high = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
                                             "skill_accuracy": 0.99, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
@@ -88,11 +88,10 @@ class TestDriveComputation:
 
     def test_d2_criticality_setpoint(self, mdim):
         """D2 deficit is minimal near criticality setpoint (0.5)."""
-        mdim.reset()
         drives_near = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 0.1})
-        mdim.reset()
+
         drives_far = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.1,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.1})
@@ -103,7 +102,7 @@ class TestDriveComputation:
         drives_low = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
                                            "skill_accuracy": 0.9, "model_entropy": 0.5,
                                            "energy_cost": 0.0})
-        mdim.reset()
+
         drives_high = mdim.compute_drives({"prediction_error": 0.5, "phi_criticality": 0.5,
                                             "skill_accuracy": 0.9, "model_entropy": 0.5,
                                             "energy_cost": 1.0})
@@ -177,7 +176,7 @@ class TestGoalGeneration:
         goal1 = mdim.generate_goal({"prediction_error": 5.0, "phi_criticality": 0.5,
                                      "skill_accuracy": 0.99, "model_entropy": 0.5,
                                      "energy_cost": 0.0})
-        mdim.reset()
+
         # High competence deficit → likely D3
         goal2 = mdim.generate_goal({"prediction_error": 0.0, "phi_criticality": 0.5,
                                      "skill_accuracy": 0.2, "model_entropy": 0.5,
@@ -217,21 +216,6 @@ class TestGoalStack:
             assert len(mdim.goal_stack) == 1
         else:
             assert len(mdim.goal_stack) == 2
-
-    def test_pop_completed_goal_returns_none_if_not_completed(self, mdim, default_context):
-        """pop_completed_goal returns None if top goal isn't completed."""
-        mdim.generate_goal(default_context)
-        popped = mdim.pop_completed_goal()
-        # Top goal is not marked completed → returns None
-        assert popped is None
-
-    def test_mark_and_pop_completed(self, mdim, default_context):
-        """Marking goal completed and popping should return it."""
-        goal = mdim.generate_goal(default_context)
-        mdim.mark_current_goal_completed()
-        popped = mdim.pop_completed_goal()
-        assert popped is not None
-        assert popped.drive_id == goal.drive_id
 
     def test_goal_stack_max_depth(self, mdim):
         """Goal stack should not exceed max depth."""
@@ -282,56 +266,6 @@ class TestMetaStableState:
                             "skill_accuracy": 0.5, "model_entropy": 0.5,
                             "energy_cost": 0.5})
         assert not mdim.is_meta_stable()
-
-
-class TestDriveSummary:
-    """Drive summary utilities."""
-
-    def test_get_drive_summary(self, mdim, default_context):
-        """Get a summary of current drive deficits."""
-        mdim.compute_drives(default_context)
-        summary = mdim.get_drive_summary()
-        assert len(summary) == 6  # D1-D6 (M5: D6 active)
-        for name, deficit in summary.items():
-            assert name.startswith("D")
-            assert 0.0 <= deficit <= 10.0
-
-    def test_get_winning_drive(self, mdim):
-        """Get the drive with the highest deficit."""
-        ctx = {"prediction_error": 5.0, "phi_criticality": 0.5,
-               "skill_accuracy": 1.0, "model_entropy": 0.5,
-               "energy_cost": 0.0}
-        mdim.compute_drives(ctx)
-        winner = mdim.get_winning_drive()
-        # D1 should be highest (error=5.0)
-        assert winner == 1
-
-
-class TestReset:
-    """MDIM reset behavior."""
-
-    def test_reset_clears_all_state(self, mdim, default_context):
-        """Reset should clear all state."""
-        mdim.compute_drives(default_context)
-        mdim.generate_goal(default_context)
-        assert mdim._cycle > 0
-        assert len(mdim._drive_history) > 0
-
-        mdim.reset()
-        assert mdim._cycle == 0
-        assert mdim.goal_stack == []
-        assert mdim.current_goal is None
-        assert len(mdim._drive_history) == 0
-
-    def test_reset_reinitializes_drives(self, mdim):
-        """After reset, drives should be fresh."""
-        mdim.compute_drives({"prediction_error": 5.0, "phi_criticality": 0.1,
-                              "skill_accuracy": 0.2, "model_entropy": 0.9,
-                              "energy_cost": 1.0})
-        assert mdim.drives[1].deficit > 0.0
-        mdim.reset()
-        assert mdim.drives[1].deficit == 0.0
-        assert mdim.drives[1].value == 0.0
 
 
 class TestDriveState:

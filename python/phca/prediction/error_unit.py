@@ -26,30 +26,6 @@ class PredictionErrorUnit:
     This error signal drives learning in the P-Stream (§3.1).
     """
 
-    def compute(self, observed: StateVector, predicted: StateVector) -> float:
-        """Compute prediction error δ = ‖observed - predicted‖₂².
-
-        Uses L2 norm squared over the values array.
-
-        Args:
-            observed: The actual state observed from the environment.
-            predicted: The state predicted by the Prediction Engine.
-
-        Returns:
-            Scalar error value δ_t ≥ 0.
-        """
-        # G2: NaN gate — validate inputs before computation
-        if not np.all(np.isfinite(observed.values)):
-            _log(logger, "warning", "peu.nan_input",
-                 source="observed", fallback="0.0")
-            return 0.0
-        if not np.all(np.isfinite(predicted.values)):
-            _log(logger, "warning", "peu.nan_input",
-                 source="predicted", fallback="0.0")
-            return 0.0
-        diff = observed.values.astype(np.float64) - predicted.values.astype(np.float64)
-        return float(np.dot(diff, diff))
-
     def compute_precision_weighted(
         self,
         observed: StateVector,
@@ -81,15 +57,4 @@ class PredictionErrorUnit:
         diff = observed.values.astype(np.float64) - predicted.values.astype(np.float64)
         return float(np.sum(precision * diff ** 2))
 
-    def compute_rmse(self, observed: StateVector, predicted: StateVector) -> float:
-        """Compute root mean squared error between observed and predicted.
 
-        Args:
-            observed: The actual state observed from the environment.
-            predicted: The state predicted by the Prediction Engine.
-
-        Returns:
-            RMSE value ≥ 0.
-        """
-        diff = observed.values.astype(np.float64) - predicted.values.astype(np.float64)
-        return float(np.sqrt(np.mean(diff ** 2)))

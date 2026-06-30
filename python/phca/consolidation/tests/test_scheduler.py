@@ -232,31 +232,6 @@ class TestConsolidationReports:
         assert stats["last_report"] is not None
 
 
-class TestConsolidationReset:
-    """Tests for reset()."""
-
-    def test_reset_clears_state(self):
-        """reset() should clear all consolidation state."""
-        m3 = M3EpisodicMemory(max_episodes=100, state_dim=4, action_dim=2)
-        cs = ConsolidationScheduler(m3=m3, state_dim=4, consolidation_interval=1, max_facts_per_cycle=5)
-
-        state = StateVector(
-            values=np.zeros(4, dtype=np.float32),
-            precision=np.ones(4, dtype=np.float32),
-        )
-        m3.store_episode(
-            state_before=state, action_taken=np.array([1.0, 0.0], dtype=np.float32),
-            state_after=state, prediction_error=0.1, timestamp=0,
-        )
-        cs.step(cycle_count=10, force=True)
-        assert cs._total_processed > 0
-
-        cs.reset()
-        assert cs._total_processed == 0
-        assert cs._total_facts == 0
-        assert len(cs._history) == 0
-
-
 class TestSemanticFactRetrieval:
     """Tests for semantic fact queries."""
 
