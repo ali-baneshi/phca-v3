@@ -104,6 +104,7 @@ class TSPL:
         state: StateVector,
         prediction: StateVector,
         gradient: Optional[Dict[str, np.ndarray]] = None,
+        accuracy_override: Optional[float] = None,
     ) -> Tuple[Dict[str, np.ndarray], bool]:
         """Unified TSPL update (v3.0 Definition 3.2).
 
@@ -117,6 +118,10 @@ class TSPL:
             prediction: Predicted state vector (for accuracy estimation).
             gradient: Optional pre-computed gradients. If None, computed
                 using a simple delta-rule approximation.
+            accuracy_override: Optional external accuracy value (e.g., from
+                MLP world model) to use instead of TSPL's own estimate.
+                Used by G-019 fix to sync skill compilation with actual
+                world model performance.
 
         Returns:
             Tuple of (updated_theta, skill_compiled):
@@ -151,7 +156,11 @@ class TSPL:
         # Skill compilation check (P-Stream only)
         skill_compiled = False
         if stream == StreamID.P_STREAM:
-            accuracy = self._estimate_accuracy(prediction, state, prediction_error)
+            # Use provided accuracy_override if available (G-019: sync with MLP)
+            if accuracy_override is not None:
+                accuracy = float(np.clip(accuracy_override, 0.0, 1.0))
+            else:
+                accuracy = self._estimate_accuracy(prediction, state, prediction_error)
             self.skill_accuracy = accuracy
             if accuracy >= config.accuracy_threshold and not self.skill_compiled:
                 self._compile_skill("p_stream_current")

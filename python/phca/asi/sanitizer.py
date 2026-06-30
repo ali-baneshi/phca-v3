@@ -51,8 +51,7 @@ class ASISanitizer:
         _log(logger, "info", "asi.sanitizer.init",
              sensor_dim=sensor_dim, v_max=v_max, failure_limit=self.asi_failure_limit)
 
-    def sanitize(self, raw: np.ndarray, timestamp: float = 0.0,
-                 grounding_level: int = 1) -> tuple[StateVector, ASIStatus]:
+    def sanitize(self, raw: np.ndarray, timestamp: float = 0.0) -> tuple[StateVector, ASIStatus]:
         """
         Sanitize the incoming sensor vector.
 
@@ -65,7 +64,6 @@ class ASISanitizer:
         Args:
             raw: Raw sensor vector of shape (d,).
             timestamp: Current cycle timestamp.
-            grounding_level: Sensor grounding level ℓ ∈ {0, 1, 2} (v3.0 §2.5.1).
 
         Returns:
             (clean_state_vector, status)
@@ -75,8 +73,6 @@ class ASISanitizer:
         """
         assert raw.shape == (self.sensor_dim,), \
             f"Expected shape ({self.sensor_dim},), got {raw.shape}"
-        assert grounding_level in (0, 1, 2), \
-            f"grounding_level must be 0, 1, or 2, got {grounding_level}"
 
         clean = np.copy(raw).astype(np.float32)
         failure_mask = np.zeros(self.sensor_dim, dtype=bool)
@@ -121,7 +117,6 @@ class ASISanitizer:
                     values=clean,
                     precision=self.precision.copy(),
                     timestamp=timestamp,
-                    grounding_level=grounding_level,
                 ), ASIStatus.SENSOR_FAILURE
             # Some sensors failed but precision still viable — partial failure
             _log(logger, "warning", "asi.sanitizer.partial_failure",
@@ -132,14 +127,12 @@ class ASISanitizer:
                 values=clean,
                 precision=self.precision.copy(),
                 timestamp=timestamp,
-                grounding_level=grounding_level,
             ), ASIStatus.PARTIAL_FAILURE
 
         return StateVector(
             values=clean,
             precision=self.precision.copy(),
             timestamp=timestamp,
-            grounding_level=grounding_level,
         ), ASIStatus.OK
 
     def reset(self) -> None:

@@ -48,18 +48,14 @@ class StateVector:
         values: float32 array of dimension d
         precision: per-element precision p_i (same dimension as values)
         timestamp: monotonic cycle counter
-        grounding_level: 0 (raw), 1 (feature), or 2 (semantic) — from ASI
     """
     values: np.ndarray
     precision: np.ndarray
     timestamp: float = 0.0
-    grounding_level: int = 1  # default to feature-level
 
     def __post_init__(self):
         assert self.values.shape == self.precision.shape, \
             f"values shape {self.values.shape} != precision shape {self.precision.shape}"
-        assert self.grounding_level in (0, 1, 2), \
-            f"grounding_level must be 0, 1, or 2, got {self.grounding_level}"
 
     @property
     def dim(self) -> int:
@@ -71,7 +67,6 @@ class StateVector:
             "values": self.values.tolist(),
             "precision": self.precision.tolist(),
             "timestamp": self.timestamp,
-            "grounding_level": self.grounding_level,
         }
         try:
             import orjson
@@ -89,11 +84,12 @@ class StateVector:
         except ImportError:
             import json
             parsed = json.loads(data.decode())
+        # remove grounding_level if present (legacy serialization) — G-018
+        parsed.pop("grounding_level", None)
         return cls(
             values=np.array(parsed["values"], dtype=np.float32),
             precision=np.array(parsed["precision"], dtype=np.float32),
             timestamp=parsed["timestamp"],
-            grounding_level=parsed["grounding_level"],
         )
 
 

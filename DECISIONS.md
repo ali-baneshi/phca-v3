@@ -495,6 +495,78 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** The original attention module had a fixed beta_td=0.4 that provided weak, static top-down biasing regardless of goal type or priority. This meant all drives influenced attention identically — a D1 (error-minimization) goal had the same top-down influence as a D5 (energy-optimization) goal. The drive-dependent blend makes attention responsive to the current motivational state. Precision-weighted similarity ensures that goal dimensions with specific targets (high precision) dominate the similarity computation over dimensions where the goal is agnostic (low precision). Passing prediction enables proper bottom-up salience (unexpectedness = |chunk - prediction|) instead of falling back to stale chunk salience.
 - **v3.0 trace:** §3.2 Def 3.4 (Attention), §3.3 Def 3.5 (MDIM drives), Phase 4 gap report finding G-005
 
+## Decision D-050: Fix stale docstrings and simplify Step 20 comment (Phase 4 gap audit — G-015/TD-012)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3 (cosmetic cleanup)
+- **Option chosen:** Updated TSPL module/class docstrings to remove all references to E-Stream and S-Stream (removed in D-020). Shortened the Step 20 removal comment in cycle.py from 3 lines to 1 line.
+- **Rationale:** Docstrings referencing E-Stream/S-Stream were stale — these streams were removed in Phase 3.3 final. The Step 20 comment was unnecessarily verbose for a removed feature.
+- **v3.0 trace:** Phase 4 gap report findings G-015 (documentation drift)
+
+## Decision D-051: Remove dead branches from _result_to_dict (Phase 4 gap audit — G-013)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3 (dead code removal)
+- **Option chosen:** Removed two dead branches from `_result_to_dict()` in `graph.py`: (1) `if isinstance(result, dict):` — fallback for old pgmpy versions, and (2) `if not isinstance(result, DiscreteFactor):` — unknown type fallback. The function now assumes pgmpy 1.1.2+ DiscreteFactor return type.
+- **Alternatives:** Keep dead branches for theoretical compatibility with older pgmpy
+- **Rationale:** Both branches were unreachable in all supported environments (pgmpy >= 1.1.2 always returns DiscreteFactor). ~25 lines of dead branch logic removed, simplifying the helper.
+- **v3.0 trace:** Phase 4 gap report finding G-013
+
+## Decision D-052: Remove unused schema_version table and migration file (Phase 4 gap audit — G-014)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3 (dead code removal)
+- **Option chosen:** Removed the `schema_version` CREATE TABLE statement from `M3_SCHEMA_SQL` in `m3_episodic.py`. Replaced `schema_v1.py` migration file content with a docstring noting its removal.
+- **Alternatives:** Wire migration framework into _init_db() (2 hours)
+- **Rationale:** The schema_version table was created but never written to by any code path. The `schema_v1.py` migration script existed but was never called from `_init_db()`. Keeping dead migration infrastructure creates maintenance overhead and confusion.
+- **v3.0 trace:** Phase 4 gap report finding G-014
+
+## Decision D-053: Sync TSPL skill accuracy from MLP world model (Phase 4 gap audit — G-019)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2 (de-synchronized state fixed)
+- **Option chosen:** Added `accuracy_override` parameter to `TSPL.update()`. When using the MLP world model, cycle.py computes the MLP's actual prediction accuracy (via new `WorldModelMLP.get_prediction_accuracy()`) and passes it to TSPL before the skill compilation check.
+- **Alternatives:** Sync TSPL theta from MLP weights (shapes don't match — MLP has 38,868 params, TSPL theta is (state_dim,)). Remove TSPL theta entirely (affects Gaussian G' path).
+- **Rationale:** TSPL's internal theta drifted from MLP weights because MLP uses its own backward pass while TSPL uses a simple delta rule. This meant skill compilation (gated at 95% accuracy) used TSPL's stale accuracy estimate rather than the MLP's actual performance. The accuracy_override parameter allows TSPL to use the MLP's actual confidence for skill compilation, without removing TSPL's separate theta (which is still used by the Gaussian G' path).
+- **v3.0 trace:** §3.1 Def 3.2 (TSPL), §2.2 Def 2.4b (MLP G'), Phase 4 gap report finding G-019
+
+## Decision D-054: Implement FLOP-based energy logging (Phase 4 gap audit — G-011)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3 (TODO cleanup)
+- **Option chosen:** Replaced the "TODO (Phase 4): Replace runtime_s * 50.0 with actual FLOP-based estimate" comment with actual FLOP computation for MLP and Gaussian G' models. FLOP counts are logged as `energy_log["G'FLOPs"]` for analysis, while `runtime_s * 50.0` remains the primary energy signal for D5/RBTA.
+- **Alternatives:** Replace the primary energy signal with FLOP-based estimate (would change D5 behavior)
+- **Rationale:** A direct FLOP-based energy estimate for MLP (~30M FLOPs/cycle including batch training) would saturate the 0.1-10.0 energy range, making D5 non-discriminating. Keeping runtime*50.0 as the primary signal preserves existing D5 behavior while the FLOP computation replaces the open TODO.
+- **v3.0 trace:** §2.1 Def 2.1 (resource bounds), Phase 4 gap report finding G-011
+
+## Decision D-055: Remove online SGD from MLP, learn only from replay buffer (Phase 4 gap audit — G-017)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 1 (behavioral fix — conflicting gradient signals)
+- **Option chosen:** Removed the online SGD step from `WorldModelMLP.learn()`. The method now stores the current transition in the replay buffer and only trains on random mini-batches from the buffer. The first `batch_size` cycles skip learning while the buffer fills (no online gradient fallback). Attention weights are now applied to all batch samples (previously only online gradients used attention modulation).
+- **Alternatives:** Track which transitions have been replayed (option b). Use a target network (option c).
+- **Rationale:** Previously, online SGD (attention-modulated) and batch replay gradients (unmodulated) were applied to the same weights every cycle, creating conflicting update signals. The `lr * 0.5` halving for batch gradients was a heuristic hack to mitigate this. Removing the online SGD path is the simplest fix (standard DQN approach). The first batch_size cycles have no learning, which is acceptable latency for the warmup phase. Applying current attention weights to batch samples is a reasonable approximation since weights change slowly with prediction error.
+- **v3.0 trace:** §2.2 Def 2.4b (G' learning), A5 (Feedback-Driven Adaptation), Phase 4 gap report finding G-017
+
 ---
 
-*End of Decision Log (as of Phase 4 gap audit, Week 1-2 critical + G-005/G-006/G-012 fixes).*
+## Decision D-056: Periodic VACUUM and startup integrity check for SQLite (Phase 4 gap audit — G-010)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 3 (hardening)
+- **Option chosen:** Added `_vacuum_interval = 1000` counter and `_episodes_since_vacuum` accumulator to `M3EpisodicMemory`. After every 1000 evicted episodes, runs `VACUUM` to reclaim disk space from deleted rows. Added startup `PRAGMA integrity_check` for persistent (file-backed) databases. VACUUM is exception-safe with logging on failure.
+- **Alternatives:** Run VACUUM on every eviction (too aggressive). Run VACUUM in a background thread (locking complexity with no real benefit at current scale). Skip VACUUM entirely (disk space grows unboundedly with deletions).
+- **Rationale:** SQLite does not automatically reclaim space from deleted rows — the database file remains the same size even after deletion. Over long runs (10K+ episodes with max_episodes=5000), thousands of evictions fragment the database file. VACUUM every 1000 evictions keeps fragmentation manageable without impacting performance (VACUUM is ~1-10ms for databases < 10MB). The startup integrity check provides early warning if the database file is corrupt from a crash. Both operations only apply to persistent databases — `:memory:` databases are unaffected.
+- **v3.0 trace:** §2.3 (M3 Episodic Memory), Phase 4 gap report finding G-010
+
+---
+
+*End of Decision Log (as of Phase 4 gap audit completion — 20 of 26 findings resolved, 6 deferred).*
+

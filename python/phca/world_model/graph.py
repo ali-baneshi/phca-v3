@@ -846,9 +846,8 @@ def _result_to_dict(
 ) -> Dict[str, np.ndarray]:
     """Convert a pgmpy DiscreteFactor query result to a var→probs dict.
 
-    pgmpy 1.1.2+ returns a single DiscreteFactor from VariableElimination.query(),
-    even when querying multiple variables. This helper normalizes to the
-    expected {var_name: np.ndarray} format for backward compatibility.
+    pgmpy 1.1.2+ returns a single DiscreteFactor from VariableElimination.query().
+    This helper extracts per-variable marginals from the joint factor.
 
     Args:
         result: DiscreteFactor from VariableElimination.query().
@@ -857,14 +856,6 @@ def _result_to_dict(
     Returns:
         Dict mapping each variable name to its probability array.
     """
-    if isinstance(result, dict):
-        # Fallback for older pgmpy versions that return dict
-        return {var: np.array(f.values, dtype=np.float32) for var, f in result.items()}
-
-    if not isinstance(result, DiscreteFactor):
-        # Unknown type — fall back to uniform
-        return {var: np.ones(2, dtype=np.float32) / 2.0 for var in expected_vars}
-
     scope = result.scope()
     values = np.array(result.values, dtype=np.float32)
 
@@ -872,16 +863,12 @@ def _result_to_dict(
     if len(scope) == 1 and len(expected_vars) == 1:
         return {expected_vars[0]: values.flatten()}
 
-    # If exact scope match, extract marginals
-    # pgmpy flatten order: variable order from `scope`
+    # Multi-variable result: extract marginals for each expected var
     result_dict: Dict[str, np.ndarray] = {}
     all_vars = list(scope)
 
     for var_name in expected_vars:
         if var_name in scope:
-            # Phase 3.1 uses flat values for single-var queries.
-            # Phase 3.2: marginalize over scope using var_idx = all_vars.index(var_name)
-            # For Phase 3.1: use flat values since we mostly query single var
             result_dict[var_name] = values.flatten() if len(all_vars) == 1 else values
         else:
             result_dict[var_name] = np.ones(2, dtype=np.float32) / 2.0

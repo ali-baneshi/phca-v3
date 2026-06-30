@@ -98,11 +98,8 @@ CREATE TABLE IF NOT EXISTS consolidation_log (
     status TEXT DEFAULT 'in_progress'
 );
 
--- Version tracking for MVCC
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY,
-    applied_at INTEGER NOT NULL
-);
+-- (schema_version table removed in Phase 3.3 gap audit G-014 —
+--  migration framework was never wired into _init_db())
 """
 
 
@@ -143,6 +140,8 @@ class M3EpisodicMemory:
         self._current_version: int = 1
         self._pending_commits: int = 0
         self._commit_interval: int = 10
+        self._episodes_since_vacuum: int = 0
+        self._vacuum_interval: int = 1000  # VACUUM every 1000 episodes (G-010)
 
         # Initialize database
         self._conn: Optional[sqlite3.Connection] = None
@@ -151,12 +150,28 @@ class M3EpisodicMemory:
         _log(logger, "info", "m3.init", db_path=db_path, max_episodes=max_episodes)
 
     def _init_db(self) -> None:
-        """Initialize the SQLite database and create schema."""
+        """Initialize the SQLite database and create schema.
+
+        Runs integrity check for file-backed databases (G-010).
+        """
         self._conn = sqlite3.connect(self.db_path)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(M3_SCHEMA_SQL)
         self._conn.commit()
+
+        # Run integrity check on persistent databases (G-010)
+        if self.db_path != ":memory:":
+            try:
+                cursor = self._conn.execute("PRAGMA integrity_check")
+                result = cursor.fetchone()
+                if result and result[0] != "ok":
+                    _log(logger, "critical", "m3.integrity_failure",
+                         result=str(result))
+                else:
+                    _log(logger, "info", "m3.integrity_check", result="ok")
+            except Exception as e:
+                _log(logger, "error", "m3.integrity_check_failed", error=str(e))
 
     @property
     def _connection(self) -> sqlite3.Connection:
@@ -220,6 +235,8 @@ class M3EpisodicMemory:
 
         # Evict oldest if over capacity
         self._evict_if_needed()
+        # Periodic VACUUM to reclaim space from deleted episodes (G-010)
+        self._vacuum_if_needed()
 
         _log(logger, "debug", "m3.store", episode_id=episode_id, timestamp=timestamp)
         return episode_id or 0
@@ -335,6 +352,29 @@ class M3EpisodicMemory:
                 )
                 self._connection.commit()
                 _log(logger, "debug", "m3.evict", count=excess)
+                # Track deletions for VACUUM scheduling (G-010)
+                self._episodes_since_vacuum += excess
+
+    def _vacuum_if_needed(self) -> None:
+        """Run VACUUM periodically to reclaim space from deleted episodes.
+
+        SQLite does not automatically reclaim space from DELETEd rows.
+        After enough deletions (evictions or consolidations), the database
+        file grows unbounded. VACUUM rebuilds the database file, reclaiming
+        space. Only runs for persistent databases (G-010).
+        """
+        if self.db_path == ":memory:":
+            return  # No file to vacuum for in-memory databases
+        if self._episodes_since_vacuum < self._vacuum_interval:
+            return
+        if self._conn is None:
+            return
+        try:
+            self._conn.execute("VACUUM")
+            self._episodes_since_vacuum = 0
+            _log(logger, "info", "m3.vacuum", interval=self._vacuum_interval)
+        except Exception as e:
+            _log(logger, "error", "m3.vacuum_failed", error=str(e))
 
     def close(self) -> None:
         """Close the database connection."""

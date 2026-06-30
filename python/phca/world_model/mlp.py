@@ -120,7 +120,7 @@ class WorldModelMLP:
         state_t1: StateVector,
         error: float,
     ) -> None:
-        """Learn from observed transition via SGD with experience replay.
+        """Learn from observed transition via replay buffer (G-017 fix).
 
         The error parameter modulates the effective learning rate:
           lr_effective = self.lr * (1.0 + abs(error) * 0.1)
@@ -129,6 +129,13 @@ class WorldModelMLP:
 
         Stores the transition in a replay buffer and trains on a
         mini-batch of random samples from the buffer each cycle.
+
+        G-017 (Phase 4 gap audit): Removed online SGD to eliminate
+        conflicting gradient signals. Previously, online and batch
+        gradients were applied in the same cycle, creating a conflict:
+        the online gradient used attention-weighted per-dimension
+        modulation, while batch gradients did not (different attention
+        contexts). Now only batch replay gradients are applied.
 
         Args:
             state_t: State at time t.
@@ -140,12 +147,8 @@ class WorldModelMLP:
         lr_mod = float(np.clip(1.0 + abs(error) * 0.1, 0.5, 2.0))
         effective_lr = self.lr * lr_mod
 
-        # Redo forward pass with the actual action for immediate learning
+        # Build input and target
         x = np.concatenate([state_t.values.astype(np.float32), action.astype(np.float32)])
-        self._last_input = x
-        z1, z2, out = self._forward(x)
-        self._last_activations = (z1, z2, out)
-
         target = state_t1.values.astype(np.float32)
 
         # Store in replay buffer
@@ -155,30 +158,27 @@ class WorldModelMLP:
             self._replay_buffer[self._replay_idx % self.replay_capacity] = (x.copy(), target.copy())
         self._replay_idx += 1
 
-        # Apply attention-weighted per-dimension gradient if weights are available
+        # Attention weights: apply to batch gradients (G-017: removed online-only path)
         attention_weights = None
         if hasattr(self, '_attention_weights') and self._attention_weights is not None:
-            attention_weights = self._attention_weights
+            attention_weights = self._attention_weights.copy()
             # Clear after use to avoid stale weights
             self._attention_weights = None
 
-        # Skip batch training if buffer not big enough yet
+        # Skip learning if buffer not big enough (no online SGD fallback — G-017)
         if len(self._replay_buffer) < self.batch_size:
-            grad = self._backward(x, z1, z2, out, target, attention_weights)
-            self._apply_gradient(grad, lr=effective_lr)
             return
 
-        # Train on mini-batches from replay buffer (current transition included via buffer)
-        # Note: attention_weights are NOT passed to batch replay gradients because
-        # replayed samples come from different past states with different attention
-        # profiles. Only the online (immediate) gradient uses attention modulation.
+        # Train on mini-batches from replay buffer only (G-017 fix)
+        # Note: current attention_weights are applied to all batch samples as
+        # an approximation (the weights change slowly with prediction error).
         for _ in range(self.train_steps):
                 indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
                 avg_grad: Optional[Dict[str, np.ndarray]] = None
                 for idx in indices:
                     bx, btarget = self._replay_buffer[idx]
                     bz1, bz2, bout = self._forward(bx)
-                    bgrad = self._backward(bx, bz1, bz2, bout, btarget, attention_weights=None)
+                    bgrad = self._backward(bx, bz1, bz2, bout, btarget, attention_weights)
                     if avg_grad is None:
                         avg_grad = {k: v.copy() for k, v in bgrad.items()}
                     else:
@@ -306,6 +306,26 @@ class WorldModelMLP:
         """
         mse = 0.5 * float(np.mean((prediction - target) ** 2))
         return float(np.exp(-max(mse, 0.0)))
+
+    def get_prediction_accuracy(
+        self, state: np.ndarray, action: np.ndarray, target: np.ndarray
+    ) -> float:
+        """Get MLP prediction accuracy on a given (state, action, target).
+
+        Used to sync TSPL skill_accuracy from actual MLP performance (G-019).
+        Runs a forward pass and returns confidence.
+
+        Args:
+            state: Current state vector (state_dim,).
+            action: Action vector (action_dim,).
+            target: Ground-truth next state (state_dim,).
+
+        Returns:
+            Confidence in [0, 1].
+        """
+        x = np.concatenate([state.astype(np.float32), action.astype(np.float32)])
+        _, _, out = self._forward(x)
+        return self._compute_confidence(out, target.astype(np.float32))
 
     def _apply_gradient(
         self, grad: Dict[str, np.ndarray], lr: float = 0.01

@@ -14,6 +14,7 @@ v3.0 Reference: Blueprint xa77.B, xa7.2.2, xa7.3.1
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -216,7 +217,6 @@ class CognitiveCycle:
                         values=self.current_state.values.copy(),
                         precision=np.ones_like(self.current_state.precision) * 0.01,
                         timestamp=predicted.timestamp,
-                        grounding_level=predicted.grounding_level,
                     )
                     confidence = 0.0
                 self.last_prediction = predicted
@@ -247,7 +247,6 @@ class CognitiveCycle:
                     values=obs.astype(np.float32),
                     precision=np.ones(self.state_dim, dtype=np.float32),
                     timestamp=float(self.cycle_count),
-                    grounding_level=1,
                 )
 
                 # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
@@ -269,12 +268,20 @@ class CognitiveCycle:
                 metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
 
                 # Step 7: TSPL P-Stream update
+                # Compute MLP accuracy for TSPL sync (G-019) before TSPL update
+                # so skill compilation uses actual MLP performance
+                mlp_accuracy = None
+                if isinstance(self.gprime, WorldModelMLP):
+                    mlp_accuracy = self.gprime.get_prediction_accuracy(
+                        self.current_state.values, action_vec, next_state.values
+                    )
                 t4 = time.perf_counter()
                 self.tspl.update(
                     StreamID.P_STREAM,
                     metrics.prediction_error,
                     self.current_state,
                     self.last_prediction,
+                    accuracy_override=mlp_accuracy,
                 )
                 metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
@@ -393,7 +400,7 @@ class CognitiveCycle:
             hpm_spec = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
                 "children": [
-                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim, "grounding_level": 1},
+                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
                     {"type": "SEQUENCE", "id": "prediction_block",
                      "children": [
                          "WM",
@@ -462,8 +469,10 @@ class CognitiveCycle:
             metrics.fact_count = consol_stats.get("total_facts_stored", 0)
             metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
             self.metrics_history.append(metrics)
+            # Deep-copy before pushing to prevent dashboard thread from
+            # observing a mutating object (G-009: thread-safe monitoring)
             if self.metrics_store is not None:
-                self.metrics_store.push(metrics)
+                self.metrics_store.push(copy.deepcopy(metrics))
             if len(self.metrics_history) > 10000:
                 self.metrics_history = self.metrics_history[-5000:]
 
@@ -495,9 +504,8 @@ class CognitiveCycle:
             # Step 19: Increment cycle counter
             self.cycle_count += 1
 
-            # Step 20: (removed) Sleep-cycle check — not needed. Consolidation
-            # is already handled by Steps 16-18 every consolidation_interval=10
-            # cycles. The 50-cycle sleep cycle duplicated this work. (A-008 fix)
+            # Step 20: (removed) Sleep-cycle check — A-008 fix. Consolidation
+            # handled by Steps 16-18 every consolidation_interval=10 cycles.
 
         except Exception as e:
             _log(logger, "error", "cycle.step.error", cycle=self.cycle_count, error=str(e))
@@ -782,12 +790,11 @@ class CognitiveCycle:
             "MDIM": 20_000, "CR": 10_000, "ATTN": 5_000,
             "HPM": 10_000, "CONSOL": 2_000,
         }
-        # Energy estimates from actual module runtimes (scaled to match original magnitude)
-        # TODO (Phase 4): Replace runtime_s * 50.0 with actual FLOP-based estimate:
-        #   - MLP: 3 * hidden_dim^2 + 2 * hidden_dim * state_dim FLOPs/cycle
-        #   - Gaussian G': O(n^3) for n = state_dim
-        #   - SQLite M3: ~1000 * rows_written
-        # For now, scale factor 50.0 keeps values in 0.1-10.0 range (A-007 fix).
+        # Energy estimates from module runtimes (scaled to match original magnitude)
+        # G-011: Log actual FLOPs for analysis but keep runtime*50.0 as the primary
+        # energy signal (changing the energy scale would affect D5 behavior).
+        # MLP FLOPs/cycle ≈ (1 + batch_size * train_steps) * (3 * forward_pass_FLOPs).
+        # For h=128, s=84: forward ≈ 78K FLOPs, each learn step ≈ 129× forward+backward ≈ 30M FLOPs.
         self.energy_log = {}
         for mod, runtime_s in self.runtime_log.items():
             self.energy_log[mod] = max(0.1, min(10.0, runtime_s * 50.0))
@@ -796,6 +803,16 @@ class CognitiveCycle:
         for mod, val in baseline.items():
             if mod not in self.energy_log:
                 self.energy_log[mod] = val
+        # Log estimated FLOPs for G' for analysis (G-011)
+        if hasattr(self.gprime, 'hidden_dim'):
+            h = self.gprime.hidden_dim
+            s = self.state_dim
+            mlp_forward_flops = 3.0 * h * h + 2.0 * h * s  # single forward pass
+            bs = getattr(self.gprime, 'batch_size', 32)
+            ts = getattr(self.gprime, 'train_steps', 4)
+            total_passes = 1 + bs * ts  # online + batch passes
+            gprime_flops = mlp_forward_flops * total_passes * 3.0  # forward + 2× backward
+            self.energy_log["G'FLOPs"] = float(gprime_flops)  # logged but not used by RBTA
         # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
         if len(self.metrics_history) >= 5:
             recent_errs = [m.prediction_error for m in self.metrics_history[-10:]]
