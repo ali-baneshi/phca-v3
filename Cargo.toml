@@ -1,19 +1,9 @@
 [workspace]
 resolver = "2"
-members = [
-    "rust/common",
-    "rust/rpta",
-    "rust/hpm-runtime",
-]
+# Rust crates removed — Python-only RBTA and HPM for Phase 3.2.
+# Re-introduce Rust only if profiling shows Python as a bottleneck.
+members = []
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-
-[workspace.dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-numpy = "0.21"
-pyo3 = { version = "0.21", features = ["extension-module"] }
-rand = "0.8"
-thiserror = "1.0"

@@ -190,19 +190,102 @@ class RBTAEnforcer:
 
         Implements v3.0 Theorem 2.1 (corrected SEQUENCE) and Theorem 3.1 (PARALLEL).
 
+        Recipe:
+            SEQUENCE:  B_time = sum(child_time) + τ_comp (τ_comp = 1ms)
+                       B_mem  = max(child_mem) + δ_shared (δ_shared = 1KB)
+            PARALLEL:  B_time = max(child_time) + τ_sync (τ_sync = 2ms)
+                       B_mem  = sum(child_mem) + δ_comm  (δ_comm = 2KB)
+
         Args:
             tree: Composition tree node with format:
-                {"type": "SEQUENCE" | "PARALLEL", "children": [...], "bounds": ResourceBounds}
+                {"type": "SEQUENCE" | "PARALLEL",
+                 "children": [module_id_str | nested_tree_dict, ...],
+                 "bounds": ResourceBounds (composite bound)}
             runtime_log: Measured runtimes per module.
             violations: Shared violation list (appended in-place).
-
-        Phase 3.2+: Full implementation with recursive tree traversal.
-        Phase 3.1: Placeholder — raises no false positives.
         """
-        # PHCA-3.1-TODO: Phase 3.2 — recursive composition tree traversal
-        # Formula (SEQUENCE): T_total = sum(T_i) + tau_comp, tau_comp = 1ms
-        # Formula (PARALLEL): T_total = max(T_i) + tau_sync, tau_sync = 2ms
-        pass  # no-op for Phase 3.1
+        TAU_COMP = 0.001   # 1ms composition overhead
+        TAU_SYNC = 0.002   # 2ms synchronization overhead
+        DELTA_SHARED = 1024.0   # 1KB shared memory
+        DELTA_COMM = 2048.0     # 2KB communication memory
+
+        op = tree.get("type", "SEQUENCE")
+        children = tree.get("children", [])
+        tree_bounds = tree.get("bounds")
+
+        if not children:
+            return
+
+        # Collect child runtimes
+        child_times = []
+        for child in children:
+            if isinstance(child, dict):
+                # Nested composition tree — recurse
+                self._check_composition_tree(child, runtime_log, violations)
+                # For the parent check, compute the child's composite time
+                child_times.append(self._compute_subtree_runtime(child, runtime_log))
+            elif isinstance(child, str):
+                # Leaf module — look up runtime
+                child_times.append(runtime_log.get(child, 0.0))
+
+        if not child_times:
+            return
+
+        # Compute composite time based on composition type
+        if op == "SEQUENCE":
+            total_time = sum(child_times) + TAU_COMP
+        elif op == "PARALLEL":
+            total_time = max(child_times) + TAU_SYNC
+        else:
+            # Unknown operator — skip check
+            return
+
+        # Check against composite bound
+        if tree_bounds is not None:
+            bound = tree_bounds.get("B_time", float("inf"))
+            if isinstance(bound, ResourceBounds):
+                bound = bound.B_time
+            if total_time > bound:
+                violations.append(ConstraintViolation(
+                    module_id=f"composite:{tree.get('id', op)}",
+                    bound_type=BoundType.TIME.value,
+                    measured=total_time,
+                    allowed=float(bound),
+                ))
+
+    def _compute_subtree_runtime(
+        self, tree: Dict, runtime_log: Dict[str, float]
+    ) -> float:
+        """Compute the composite runtime of a composition subtree.
+
+        Recursive helper: mirrors the math in _check_composition_tree
+        without generating violations.
+        """
+        TAU_COMP = 0.001
+        TAU_SYNC = 0.002
+
+        op = tree.get("type", "SEQUENCE")
+        children = tree.get("children", [])
+
+        if not children:
+            return 0.0
+
+        child_times = []
+        for child in children:
+            if isinstance(child, dict):
+                child_times.append(self._compute_subtree_runtime(child, runtime_log))
+            elif isinstance(child, str):
+                child_times.append(runtime_log.get(child, 0.0))
+
+        if not child_times:
+            return 0.0
+
+        if op == "SEQUENCE":
+            return sum(child_times) + TAU_COMP
+        elif op == "PARALLEL":
+            return max(child_times) + TAU_SYNC
+        else:
+            return sum(child_times)  # fallback
 
     def update_bounds(self, module_id: str, bounds: ResourceBounds) -> None:
         """Update bounds for a module (e.g., when new modules are registered).

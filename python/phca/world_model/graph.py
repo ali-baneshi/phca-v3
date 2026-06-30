@@ -21,6 +21,12 @@ from pgmpy.factors.discrete import TabularCPD, DiscreteFactor
 from pgmpy.inference import VariableElimination
 
 from phca.config import StateVector
+from phca.world_model.gaussian import (
+    compute_joint_moments,
+    posterior,
+    confidence_from_variance,
+    sample_posterior,
+)
 
 
 @dataclass
@@ -68,6 +74,8 @@ class WorldModelGPrime:
     networks via pgmpy with exact inference (variable elimination).
 
     Phase 3.2+: Dual-model (G' + V) with meta-gradient weights.
+        Also supports continuous Gaussian CPDs with closed-form analytic
+        inference (see predict_continuous()).
     """
 
     def __init__(self, state_dim: int, action_dim: int, seed: int = 42):
@@ -95,6 +103,11 @@ class WorldModelGPrime:
 
         # Learned CPD parameters (updated by learn())
         self._cpd_params: Dict[str, np.ndarray] = {}
+
+        # Continuous Gaussian model parameters
+        self._gaussian_betas: Dict[str, List[float]] = {}
+        self._gaussian_sigmas: Dict[str, float] = {}
+        self._gaussian_parents: Dict[str, List[str]] = {}
 
     # ── Graph Construction ────────────────────────────────────
 
@@ -177,6 +190,19 @@ class WorldModelGPrime:
                 cpd = self._build_discrete_cpd(node, parents)
                 cpds.append(cpd)
 
+        # For Gaussian nodes, store parameters for analytic inference
+        for node_name, node in self.nodes.items():
+            if node.cpd_type in ("gaussian", "conditional_gaussian"):
+                parents = [p for p in node.parents if p in self.nodes]
+                if node.params is not None:
+                    beta = node.params.tolist()
+                else:
+                    # Default: identity with some noise
+                    beta = [0.0] + [1.0] * len(parents) if parents else [0.0]
+                self._gaussian_betas[node_name] = beta
+                self._gaussian_sigmas[node_name] = node.std
+                self._gaussian_parents[node_name] = parents
+
         self._bn.add_cpds(*cpds)
 
     def _build_discrete_cpd(self, node: StateNode, parents: List[str]) -> TabularCPD:
@@ -213,14 +239,16 @@ class WorldModelGPrime:
                 values=values.reshape(-1, 1).tolist(),
             )
 
-    # ── Prediction ────────────────────────────────────────────
+    # ── Prediction (Discrete / pgmpy) ─────────────────────────
 
     def predict(
         self, state: StateVector, action: np.ndarray
     ) -> Tuple[StateVector, float]:
         """Predict next state given current state and action.
 
-        Uses pgmpy exact inference (variable elimination).
+        Auto-dispatches to:
+          - predict_continuous() if the graph has Gaussian CPD nodes
+          - pgmpy exact inference (variable elimination) for discrete-only graphs
 
         Args:
             state: Current state vector.
@@ -231,8 +259,15 @@ class WorldModelGPrime:
                 predicted_state: StateVector with predicted values.
                 confidence: Prediction confidence (0.0 = uncertain, 1.0 = certain).
         """
+        # Auto-dispatch to continuous inference if Gaussian nodes exist
+        if self.has_gaussian_nodes():
+            return self.predict_continuous(state, action)
+
+        if self._bn is None and len(self.nodes) > 0:
+            self._build_graph()
+
         if self._bn is None or len(self.nodes) == 0:
-            # Empty graph: return copy of state with zero confidence
+            # Empty or unbuildable graph: return copy of state with zero confidence
             return (
                 StateVector(
                     values=state.values.copy(),
@@ -243,16 +278,13 @@ class WorldModelGPrime:
                 0.0,
             )
 
-        # Build graph if needed
-        if self._bn is None:
-            self._build_graph()
-
         # Collect evidence from current state
-        evidence = {}
+        evidence: Dict[str, float] = {}
         for i in range(min(self.state_dim, len(state.values))):
             var_name = f"s{i}_t"
             if var_name in self.nodes:
-                evidence[var_name] = int(round(state.values[i]))
+                # round to nearest integer for discrete CPD evidence
+                evidence[var_name] = float(int(round(state.values[i])))
 
         try:
             # Run variable elimination for t+1 variables
@@ -318,6 +350,272 @@ class WorldModelGPrime:
                 ),
                 0.0,
             )
+
+    # ── Prediction (Continuous / Gaussian) ───────────────────
+
+    def has_gaussian_nodes(self) -> bool:
+        """Check if the graph has any Gaussian/continuous nodes."""
+        return any(
+            n.cpd_type in ("gaussian", "conditional_gaussian")
+            for n in self.nodes.values()
+        )
+
+    def _get_gaussian_topology(self) -> Tuple[List[str], Dict[str, List[float]],
+                                              Dict[str, float], Dict[str, List[str]]]:
+        """Extract Gaussian BN topology from current nodes.
+
+        Returns:
+            Tuple of (node_order, betas, sigmas, parents) for the
+            Gaussian BN inference engine.
+        """
+        # Get topological ordering from temporal + causal + parent edges
+        node_order = list(self.nodes.keys())
+
+        # Build adjacency for topological sort
+        edges = set()
+        for e in self.temporal_edges:
+            edges.add((e.source, e.target))
+        for source, target in self.causal_edges:
+            edges.add((source, target))
+        for node_name, node in self.nodes.items():
+            for parent in node.parents:
+                if parent in self.nodes:
+                    edges.add((parent, node_name))
+
+        # Simple topological sort via Kahn's algorithm
+        in_degree = {n: 0 for n in node_order}
+        for src, dst in edges:
+            if src in in_degree and dst in in_degree:
+                in_degree[dst] += 1
+
+        queue = [n for n, d in in_degree.items() if d == 0]
+        sorted_order = []
+        while queue:
+            n = queue.pop(0)
+            sorted_order.append(n)
+            for src, dst in edges:
+                if src == n and dst in in_degree:
+                    in_degree[dst] -= 1
+                    if in_degree[dst] == 0:
+                        queue.append(dst)
+
+        # Add any remaining nodes (shouldn't happen for DAG)
+        for n in node_order:
+            if n not in sorted_order:
+                sorted_order.append(n)
+
+        # Build betas, sigmas, parents from node data
+        betas: Dict[str, List[float]] = {}
+        sigmas: Dict[str, float] = {}
+        parents_dict: Dict[str, List[str]] = {}
+
+        for node_name, node in self.nodes.items():
+            parents_list = [p for p in node.parents if p in self.nodes]
+            parents_dict[node_name] = parents_list
+
+            if node.params is not None:
+                betas[node_name] = node.params.tolist()
+            else:
+                # Default: identity transition
+                if parents_list:
+                    betas[node_name] = [0.0] + [1.0] * len(parents_list)
+                else:
+                    betas[node_name] = [0.0]
+
+            sigmas[node_name] = max(node.std, 0.001)
+
+        return sorted_order, betas, sigmas, parents_dict
+
+    def predict_continuous(
+        self,
+        state: StateVector,
+        action: np.ndarray,
+        method: str = "analytic",
+    ) -> Tuple[StateVector, float]:
+        """Predict next state using Gaussian BN analytic inference.
+
+        Phase 3.2: Closed-form posterior computation for Gaussian
+        Bayesian networks. Uses precision matrix operations for
+        exact inference (O(n³) for n nodes).
+
+        Args:
+            state: Current state vector (provides evidence for _t nodes).
+            action: Action vector (provides evidence for action nodes).
+            method: "analytic" for exact closed-form (n ≤ 200),
+                    "sampling" for approximate sampling (n > 200).
+
+        Returns:
+            Tuple of (predicted_state, confidence):
+                predicted_state: StateVector with posterior means.
+                confidence: Average confidence across all predicted dims.
+        """
+        if len(self.nodes) == 0:
+            return (
+                StateVector(
+                    values=state.values.copy(),
+                    precision=np.zeros_like(state.precision),
+                    timestamp=state.timestamp + 1.0,
+                    grounding_level=state.grounding_level,
+                ),
+                0.0,
+            )
+
+        # Build Gaussian topology
+        node_order, betas, sigmas, parents_dict = self._get_gaussian_topology()
+
+        # Build evidence from current state and action
+        evidence: Dict[str, float] = {}
+        for i in range(min(self.state_dim, len(state.values))):
+            name_t = f"s{i}_t"
+            if name_t in self.nodes:
+                evidence[name_t] = float(state.values[i])
+        for i in range(min(self.action_dim, len(action))):
+            name_a = f"a{i}_t"
+            if name_a in self.nodes:
+                evidence[name_a] = float(action[i])
+
+        # Identify query variables (_t1 nodes)
+        query_vars = [n for n in self.nodes if n.endswith("_t1")]
+
+        if not query_vars:
+            # No temporal targets — return identity
+            return (
+                StateVector(
+                    values=state.values.copy(),
+                    precision=np.ones_like(state.precision) * 0.5,
+                    timestamp=state.timestamp + 1.0,
+                    grounding_level=state.grounding_level,
+                ),
+                0.5,
+            )
+
+        try:
+            if method == "analytic":
+                mu, cov = compute_joint_moments(
+                    node_order, betas, sigmas, parents_dict
+                )
+                posteriors = posterior(
+                    mu, cov, evidence, query_vars, node_order
+                )
+            else:
+                posteriors = sample_posterior(
+                    node_order, betas, sigmas, parents_dict,
+                    evidence, query_vars,
+                    n_samples=10_000,
+                    seed=self.rng.randint(10000),
+                )
+        except (ValueError, np.linalg.LinAlgError):
+            return (
+                StateVector(
+                    values=state.values.copy(),
+                    precision=np.ones_like(state.precision) * 0.01,
+                    timestamp=state.timestamp + 1.0,
+                    grounding_level=state.grounding_level,
+                ),
+                0.0,
+            )
+
+        # Build output StateVector
+        predicted_values = np.zeros(self.state_dim, dtype=np.float32)
+        precision_values = np.ones(self.state_dim, dtype=np.float32)
+        confidences: List[float] = []
+
+        for var_name, (mean_val, std_val) in posteriors.items():
+            # Extract dimension index from var name
+            try:
+                idx_str = var_name.split("s")[1].split("_t1")[0]
+                idx = int(idx_str)
+                if 0 <= idx < self.state_dim:
+                    predicted_values[idx] = float(mean_val)
+                    conf = confidence_from_variance(std_val ** 2)
+                    precision_values[idx] = conf
+                    confidences.append(conf)
+            except (IndexError, ValueError):
+                continue
+
+        avg_confidence = float(np.mean(confidences)) if confidences else 0.0
+
+        return (
+            StateVector(
+                values=predicted_values,
+                precision=precision_values,
+                timestamp=state.timestamp + 1.0,
+                grounding_level=state.grounding_level,
+            ),
+            avg_confidence,
+        )
+
+    # ── Continuous GridWorld Builder ──────────────────────────
+
+    @classmethod
+    def build_gaussian_grid(
+        cls,
+        state_dim: int,
+        action_dim: int = 5,
+        transition_std: float = 0.5,
+        seed: int = 42,
+    ) -> WorldModelGPrime:
+        """Build a Gaussian BN for GridWorld with continuous CPDs.
+
+        Creates a 2-step temporal model: s{i}_t → s{i}_t1
+        with action conditioning: a{j}_t influences all s{i}_t1.
+
+        Each s{i}_t1 has CPD:
+            P(s{i}_t1 | s{i}_t, a{0..4}_t) = N(β₀ + β₁·s{i}_t + β₂·a_t, σ²)
+
+        Args:
+            state_dim: Dimensionality of the state space (e.g., 84 for 5×5).
+            action_dim: Dimensionality of the action space (default 5).
+            transition_std: Standard deviation of the transition noise.
+            seed: Random seed.
+
+        Returns:
+            WorldModelGPrime with Gaussian nodes configured for GridWorld.
+        """
+        model = cls(state_dim=state_dim, action_dim=action_dim, seed=seed)
+
+        # Create state nodes at time t (evidence)
+        for i in range(state_dim):
+            model.add_node(StateNode(
+                name=f"s{i}_t",
+                cpd_type="gaussian",
+                parents=[],
+                cardinality=2,
+                params=np.array([0.0], dtype=np.float32),  # β₀ = 0
+                std=transition_std,
+            ))
+
+        # Create state nodes at time t+1 (query targets)
+        for i in range(state_dim):
+            # β₀ = 0 (intercept), β₁ = 0.95 (temporal persistence),
+            # β₂..β_{1+action_dim} = 0.1 (action influence)
+            beta = [0.0, 0.95] + [0.1] * action_dim
+            model.add_node(StateNode(
+                name=f"s{i}_t1",
+                cpd_type="conditional_gaussian",
+                parents=[f"s{i}_t"] + [f"a{j}_t" for j in range(action_dim)],
+                cardinality=2,
+                params=np.array(beta, dtype=np.float32),
+                std=transition_std,
+            ))
+            model.add_temporal_edge(TemporalEdge(
+                source=f"s{i}_t", target=f"s{i}_t1", lag=1,
+            ))
+
+        # Create action nodes at time t
+        for j in range(action_dim):
+            model.add_node(StateNode(
+                name=f"a{j}_t",
+                cpd_type="gaussian",
+                parents=[],
+                cardinality=2,
+                params=np.array([0.0], dtype=np.float32),
+                std=0.1,
+            ))
+            for i in range(state_dim):
+                model.add_causal_edge(f"a{j}_t", f"s{i}_t1")
+
+        return model
 
     # ── Learning ──────────────────────────────────────────────
 

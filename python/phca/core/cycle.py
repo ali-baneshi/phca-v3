@@ -204,8 +204,7 @@ class CognitiveCycle:
                 )
             metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
-            # Step 8: Attention (Phase 3.2 stub)
-            _ = self.attention.select(self.m2.chunks, self.current_goal)
+            # (Step 8: Attention moved after MDIM/CR to use CR-controlled parameters)
 
             # Step 9: Action selection
             t5 = time.perf_counter()
@@ -223,14 +222,59 @@ class CognitiveCycle:
             if terminal:
                 self.env.reset()
 
-            # Steps 10-13: MDIM + CR (Phase 3.2 stubs)
-            self.current_goal = self.mdim.generate_goal()
-            _ = self.criticality_regulator.regulate()
+            # Steps 10-13: MDIM + CR + ATTN + HPM (Phase 3.2)
+            # Compute Φ approximation from module states (replaces synthetic decay)
+            t_mdim = time.perf_counter()
+            phi_current = self._approximate_phi()
+            mdim_context = {
+                "prediction_error": metrics.prediction_error,
+                "phi_criticality": phi_current,
+                "skill_accuracy": self.tspl.skill_accuracy,
+                "model_entropy": 0.5 - self.cycle_count * 0.001,
+                "energy_cost": 0.1,
+                "cycle": self.cycle_count,
+                "prediction_confidence": metrics.prediction_confidence,
+            }
+            self.current_goal = self.mdim.generate_goal(mdim_context)
+            metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
+
+            # CR regulates and returns (T, eta, alpha) — forward to downstream modules
+            t_cr = time.perf_counter()
+            T, eta, alpha = self.criticality_regulator.regulate(phi_current)
+            self.mdim.temperature = T
+            self.tspl.configs[StreamID.P_STREAM].eta = eta
+            self.attention.gumbel_temperature = alpha * 0.5
+            metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
+
+            t_attn = time.perf_counter()
+            self.attention.select(self.m2.chunks, self.current_goal)
+            metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
+
+            t_hpm = time.perf_counter()
             _ = self.hpm_validator.validate({"cycle": self.cycle_count})
+            metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
             # Step 14: RBTA enforcement
             t6 = time.perf_counter()
-            self._collect_runtime_log()
+            self._collect_runtime_log(metrics)
+            # Build composition tree reflecting the 21-step cycle's structure
+            composition_tree = {
+                "type": "SEQUENCE", "id": "cognitive_cycle",
+                "children": [
+                    "ASI",       # Step 0: sanitization
+                    "WM",        # Step 1: memory write
+                    "PE",        # Steps 2-4: prediction
+                    "PEU",       # Steps 5-6: error computation
+                    "TSPL-P",    # Step 7: P-Stream update
+                    {
+                        "type": "PARALLEL", "id": "regulation_block",
+                        "children": ["MDIM", "CR", "ATTN", "HPM"],
+                        "bounds": {"B_time": 0.200},
+                    },
+                    "CYCLE",     # Step 19: increment + logging
+                ],
+                "bounds": {"B_time": 0.500},  # 500ms target
+            }
             violations, enforcer_action = self.rbta.check_cycle(
                 runtime_log=self.runtime_log,
                 memory_log=self.memory_log,
@@ -238,6 +282,7 @@ class CognitiveCycle:
                 belief_entropies=self.belief_entropies,
                 sensor_failure_count=self.sensor_failure_count,
                 asi_failure_limit=self.asi_failure_limit,
+                composition_tree=composition_tree,
             )
             metrics.rbta_action = enforcer_action.name
             metrics.violations_count = len(violations)
@@ -280,18 +325,95 @@ class CognitiveCycle:
             except Exception:
                 continue
 
-        # Restore engine action to current cycle selection
-        # (step() will overwrite this with the newly selected action)
         return best_action
 
-    def _collect_runtime_log(self) -> None:
-        """Collect module runtime/memory/energy logs for RBTA."""
-        self.runtime_log = {
-            "ASI": 0.002, "WM": 0.005, "G'": 0.020, "PE": 0.025,
-            "PEU": 0.001, "TSPL-P": 0.020, "TSPL-E": 0.001, "TSPL-S": 0.001,
-            "MDIM": 0.001, "CR": 0.001, "ATTN": 0.001, "HPM": 0.001,
-            "CYCLE": 0.100,
+    def _approximate_phi(self) -> float:
+        """Approximate Φ (integrated information) from module state vectors.
+
+        Uses a practical heuristic: 1 / (1 + mean absolute pairwise correlation
+        between module state vectors). When modules are independent (correlation → 0),
+        Φ → 1 (critical/chaotic). When modules are perfectly correlated,
+        Φ → 0.5 (ordered).
+
+        Phase 3.2: Practical approximation using available module states.
+        Phase 3.3+: Full IIT Φ computation over bipartitions.
+
+        Returns:
+            Float in (0.0, 1.0] approximating integrated information.
+        """
+        states: Dict[str, np.ndarray] = {}
+        if self.current_state is not None:
+            states["WM"] = self.current_state.values
+        if self.last_prediction is not None:
+            states["PE"] = self.last_prediction.values
+
+        if len(states) < 2:
+            return 0.5  # default when insufficient data
+
+        # Compute correlation on matched dimensions (use min dim across states)
+        arrays_list = list(states.values())
+        min_dim = min(arr.shape[0] for arr in arrays_list)
+        stacked = np.column_stack([arr[:min_dim] for arr in arrays_list])
+
+        # Each column is a module, each row is a dimension
+        # Transpose: each row is a module, each column is a dimension
+        mod_vectors = stacked.T  # shape: (n_modules, n_dims)
+
+        if mod_vectors.shape[0] < 2 or mod_vectors.shape[1] < 2:
+            return 0.5
+
+        # Compute pairwise correlation between module vectors
+        try:
+            corr = np.corrcoef(mod_vectors)
+            # Exclude diagonal (self-correlation)
+            mask = ~np.eye(corr.shape[0], dtype=bool)
+            mean_corr = float(np.mean(np.abs(corr[mask])))
+        except Exception:
+            return 0.5
+
+        if np.isnan(mean_corr):
+            return 0.5
+
+        # Φ ≈ 1 / (1 + mean|correlation|) — ranges (0.5, 1.0]
+        phi = 1.0 / (1.0 + mean_corr)
+        return float(np.clip(phi, 0.01, 0.99))
+
+    def _collect_runtime_log(self, metrics: Optional[CycleMetrics] = None) -> None:
+        """Collect module runtime/memory/energy logs for RBTA from actual measurements.
+
+        Uses time.perf_counter() timings from metrics.module_timings.
+        Memory/energy/entropy are still estimated (need instrumentation in Phase 3.3+).
+
+        Args:
+            metrics: Current cycle's metrics (with module_timings populated).
+                If None (e.g., during testing), uses hardcoded fallback.
+        """
+        # Map metric keys → RBTA module IDs
+        timing_map = {
+            "sanitize": "ASI",
+            "memory_write": "WM",
+            "prediction": "PE",
+            "peu": "PEU",
+            "tspl": "TSPL-P",
+            "action_selection": "WM",
+            "mdim": "MDIM",
+            "cr": "CR",
+            "attn": "ATTN",
+            "hpm": "HPM",
+            "rbta": "CYCLE",
         }
+        if metrics is not None:
+            self.runtime_log = {
+                module_id: (metrics.module_timings.get(metric, 0.0) / 1000.0)
+                for metric, module_id in timing_map.items()
+            }
+        else:
+            # Fallback for tests that call _collect_runtime_log() without metrics
+            self.runtime_log = {
+                module_id: 0.001 for module_id in set(timing_map.values())
+            }
+            self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
+        # Memory/energy/entropy still use synthetic estimates (real instrumentation deferred)
         self.memory_log = {
             "ASI": 10_000, "WM": 25_000, "G'": 100_000,
             "PE": 10_000, "PEU": 1_000, "TSPL-P": 50_000,
@@ -310,8 +432,21 @@ class CognitiveCycle:
         size: int = 5,
         seed: int = 42,
         state_dim: Optional[int] = None,
+        use_continuous: bool = False,
     ) -> CognitiveCycle:
-        """Build a fully-configured cognitive cycle for GridWorld."""
+        """Build a fully-configured cognitive cycle for GridWorld.
+
+        Args:
+            size: GridWorld size (5, 10, or 20).
+            seed: Random seed.
+            state_dim: Override state dimensionality (default: auto from env).
+            use_continuous: If True, use Gaussian CPDs with analytic inference
+                (Phase 3.2). If False (default), use discrete binary CPDs with
+                pgmpy exact inference (Phase 3.1 compatible).
+
+        Returns:
+            Configured CognitiveCycle instance.
+        """
         env = GridWorld(size=size, obstacles=[], seed=seed)
         actual_state_dim = state_dim or env.get_state_dim()
 
@@ -319,22 +454,36 @@ class CognitiveCycle:
         m1 = M1SensoryBuffer(sensor_dim=actual_state_dim)
         m2 = M2WorkingMemory(capacity=7)
 
-        gprime = WorldModelGPrime(state_dim=actual_state_dim, action_dim=env.action_space_size, seed=seed)
+        if use_continuous:
+            # Phase 3.2: Continuous Gaussian G' with analytic inference
+            gprime = WorldModelGPrime.build_gaussian_grid(
+                state_dim=actual_state_dim,
+                action_dim=env.action_space_size,
+                transition_std=0.5,
+                seed=seed,
+            )
+        else:
+            # Phase 3.1: Discrete binary G' with pgmpy exact inference
+            gprime = WorldModelGPrime(
+                state_dim=actual_state_dim,
+                action_dim=env.action_space_size,
+                seed=seed,
+            )
 
-        for i in range(min(actual_state_dim, 10)):
-            name_t = f"s{i}_t"
-            name_t1 = f"s{i}_t1"
-            gprime.add_node(StateNode(
-                name=name_t, cpd_type="discrete", parents=[],
-                cardinality=2,
-                params=np.array([[0.5], [0.5]], dtype=np.float32),
-            ))
-            gprime.add_node(StateNode(
-                name=name_t1, cpd_type="discrete", parents=[name_t],
-                cardinality=2,
-                params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
-            ))
-            gprime.add_temporal_edge(TemporalEdge(source=name_t, target=name_t1, lag=1))
+            for i in range(min(actual_state_dim, 10)):
+                name_t = f"s{i}_t"
+                name_t1 = f"s{i}_t1"
+                gprime.add_node(StateNode(
+                    name=name_t, cpd_type="discrete", parents=[],
+                    cardinality=2,
+                    params=np.array([[0.5], [0.5]], dtype=np.float32),
+                ))
+                gprime.add_node(StateNode(
+                    name=name_t1, cpd_type="discrete", parents=[name_t],
+                    cardinality=2,
+                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
+                ))
+                gprime.add_temporal_edge(TemporalEdge(source=name_t, target=name_t1, lag=1))
 
         engine = PredictionEngine(gprime)
         peu = PredictionErrorUnit()

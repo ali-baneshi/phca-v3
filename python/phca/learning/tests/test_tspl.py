@@ -111,25 +111,79 @@ class TestTSPLUpdate:
         assert "gprime_cpd_transition" in theta_new
         assert theta_new["gprime_cpd_transition"].shape == (4, 4)
 
-    def test_e_stream_stub(self, tspl, sample_state, sample_prediction):
-        """E-Stream stub should return theta unchanged."""
+    def test_e_stream_updates_theta(self, tspl, sample_state, sample_prediction):
+        """E-Stream update should modify theta (Phase 3.2: GEM active)."""
         original = {k: v.copy() for k, v in tspl.theta.items()}
         theta_new, compiled = tspl.update(
             StreamID.E_STREAM, 0.01, sample_state, sample_prediction,
         )
+        # Theta should be updated (no longer a stub)
         for key in original:
-            np.testing.assert_array_equal(original[key], theta_new[key])
-        assert not compiled
+            assert not np.allclose(original[key], theta_new[key]), \
+                f"{key} should change after E-Stream update"
 
-    def test_s_stream_stub(self, tspl, sample_state, sample_prediction):
-        """S-Stream stub should return theta unchanged."""
+    def test_e_stream_stores_references(self, tspl, sample_state, sample_prediction):
+        """E-Stream updates should accumulate GEM reference gradients."""
+        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
+        assert tspl._gem_tasks_seen == 1
+        assert len(tspl._gem_reference_grads) == 1
+
+        tspl.update(StreamID.E_STREAM, 0.02, sample_state, sample_prediction)
+        assert tspl._gem_tasks_seen == 2
+        assert len(tspl._gem_reference_grads) == 2
+
+    def test_e_stream_gem_projection(self, tspl, sample_state, sample_prediction):
+        """GEM projection should not crash and return valid gradient."""
+        # First update: establish reference
+        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
+        assert len(tspl._gem_reference_grads) == 1
+
+        # Second update: should project against existing reference
+        theta_new, compiled = tspl.update(
+            StreamID.E_STREAM, 0.5, sample_state, sample_prediction,
+        )
+        assert isinstance(theta_new, dict)
+        assert "gprime_cpd_transition" in theta_new
+
+    def test_s_stream_updates_theta(self, tspl, sample_state, sample_prediction):
+        """S-Stream update should modify theta (Phase 3.2: EWC active)."""
         original = {k: v.copy() for k, v in tspl.theta.items()}
         theta_new, compiled = tspl.update(
             StreamID.S_STREAM, 0.01, sample_state, sample_prediction,
         )
+        # Theta should be updated (no longer a stub)
         for key in original:
-            np.testing.assert_array_equal(original[key], theta_new[key])
-        assert not compiled
+            assert not np.allclose(original[key], theta_new[key]), \
+                f"{key} should change after S-Stream update"
+
+    def test_s_stream_ewc_fisher_update(self, tspl, sample_state, sample_prediction):
+        """S-Stream should update Fisher information matrix."""
+        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
+        assert len(tspl._ewc_fisher) > 0
+        assert "gprime_cpd_transition" in tspl._ewc_fisher
+
+    def test_s_stream_ewc_fisher_accumulates(self, tspl, sample_state, sample_prediction):
+        """Fisher information should accumulate over multiple updates."""
+        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
+        f1 = tspl._ewc_fisher["gprime_cpd_transition"].copy()
+
+        tspl.update(StreamID.S_STREAM, 0.05, sample_state, sample_prediction)
+        f2 = tspl._ewc_fisher["gprime_cpd_transition"]
+        # Fisher should be updated (running average)
+        assert not np.allclose(f1, f2)
+
+    def test_reset_clears_gem_and_ewc(self, tspl, sample_state, sample_prediction):
+        """Reset clears GEM and EWC state."""
+        tspl.update(StreamID.E_STREAM, 0.01, sample_state, sample_prediction)
+        tspl.update(StreamID.S_STREAM, 0.01, sample_state, sample_prediction)
+        assert tspl._gem_tasks_seen > 0
+        assert len(tspl._ewc_fisher) > 0
+
+        tspl.reset()
+        assert tspl._gem_tasks_seen == 0
+        assert len(tspl._gem_reference_grads) == 0
+        assert len(tspl._ewc_fisher) == 0
+        assert len(tspl._ewc_theta_star) == 0
 
     def test_update_with_no_theta_returns_empty(self, sample_state, sample_prediction):
         """Update with no initialized parameters should return empty."""
