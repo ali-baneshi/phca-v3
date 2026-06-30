@@ -10,6 +10,7 @@ Applied automatically by M3EpisodicMemory.__init__().
 from __future__ import annotations
 
 import sqlite3
+import time
 from typing import Any
 
 M3_SCHEMA_V1 = """
@@ -55,6 +56,6 @@ def apply_v1(connection: sqlite3.Connection) -> None:
     connection.executescript(M3_SCHEMA_V1)
     connection.execute(
         "INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (1, ?)",
-        (int(__import__("time").time()),),
+        (int(time.time()),),
     )
     connection.commit()

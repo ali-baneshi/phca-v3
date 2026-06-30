@@ -2,15 +2,19 @@
 PHCA v3.0 — Consolidation Scheduler (Sleep-Cycle Analogue).
 
 Phase 3.2: Periodic E→S transfer consolidating unprocessed M3 episodes
-into the S-Stream (semantic memory) via MVCC snapshot isolation.
+into the S-Stream (statistical memory) via MVCC snapshot isolation.
 
 Cycle steps 16-18 (blueprint xa77.B):
   Step 16: Create M3 snapshot for consolidation
-  Step 17: Process snapshot → extract semantic facts
+  Step 17: Process snapshot → extract statistical facts
   Step 18: Write facts to S-Stream (atomic transaction)
 
 Step 20 (sleep cycle):
   Periodic full consolidation cycle every N cognitive cycles.
+
+Note: "Statistical" not "Semantic" — facts are extracted via frequency-based
+pattern matching (cosine similarity × confidence), not genuine semantic
+understanding. See G-007 in the Phase 4 gap report for details.
 
 v3.0 Reference: v3.0 Patch §2.3, §3.1 Table, Theorem 3.3
 """
@@ -42,7 +46,7 @@ class ConsolidationReport:
     Attributes:
         cycles_since_last: Cognitive cycles since last consolidation.
         episodes_processed: Number of episodes consolidated this cycle.
-        facts_generated: Number of semantic facts extracted.
+        facts_generated: Number of statistical facts extracted.
         snapshot_version: MVCC version of the snapshot used.
         duration_ms: Wall-clock time for consolidation.
         success: Whether consolidation completed without errors.
@@ -57,12 +61,17 @@ class ConsolidationReport:
 
 @dataclass
 class SemanticFact:
-    """A single semantic fact extracted from an episode during consolidation.
+    """A single statistical fact extracted from episodes during consolidation.
+
+    Note: "Statistical" not "Semantic" — facts are extracted via
+    frequency-based pattern matching (cosine similarity × confidence),
+    not genuine semantic understanding. See G-007 in the Phase 4 gap
+    report for architectural context.
 
     Attributes:
         fact_id: Unique identifier for this fact.
         source_episode_id: Episode this fact was extracted from.
-        fact_type: Type of semantic knowledge (transition, reward, etc.).
+        fact_type: Type of statistical knowledge (transition, novelty, well_known).
         state_pattern: Prototypical state vector for this fact.
         confidence: How well-supported this fact is (0.0-1.0).
         frequency: How many episodes support this fact.
@@ -80,13 +89,17 @@ class ConsolidationScheduler:
 
     Phase 3.2:
         - Every N cognitive cycles, create an MVCC snapshot of M3
-        - Process unconsolidated episodes into semantic facts
+        - Process unconsolidated episodes into statistical facts
         - Update S-Stream (via TSPL S-Stream parameters)
         - Log consolidation progress
 
     Phase 3.3+:
         - Distributed consolidation across sleep cycles
         - Hierarchical fact extraction (episode → event → narrative)
+
+    Note: Produces "statistical" facts (frequency-based pattern matching),
+    not "semantic" facts. The term "semantic" is aspirational and reserved
+    for Phase 4 when a proper embedding layer is added.
     """
 
     def __init__(
@@ -103,7 +116,7 @@ class ConsolidationScheduler:
             m3: Reference to M3 episodic memory.
             state_dim: Dimensionality of state vectors.
             consolidation_interval: Cognitive cycles between consolidations.
-            max_facts_per_cycle: Max semantic facts to generate per cycle.
+            max_facts_per_cycle: Max statistical facts to generate per cycle.
             similarity_threshold: Cosine similarity threshold for fact merging.
         """
         self.m3 = m3
@@ -220,12 +233,15 @@ class ConsolidationScheduler:
     def _extract_facts(
         self, episodes: List[EpisodeRecord],
     ) -> List[SemanticFact]:
-        """Extract semantic facts from a batch of episodes.
+        """Extract statistical facts from a batch of episodes.
 
         Groups similar episodes by state similarity and extracts:
         - Transition facts: (state_before, action) → state_after patterns
         - Reward facts: high-prediction-error episodes (outliers)
         - Frequency facts: frequently-visited state regions
+
+        Note: These are "statistical" facts — frequency-based pattern matching
+        via cosine similarity, not genuine semantic understanding.
 
         Args:
             episodes: Batch of episodes to process.
@@ -345,7 +361,7 @@ class ConsolidationScheduler:
         """Return top-N facts most relevant to the given state.
 
         Uses cosine similarity between fact state_patterns and the
-        given state to find the most relevant semantic facts.
+        given state to find the most relevant statistical facts.
         Facts are sorted by relevance (cosine sim * confidence).
 
         Args:
@@ -381,7 +397,11 @@ class ConsolidationScheduler:
         min_confidence: float = 0.0,
         max_results: int = 100,
     ) -> List[SemanticFact]:
-        """Retrieve stored semantic facts with optional filters.
+        """Retrieve stored statistical facts with optional filters.
+
+        Note: "Statistical" not "Semantic" — facts are extracted via
+        frequency-based pattern matching, not genuine understanding.
+        The method name is preserved for backward compatibility.
 
         Reads from committed store without lock (readers not blocked by
         concurrent writes — v3.0 §2.3.2 M4 write-lock semantics).

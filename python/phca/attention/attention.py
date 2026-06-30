@@ -80,9 +80,11 @@ class Attention:
         """Select k chunks from working memory via k-WTA.
 
         Computes composite salience for each chunk:
-            S = (α·S_bu + β·S_td) · precision + Gumbel(0, temperature)
+            S = (α(goal)·S_bu + β(goal)·S_td) · precision + Gumbel(0, temperature)
 
-        Then selects the top-k chunks.
+        α and β are drive-dependent blends where higher-priority goals get
+        stronger top-down biasing. The similarity metric is precision-weighted
+        so dimensions with higher goal specificity dominate.
 
         Args:
             wm_chunks: List of chunks from working memory.
@@ -100,6 +102,39 @@ class Attention:
         k = k or self.default_k
         k = min(k, len(wm_chunks))
 
+        # ── Drive-dependent attention blend ──
+        # When a goal with a target_state is present, the bottom-up/top-down
+        # blend is modulated by drive type and goal priority:
+        #   D1/D3 (error/competence): focus on prediction errors (bottom-up)
+        #   D2/D4 (exploration): follow exploration goals (top-down)
+        #   D5 (energy): seek minimal action states (top-down)
+        #   D6 (empowerment): balanced
+        # When no goal is present, instance-configured alpha_bu/beta_td are used.
+        effective_alpha = self.alpha_bu
+        effective_beta = self.beta_td
+        if goal is not None and goal.target_state is not None:
+            drive_id = getattr(goal, "drive_id", 1)
+            if drive_id in (1, 3):
+                effective_alpha = 0.7
+                effective_beta = 0.3
+            elif drive_id in (2, 4):
+                effective_alpha = 0.3
+                effective_beta = 0.7
+            elif drive_id == 5:
+                effective_alpha = 0.2
+                effective_beta = 0.8
+            else:  # D6 and default
+                effective_alpha = 0.5
+                effective_beta = 0.5
+
+            # Scale top-down by goal priority: high-priority goals get stronger biasing
+            goal_priority = getattr(goal, "priority", 0.5)
+            effective_beta *= max(0.2, min(2.0, goal_priority * 2.0))
+            # Re-normalize so alpha + beta = 1.0
+            total = effective_alpha + effective_beta
+            effective_alpha /= total
+            effective_beta /= total
+
         saliences: List[float] = []
         for chunk in wm_chunks:
             # Bottom-up salience: unexpectedness
@@ -109,20 +144,21 @@ class Attention:
             else:
                 s_bu = chunk.salience  # use chunk's existing salience as proxy
 
-            # Top-down relevance: similarity to goal
+            # Top-down relevance: precision-weighted similarity to goal
             if goal is not None and goal.target_state is not None:
-                sim = self._cosine_similarity(
-                    chunk.state.values, goal.target_state.values
+                sim = self._precision_weighted_similarity(
+                    chunk.state.values, goal.target_state.values,
+                    goal.target_state.precision,
                 )
                 s_td = sim
             else:
                 s_td = 0.5  # neutral when no goal
 
-            # Precision weight
+            # Precision weight (learned per-chunk precision from prediction error)
             precision = self._precisions.get(chunk.chunk_id, 1.0)
 
-            # Composite salience
-            raw_salience = (self.alpha_bu * s_bu + self.beta_td * s_td) * precision
+            # Composite salience with drive-dependent blend
+            raw_salience = (effective_alpha * s_bu + effective_beta * s_td) * precision
             saliences.append(float(raw_salience))
 
         # Add Gumbel noise for stochastic exploration
@@ -176,18 +212,41 @@ class Attention:
         return new_p
 
     @staticmethod
-    def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-        """Compute cosine similarity between two vectors.
+    def _precision_weighted_similarity(
+        a: np.ndarray, b: np.ndarray,
+        precision: Optional[np.ndarray] = None,
+    ) -> float:
+        """Compute precision-weighted cosine similarity between two vectors.
+
+        Dimensions with higher precision (specified goal targets) are weighted
+        more heavily. If no precision is provided, falls back to standard
+        cosine similarity.
 
         Args:
-            a: First vector.
-            b: Second vector.
+            a: First vector (chunk state).
+            b: Second vector (goal target_state).
+            precision: Per-dimension precision weights from goal.target_state
+                (higher = more important dimension for the goal).
 
         Returns:
-            Cosine similarity in [-1, 1].
+            Similarity score in [0.0, 1.0] (1.0 = exact match).
         """
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-        if norm_a < 1e-8 or norm_b < 1e-8:
-            return 0.0
-        return float(np.dot(a, b) / (norm_a * norm_b))
+        # Use minimum dimension to avoid shape mismatch
+        min_dim = min(a.shape[0], b.shape[0])
+        a = a[:min_dim].astype(np.float64)
+        b = b[:min_dim].astype(np.float64)
+
+        if precision is not None:
+            w = precision[:min_dim].astype(np.float64)
+        else:
+            w = np.ones(min_dim, dtype=np.float64)
+
+        # Weighted cosine similarity
+        a_norm = np.linalg.norm(a * w)
+        b_norm = np.linalg.norm(b * w)
+        if a_norm < 1e-8 or b_norm < 1e-8:
+            return 0.5
+
+        cos_sim = float(np.dot(a * w, b * w) / (a_norm * b_norm))
+        # Map [-1, 1] → [0, 1]
+        return float(np.clip((cos_sim + 1.0) / 2.0, 0.0, 1.0))

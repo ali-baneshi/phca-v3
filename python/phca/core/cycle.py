@@ -362,7 +362,10 @@ class CognitiveCycle:
             metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
 
             t_attn = time.perf_counter()
-            attention_chunks = self.attention.select(self.m2.chunks, self.current_goal)
+            attention_chunks = self.attention.select(
+                self.m2.chunks, self.current_goal,
+                prediction=self.last_prediction,
+            )
             for chunk in attention_chunks:
                 self.attention.update_precision(
                     chunk.chunk_id, metrics.prediction_error,

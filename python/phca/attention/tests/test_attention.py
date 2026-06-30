@@ -269,23 +269,34 @@ class TestGumbelNoise:
 
 
 class TestCosineSimilarity:
-    """Cosine similarity helper."""
+    """Precision-weighted similarity helper."""
 
     def test_identical_vectors(self, attn):
         """Identical vectors → similarity = 1.0."""
         a = np.array([1.0, 2.0, 3.0])
-        sim = attn._cosine_similarity(a, a)
-        assert sim == pytest.approx(1.0)
+        sim = attn._precision_weighted_similarity(a, a)
+        assert sim == pytest.approx(1.0, abs=1e-6)
 
     def test_orthogonal_vectors(self, attn):
-        """Orthogonal vectors → similarity = 0.0."""
+        """Orthogonal vectors → similarity = 0.5 (neutral)."""
         a = np.array([1.0, 0.0, 0.0])
         b = np.array([0.0, 1.0, 0.0])
-        sim = attn._cosine_similarity(a, b)
-        assert sim == pytest.approx(0.0, abs=1e-6)
+        sim = attn._precision_weighted_similarity(a, b)
+        assert sim == pytest.approx(0.5, abs=1e-6)
 
     def test_opposite_vectors(self, attn):
-        """Opposite vectors → similarity = -1.0."""
+        """Opposite vectors → similarity = 0.0."""
         a = np.array([1.0, 2.0])
-        sim = attn._cosine_similarity(a, -a)
-        assert sim == pytest.approx(-1.0)
+        sim = attn._precision_weighted_similarity(a, -a)
+        assert sim == pytest.approx(0.0, abs=1e-6)
+
+    def test_precision_weighted(self, attn):
+        """Precision weighting emphasizes important dimensions."""
+        # a and b share dimension 0 (both 1.0) but differ on dimension 1
+        a = np.array([1.0, 0.0], dtype=np.float32)
+        b = np.array([1.0, 1.0], dtype=np.float32)
+        # With uniform precision, dim 1 difference reduces similarity
+        uniform = attn._precision_weighted_similarity(a, b, precision=np.ones(2))
+        # With precision favoring shared dimension 0, similarity increases
+        weighted = attn._precision_weighted_similarity(a, b, precision=np.array([5.0, 1.0]))
+        assert weighted > uniform

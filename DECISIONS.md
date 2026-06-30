@@ -480,6 +480,16 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** The Pareto front computation (60+ lines) existed as a zombie function — called in a commented-out line, with output discarded. The meta-stable state was suppressing ALL D1/D3/D5 drives, ignoring the Pareto front's purpose of identifying optimal trade-offs between conflicting objectives. Drives on the Pareto front represent configurations where no single drive can be improved without worsening another — these should NOT be suppressed, as they represent the system's best compromise. Non-Pareto drives (dominated by others) are still suppressed, as their suppression frees the system to focus on drives that are at their optimal frontier.
 - **v3.0 trace:** §2.4.1 Def 3.10 (Drive Pareto Front), §3.3 Def 3.6, Phase 4 gap report findings G-006/G-012
 
+## Decision D-049: Goal-driven attention biasing with drive-dependent blend (Phase 4 gap audit — G-005)
+
+- **Date:** 2026-06-30
+- **Author:** Chief Architect
+- **Category:** Tier 2 (over-simplification corrected)
+- **Option chosen:** Updated `Attention.select()` to compute drive-dependent alpha/beta blends when a goal with target_state is present. D1/D3 get bottom-up heavy (0.7/0.3), D2/D4 get top-down heavy (0.3/0.7), D5 gets top-down heavy (0.2/0.8), D6 balanced (0.5/0.5). Beta is further scaled by goal priority (0.2-2.0x), then re-normalized. Replaced `_cosine_similarity()` with `_precision_weighted_similarity()` that weights dimensions by goal.target_state.precision. Updated cycle.py to pass `self.last_prediction` to `attention.select()` for accurate bottom-up unexpectedness.
+- **Alternatives:** Fixed beta_td=0.4 constant; separate attention module per drive
+- **Rationale:** The original attention module had a fixed beta_td=0.4 that provided weak, static top-down biasing regardless of goal type or priority. This meant all drives influenced attention identically — a D1 (error-minimization) goal had the same top-down influence as a D5 (energy-optimization) goal. The drive-dependent blend makes attention responsive to the current motivational state. Precision-weighted similarity ensures that goal dimensions with specific targets (high precision) dominate the similarity computation over dimensions where the goal is agnostic (low precision). Passing prediction enables proper bottom-up salience (unexpectedness = |chunk - prediction|) instead of falling back to stale chunk salience.
+- **v3.0 trace:** §3.2 Def 3.4 (Attention), §3.3 Def 3.5 (MDIM drives), Phase 4 gap report finding G-005
+
 ---
 
-*End of Decision Log (as of Phase 4 gap audit, Week 1-2 critical + G-006/G-012 Pareto wiring).*
+*End of Decision Log (as of Phase 4 gap audit, Week 1-2 critical + G-005/G-006/G-012 fixes).*
