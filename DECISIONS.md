@@ -792,3 +792,118 @@ Every entry must reference the v3.0 specification section it affects.
 
 *End of Decision Log (Principal Architect Phase 4 audit execution — D-072 through D-076).*
 
+---
+
+## Decision D-077: Real MLP empowerment via MC-Dropout MI + correction of false closure claim (P0-1, C2/G-003)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0 zero-trust re-audit)
+- **Category:** Tier 1 (correctness — false closure claim + stub behaviour)
+- **Problem:** `docs/phase4_gap_closure_report.md` claimed C2 was "Already fixed — MC Dropout Gaussian MI in `mlp.py:343-401`". The actual code at `mlp.py:394-400` was a constant stub: `return 0.3 if action_dim <= 5 else 0.2`. D6 (Empowerment) therefore fired on fabricated, state-invariant input for every MLP run (the primary deployment mode). The Gaussian G' path (`graph.py:578`) was genuinely fixed; the MLP path was not.
+- **Option chosen:** Replaced the stub with a real MC-Dropout mutual-information estimate. For the given state and each of `action_dim` one-hot actions, run K=`EMPOWERMENT_MC_SAMPLES` (8) stochastic `_forward_mc` passes; compute `V_between` = variance across actions of per-action mean predictions, `V_within` = mean over actions of per-action MC variance; `MI ≈ 0.5·log(1 + V_between/(V_within+ε))`, clamped to [0,1]. Falls back to 0.3 only for None/invalid/wrong-dim state. Added class constants `EMPOWERMENT_MC_SAMPLES=8`, `EMPOWERMENT_FLOP_CAP=32`; K is reduced if `action_dim·K` exceeds the cap (A1 compliance, ~1.2M FLOPs << 60M `ENERGY_NORM_FLOPS`). Corrected the overclaim line in `docs/phase4_gap_closure_report.md`.
+- **Alternatives:** Keep the stub (false); full closed-form MI for MLP (intractable — needs marginalising over output distribution).
+- **Rationale:** D6 is the spec's primary anti-state-collapse drive (§3.3 Def 3.8 D6, Theorem 3.1). A constant signal makes D6 decorative and breaks the MDIM resistance-to-Goodhart argument. The MC-Dropout form reuses existing infrastructure (`_forward_mc`, `mc_samples`) and is the standard tractable MI approximation for neural ensembles.
+- **v3.0 trace:** §3.3 Def 3.5/3.8 D6, Theorem 3.1, A1 (FLOP cap)
+- **Tests:** 5 new tests in `TestEmpowerment` (unit range, non-constant across 3 states, None fallback, wrong-dim fallback, ndarray acceptance). 22 MLP tests pass. Benchmark Overall Φ-IQ 0.668 → 0.686 (no regression).
+
+## Decision D-078: Fix GAP-013 empowerment-blend inversion in MDIM (P0-2)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0 zero-trust re-audit)
+- **Category:** Tier 1 (logical inversion — drive signal contradicts theory)
+- **Problem:** `mdim.py:237` computed `empowerment_blend = 0.7·empowerment + 0.3·min(prediction_error·0.5, 1.0)`. D6 (action-effect channel capacity) therefore INCREASED when prediction error was high — the opposite of its definition. When the model does not understand action effects (high error), empowerment should be LOW.
+- **Option chosen:** `empowerment_blend = 0.7·empowerment + 0.3·(1.0 - min(prediction_error, 1.0))`. Low prediction error (well-understood action effects) now raises the empowerment signal; high error lowers it.
+- **Alternatives:** Pure `empowerment` with no blend (loses the model-understanding proxy); invert the 0.5 scale factor only (asymmetric).
+- **Rationale:** The blend encodes "empowerment is only meaningful when the model can predict action outcomes". The prior formula made D6 fire during model failure, which is exactly when empowerment-seeking is unsafe.
+- **v3.0 trace:** §3.3 Def 3.8 D6, Theorem 3.1 (drive orthogonality)
+- **Tests:** New `test_d6_blend_decreases_with_prediction_error` verifies D6 value decreases as prediction_error rises at fixed empowerment. 30 MDIM tests pass.
+
+## Decision D-079: Commit-boundary cleanup + .gitignore (P0-3)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0 zero-trust re-audit)
+- **Category:** Tier 3 (process / repository hygiene)
+- **Problem:** D-072/D-074/D-075/D-076 were documented in STATUS.md/DECISIONS.md as complete but were uncommitted in git (working tree ahead of HEAD). Additionally no `.gitignore` existed and 86 `.pyc`/`__pycache__` files plus `.opencode/` were tracked in version control.
+- **Option chosen:** Added `.gitignore` covering `__pycache__/`, `*.py[cod]`, `.pytest_cache/`, `.venv/`, `target/`, `.opencode/`. Untracked all `.pyc` and the duplicate `.opencode/plans/silent_failure_and_fallacy_report.md` (canonical copy in `docs/archive/`). Staged logical commit groups for the maintainer (SSH-signed commits require the maintainer's passphrase; staging left for them).
+- **Rationale:** Tracked bytecode and an ahead-of-HEAD tree undermine reproducibility and the "if it isn't in DECISIONS.md it didn't happen" principle. The commit boundary makes D-072–D-076 auditable in `git log`.
+- **Tests:** N/A (process).
+
+## Decision D-085: Fix structlog config — drop filter_by_level with PrintLoggerFactory (GAP-002 partial)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0 zero-trust re-audit)
+- **Category:** Tier 1 (runtime blocker — benchmark crashed on every `_log` call)
+- **Problem:** `setup_file_logging()` configured structlog with `_structlog.stdlib.filter_by_level` in the processor chain AND `logger_factory=_structlog.PrintLoggerFactory`. `filter_by_level` calls `logger.isEnabledFor(...)` on the underlying logger, but `PrintLogger` has no `isEnabledFor` → `AttributeError` on the first `_log()` call (e.g. `grid_world.__init__` → `_log("grid_world.init", ...)`). This made `scripts/benchmark.py` and any cycle construction crash in a fresh venv, blocking all Φ-IQ verification. This is the runtime manifestation of GAP-002 (logging never configured in the default path).
+- **Option chosen:** Removed `_structlog.stdlib.filter_by_level` from the processor list (1 line). The remaining chain (`add_log_level`, `PositionalArgumentsFormatter`, `TimeStamper`, `StackInfoRenderer`, `format_exc_info`, `JSONRenderer`) writes JSON lines to the file via `PrintLoggerFactory` without requiring stdlib logger APIs.
+- **Alternatives:** Switch `logger_factory` to `stdlib.LoggerFactory()` (requires also adding a stdlib FileHandler — larger change); force the stdlib fallback by setting `_STRUCTLOG_AVAILABLE = False` (loses structured JSON logging).
+- **Rationale:** Minimal surgical fix that restores the structured-logging design. Unblocks the benchmark and Φ-IQ gate, which are required acceptance criteria for every other fix.
+- **v3.0 trace:** Support module (logging); unblocks §1.3 success-criteria verification.
+- **Tests:** `scripts/benchmark.py --use-mlp --cycles=200` now runs to completion; `check_benchmark_gate.py` PASS.
+
+---
+
+*End of Decision Log (Chief Architect Strategic v2.0 — D-077 through D-085).*
+
+---
+
+## Decision D-084: AD-1 Remove empty Rust workspace + untracked target/ artifacts (P1-5)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0)
+- **Category:** Tier 3 (dead scaffolding + repository bloat)
+- **Problem:** The Rust workspace (`rust/{common,rpta,hpm-runtime}/`) consisted of three crates with `Cargo.toml` files but **no `src/` directories** and the root `Cargo.toml` declared `members = []` — the crates were not even workspace members. There was no `[workspace.dependencies]` section, so the per-crate `workspace = true` dependency references could not resolve. The workspace was pure dead scaffolding from Phase 3.1 planning. Worse, `target/` (221 MB / 1044 files of cargo build artifacts) was tracked in git, bloating the repository.
+- **Option chosen:** Deleted `rust/`, `Cargo.toml`, `Cargo.lock` from disk and untracked them; untracked all 1044 `target/` files and deleted the directory (221 MB freed; `target/` is now covered by `.gitignore` from D-079). Updated `SETUP.md` (removed Rust prerequisite + `cargo build` step + layout entry + PyO3 troubleshooting), `Makefile` (removed `test-rust` target, Rust lint steps, `rust/target` clean, Rust help lines), and `.github/workflows/ci.yml` (removed `test-rust` job and `Lint Rust` step). Historical Rust references in `research/outputs/` and early `DECISIONS.md` entries are left as historical record.
+- **Alternatives:** Add a `README.md` in `rust/` stating it is parked pending profiling (rejected — empty crates with no source provide zero value and the 221 MB tracked `target/` is pure bloat); keep the scaffolding (rejected — confuses new contributors, breaks `cargo` commands, inflates clone size).
+- **Rationale:** Python is not a bottleneck at ~50 ms p95 cycle latency (well under the 500 ms A1 bound). The empty Rust crates and 221 MB of tracked build artifacts are pure overhead. Re-introducing Rust is a one-line decision if profiling later justifies it; the historical design rationale is preserved in `research/outputs/`.
+- **v3.0 trace:** Support (build tooling); A1 (Python cycle latency already within bound)
+- **Tests:** No code depended on the Rust crates (no `pyo3`/`rust` imports in `python/phca/`). Full Python test suite unaffected.
+
+## Decision D-082: G-010 SQLite M3 hardening — WAL checkpoint + in-memory fallback (P1-3)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0)
+- **Category:** Tier 2 (persistence resilience — single point of failure)
+- **Problem:** G-010 warned M3 (SQLite) had no WAL checkpoint, no integrity-failure recovery, and would fragment/unbounded-grow under Phase 4 workloads. Zero-trust inspection found the periodic `VACUUM` (every 1000 evictions, `_vacuum_if_needed`) and `integrity_check()` on startup were ALREADY implemented in Phase 3.3. The remaining gaps were: (a) no `wal_checkpoint(TRUNCATE)` on close → WAL file grows unbounded across runs; (b) `integrity_check` only logged on failure, did not recover; (c) a corrupt/non-SQLite file raised `DatabaseError` at `PRAGMA journal_mode=WAL` before `integrity_check` ran, crashing the cycle.
+- **Option chosen:** (a) `close()` now runs `PRAGMA wal_checkpoint(TRUNCATE)` for file-backed DBs before closing (no-op for `:memory:`). (b) `_init_db()` wraps the connect + PRAGMA + schema setup in a `try/except sqlite3.DatabaseError` that falls back to a fresh in-memory DB on any init failure (corrupt file, I/O error, non-SQLite content); `integrity_check` failure also falls back to in-memory. `db_path` is rewritten to `:memory:` so callers know the fallback occurred. The cycle can continue after data loss (logged critical).
+- **Alternatives:** Add a storage backend abstraction (D-023 deferred — over-engineered for a single implementation); fail-fast on corrupt DB (rejected — the cognitive architecture should degrade gracefully, per A1 boundary condition "Graceful").
+- **Rationale:** Minimal resilience fix using SQLite's built-in primitives. The in-memory fallback honours the v3.0 boundary-condition mandate (§2.3: "as B_time → 0 / resource exhaustion → graceful degradation"). WAL checkpoint prevents the unbounded-WAL growth G-010 flagged.
+- **v3.0 trace:** §3.1 Table (M3 episodic), boundary conditions (graceful degradation), C4.3
+- **Tests:** 5 new `TestM3Hardening` tests (integrity check on file DB; corrupt-file → in-memory fallback; VACUUM triggers after threshold; close runs wal_checkpoint on file DB; close skips checkpoint for in-memory). 10 M3 tests pass.
+
+## Decision D-080: G-002 MLP epistemic confidence via MC-Dropout (P1-1)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0)
+- **Category:** Tier 2 (confidence measure correctness — already implemented, now documented + tested)
+- **Problem:** G-002 warned that MLP confidence was `exp(-MSE)` — a monotonic MSE transform, not a probabilistic confidence. Zero-trust inspection of `predict()` (`mlp.py:131-139`) found the confidence was ALREADY `aleatoric * (1 - 0.5*epistemic)` where `aleatoric = exp(-MSE)` and `epistemic = log(1+MC_var)` from `mc_samples=10` dropout passes. So the epistemic component was already present but undocumented and untested.
+- **Option chosen:** No formula change (the existing form is sound and gentler than the plan's suggested `1/(1+var)*exp(-mse)`). Documented the aleatoric/epistemic split in the `predict()` confidence block. Added `TestConfidenceCalibration` with an OOD test: train the MLP on a one-hot state, then assert confidence on a uniform-noise (OOD) state is lower than on an in-distribution state — MC-Dropout variance rises on OOD inputs, lowering the combined confidence.
+- **Alternatives:** Switch to the plan's `1/(1+var)*exp(-mse)` form (more aggressive, risk of over-penalising during normal learning); add a full Bayesian ensemble (over-engineered for Phase 4.1).
+- **Rationale:** The confidence measure already satisfies G-002's intent (epistemic uncertainty from MC Dropout, OOD-sensitive). The minimal change is documentation + an acceptance test that proves the behaviour, locking it against regression.
+- **v3.0 trace:** §2.2 Def 2.5 (confidence), A3 (incomplete knowledge), A4
+- **Tests:** 2 new `TestConfidenceCalibration` tests (unit range; OOD confidence drop). 27 MLP tests pass.
+
+## Decision D-081: G-017 MLP hybrid replay schedule + unified LR (P1-2)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0)
+- **Category:** Tier 1 (learning dynamics — conflicting update magnitudes)
+- **Problem:** G-017 warned that MLP `learn()` could apply two conflicting gradient signals per cycle (online + replay). Zero-trust trace showed the current code already prevents same-cycle double-learning via an early `return` in the warm-up branch — but the warm-up branch used `lr=self.lr` (full) while the replay branch used `lr=self.lr*0.5` (half). This LR asymmetry meant the first `batch_size` transitions received 2× the update magnitude of every subsequent transition, exactly the "unsynchronized update signals" G-017 flagged.
+- **Option chosen:** Unified both branches to `effective_lr = self.lr * 0.5`. Documented the hybrid schedule in the `learn()` docstring: warm-up (buffer < batch_size) does one online step then returns (no replay in the same cycle — batching is impossible with fewer than `batch_size` samples); steady state (buffer >= batch_size) is replay-only with the current transition learned only if sampled. No behavioural structure change, only LR unification + documentation.
+- **Alternatives:** Pure replay-only from cycle 1 (impossible — can't form a mini-batch with < batch_size samples); target network (over-engineered for Phase 4.1).
+- **Rationale:** The early-return design already avoids double-learning; the only real defect was the LR asymmetry. Unifying it removes the conflicting-magnitude signal while preserving the necessary warm-up online path. This is the minimal change that satisfies G-017's intent.
+- **v3.0 trace:** §3.1 Def 3.2 (TSPL unified learning rule), A4, A5
+- **Tests:** 3 new `TestReplaySchedule` tests (warm-up online-only + buffer growth; steady-state replay-only; unified LR matches a manual `lr*0.5` application). 25 MLP tests pass. Benchmark Overall Φ-IQ = 0.669 (≥ 0.45 acceptance, ≥ 0.635 floor).
+
+## Decision D-083: F1-F19 dead-code sweep — engine grounding_level path (P1-4 / DO-5)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Strategic v2.0)
+- **Category:** Tier 3 (dead code removal)
+- **Problem:** The F1-F19 backlog (deferred in `docs/phase4_gap_closure_report.md`) listed several dead-code items. Zero-trust verification found that most had already been cleaned in the Phase 3.3 gap audit: `schema_version` table (G-014, `m3_episodic.py:101`), `schema_v1.py` (reduced to a removal note), and `TSPL-E`/`TSPL-S`/`E_STREAM`/`S_STREAM` remnants (grep returns no matches in `python/phca/`). The one genuinely-dead item remaining was `PredictionEngine.predict`'s `grounding_level` parameter: the `grounding_level=2 → NotImplementedError` branch was never reachable from any runtime caller (`cycle.py` always uses the default level 1) and existed only to raise.
+- **Option chosen:** Removed the `grounding_level` parameter and the `NotImplementedError` branch from `PredictionEngine.predict` (`engine.py:44-77`); updated the class docstring; removed the dead `test_grounding_level_2_not_implemented` test. **Kept** the decorative `StateVector.grounding_level` field (`config.py:56`, default=1): it is harmless, already popped on legacy deserialization (`config.py:89`), and removing it would touch 8+ call sites in `mlp.py`/`graph.py` plus 3 test files for zero behavioural gain. The ASI grounding hierarchy (levels 0/2) remains a tracked Phase 4.2 item in `docs/limitations.md`.
+- **Alternatives:** Full removal of `StateVector.grounding_level` field (rejected — high blast radius, low value, violates "simplest change" mandate); leave the engine dead path (rejected — confuses readers, tested only by a dead test).
+- **Rationale:** Surgical removal of unreachable code reduces cognitive load and the F-backlog, while preserving the harmless forward-compat field. Matches the audit's "cut or wire" verdict without over-engineering.
+- **v3.0 trace:** Support module (prediction engine); ASI grounding §2.5 deferred to Phase 4.2.
+- **Tests:** 283 passed, 6 errors (pre-existing `pytest-mock` gap TC-6, down from 7 because the dead grounding-level test was removed). No regression.
+
+

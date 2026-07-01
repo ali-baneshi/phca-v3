@@ -1,8 +1,12 @@
-.PHONY: all test-all test-python test-rust lint bench-level-0 bench-all profile-cycle clean setup
+.PHONY: all test-all test-python lint bench-level-0 bench-all profile-cycle clean setup
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
 # ─────────────────────────────────────────────────────────────
+#
+# Note: The Rust workspace was removed in D-084 (empty crates, Python
+# is not a bottleneck at ~50 ms p95 cycle latency). Re-introduce Rust
+# targets only if profiling shows Python as a bottleneck.
 
 all: lint test-all
 
@@ -14,14 +18,12 @@ setup:
 	. .venv/bin/activate && pip install --upgrade pip \
 	    && pip install -r requirements.txt \
 	    && pip install -r requirements-dev.txt
-	@echo "Setting up Rust workspace..."
-	cd rust && cargo fetch
 	@echo "Done. Run 'make test-all' to verify."
 	@echo "Optional MuJoCo: pip install 'gymnasium[mujoco]'"
 
 # ── Testing ───────────────────────────────────────────────────
 
-test-all: test-python test-rust
+test-all: test-python
 	@echo "✅ All tests passed"
 
 test-python:
@@ -31,18 +33,12 @@ test-python:
 	    --ignore=python/tests/test_cycle_with_mujoco.py \
 	    -v --tb=short -x
 
-test-rust:
-	@echo "Running Rust tests..."
-	cd rust && cargo test
-
 # ── Linting ──────────────────────────────────────────────────
 
 lint:
 	@echo "Linting Python..."
 	@-which ruff > /dev/null 2>&1 && ruff check python/ || echo "⚠️  ruff not installed, skipping Python lint"
 	@-which black > /dev/null 2>&1 && black --check python/ || echo "⚠️  black not installed, skipping Python format check"
-	@echo "Linting Rust..."
-	@-cd rust && cargo clippy -- -D warnings 2>/dev/null || echo "⚠️  clippy not configured, skipping Rust lint"
 
 # ── Benchmarks ───────────────────────────────────────────────
 
@@ -76,10 +72,7 @@ pre-gate-1:
 	@echo "5. Lint check (Python)..."
 	@-ruff check python/ --no-cache && echo "   PASS" || echo "   FAIL"
 	@echo ""
-	@echo "6. Lint check (Rust)..."
-	@-cd rust && cargo clippy -- -D warnings 2>/dev/null && echo "   PASS" || echo "   WARN (not configured or warnings)"
-	@echo ""
-	@echo "7. Decision log check..."
+	@echo "6. Decision log check..."
 	@python3 -c "d = [l.split('##')[1] for l in open('DECISIONS.md') if '## Decision D-' in l]; print(f'   {len(d)} decisions logged:'); [print(f'      {x.strip()}') for x in d]"
 	@echo ""
 	@echo "   P-Stream navigation: python -m phca.benchmarks.runner --level=2 (Phase 3.2)"
@@ -101,7 +94,6 @@ profile-cycle:
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf .venv
-	rm -rf rust/target
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name '*.pyc' -delete
 	@echo "Done."
@@ -111,10 +103,9 @@ clean:
 help:
 	@echo "PHCA v3.0 — Available targets:"
 	@echo "  make setup          Install all dependencies"
-	@echo "  make test-all       Run all Python + Rust tests"
+	@echo "  make test-all       Run all Python tests"
 	@echo "  make test-python    Run Python tests only"
-	@echo "  make test-rust      Run Rust tests only"
-	@echo "  make lint           Run linters (ruff + clippy)"
+	@echo "  make lint           Run linters (ruff + black)"
 	@echo "  make bench-level-0  Run Level 0 benchmark"
 	@echo "  make bench-all      Run all benchmarks"
 	@echo "  make profile-cycle  Profile the cognitive cycle"

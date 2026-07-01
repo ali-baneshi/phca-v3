@@ -23,9 +23,6 @@ jobs:
       - name: Lint Python
         run: |
           ruff check python/ --no-cache
-      - name: Lint Rust
-        run: |
-          cd rust && cargo clippy -- -D warnings 2>/dev/null || echo "⚠️ clippy warnings found"
 
   test-python:
     runs-on: ubuntu-latest
@@ -46,21 +43,6 @@ jobs:
             --ignore=python/tests/test_mujoco_env.py \
             --ignore=python/tests/test_cycle_with_mujoco.py \
             -v --tb=short --timeout=30 -x --benchmark-skip
-
-  test-rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - name: Build and test Rust
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
-        run: |
-          cd rust && cargo test
 
   benchmark-level-0:
     runs-on: ubuntu-latest

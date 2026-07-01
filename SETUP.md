@@ -5,9 +5,13 @@
 | Tool | Version | Check |
 | :--- | :--- | :--- |
 | Python | 3.11+ | `python --version` |
-| Rust | 1.75+ | `rustc --version` |
 | Git | 2.40+ | `git --version` |
 | Make | — | `make --version` |
+
+> **Rust toolchain:** not required. The Rust workspace was removed in
+> D-084 (empty crates, Python is not a bottleneck at ~50 ms p95 cycle
+> latency). Re-introduce Rust only if profiling shows Python as a
+> bottleneck.
 
 ## Quick Setup (5 minutes)
 
@@ -22,23 +26,19 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 3. Build Rust workspace
-cd rust && cargo build --release && cd ..
-
-# 4. Verify everything works
+# 3. Verify everything works
 make test-all
 
-# 5. Open the project
+# 4. Open the project
 code .
 ```
 
 ## Running Tests
 
 ```bash
-make test-all         # All Python + Rust tests
+make test-all         # All Python tests (MuJoCo auto-skipped without gymnasium)
 make test-python      # Python tests only
-make test-rust        # Rust tests only
-make lint             # Linters (ruff + clippy)
+make lint             # Linters (ruff + black)
 make profile-cycle    # Profile cognitive cycle latency
 ```
 
@@ -48,7 +48,6 @@ make profile-cycle    # Profile cognitive cycle latency
 phca-v3/
 ├── Makefile              # Build automation
 ├── requirements.txt      # Python dependencies
-├── Cargo.toml            # Rust workspace
 ├── python/
 │   ├── phca/             # Core implementation (incl. environments/)
 │   │   └── environments/ # GridWorld + MuJoCo + EnvironmentProtocol
@@ -56,10 +55,6 @@ phca-v3/
 │   └── tests/            # Integration + acceptance tests
 │
 *Note: Use `python scripts/benchmark.py` (not `python -m phca.benchmarks.runner`).
-├── rust/
-│   ├── common/           # Shared data types
-│   ├── rpta/             # RBTA Constraint Enforcer
-│   └── hpm-runtime/      # HPM Grammar Runtime
 └── docs/                 # Specifications + playbook
 ```
 
@@ -68,5 +63,5 @@ phca-v3/
 | Problem | Solution |
 | :--- | :--- |
 | `ModuleNotFoundError: No module named 'structlog'` | `pip install structlog` or the code falls back to stdlib logging automatically |
-| `error: the configured Python interpreter version (3.14) is newer than PyO3's maximum supported version` | Run `export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` |
 | `pytest: error: unrecognized arguments: --timeout` | Install `pytest-timeout`: `pip install pytest-timeout` |
+| `fixture 'mocker' not found` in `test_engine.py` | Install `pytest-mock`: `pip install pytest-mock` (tracked as TC-6 — not yet in `requirements-dev.txt`) |

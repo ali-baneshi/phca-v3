@@ -24,10 +24,8 @@ class PredictionEngine:
     Phase 3.1: Single-model ensemble (G' Bayesian network).
         - Calls WorldModelGPrime.predict() for each step.
         - Confidence decays with horizon (1/horizon heuristic).
-        - grounding_level 0 (raw) and 1 (feature) supported.
 
     Phase 3.2+: Dual-model (G' + V) with meta-gradient ensemble weights.
-        - grounding_level 2 (semantic) prediction.
         - Confidence via ensemble disagreement.
     """
 
@@ -45,7 +43,6 @@ class PredictionEngine:
         self,
         state: StateVector,
         horizon: int = 1,
-        grounding_level: int = 1,
     ) -> Tuple[StateVector, float]:
         """Predict future state(s) given current state and last action.
 
@@ -53,8 +50,8 @@ class PredictionEngine:
 
         Args:
             state: Current state vector.
-            horizon: Number of steps ahead to predict (1-10).
-            grounding_level: 0 (raw), 1 (feature), 2 (semantic — Phase 3.2+).
+            horizon: Number of steps ahead to predict (1-100). Horizons > 10
+                may have degraded confidence (1/h heuristic).
 
         Returns:
             Tuple of (predicted_state, confidence):
@@ -63,18 +60,17 @@ class PredictionEngine:
 
         Raises:
             ValueError: If horizon is out of range.
-            NotImplementedError: If grounding_level=2 (deferred to Phase 3.2).
         """
         if horizon < 1 or horizon > 100:
             raise ValueError(
                 f"horizon must be in [1, 100], got {horizon}. "
                 "Horizons > 10 may have degraded confidence."
             )
-        if grounding_level not in (0, 1):
-            raise NotImplementedError(
-                f"grounding_level={grounding_level} prediction deferred to Phase 3.2. "
-                "Phase 3.1 supports levels 0 (raw) and 1 (feature)."
-            )
+        # The former grounding_level=2 (semantic) branch was removed in the
+        # Phase 4 dead-code sweep (D-082): it was never reachable from any
+        # runtime caller (cycle.py always uses the default level 1) and only
+        # existed to raise NotImplementedError. The ASI grounding hierarchy
+        # (levels 0/2) is tracked in docs/limitations.md as a Phase 4.2 item.
 
         # Roll prediction horizon steps
         current_state = state

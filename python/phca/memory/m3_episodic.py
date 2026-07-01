@@ -152,22 +152,51 @@ class M3EpisodicMemory:
     def _init_db(self) -> None:
         """Initialize the SQLite database and create schema.
 
-        Runs integrity check for file-backed databases (G-010).
+        Runs integrity check for file-backed databases (G-010). On
+        integrity failure OR a corrupt/unreadable file, falls back to
+        an in-memory database so the cognitive cycle can continue
+        (data loss is logged critical).
         """
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.executescript(M3_SCHEMA_SQL)
-        self._conn.commit()
+        try:
+            self._conn = sqlite3.connect(self.db_path)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.executescript(M3_SCHEMA_SQL)
+            self._conn.commit()
+        except sqlite3.DatabaseError as e:
+            # Corrupt or non-SQLite file: fall back to in-memory.
+            if self.db_path == ":memory:":
+                raise  # cannot fall back further
+            _log(logger, "critical", "m3.init_failure",
+                 error=str(e), db_path=self.db_path, fallback=":memory:")
+            try:
+                if self._conn is not None:
+                    self._conn.close()
+            except Exception:
+                pass
+            self._conn = sqlite3.connect(":memory:")
+            self._conn.executescript(M3_SCHEMA_SQL)
+            self._conn.commit()
+            self.db_path = ":memory:"
+            return
 
-        # Run integrity check on persistent databases (G-010)
+        # Run integrity check on persistent databases (G-010). On failure,
+        # fall back to an in-memory store so the cycle can keep running.
         if self.db_path != ":memory:":
             try:
                 cursor = self._conn.execute("PRAGMA integrity_check")
                 result = cursor.fetchone()
                 if result and result[0] != "ok":
                     _log(logger, "critical", "m3.integrity_failure",
-                         result=str(result))
+                         result=str(result), fallback=":memory:")
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = sqlite3.connect(":memory:")
+                    self._conn.executescript(M3_SCHEMA_SQL)
+                    self._conn.commit()
+                    self.db_path = ":memory:"  # record the fallback
                 else:
                     _log(logger, "info", "m3.integrity_check", result="ok")
             except Exception as e:
@@ -377,8 +406,20 @@ class M3EpisodicMemory:
             _log(logger, "error", "m3.vacuum_failed", error=str(e))
 
     def close(self) -> None:
-        """Close the database connection."""
+        """Close the database connection.
+
+        For persistent (file-backed) databases, runs
+        `PRAGMA wal_checkpoint(TRUNCATE)` first so the WAL file is
+        merged into the main database and truncated, preventing
+        unbounded WAL growth across runs (G-010 / D-082).
+        """
         if self._conn is not None:
+            if self.db_path != ":memory:":
+                try:
+                    self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    _log(logger, "info", "m3.wal_checkpoint", db_path=self.db_path)
+                except Exception as e:
+                    _log(logger, "error", "m3.wal_checkpoint_failed", error=str(e))
             self._conn.close()
             self._conn = None
 

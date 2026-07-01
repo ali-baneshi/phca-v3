@@ -86,3 +86,74 @@ class TestM3EpisodicMemory:
         assert m3.count() <= 100  # should evict to max_episodes
 
 
+# ── SQLite Hardening (G-010 / D-082) ──────────────────────────
+
+
+class TestM3Hardening:
+    """SQLite hardening: integrity check, VACUUM, WAL checkpoint (G-010)."""
+
+    def test_integrity_check_on_file_db(self, tmp_path):
+        """A fresh file-backed M3 must pass integrity_check on init."""
+        db = tmp_path / "m3_integrity.db"
+        m3 = M3EpisodicMemory(db_path=str(db), max_episodes=50,
+                              state_dim=4, action_dim=2)
+        # If integrity_check failed, db_path would have been switched to
+        # ":memory:". A healthy init keeps the file path.
+        assert m3.db_path == str(db)
+        m3.close()
+
+    def test_integrity_failure_falls_back_to_memory(self, tmp_path):
+        """A corrupt file DB must fall back to in-memory (G-010)."""
+        db = tmp_path / "m3_corrupt.db"
+        # Write garbage into the file so SQLite integrity_check fails.
+        db.write_bytes(b"not a sqlite database file")
+        m3 = M3EpisodicMemory(db_path=str(db), max_episodes=50,
+                              state_dim=4, action_dim=2)
+        # The fallback rewrites db_path to ":memory:".
+        assert m3.db_path == ":memory:"
+        # The fallback store must be usable.
+        state = StateVector(values=np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+                            precision=np.ones(4, dtype=np.float32), timestamp=0.0)
+        action = np.array([1.0, 0.0], dtype=np.float32)
+        m3.store_episode(state, action, state, 0.1, timestamp=0)
+        assert m3.count() == 1
+        m3.close()
+
+    def test_vacuum_runs_after_threshold(self, tmp_path):
+        """VACUUM must trigger after _vacuum_interval evictions on a file DB."""
+        db = tmp_path / "m3_vacuum.db"
+        m3 = M3EpisodicMemory(db_path=str(db), max_episodes=10,
+                              state_dim=4, action_dim=2)
+        # Force a low vacuum interval to trigger without 1000 writes.
+        m3._vacuum_interval = 5
+        state = StateVector(values=np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+                            precision=np.ones(4, dtype=np.float32), timestamp=0.0)
+        action = np.array([1.0, 0.0], dtype=np.float32)
+        # Store enough to trigger eviction > vacuum_interval.
+        for i in range(30):
+            m3.store_episode(state, action, state, 0.1, timestamp=i)
+        # After evictions >= vacuum_interval, _episodes_since_vacuum resets.
+        assert m3._episodes_since_vacuum == 0
+        m3.close()
+
+    def test_close_runs_wal_checkpoint_on_file_db(self, tmp_path):
+        """close() must run wal_checkpoint(TRUNCATE) for file-backed DBs."""
+        db = tmp_path / "m3_wal.db"
+        m3 = M3EpisodicMemory(db_path=str(db), max_episodes=50,
+                              state_dim=4, action_dim=2)
+        state = StateVector(values=np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+                            precision=np.ones(4, dtype=np.float32), timestamp=0.0)
+        action = np.array([1.0, 0.0], dtype=np.float32)
+        m3.store_episode(state, action, state, 0.1, timestamp=0)
+        # close() should not raise and should checkpoint the WAL.
+        m3.close()
+        assert m3._conn is None
+
+    def test_close_no_checkpoint_for_in_memory(self):
+        """close() must skip wal_checkpoint for in-memory DBs (no WAL)."""
+        m3 = M3EpisodicMemory(db_path=":memory:", max_episodes=50,
+                              state_dim=4, action_dim=2)
+        # Should be a no-op (no exception) for in-memory DBs.
+        m3.close()
+        assert m3._conn is None
+

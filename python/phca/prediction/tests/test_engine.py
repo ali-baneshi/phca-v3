@@ -139,17 +139,6 @@ class TestPredictionEngine:
         with pytest.raises(ValueError, match="horizon must be in"):
             engine.predict(state, horizon=101)
 
-    def test_grounding_level_2_not_implemented(self, mocker):
-        """grounding_level=2 should raise NotImplementedError."""
-        gprime = mocker.MagicMock()
-        engine = PredictionEngine(gprime)
-        state = StateVector(
-            values=np.array([0.5], dtype=np.float32),
-            precision=np.array([0.9], dtype=np.float32),
-        )
-        with pytest.raises(NotImplementedError, match="deferred to Phase 3.2"):
-            engine.predict(state, horizon=1, grounding_level=2)
-
     def test_update_action(self, mocker):
         """update_action should store a copy of the action."""
         gprime = mocker.MagicMock()

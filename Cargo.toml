@@ -1,9 +1,0 @@
-[workspace]
-resolver = "2"
-# Rust crates removed — Python-only RBTA and HPM for Phase 3.2.
-# Re-introduce Rust only if profiling shows Python as a bottleneck.
-members = []
-
-[workspace.package]
-version = "0.1.0"
-edition = "2021"

@@ -128,14 +128,25 @@ class WorldModelMLP:
         self._last_input = x
         self._last_activations = (mean_out,)  # partial cache
 
-        # Confidence: exp(-MSE) scaled by mutual information
-        # (epistemic uncertainty from MC variance)
+        # Confidence (G-002 / D-080): aleatoric * epistemic split.
+        #   aleatoric  = exp(-MSE) on the mean prediction (data-fit term);
+        #                measures how well the mean prediction matches the
+        #                input state's scale (low when the predicted next
+        #                state is far from the current state in MSE terms).
+        #   epistemic  = MC-Dropout variance across the *mc_samples*
+        #                stochastic forward passes; high when the model is
+        #                uncertain about its own parameters (e.g. on
+        #                out-of-distribution inputs), low on well-learned
+        #                regions. Approximated as mutual_info = log(1+var).
+        # The combined confidence penalises the aleatoric term when
+        # epistemic uncertainty is high, so OOD states report lower
+        # confidence than in-distribution states even if MSE is similar.
         var = np.var(mc_outs, axis=0).mean()
         # mutual information ≈ log(1 + var) clipped to [0, ~1.1]
         mutual_info = float(np.log1p(min(var, 2.0)))
-        # base confidence = exp(-MSE on mean prediction)
+        # base (aleatoric) confidence = exp(-MSE on mean prediction)
         base_conf = self._compute_confidence(mean_out, state.values.astype(np.float32))
-        # penalize confidence when mutual info is high (uncertain)
+        # penalize confidence when mutual info is high (epistemic uncertainty)
         confidence = float(np.clip(base_conf * (1.0 - 0.5 * mutual_info), 0.01, 1.0))
 
         # Apply TSPL learned bias (AF-002 compatibility, safe mode).
@@ -166,8 +177,20 @@ class WorldModelMLP:
     ) -> None:
         """Learn from observed transition via SGD with experience replay.
 
-        Stores the transition in a replay buffer and trains on a
-        mini-batch of random samples from the buffer each cycle.
+        Hybrid schedule (G-017 / D-080):
+          - Warm-up (`len(replay_buffer) < batch_size`): a single ONLINE
+            gradient step on the just-observed transition. Mini-batch
+            training is impossible with fewer than `batch_size` samples,
+            so the buffer is filled with one-pass online updates.
+          - Steady state (`len(replay_buffer) >= batch_size`): REPLAY-ONLY
+            training on `train_steps` mini-batches sampled from the
+            buffer. The current transition is in the buffer and is
+            learned only if sampled — there is NO concurrent online
+            step, so transitions are never learned twice in one cycle
+            (the early `return` in the warm-up branch guarantees this).
+
+        Both branches use the SAME learning rate (`lr * 0.5`) so the
+        warm-up and steady-state update magnitudes cannot conflict.
 
         Args:
             state_t: State at time t.
@@ -190,13 +213,18 @@ class WorldModelMLP:
             self._replay_buffer[self._replay_idx % self.replay_capacity] = (x.copy(), target.copy())
         self._replay_idx += 1
 
-        # Skip batch training if buffer not big enough yet
+        # Unified learning rate for both branches (G-017 fix).
+        effective_lr = self.lr * 0.5
+
+        # Warm-up: buffer too small to form a mini-batch — single online
+        # step, then return (no replay in the same cycle).
         if len(self._replay_buffer) < self.batch_size:
             grad = self._backward(x, z1, z2, out, target)
-            self._apply_gradient(grad, lr=self.lr)
+            self._apply_gradient(grad, lr=effective_lr)
             return
 
-        # Train on mini-batches from replay buffer (current transition included via buffer)
+        # Steady state: replay-only. The current transition is in the
+        # buffer and is learned only if sampled into a mini-batch.
         for _ in range(self.train_steps):
                 indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
                 avg_grad: Optional[Dict[str, np.ndarray]] = None
@@ -212,7 +240,7 @@ class WorldModelMLP:
                 if avg_grad is not None:
                     for k in avg_grad:
                         avg_grad[k] /= float(self.batch_size)
-                    self._apply_gradient(avg_grad, lr=self.lr * 0.5)
+                    self._apply_gradient(avg_grad, lr=effective_lr)
 
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
