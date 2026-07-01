@@ -1,0 +1,15 @@
+{
+  "env": "Pendulum-v1",
+  "n_cycles": 100,
+  "model": "MLP",
+  "mean_latency_ms": 15.294656018959358,
+  "p95_latency_ms": 30.327096334076487,
+  "max_latency_ms": 32.52690896624699,
+  "mean_error": 4.781442164271258,
+  "early_error": 17.14262685512343,
+  "late_error": 0.28525304091082226,
+  "error_improved": true,
+  "violations": 0,
+  "violation_rate": 0.0,
+  "no_errors": true
+}

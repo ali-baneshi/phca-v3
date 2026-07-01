@@ -59,6 +59,7 @@ class BenchmarkConfig:
     use_continuous: bool = True
     use_mlp: bool = False
     diagnose_level: int = -1  # if >=0, dump per-step history for this level to CSV
+    dynamic_goals: bool = False  # Week 3: L2 curriculum (static 100 cyc, then relocate every 100)
     weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
 
 
@@ -542,6 +543,57 @@ def save_report(report: BenchmarkReport, path: str) -> None:
     print(f"Report saved to {path}")
 
 
+def _run_mujoco(env_name: str, n_cycles: int, use_mlp: bool, output: str) -> dict:
+    """Run a single MuJoCo environment benchmark (Week 2).
+
+    Reports latency, prediction-error trend, and RBTA violations — the grid
+    goal_reached metric does not apply to MuJoCo, so no Φ-IQ composite.
+    """
+    from phca.core.cycle import CognitiveCycle
+    cycle = CognitiveCycle.build_for_mujoco(env_name, seed=42, use_mlp=use_mlp)
+    for _ in range(10):  # warmup
+        cycle.step()
+    errors, latencies, violations = [], [], 0
+    for _ in range(n_cycles):
+        m = cycle.step()
+        errors.append(m.prediction_error)
+        latencies.append(m.latency_ms)
+        violations += m.violations_count
+    early = float(np.mean(errors[:max(1, len(errors)//4)]))
+    late = float(np.mean(errors[-max(1, len(errors)//4):]))
+    report = {
+        "env": env_name, "n_cycles": n_cycles, "model": "MLP" if use_mlp else "Gaussian",
+        "mean_latency_ms": float(np.mean(latencies)),
+        "p95_latency_ms": float(np.percentile(latencies, 95)),
+        "max_latency_ms": float(np.max(latencies)),
+        "mean_error": float(np.mean(errors)),
+        "early_error": early, "late_error": late,
+        "error_improved": late < early,
+        "violations": violations,
+        "violation_rate": violations / max(n_cycles, 1),
+        "no_errors": all(np.isfinite(e) for e in errors),
+    }
+    print(f"\n{'='*60}\n  PHCA v3.0 — MuJoCo Benchmark ({env_name})\n{'='*60}")
+    print(f"  Cycles: {n_cycles}  Model: {report['model']}")
+    print(f"  Latency mean/p95/max: {report['mean_latency_ms']:.1f}/"
+          f"{report['p95_latency_ms']:.1f}/{report['max_latency_ms']:.1f} ms")
+    print(f"  Error early→late: {early:.3f}→{late:.3f}  improved={report['error_improved']}")
+    print(f"  RBTA violations: {violations} ({report['violation_rate']*100:.1f}%)")
+    c1 = report["no_errors"]
+    c3 = report["mean_latency_ms"] < 200.0
+    c4 = report["error_improved"] or late < 1.0
+    c6 = report["violation_rate"] < 0.1
+    print(f"  Criteria: C1(no err)={'PASS' if c1 else 'FAIL'} "
+          f"C3(<200ms)={'PASS' if c3 else 'FAIL'} "
+          f"C4(err↓)={'PASS' if c4 else 'FAIL'} "
+          f"C6(<10%viol)={'PASS' if c6 else 'FAIL'}\n{'='*60}\n")
+    out = output or "logs/benchmark_mujoco_report.json"
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(report, indent=2))
+    print(f"Report saved to {out}")
+    return report
+
+
 def main() -> None:
     ensure_logging()  # enable file logging to logs/phca.log (A-002 fix)
     parser = argparse.ArgumentParser(description="PHCA Φ-IQ Benchmark Suite")
@@ -553,6 +605,10 @@ def main() -> None:
                         help="Quick mode: Level 0 only, 20 cycles")
     parser.add_argument("--use-mlp", action="store_true",
                         help="Use MLP world model instead of Gaussian G'")
+    parser.add_argument("--env", type=str, default="gridworld",
+                        choices=["gridworld", "cartpole", "pendulum"],
+                        help="Environment: gridworld (4-level Φ-IQ) or a MuJoCo env "
+                             "(single-level latency/error report)")
     parser.add_argument("--output", type=str, default=None,
                         help="Output JSON report path")
     parser.add_argument("--diagnose-level", type=int, default=-1,
@@ -565,6 +621,12 @@ def main() -> None:
     else:
         levels = [int(l.strip()) for l in args.levels.split(",")]
         n_cycles = args.cycles
+
+    # MuJoCo environments: single-level latency/error report (no grid goal_reached).
+    if args.env in ("cartpole", "pendulum"):
+        env_name = "InvertedPendulum-v5" if args.env == "cartpole" else "Pendulum-v1"
+        report = _run_mujoco(env_name, n_cycles, args.use_mlp, args.output)
+        sys.exit(0 if report["no_errors"] else 1)
 
     config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp,
                              diagnose_level=args.diagnose_level)

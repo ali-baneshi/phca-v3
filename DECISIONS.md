@@ -943,5 +943,18 @@ Every entry must reference the v3.0 specification section it affects.
 - **v3.0 trace:** A1 (resource boundedness over long horizon), test infrastructure.
 - **Tests/Validation:** 322 passed, 0 errors. Gate PASS (0.7919 ≥ floor 0.5486). `logs/longrun_probe.json`, `logs/benchmark_longrun.json`.
 
+## Decision D-089: MuJoCo into CI + requirements + unified `--env` benchmark flag (Week 2)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Phase 4 Week 2)
+- **Category:** Tier 2 (integration / CI coverage)
+- **Problem:** MuJoCo (`MuJoCoSimpleEnv`, `build_for_mujoco`, 23 tests, `scripts/benchmark_mujoco.py`) was already built and passing locally with `MUJOCO_GL=disabled`, but was (a) not declared in any requirements file, (b) explicitly `--ignore`d in CI so never exercised, and (c) only runnable via the standalone `benchmark_mujoco.py` — the main `benchmark.py` had no MuJoCo entry point.
+- **Option chosen:** (a) New `requirements-mujoco.txt` (`gymnasium[mujoco]>=1.0`, `mujoco>=3.2`) — kept separate from core `requirements.txt` so MuJoCo stays opt-in (heavy dep, needs `MUJOCO_GL`). (b) CI `test-python` job now installs `requirements-mujoco.txt`, sets `env: MUJOCO_GL: disabled`, and removed both `--ignore` lines → all 322 tests run green. (c) Added `--env {gridworld,cartpole,pendulum}` to `scripts/benchmark.py`; non-gridworld runs a single-level MuJoCo report (latency mean/p95/max, prediction-error early→late, RBTA violations, criteria C1/C3/C4/C6) since the grid `goal_reached` Φ-IQ composite doesn't apply. ~45 lines, 1 file (benchmark.py) + 1 new requirements file + CI edit.
+- **Results:** Cartpole (InvertedPendulum-v5, 100 cyc, MLP): mean latency 16.3ms, p95 32.0ms, error 8.43→0.34 (MLP learned dynamics), 0 violations → **C1/C3/C4/C6 all PASS**. Pendulum (Pendulum-v1): error 17.1→0.29, 0 violations → all PASS. Locally 322 tests pass with `MUJOCO_GL=disabled` (the config CI now uses).
+- **Alternatives:** Add gymnasium/mujoco to core `requirements.txt` (rejected — inflates core install for users who don't need MuJoCo); keep MuJoCo local-only (rejected — success criteria require CI-exercised MuJoCo); merge `benchmark_mujoco.py` into the main runner entirely (rejected — standalone remains for detailed per-env work; `--env` unifies the entry point).
+- **Rationale:** MuJoCo is now a first-class, CI-gated path with a single benchmark entry point, satisfying the Week-2 success criteria. The `MUJOCO_GL=disabled` setting avoids the broken osmesa GL stack while requiring no GPU.
+- **v3.0 trace:** EnvironmentProtocol (MuJoCoSimpleEnv), A1 (RBTA bounds hold: 0 violations), A4 (MLP learns MuJoCo dynamics: error ↓).
+- **Tests/Validation:** 322 passed 0 errors; Cartpole + Pendulum benchmarks PASS C1/C3/C4/C6. `logs/benchmark_cartpole.json`, `logs/benchmark_pendulum.json`.
+
 
 

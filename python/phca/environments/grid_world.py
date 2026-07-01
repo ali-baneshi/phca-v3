@@ -242,3 +242,19 @@ class GridWorld:
 
     def get_goal_position(self) -> tuple[int, int] | None:
         return self.goal_pos
+
+    def relocate_goal(self) -> tuple[int, int]:
+        """Move the goal to a new random empty cell (not a wall, not the agent cell).
+
+        Used by the Level-2 dynamic-goal curriculum (Week 3) to force re-navigation
+        so adaptation has real headroom. The cognitive cycle re-reads `goal_pos`
+        every step (mdim_context + _compute_distance_gain), so no other wiring is
+        needed. Returns the new goal position.
+        """
+        self.grid[self.goal_pos] = self.EMPTY
+        empty = [c for c in self._get_empty_cells()
+                 if c != tuple(self.agent_pos)]
+        new_pos = tuple(empty[self.rng.randint(len(empty))])
+        self.grid[new_pos] = self.GOAL
+        self.goal_pos = new_pos
+        return new_pos

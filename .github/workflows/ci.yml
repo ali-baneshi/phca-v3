@@ -37,11 +37,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          pip install -r requirements-mujoco.txt
       - name: Test Python
+        env:
+          MUJOCO_GL: disabled
         run: |
           PYTHONPATH=python:$PYTHONPATH python -m pytest python/tests/ python/phca/ \
-            --ignore=python/tests/test_mujoco_env.py \
-            --ignore=python/tests/test_cycle_with_mujoco.py \
             -v --tb=short --timeout=30 -x --benchmark-skip
 
   benchmark-level-0:
