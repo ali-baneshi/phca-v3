@@ -176,6 +176,114 @@ def posterior(
     return result
 
 
+def conditional_covariance(
+    mu: np.ndarray,
+    cov: np.ndarray,
+    evidence_vars: List[str],
+    query_vars: List[str],
+    all_vars: List[str],
+) -> np.ndarray:
+    """Compute the full conditional covariance Σ_{Q|E} (Schur complement).
+
+    Σ_{Q|E} = Σ_{QQ} - Σ_{QE} · Σ_{EE}^{-1} · Σ_{EQ}
+
+    This is the covariance of the query variables after conditioning on
+    the evidence variables. Unlike posterior(), this returns the FULL
+    covariance matrix, not just the diagonal.
+
+    Used for closed-form Gaussian mutual information (AF-002).
+
+    Args:
+        mu: Joint mean vector (n,), ordered by all_vars.
+        cov: Joint covariance matrix (n, n), ordered by all_vars.
+        evidence_vars: Names of observed (evidence) variables.
+        query_vars: Names of query variables.
+        all_vars: Ordered list of all variable names.
+
+    Returns:
+        Conditional covariance matrix of query variables given evidence.
+        Shape (len(query_vars), len(query_vars)).
+
+    Raises:
+        ValueError: If evidence or query variables are not in all_vars.
+    """
+    name_to_idx = {name: i for i, name in enumerate(all_vars)}
+
+    for var in evidence_vars:
+        if var not in name_to_idx:
+            raise ValueError(f"Evidence variable '{var}' not found in graph")
+    for var in query_vars:
+        if var not in name_to_idx:
+            raise ValueError(f"Query variable '{var}' not found in graph")
+
+    e_idx = [name_to_idx[v] for v in evidence_vars]
+    q_idx = [name_to_idx[v] for v in query_vars]
+
+    if not q_idx:
+        return np.zeros((0, 0), dtype=np.float64)
+    if not e_idx:
+        # No evidence: return the full prior covariance of query vars
+        return cov[np.ix_(q_idx, q_idx)]
+
+    Σ_EE = cov[np.ix_(e_idx, e_idx)]
+    Σ_QQ = cov[np.ix_(q_idx, q_idx)]
+    Σ_QE = cov[np.ix_(q_idx, e_idx)]
+
+    try:
+        Σ_EE_inv = np.linalg.inv(Σ_EE)
+    except np.linalg.LinAlgError:
+        Σ_EE_inv = np.linalg.pinv(Σ_EE)
+
+    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
+    return Σ_QQ_given_E
+
+
+def gaussian_mutual_information(
+    Σ_marginal: np.ndarray,
+    Σ_conditional: np.ndarray,
+    gamma: float = 1.0,
+) -> float:
+    """Compute mutual information I(Q; Δ | E) for two Gaussian covariances.
+
+    I = 0.5 · log(det(2πe · Σ_marginal)) - 0.5 · log(det(2πe · Σ_conditional))
+      = 0.5 · log(det(Σ_marginal) / det(Σ_conditional))
+
+    where Σ_marginal is the covariance of Q given a reduced evidence set
+    (without the variables of interest), and Σ_conditional is the covariance
+    of Q given the full evidence set (with all variables).
+
+    The gamma parameter allows soft scaling of the information gained
+    from the additional variables.
+
+    Args:
+        Σ_marginal: Conditional covariance given reduced evidence (d, d).
+        Σ_conditional: Conditional covariance given full evidence (d, d).
+        gamma: Scaling factor for the MI (default 1.0).
+
+    Returns:
+        Mutual information in nats (≥ 0), scaled by gamma.
+
+    Raises:
+        ValueError: If matrices are not square or dimensions mismatch.
+    """
+    if Σ_marginal.shape != Σ_conditional.shape:
+        raise ValueError(
+            f"Matrix shape mismatch: {Σ_marginal.shape} vs {Σ_conditional.shape}"
+        )
+    d = Σ_marginal.shape[0]
+    if d == 0:
+        return 0.0
+
+    try:
+        _, logdet_marginal = np.linalg.slogdet(2.0 * np.pi * np.e * Σ_marginal)
+        _, logdet_conditional = np.linalg.slogdet(2.0 * np.pi * np.e * Σ_conditional)
+    except np.linalg.LinAlgError:
+        return 0.0
+
+    I = 0.5 * (logdet_marginal - logdet_conditional)
+    return float(max(I * gamma, 0.0))
+
+
 def confidence_from_variance(variance: float) -> float:
     """Convert posterior variance to a confidence score.
 

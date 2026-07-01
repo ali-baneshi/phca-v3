@@ -25,7 +25,12 @@ import argparse
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import List, Optional, Tuple
+
+_pkg_root = Path(__file__).resolve().parent.parent / "python"
+if str(_pkg_root) not in sys.path:
+    sys.path.insert(0, str(_pkg_root))
 
 import numpy as np
 

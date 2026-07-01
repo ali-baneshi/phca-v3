@@ -683,27 +683,37 @@ class CognitiveCycle:
         return 0.5
 
     def _estimate_empowerment(self) -> float:
-        """Estimate empowerment from cached action confidences.
+        """Estimate empowerment I(S';A|S) from the world model (AF-002).
 
-        Uses confidences stored by _select_action to compute variance
-        across actions — higher spread = more discriminative actions.
-        No duplicate predictions needed (cache avoids 5× predict loop).
+        Uses model-specific methods:
+          - Gaussian G' (WorldModelGPrime): Closed-form Gaussian MI via
+            conditional covariance Schur complements (AF-002).
+          - MLP G' (WorldModelMLP): Variance of MC Dropout confidences
+            across actions — calibrated by MC Dropout (AF-001).
 
-        Phase 3.3+: Full I(state_{t+1}; a_t | state_t) computation.
+        Falls back to 0.3 if no model-specific method is available.
 
         Returns:
             Float in [0.0, 1.0] estimating empowerment.
         """
-        confidences = getattr(self, '_cached_confidences', None)
-        if not confidences or self.current_state is None:
+        if self.current_state is None:
             return 0.3
 
-        # Restore engine action after action selection's predict loop
-        if self.last_action is not None:
-            self.engine.update_action(self.last_action)
+        # MLP path (AF-001): use MC Dropout confidence spread
+        if isinstance(self.gprime, WorldModelMLP):
+            confidences = getattr(self, '_cached_confidences', None)
+            if not confidences:
+                return 0.3
+            empowerment = float(np.std(confidences))
+            return float(np.clip(empowerment, 0.0, 1.0))
 
-        empowerment = float(np.std(confidences))
-        return float(np.clip(empowerment, 0.0, 1.0))
+        # Gaussian G' path (AF-002): closed-form Gaussian MI
+        if hasattr(self.gprime, 'estimate_empowerment'):
+            empowerment = self.gprime.estimate_empowerment(self.current_state)
+            return float(np.clip(empowerment, 0.0, 1.0))
+
+        # Fallback
+        return 0.3
 
     def _approximate_error_volatility(self) -> float:
         """Compute prediction-error volatility from recent error history.
@@ -790,11 +800,10 @@ class CognitiveCycle:
             "MDIM": 20_000, "CR": 10_000, "ATTN": 5_000,
             "HPM": 10_000, "CONSOL": 2_000,
         }
-        # Energy estimates from module runtimes (scaled to match original magnitude)
-        # G-011: Log actual FLOPs for analysis but keep runtime*50.0 as the primary
-        # energy signal (changing the energy scale would affect D5 behavior).
-        # MLP FLOPs/cycle ≈ (1 + batch_size * train_steps) * (3 * forward_pass_FLOPs).
-        # For h=128, s=84: forward ≈ 78K FLOPs, each learn step ≈ 129× forward+backward ≈ 30M FLOPs.
+        # Energy estimates — FLOP-based primary signal for G' (AF-005 fix).
+        # MLP FLOPs/cycle: replay-buffer only (G-017), ~30M FLOPs at h=128, bs=32, ts=4.
+        # Gaussian FLOPs/cycle: O(s^3) for covariance + O(s^2) for posterior → ~600K FLOPs.
+        # For other modules, runtime*50.0 fallback provides ordinal plausibility.
         self.energy_log = {}
         for mod, runtime_s in self.runtime_log.items():
             self.energy_log[mod] = max(0.1, min(10.0, runtime_s * 50.0))
@@ -803,16 +812,25 @@ class CognitiveCycle:
         for mod, val in baseline.items():
             if mod not in self.energy_log:
                 self.energy_log[mod] = val
-        # Log estimated FLOPs for G' for analysis (G-011)
+        # FLOP-based G' energy (AF-005: replaces magic runtime*50.0 for the dominant module)
         if hasattr(self.gprime, 'hidden_dim'):
             h = self.gprime.hidden_dim
             s = self.state_dim
-            mlp_forward_flops = 3.0 * h * h + 2.0 * h * s  # single forward pass
+            a = self.gprime.action_dim
+            # Multiply-accumulate FLOPs: 2 per mult-add pair
+            fwd = 2.0 * ((s + a) * h + h * h + h * s)
             bs = getattr(self.gprime, 'batch_size', 32)
             ts = getattr(self.gprime, 'train_steps', 4)
-            total_passes = 1 + bs * ts  # online + batch passes
-            gprime_flops = mlp_forward_flops * total_passes * 3.0  # forward + 2× backward
-            self.energy_log["G'FLOPs"] = float(gprime_flops)  # logged but not used by RBTA
+            passes = bs * ts  # replay-buffer only (G-017: online removed)
+            total_flops = fwd * passes * 3.0
+            # Normalize: ~30M FLOPs → ~5.0 (middle of range, matches existing baseline)
+            gprime_energy = total_flops / 6_000_000.0
+            self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
+        elif hasattr(self.gprime, 'state_dim'):
+            s = getattr(self.gprime, 'state_dim', self.state_dim)
+            total_flops = 2.0 * s ** 3 + 4.0 * s ** 2
+            gprime_energy = total_flops / 100_000.0
+            self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
         # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
         if len(self.metrics_history) >= 5:
             recent_errs = [m.prediction_error for m in self.metrics_history[-10:]]

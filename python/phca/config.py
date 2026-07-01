@@ -48,10 +48,12 @@ class StateVector:
         values: float32 array of dimension d
         precision: per-element precision p_i (same dimension as values)
         timestamp: monotonic cycle counter
+        grounding_level: 0 (raw), 1 (feature), 2 (semantic — Phase 3.2+)
     """
     values: np.ndarray
     precision: np.ndarray
     timestamp: float = 0.0
+    grounding_level: int = 1
 
     def __post_init__(self):
         assert self.values.shape == self.precision.shape, \

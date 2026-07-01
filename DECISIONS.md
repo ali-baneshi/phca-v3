@@ -568,5 +568,37 @@ Every entry must reference the v3.0 specification section it affects.
 
 ---
 
-*End of Decision Log (as of Phase 4 gap audit completion — 20 of 26 findings resolved, 6 deferred).*
+## Decision D-057: FLOP-based primary energy for G' (Phase 4 gap audit — AF-005)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2
+- **Option chosen:** Replaced `runtime * 50.0` primary energy signal for G' module with FLOP-based estimate: `energy = max(0.1, min(10.0, flops / baseline))` where `baseline ≈ 30M FLOPs → 5.0 energy`. MLP FLOPs computed as `fwd_flops × batch_size × train_steps × 3.0` (forward + backward + gradient apply).
+- **Alternatives:** Keep `runtime * 50.0` (no physical basis). Normalize by total system FLOPs (requires hardware instrumentation). Use energy_cost context from MDIM (already consumed by D5, would create circular dependency).
+- **Rationale:** The magic constant `50.0` had no physical basis. FLOPs are a direct measure of computational work and scale with model activity (larger batch + more train steps = higher FLOPs = higher energy). Normalization ensures the signal stays within the `[0.1, 10.0]` energy range that D5/RBTA expect. For non-MLP modules, `runtime * 50.0` is retained as fallback since FLOP estimates aren't available for pgmpy/ASI/WM/CONSOL.
+- **v3.0 trace:** §2.1 Def 2.1 (resource bounds), §3.3 Def 3.5 (D5), Phase 4 gap audit finding AF-005
+
+## Decision D-058: MC Dropout for MLP confidence (Phase 4 gap audit — AF-001)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 1 (architectural fix — invalid measurement)
+- **Option chosen:** Replaced `confidence = exp(-0.5 × mean((pred - target)²))` with MC Dropout: N=20 stochastic forward passes with `dropout_rate=0.1` → per-dimension predictive variance → `confidence = mean(1 / (1 + v_i))`. Dropout is applied during both training and inference (Gal & Ghahramani 2016). The `_backward()` pass receives the dropout-modified activations from `_forward()` (not recomputed from z1/z2) for consistent gradient propagation.
+- **Alternatives:** Deep ensemble (requires 10× weights, 10× memory). Concrete dropout (adds learnable dropout rates). Test-time augmentation (does not capture model uncertainty). Laplace approximation (requires Hessian computation).
+- **Rationale:** MC Dropout is the simplest Bayesian NN approximation — no network architecture changes, no weight storage increase, no Hessian required. N=20 provides stable variance estimates at ~1ms per 20-pass batch. `dropout_rate=0.1` was chosen as a standard value for small NNs; the 10% dropout maintains sufficient model capacity while providing meaningful stochasticity. Inverse variance confidence is properly calibrated: confident predictions (low variance across MC samples) → confidence ≈ 1.0; uncertain predictions (high variance) → confidence → 0.0. The old exp(-MSE) formula was not a valid confidence measure because MSE depends on the target which is unknown at prediction time, and exp(-MSE) ≈ 0.14 for completely wrong predictions — implying false certainty.
+- **v3.0 trace:** §2.2 Def 2.4b (MLP G'), Phase 4 gap audit finding AF-001
+
+## Decision D-059: Closed-form Gaussian mutual information for empowerment (Phase 4 gap audit — AF-002)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 1 (architectural fix — invalid measurement)
+- **Option chosen:** Replaced `empowerment = std(confidences)` with closed-form Gaussian MI: `I = 0.5·log(det(2πe·Σ_{S'|S})) - 0.5·log(det(2πe·Σ_{S'|S,A}))`. Added `conditional_covariance()`, `gaussian_mutual_information()` to `gaussian.py`, `WorldModelGPrime.estimate_empowerment()` to `graph.py`. For MLP G', std(MC Dropout confidences) is retained (now calibrated by AF-001).
+- **Alternatives:** Monte Carlo estimate of MI via action marginalization (O(5 actions × 20 MC samples) = 100 forward passes). Variational lower bound on MI (complex, requires separate optimizer). Keep std(confidences) (mathematically not mutual information).
+- **Rationale:** For Gaussian BNs, the conditional covariance Σ_{S'|S,A} depends only on which variables are in the evidence set — not on their values. This means empowerment can be computed from the joint moment matrix via two Schur complements (one with state evidence only, one with state+action evidence) without running per-action inference. The computation is O(d_q · d_e² + d_e³) for each Schur complement, where d_q = 84 (query dims) and d_e = 84-89 (evidence dims). Total ≈ 3M FLOPs, well within the 50ms cycle budget. The old std(confidences) was measuring variation in per-action average confidence (MSE-based), which is a proxy for "how differently the model sees each action" but is not mutual information between action and next state. True MI measures how much information the action provides about the next state — the reduction in uncertainty from knowing which action was taken. This is what D6 should drive: seeking states where actions have high information content.
+- **v3.0 trace:** §3.3 Def 3.5 (D6 Empowerment), Phase 4 gap audit finding AF-002
+
+---
+
+*End of Decision Log (as of Phase 4 gap closure — all 5 AF findings resolved).*
 

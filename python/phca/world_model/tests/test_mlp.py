@@ -74,18 +74,18 @@ class TestForwardPass:
         pred, conf = mlp.predict(sample_state, sample_action)
         assert 0.0 < conf <= 1.0
 
-    def test_confidence_near_one_on_perfect_match(self, small_mlp):
-        """When prediction matches target exactly, confidence ≈ 1.0."""
+    def test_confidence_in_range(self, small_mlp):
+        """Confidence should be in (0, 1] for MC Dropout."""
         state = StateVector(
             values=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
             precision=np.ones(4, dtype=np.float32), timestamp=0.0,
         )
         action = np.array([1.0, 0.0], dtype=np.float32)
-        # Set target equal to the prediction itself
         pred, conf = small_mlp.predict(state, action)
-        expected_mse = 0.5 * float(np.mean((pred.values - state.values) ** 2))
-        expected_conf = float(np.exp(-expected_mse))
-        assert abs(conf - expected_conf) < 1e-6
+        assert 0.0 < conf <= 1.0
+        # MC Dropout confidence is based on predictive variance
+        # (unlike the old exp(-MSE) formula)
+        assert not np.isclose(conf, 1.0, atol=1e-4)
 
     def test_deterministic_with_seed(self):
         """Same seed should produce identical initial predictions."""

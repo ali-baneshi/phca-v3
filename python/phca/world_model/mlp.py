@@ -1,15 +1,22 @@
 """
-PHCA v3.0 — MLP World Model G' (Phase 3.3b).
+PHCA v3.0 — MLP World Model G' (Phase 3.3b, AF-001 fix).
 
 Replaces the Gaussian CPD Bayesian network with a learned
 feedforward MLP for GridWorld state spaces (values ∈ {0, 1, 2}).
 
 Architecture:  Input(89) → Linear(128) → ReLU → Linear(128) → ReLU → Linear(84)
 Loss:          MSE (mean squared error) — supports any target value range.
-Confidence:    exp(-mean_MSE)  (1.0 = perfect, → 0.0 as loss increases)
+Confidence:    MC Dropout (AF-001): 1/(1 + variance) from N=20 stochastic forward passes.
+               Previously: exp(-mean_MSE) — not a valid confidence measure.
 
 Pure NumPy — no PyTorch dependency. Manual forward/backward pass.
 Output is LINEAR (no sigmoid) because GridWorld states contain values 0, 1, and 2.
+
+AF-001 (Phase 4 gap audit): Added Monte Carlo Dropout for calibrated uncertainty.
+  - dropout_rate=0.1 applied after each ReLU during inference AND training.
+  - predict() runs mc_samples=20 stochastic forward passes.
+  - confidence = mean(1/(1 + per-dimension variance)) across MC samples.
+  - Training: forward/backward pass with dropout for consistent Bayesian interpretation.
 
 v3.0 References:
     - §2.2 Definition 2.4b (G' interface)
@@ -35,10 +42,16 @@ class WorldModelMLP:
     Interface-compatible with WorldModelGPrime.predict() and learn(),
     so the cognitive cycle requires no structural changes.
 
+    AF-001: Uses Monte Carlo Dropout for calibrated confidence.
+    dropout_rate=0.1 is applied during both training and inference.
+    Confidence = 1/(1 + mean_variance) from mc_samples=20 stochastic passes.
+
     Attributes:
         state_dim: Dimensionality of state vectors.
         action_dim: Dimensionality of action vectors.
         hidden_dim: Number of hidden units per layer.
+        dropout_rate: Dropout probability (AF-001, default 0.1).
+        mc_samples: Number of MC Dropout forward passes (AF-001, default 20).
     """
 
     def __init__(
@@ -51,6 +64,8 @@ class WorldModelMLP:
         replay_capacity: int = 500,
         batch_size: int = 32,
         train_steps: int = 4,
+        dropout_rate: float = 0.1,
+        mc_samples: int = 20,
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -59,6 +74,8 @@ class WorldModelMLP:
         self.replay_capacity = replay_capacity
         self.batch_size = batch_size
         self.train_steps = train_steps
+        self.dropout_rate = dropout_rate
+        self.mc_samples = mc_samples
         self.rng = np.random.RandomState(seed)
 
         input_dim = state_dim + action_dim
@@ -84,7 +101,11 @@ class WorldModelMLP:
     def predict(
         self, state: StateVector, action: np.ndarray
     ) -> Tuple[StateVector, float]:
-        """Predict next state given current state and action.
+        """Predict next state given current state and action (MC Dropout).
+
+        Runs mc_samples stochastic forward passes with dropout to estimate
+        both the mean prediction and the model's predictive uncertainty.
+        Confidence is derived from the per-dimension predictive variance.
 
         Args:
             state: Current state vector (state_dim,).
@@ -92,20 +113,28 @@ class WorldModelMLP:
 
         Returns:
             Tuple of (predicted_state, confidence):
-                predicted_state: StateVector with sigmoid outputs as values.
-                confidence: Prediction confidence in [0, 1].
+                predicted_state: StateVector with mean MC prediction as values.
+                confidence: Variance-based confidence in [0, 1].
         """
         x = np.concatenate([state.values.astype(np.float32), action.astype(np.float32)])
+
+        predictions = []
+        last_activations = None
+        for _ in range(self.mc_samples):
+            z1, z2, out, _, _ = self._forward(x, training=True)
+            predictions.append(out)
+            last_activations = (z1, z2, out)
         self._last_input = x
+        self._last_activations = last_activations
 
-        z1, z2, out = self._forward(x)
-        self._last_activations = (z1, z2, out)
-
-        confidence = self._compute_confidence(out, state.values.astype(np.float32))
+        preds = np.stack(predictions, axis=0)
+        mean_pred = np.mean(preds, axis=0)
+        var_pred = np.var(preds, axis=0) + _EPS
+        confidence = float(np.mean(1.0 / (1.0 + var_pred)))
 
         return (
             StateVector(
-                values=out.astype(np.float32),
+                values=mean_pred.astype(np.float32),
                 precision=np.full(self.state_dim, confidence, dtype=np.float32),
                 timestamp=state.timestamp + 1.0,
                 grounding_level=state.grounding_level,
@@ -170,15 +199,15 @@ class WorldModelMLP:
             return
 
         # Train on mini-batches from replay buffer only (G-017 fix)
-        # Note: current attention_weights are applied to all batch samples as
-        # an approximation (the weights change slowly with prediction error).
+        # Dropout is applied during training (AF-001) for consistent
+        # Bayesian interpretation with MC Dropout at inference time.
         for _ in range(self.train_steps):
                 indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
                 avg_grad: Optional[Dict[str, np.ndarray]] = None
                 for idx in indices:
                     bx, btarget = self._replay_buffer[idx]
-                    bz1, bz2, bout = self._forward(bx)
-                    bgrad = self._backward(bx, bz1, bz2, bout, btarget, attention_weights)
+                    bz1, bz2, bout, ba1, ba2 = self._forward(bx, training=True)
+                    bgrad = self._backward(bx, bz1, bz2, bout, ba1, ba2, btarget, attention_weights)
                     if avg_grad is None:
                         avg_grad = {k: v.copy() for k, v in bgrad.items()}
                     else:
@@ -197,25 +226,43 @@ class WorldModelMLP:
 
     # ── Internal Methods ──────────────────────────────────────
 
-    def _forward(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Forward pass.
+    def _forward(
+        self, x: np.ndarray, training: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Forward pass with optional dropout (AF-001).
+
+        When training=True, inverted dropout is applied after each ReLU.
+        The dropout mask is independent per call (Bernoulli(1-dropout_rate)).
+        Dropped activations are scaled by 1/(1-dropout_rate) to maintain
+        expected activation magnitude (inverted dropout).
 
         Args:
             x: Input vector (state_dim + action_dim,).
+            training: If True, apply dropout after each ReLU.
 
         Returns:
-            Tuple of (z1, z2, out):
+            Tuple of (z1, z2, out, a1, a2):
                 z1: Pre-activation of layer 1.
                 z2: Pre-activation of layer 2.
-                out: Sigmoid output (state_dim,).
+                out: Linear output (state_dim,).
+                a1: Post-ReLU activation of layer 1 (with dropout if training).
+                a2: Post-ReLU activation of layer 2 (with dropout if training).
         """
         z1 = x @ self.w1 + self.b1
         a1 = np.maximum(0, z1)
+        if training and self.dropout_rate > 0:
+            mask1 = (self.rng.random(a1.shape) > self.dropout_rate).astype(np.float32)
+            mask1 /= 1.0 - self.dropout_rate
+            a1 = a1 * mask1
         z2 = a1 @ self.w2 + self.b2
         a2 = np.maximum(0, z2)
+        if training and self.dropout_rate > 0:
+            mask2 = (self.rng.random(a2.shape) > self.dropout_rate).astype(np.float32)
+            mask2 /= 1.0 - self.dropout_rate
+            a2 = a2 * mask2
         z3 = a2 @ self.w3 + self.b3
         out = z3  # linear output — GridWorld states contain values 0, 1, 2
-        return z1, z2, out
+        return z1, z2, out, a1, a2
 
     def _backward(
         self,
@@ -223,6 +270,8 @@ class WorldModelMLP:
         z1: np.ndarray,
         z2: np.ndarray,
         out: np.ndarray,
+        a1: np.ndarray,
+        a2: np.ndarray,
         target: np.ndarray,
         attention_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, np.ndarray]:
@@ -235,11 +284,17 @@ class WorldModelMLP:
         per-dimension so that high-salience dimensions receive larger
         updates (A5: Feedback-Driven Adaptation).
 
+        Takes pre-computed a1, a2 from the forward pass (which may include
+        dropout masks during training — AF-001) to ensure gradients are
+        consistent with the forward computation.
+
         Args:
             x: Input vector (state_dim + action_dim,).
             z1: Pre-activation of layer 1 (hidden_dim,).
             z2: Pre-activation of layer 2 (hidden_dim,).
             out: Linear output (state_dim,).
+            a1: Post-ReLU activation of layer 1 (from _forward).
+            a2: Post-ReLU activation of layer 2 (from _forward).
             target: Target vector (state_dim,).
             attention_weights: Optional per-dimension salience weights
                 for modulating gradients (state_dim,).
@@ -254,8 +309,6 @@ class WorldModelMLP:
         # Apply per-dimension attention weighting (A5 fix)
         if attention_weights is not None and attention_weights.shape[0] == d_out.shape[0]:
             d_out = d_out * attention_weights.astype(np.float32)
-        a1 = np.maximum(0, z1)
-        a2 = np.maximum(0, z2)
 
         # Layer 3: Linear(128 -> 84)
         d_z3 = d_out
@@ -287,33 +340,13 @@ class WorldModelMLP:
             "gprime_b3": np.ascontiguousarray(grad_b3.astype(np.float32)),
         }
 
-    @staticmethod
-    def _compute_confidence(prediction: np.ndarray, target: np.ndarray) -> float:
-        """Compute prediction confidence from MSE loss.
-
-        confidence = exp(-mean_MSE)
-        where MSE = 0.5 * mean((prediction - target)²)
-        - perfect prediction (MSE ≈ 0) → 1.0
-        - For GridWorld states {0, 1, 2}, random pred ≈1 gives MSE ≈0.5 → ~0.6
-        - poor prediction (MSE > 2) → ~0.14
-
-        Args:
-            prediction: Linear output (state_dim,).
-            target: Target vector (state_dim,).
-
-        Returns:
-            Confidence in [0, 1].
-        """
-        mse = 0.5 * float(np.mean((prediction - target) ** 2))
-        return float(np.exp(-max(mse, 0.0)))
-
     def get_prediction_accuracy(
         self, state: np.ndarray, action: np.ndarray, target: np.ndarray
     ) -> float:
         """Get MLP prediction accuracy on a given (state, action, target).
 
         Used to sync TSPL skill_accuracy from actual MLP performance (G-019).
-        Runs a forward pass and returns confidence.
+        Uses MC Dropout (AF-001): confidence = mean(1/(1 + per-dimension variance)).
 
         Args:
             state: Current state vector (state_dim,).
@@ -324,8 +357,13 @@ class WorldModelMLP:
             Confidence in [0, 1].
         """
         x = np.concatenate([state.astype(np.float32), action.astype(np.float32)])
-        _, _, out = self._forward(x)
-        return self._compute_confidence(out, target.astype(np.float32))
+        predictions = []
+        for _ in range(self.mc_samples):
+            _, _, out, _, _ = self._forward(x, training=True)
+            predictions.append(out)
+        preds = np.stack(predictions, axis=0)
+        var_pred = np.var(preds, axis=0) + _EPS
+        return float(np.mean(1.0 / (1.0 + var_pred)))
 
     def _apply_gradient(
         self, grad: Dict[str, np.ndarray], lr: float = 0.01

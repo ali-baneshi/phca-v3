@@ -25,6 +25,8 @@ from phca.logging import logger, _log
 from phca.world_model.gaussian import (
     compute_joint_moments,
     posterior,
+    conditional_covariance,
+    gaussian_mutual_information,
     confidence_from_variance,
     sample_posterior,
 )
@@ -573,6 +575,68 @@ class WorldModelGPrime:
             avg_confidence,
         )
 
+    def estimate_empowerment(
+        self,
+        state: Optional[StateVector] = None,
+        action: Optional[np.ndarray] = None,
+    ) -> float:
+        """Compute closed-form empowerment I(S';A|S) for Gaussian BN (AF-002).
+
+        Uses the Gaussian BN structure to compute mutual information
+        between action A and next state S' given current state S:
+
+            I(S';A|S) = H(S'|S) - H(S'|A,S)
+
+        For Gaussian BNs, the conditional covariance does not depend on
+        the specific evidence values — only on which variables are observed.
+        Therefore, the state and action arguments are optional (used only
+        for the conditional mean, which is not needed for MI).
+
+        Returns:
+            Empowerment in nats (≥ 0), clamped to [0.0, 1.0].
+        """
+        if not self.has_gaussian_nodes():
+            return 0.0
+
+        try:
+            node_order, betas, sigmas, parents_dict = self._get_gaussian_topology()
+            if self._cached_joint_moments is None:
+                self._cached_joint_moments = compute_joint_moments(
+                    node_order, betas, sigmas, parents_dict
+                )
+            mu, cov = self._cached_joint_moments
+        except (ValueError, np.linalg.LinAlgError):
+            return 0.3
+
+        # Identify variable groups
+        state_t_vars = sorted([n for n in node_order if n.endswith("_t") and not n.startswith("a")])
+        action_vars = sorted([n for n in node_order if n.startswith("a") and n.endswith("_t")])
+        state_t1_vars = sorted([n for n in node_order if n.endswith("_t1")])
+
+        if not state_t1_vars or not state_t_vars:
+            return 0.0
+
+        try:
+            # Σ_{S'|S}: covariance of S' given S (marginalized over A)
+            Σ_S_given_S = conditional_covariance(
+                mu, cov, state_t_vars, state_t1_vars, node_order
+            )
+
+            # Σ_{S'|S,A}: covariance of S' given S and A
+            if action_vars:
+                evidence_sa = state_t_vars + action_vars
+            else:
+                evidence_sa = state_t_vars
+            Σ_S_given_SA = conditional_covariance(
+                mu, cov, evidence_sa, state_t1_vars, node_order
+            )
+
+            empowerment = gaussian_mutual_information(Σ_S_given_S, Σ_S_given_SA)
+            return float(np.clip(empowerment, 0.0, 1.0))
+
+        except (ValueError, np.linalg.LinAlgError):
+            return 0.3
+
     # ── Continuous GridWorld Builder ──────────────────────────
 
     @classmethod
@@ -865,11 +929,13 @@ def _result_to_dict(
 
     # Multi-variable result: extract marginals for each expected var
     result_dict: Dict[str, np.ndarray] = {}
-    all_vars = list(scope)
 
     for var_name in expected_vars:
         if var_name in scope:
-            result_dict[var_name] = values.flatten() if len(all_vars) == 1 else values
+            var_idx = scope.index(var_name)
+            other_axes = tuple(i for i in range(len(scope)) if i != var_idx)
+            marginal = np.sum(values, axis=other_axes) if other_axes else values
+            result_dict[var_name] = marginal.flatten()
         else:
             result_dict[var_name] = np.ones(2, dtype=np.float32) / 2.0
 
