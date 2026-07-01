@@ -106,6 +106,7 @@ class CognitiveCycle:
         state_dim: int,
         rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
         metrics_store: Optional["MetricsStore"] = None,
+        observability_store: Optional["ObservabilityStore"] = None,
     ):
         self.sanitizer = sanitizer
         self.m1 = m1
@@ -127,6 +128,7 @@ class CognitiveCycle:
 
         self.cycle_count: int = 0
         self.metrics_store = metrics_store
+        self.observability_store = observability_store
 
         self.current_state: Optional[StateVector] = None
         self.current_goal: GoalVector = GoalVector(
@@ -524,6 +526,12 @@ class CognitiveCycle:
             # observing a mutating object (G-009: thread-safe monitoring)
             if self.metrics_store is not None:
                 self.metrics_store.push(copy.deepcopy(metrics))
+            # Visual Observability Layer (Phase 7 ext): opt-in, zero-overhead
+            # when None. Frame build + ring push only; rendering/recording run
+            # off the hot path in the visualiser thread.
+            if self.observability_store is not None:
+                from phca.monitoring.observability import ObservabilityFrame
+                self.observability_store.push(ObservabilityFrame.from_cycle(self))
             if len(self.metrics_history) > 10000:
                 self.metrics_history = self.metrics_history[-5000:]
 
@@ -985,6 +993,7 @@ class CognitiveCycle:
         gprime_b_time: float = 0.020,
         action_b_time: float = 0.020,
         metrics_store: Optional["MetricsStore"] = None,
+        observability_store: Optional["ObservabilityStore"] = None,
     ) -> CognitiveCycle:
         """Build a fully-configured cognitive cycle for any EnvironmentProtocol.
 
@@ -1095,6 +1104,7 @@ class CognitiveCycle:
             consolidation=consolidation, env=env,
             state_dim=state_dim,
             metrics_store=metrics_store,
+            observability_store=observability_store,
         )
 
     # ── Backward-Compatible Builders ───────────────────────
@@ -1107,6 +1117,7 @@ class CognitiveCycle:
         use_mlp: bool = True,
         use_continuous: bool = True,
         metrics_store: Optional["MetricsStore"] = None,
+        observability_store: Optional["ObservabilityStore"] = None,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for a MuJoCo physics environment.
 
@@ -1147,6 +1158,7 @@ class CognitiveCycle:
             gprime_b_time=0.080,      # MuJoCo physics sim overhead
             action_b_time=0.050,      # MuJoCo step() overhead
             metrics_store=metrics_store,
+            observability_store=observability_store,
         )
 
     @classmethod
@@ -1159,6 +1171,7 @@ class CognitiveCycle:
         use_mlp: bool = False,
         obstacles: Optional[List[tuple]] = None,
         metrics_store: Optional["MetricsStore"] = None,
+        observability_store: Optional["ObservabilityStore"] = None,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for GridWorld.
 
@@ -1192,6 +1205,7 @@ class CognitiveCycle:
             use_mlp=use_mlp, use_continuous=use_continuous,
             gprime_b_time=0.050 if use_mlp else 0.020,  # MLP needs wider G' bound
             metrics_store=metrics_store,
+            observability_store=observability_store,
         )
         # If state_dim was overridden, update the cycle's state_dim
         if state_dim is not None and state_dim != actual_state_dim:

@@ -21,3 +21,6 @@ orjson==3.9.13
 
 # CLI
 click==8.1.7
+
+# Visual Observability Layer (Phase 7 ext) — graphical live view + replay
+matplotlib==3.11.0
