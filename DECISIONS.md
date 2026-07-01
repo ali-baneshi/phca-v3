@@ -1194,3 +1194,20 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** One command runs the whole hardening suite; each stage exits non-zero on its own failure, so `make nightly` is a single CI signal. The neg-test guarantees the MuJoCo gate is non-vacuous. The stress length is overrideable so CI runs 1k quickly and a true soak can run 10k.
 - **v3.0 trace:** §6 (CI hardening), A1–A5 (all exercised by the nightly suite).
 - **Tests/Validation:** Gate C PASS — `make nightly NIGHTLY_CYCLES=1000` exit 0; 332 unit tests green.
+
+## Decision D-105: Phase 6 D1–D5 — documentation overhaul + completion report
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 3 (documentation — sync all references to the Phase 6 final state)
+- **Problem:** Phase 6 / D1–D5 must sync all docs to the final measured state (continuous actions, OOD/assumption measurement, CI hardening) with honest findings, mirroring the Phase 5 report structure.
+- **Option chosen:**
+  - **D1** [README.md](README.md): Phase 6 status header (332 tests, Φ-IQ 0.7414, continuous Pendulum); Quick Start adds OOD calibration, assumption validation --ci, `make nightly`, MuJoCo gate + neg-test; action-branch Mermaid; ActionSpace in Module Map; measured A1–A5; MuJoCo table (Pendulum continuous, Reacher Phase 7 target); Phase 6 scientific/CI hardening subsection; revised limitations (Reacher-continuous + M3/M4 retention + discrete-selector geometry); new scripts in project structure.
+  - **D2** [docs/architecture.md](docs/architecture.md): action-branch cycle diagram + step-9 row; ActionSpace/Cycle/MuJoCo/Config module map rows; measured invariants; Phase 6 Φ-IQ numbers; MuJoCo continuous table; new "Phase 6 — Scientific & CI Hardening (measured)" section with OOD/assumption/nightly tables + the honest M3/M4 finding; D-095–D-105 references.
+  - **D3** [STATUS.md](STATUS.md): Phase 6 complete; 332 tests (299 + 33); Phase 6 benchmark table; TC-4 (nightly stress) + TC-5 (assumption validation) marked Done; execution log extended D-095–D-104.
+  - **D4** [DECISIONS.md](DECISIONS.md): D-095–D-105 appended — every change AND the honestly-reverted A4/A5 attempts (D-101), with measured numbers.
+  - **D5** [docs/phase6_completion_report.md](docs/phase6_completion_report.md): new report mirroring the Phase 5 structure (mission recap, final state, workstreams A–D, surgical compliance, limitations, sign-off).
+- **Results:** All docs reflect the final measured state (332 tests, Φ-IQ 0.7414, Pendulum continuous 7.4 ms / 0 violations, OOD drop 0.7129, 4/4 assumptions PASS, `make nightly` exit 0). Honest findings (rejected A4/A5 designs, M3/M4 retention growth, Reacher-continuous deferral) recorded, not masked.
+- **Rationale:** Phase 6's scientific-hardening goal requires the claims to be *measured and documented*, not asserted — the docs now cite the measured curves and PASS/FAIL results with source log files.
+- **v3.0 trace:** §6 (documentation), A1–A5 (all measured).
+- **Tests/Validation:** docs-only change; 332 unit tests still green; `make nightly` still exit 0.
