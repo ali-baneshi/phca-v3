@@ -416,7 +416,7 @@ class MDIM:
         winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
 
         # Generate goal from winning drive
-        goal = self._goal_from_drive(winner, weights[int(winner) - 1])
+        goal = self._goal_from_drive(winner, weights[int(winner) - 1], context)
 
         # Push onto goal stack
         self._push_goal(goal)
@@ -436,6 +436,7 @@ class MDIM:
 
     def _goal_from_drive(
         self, drive_id: int, priority: float,
+        context: Optional[Dict[str, Any]] = None,
     ) -> GoalVector:
         """Generate a concrete goal from a drive's current state.
 
@@ -444,6 +445,7 @@ class MDIM:
         Args:
             drive_id: Drive identifier (1-6).
             priority: Softmax weight for this goal.
+            context: Optional system context dict (may contain env_goal_pos, size).
 
         Returns:
             GoalVector with drive-specific target.
@@ -451,11 +453,29 @@ class MDIM:
         drive = self.drives[drive_id]
 
         if drive_id == 1:
-            # D1: Explore uncertain regions where confidence is low
-            target = StateVector(
-                values=np.ones(self.state_dim, dtype=np.float32) * 0.5,
-                precision=np.ones(self.state_dim, dtype=np.float32) * 0.3,
-            )
+            # D1: Explore uncertain regions where confidence is low.
+            # When environment provides a goal position, bias target toward it.
+            env_goal = context.get("env_goal_pos", None) if context else None
+            grid_size = context.get("size", 0) if context else 0
+            if env_goal is not None and grid_size > 0:
+                goal_idx = env_goal[0] * grid_size + env_goal[1]
+                agent_dims = grid_size * grid_size
+                if goal_idx < agent_dims and agent_dims <= self.state_dim:
+                    target = StateVector(
+                        values=np.zeros(self.state_dim, dtype=np.float32),
+                        precision=np.ones(self.state_dim, dtype=np.float32) * 0.5,
+                    )
+                    target.values[goal_idx] = 1.0
+                else:
+                    target = StateVector(
+                        values=np.ones(self.state_dim, dtype=np.float32) * 0.5,
+                        precision=np.ones(self.state_dim, dtype=np.float32) * 0.3,
+                    )
+            else:
+                target = StateVector(
+                    values=np.ones(self.state_dim, dtype=np.float32) * 0.5,
+                    precision=np.ones(self.state_dim, dtype=np.float32) * 0.3,
+                )
             tolerance = 0.3
         elif drive_id == 2:
             # D2: Seek criticality — adjust exploration noise

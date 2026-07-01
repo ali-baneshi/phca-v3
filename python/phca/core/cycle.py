@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import copy
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -380,6 +381,10 @@ class CognitiveCycle:
                 "consolidation_facts": total_facts,
                 "fact_confidence_mean": fact_confidence_mean,
                 "fact_count": fact_count,
+
+                # S-003: Environment goal position for MDIM drive targets
+                "env_goal_pos": self.env.get_goal_position(),
+                "size": self.env.size if hasattr(self.env, "size") else 0,
             }
             self.current_goal = self.mdim.generate_goal(mdim_context)
             metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
@@ -545,7 +550,7 @@ class CognitiveCycle:
         with ε-greedy exploration and drive-appropriate scoring.
 
         The blend depends on the MDIM goal's drive_id:
-          D1/D3 (error/competence): distance gain + confidence
+          D1/D3 (error/competence): distance gain + confidence + success history
           D2/D4 (exploration): uncertainty + distance gain
           D5 (energy): STAY
           D6 (empowerment): state-space alignment
@@ -558,7 +563,7 @@ class CognitiveCycle:
         target = goal.target_state if goal else None
 
         # Adaptive ε-greedy: explore less as model converges
-        eps = max(0.01, 0.10 * (1.0 - self.cycle_count / 500.0))
+        eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         rng = np.random.RandomState(self.cycle_count)
         if rng.random() < eps:
             return int(rng.randint(0, self.env.action_space_size))

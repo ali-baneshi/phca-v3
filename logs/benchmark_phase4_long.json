@@ -1,0 +1,116 @@
+{
+  "config": {
+    "n_cycles": 200,
+    "warmup": 10,
+    "seed": 42,
+    "grid_size": 5,
+    "use_continuous": true,
+    "use_mlp": true,
+    "weights": {
+      "prediction_accuracy": 0.2,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 0.15,
+      "transfer_efficiency": 0.15,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 0,
+      "level_name": "Stationary Prediction",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.5869184149654532,
+      "adaptation_speed": 0.6784582446060272,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.39819963754441323,
+      "resource_efficiency": 0.9290901024860796,
+      "failure_rate": 0.0,
+      "phi_iq": 0.6486232980431741,
+      "raw_metrics": {
+        "mean_error": 4.130815850345468,
+        "mean_confidence": 0.9738766790261266,
+        "mean_latency_ms": 35.45494875696022,
+        "p95_latency_ms": 55.34910056740045,
+        "violations": 0,
+        "skill_accuracy": 0.9945451863303415,
+        "skill_compiled": true,
+        "active_drives": 5
+      }
+    },
+    {
+      "level": 1,
+      "level_name": "Reactive Control",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.685084822145266,
+      "adaptation_speed": 0.7904533182789599,
+      "goal_complexity": 0.8,
+      "transfer_efficiency": 0.5415275709672766,
+      "resource_efficiency": 0.9285329959727824,
+      "failure_rate": 0.0,
+      "phi_iq": 0.6820433629244932,
+      "raw_metrics": {
+        "mean_error": 3.14915177854734,
+        "mean_latency_ms": 35.73350201360881,
+        "p95_latency_ms": 55.67905210191383,
+        "violations": 0,
+        "unique_actions": 4,
+        "skill_accuracy": 0.9951016482162524,
+        "skill_compiled": true
+      }
+    },
+    {
+      "level": 2,
+      "level_name": "Goal Pursuit",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.5587169592644785,
+      "adaptation_speed": 0.0,
+      "goal_complexity": 0.22,
+      "transfer_efficiency": 0.0,
+      "resource_efficiency": 0.9274887751333881,
+      "failure_rate": 0.0,
+      "phi_iq": 0.33024114687957334,
+      "raw_metrics": {
+        "mean_error": 4.412830407355215,
+        "mean_latency_ms": 36.25561243330594,
+        "p95_latency_ms": 58.54341490776278,
+        "violations": 0,
+        "goals_reached": 44,
+        "goal_rate": 0.22,
+        "skill_accuracy": 0.9710255914071536
+      }
+    },
+    {
+      "level": 3,
+      "level_name": "Self-Motivated Exploration",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.5904584047398069,
+      "adaptation_speed": 0.8,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.4723667237918456,
+      "resource_efficiency": 0.9169538102089427,
+      "failure_rate": 0.01,
+      "phi_iq": 0.6813374515585268,
+      "raw_metrics": {
+        "mean_error": 4.095415952601931,
+        "mean_latency_ms": 41.52309489552863,
+        "p95_latency_ms": 65.34266645030581,
+        "violations": 2,
+        "unique_actions": 4,
+        "active_drives": 5,
+        "m3_episodes": 210,
+        "consolidation_facts": 98,
+        "skill_accuracy": 0.9940697009637389
+      }
+    }
+  ],
+  "overall_phi_iq": 0.5855613148514418,
+  "total_cycles": 800,
+  "duration_s": 30.314756665029563,
+  "pass_criteria": {
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": true,
+    "goal_autonomy_achieved": true,
+    "phi_iq_above_0_5": true
+  }
+}
