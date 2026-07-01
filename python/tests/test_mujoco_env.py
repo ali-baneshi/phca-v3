@@ -61,10 +61,13 @@ def test_get_observation_caching():
 
 
 def test_pendulum_env_creation():
-    """Pendulum environment has correct dimensions."""
+    """Pendulum environment has a 1-D continuous action space (Phase 6 / A3)."""
     env = MuJoCoSimpleEnv("Pendulum-v1", seed=42)
-    assert env.action_space_size == 3
+    # A3: Pendulum is now continuous (torque ∈ [-2,2], dim 1).
+    assert env.action_space_size == 1
     assert env.get_state_dim() == 3
+    from phca.config import ContinuousSpace
+    assert isinstance(env.get_action_space(), ContinuousSpace)
     obs = env.reset()
     assert obs.shape == (3,)
     assert obs.dtype == np.float32

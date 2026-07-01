@@ -27,12 +27,19 @@ def test_build_for_mujoco_cartpole():
 
 
 def test_build_for_mujoco_pendulum():
-    """build_for_mujoco creates a correctly-configured cycle for Pendulum."""
+    """build_for_mujoco creates a correctly-configured cycle for Pendulum.
+
+    Phase 6 / A3: Pendulum is now continuous (1-D torque), so
+    action_space_size == 1 and the space is ContinuousSpace.
+    """
     cycle = CognitiveCycle.build_for_mujoco(
         "Pendulum-v1", seed=42, use_mlp=True,
     )
-    assert cycle.env.action_space_size == 3
+    assert cycle.env.action_space_size == 1
     assert cycle.state_dim == 3
+    assert cycle._is_continuous is True
+    from phca.config import ContinuousSpace
+    assert isinstance(cycle.action_space, ContinuousSpace)
 
 
 def test_single_cycle_cartpole():

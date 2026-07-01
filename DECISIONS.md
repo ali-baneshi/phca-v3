@@ -1061,3 +1061,50 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Minimal type plumbing with no behaviour change. The continuous branch (A2) and Pendulum wiring (A3) consume these types.
 - **v3.0 trace:** §3.2 (typed module composition), A1 (no runtime cost added), A4 (prediction path unchanged).
 - **Tests/Validation:** 325 passed 0 errors.
+
+## Decision D-097: Phase 6 A2 — continuous _select_action() MPC branch + Union action handling in step()
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 1 (architectural unlock — first change to _select_action return type & action-vector contract since Phase 3.1)
+- **Problem:** Phase 6 / A2 needs the cycle to emit continuous actions for ContinuousSpace envs while leaving the discrete GridWorld/Cartpole/Reacher path byte-identical. Must preserve A4 (predict every cycle) and A5 (PEU error → learn every cycle).
+- **Option chosen:** In [python/phca/core/cycle.py](python/phca/core/cycle.py): (1) `__init__` resolves `self.action_space` via `getattr(env, "get_action_space", fallback DiscreteSpace(n))()` and sets `self._is_continuous`. (2) `_select_action()` returns `Union[int, np.ndarray]` — branches to new `_select_continuous_action()` when continuous, else the verbatim discrete logic. (3) New `_select_continuous_action()`: MPC-style — sample K=8 candidates ~ U(low, high) (A1-capped K·dim ≤ 16 forward passes), per-candidate `engine.update_action(a)` then `engine.predict`, score = 0.4·confidence + 0.5·goal_reference_alignment + 0.1·PGA, ε-greedy returns a random in-bounds action. Prediction/goal-driven — NO reward, NO value function, NO policy gradient. (4) `step()` handles Union: continuous → `action_vec = a` (raw), `env.step(ndarray)`, `action_taken=-1`, `action_name="continuous"`; discrete → verbatim one-hot. ~50 lines net, 1 file.
+- **Results:** 325 tests pass, 0 errors. Canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7419** (L0 0.7073 / L1 0.7134 / L2 0.7784 / L3 0.7684), gate PASS (0.7419 ≥ 0.5486). Continuous branch dormant (no env is ContinuousSpace yet — A3 flips Pendulum). No regression vs A0 (0.7415) or reported (0.7419). `logs/phase6_a2_bench.json`.
+- **Rationale:** The continuous branch is prediction/goal-driven by construction (it calls G'.predict per candidate and scores by goal-reference alignment), preserving A4/A5. The discrete branch is untouched. Dormant until A3, so A2 is independently verifiable as a no-regression change.
+- **v3.0 trace:** §3.2 (typed composition), A1 (K·dim ≤ 16 forward passes), A4 (predict per candidate), A5 (learn every cycle, action_vec fed to gprime.learn unchanged).
+- **Tests/Validation:** 325 passed 0 errors; Φ-IQ 0.7419 gate PASS.
+
+## Decision D-098: Phase 6 A3 — wire Pendulum-v1 to a true continuous action space
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 1 (architectural unlock — first env emitting continuous actions)
+- **Problem:** Phase 6 / A3 must make Pendulum-v1 emit true continuous torque ∈ [-2,2] (dim 1) so the MLP learns continuous dynamics and the MPC continuous selector (A2) is exercised end-to-end. Cartpole stays discrete (3 bins native); Reacher stays discrete (Reacher-continuous deferred to Phase 7, D-095 plan).
+- **Option chosen:** In [python/phca/environments/mujoco_env.py](python/phca/environments/mujoco_env.py): (a) added `_CONTINUOUS_ENVS = {"Pendulum-v1": ([-2.0],[2.0],1)}` class constant; (b) `__init__` sets `action_space_size = dim` for continuous envs (else `len(_action_map)`); (c) `get_action_space()` returns `ContinuousSpace([-2,2], dim=1)` for Pendulum, `DiscreteSpace` otherwise; (d) `get_goal_reference()` returns upright `[1.0, 0.0, 0.0]` for Pendulum (verified obs = [cos θ, sin θ, ang_vel], upright θ=0 → [1,0,0]) and None otherwise; (e) `step(action)` accepts `Union[int, np.ndarray]` — continuous vector passed straight to gymnasium, discrete int mapped via `_action_map`. Updated 2 existing test assertions (`test_pendulum_env_creation`, `test_build_for_mujoco_pendulum`) to the continuous space. 3 files, ~45 lines net.
+- **Results (this machine):**
+  - Pendulum 100-cyc continuous: mean latency **7.4 ms** (< 300 ms), error **29.628 → 0.683** (MLP learns continuous dynamics, improved=True), **0 RBTA violations**, C1/C3/C4/C6 all PASS. `logs/phase6_a3_pendulum.json`.
+  - Cartpole 100-cyc discrete: 5.0 ms, error 3.65→0.25, 0 violations, PASS — no regression. `logs/phase6_a3_cartpole.json`.
+  - Reacher 100-cyc discrete: 6.2 ms, error 512→91.7, 0 violations, PASS — no regression (Reacher stays discrete as planned). `logs/phase6_a3_reacher.json`.
+  - GridWorld canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7414** (L0 0.7064 / L1 0.7135 / L2 0.7783 / L3 0.7673), gate PASS (0.7414 ≥ 0.5486). `logs/phase6_a3_static.json`.
+  - 325 tests pass, 0 errors.
+- **Rationale:** Pendulum is the minimal clean continuous env (1-D, fixed upright reference) — proves the MPC continuous path, the Union action contract, and the `get_goal_reference()` mechanism without Reacher's 2D-target surgical-budget risk. The continuous branch is prediction/goal-driven (scores by confidence + upright-reference alignment), NOT RL.
+- **v3.0 trace:** §3.2 (typed composition), A1 (7.4 ms ≪ 500 ms), A4 (predict per candidate + per cycle), A5 (gprime.learn on continuous action_vec every cycle).
+- **Tests/Validation:** 325 passed 0 errors; Pendulum/Cartpole/Reacher benchmarks PASS; static gate PASS.
+
+## Decision D-099: Phase 6 A4 — continuous-action unit tests + Gate A PASS
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 3 (test coverage + gate)
+- **Problem:** Phase 6 / A4 must add unit tests for the continuous-action path and a regression guard that Reacher/Cartpole/GridWorld stay discrete. Gate A then requires Pendulum 100-cyc continuous (0 errors/viol, <300 ms, err↓) + Cartpole/Reacher still PASS discrete + GridWorld Φ-IQ ≥ 0.73.
+- **Option chosen:** New [python/tests/test_continuous_actions.py](python/tests/test_continuous_actions.py) (7 tests, ~95 lines): `test_pendulum_action_space_continuous`, `test_pendulum_get_goal_reference`, `test_cycle_pendulum_continuous_step_no_nan` (20 cyc, action_taken==-1, action_name=="continuous", 0 violations), `test_continuous_action_within_bounds`, `test_reacher_still_discrete` (regression: DiscreteSpace(5), step(int) works), `test_cartpole_still_discrete`, `test_discrete_gridworld_unchanged` (regression: int action, action_name in 5 GridWorld actions). 1 new file, no production change.
+- **Results:**
+  - 7 new tests PASS. Total **332 passed, 0 errors** (325 + 7).
+  - **Gate A PASS** (numbers from A3 verification, unchanged by A4 which adds only a test file):
+    - Pendulum 100-cyc continuous: 7.4 ms, error 29.6→0.68, 0 violations, C1/C3/C4/C6 PASS.
+    - Cartpole 100-cyc discrete: 5.0 ms, error 3.65→0.25, 0 violations, PASS.
+    - Reacher 100-cyc discrete: 6.2 ms, error 512→91.7, 0 violations, PASS.
+    - GridWorld canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7414** (≥ 0.73), gate PASS.
+- **Rationale:** Dedicated tests lock the continuous path and the discrete regression guards. Gate A confirms the architectural unlock (Pendulum continuous) with no regression to the canonical discrete benchmark.
+- **v3.0 trace:** A1 (bounds), A4 (prediction path tested), A5 (continuous learn path exercised).
+- **Tests/Validation:** 332 passed 0 errors; Gate A PASS.

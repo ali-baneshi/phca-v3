@@ -56,6 +56,13 @@ class MuJoCoSimpleEnv:
         4: np.array([ 1.0,  1.0], dtype=np.float32),
     }
 
+    # Phase 6 / A3: envs with a true continuous action space. Pendulum-v1
+    # torque ∈ [-2, 2], dim 1. Reacher-continuous is deferred to Phase 7.
+    _CONTINUOUS_ENVS: Dict[str, Tuple[np.ndarray, np.ndarray, int]] = {
+        "Pendulum-v1": (np.array([-2.0], dtype=np.float32),
+                        np.array([2.0], dtype=np.float32), 1),
+    }
+
     # ── Action names (for PHCA logging and get_action_names) ─
 
     _ACTION_NAMES: Dict[str, List[str]] = {
@@ -85,7 +92,14 @@ class MuJoCoSimpleEnv:
 
         # Build discrete-to-continuous action mapping
         self._action_map: Dict[int, np.ndarray] = self._build_action_map()
-        self.action_space_size: int = len(self._action_map)
+        # Phase 6 / A3: continuous envs expose a true continuous space;
+        # action_space_size = continuous dim so the MLP learns continuous
+        # dynamics. Discrete envs keep action_space_size = len(action_map).
+        self._continuous_cfg = self._CONTINUOUS_ENVS.get(env_name)
+        if self._continuous_cfg is not None:
+            self.action_space_size: int = self._continuous_cfg[2]
+        else:
+            self.action_space_size = len(self._action_map)
 
         # Observation cache — _get_observation() returns this
         self._last_obs: Optional[np.ndarray] = None
@@ -132,35 +146,46 @@ class MuJoCoSimpleEnv:
         )
 
     def get_action_space(self):
-        """Return this env's action space (Phase 6 / A1).
+        """Return this env's action space (Phase 6 / A1, A3).
 
-        Default: discrete over the configured action map. A3 flips
-        Pendulum to ContinuousSpace([-2,2], dim=1); Cartpole and Reacher
-        stay discrete.
+        Pendulum-v1 → ContinuousSpace([-2,2], dim=1) (true continuous torque).
+        Cartpole / Reacher → DiscreteSpace over the configured action map
+        (Reacher-continuous is a Phase 7 target).
         """
-        from phca.config import DiscreteSpace
+        from phca.config import DiscreteSpace, ContinuousSpace
+        if self._continuous_cfg is not None:
+            low, high, dim = self._continuous_cfg
+            return ContinuousSpace(low=low, high=high, dim=dim)
         return DiscreteSpace(n=len(self._action_map))
 
     def get_goal_reference(self):
         """Homeostatic reference state for goal-directed continuous control.
 
-        Returns None for discrete envs (the discrete path ignores it).
-        A3 overrides this for Pendulum (upright reference).
+        Pendulum-v1 obs = [cos(theta), sin(theta), angular_velocity]; upright
+        balanced = theta=0 → [1, 0, 0]. Returns None for discrete envs.
         """
+        if self.env_name == "Pendulum-v1":
+            return np.array([1.0, 0.0, 0.0], dtype=np.float32)
         return None
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
-        """Execute a discrete action in the MuJoCo environment.
+    def step(self, action) -> Tuple[np.ndarray, float, bool, dict]:
+        """Execute an action in the MuJoCo environment.
 
         Args:
-            action: Discrete action index (0 .. action_space_size - 1).
+            action: Discrete int index (discrete envs) OR a continuous
+                np.ndarray (continuous envs — Phase 6 / A3, Pendulum-v1).
+                The continuous vector is passed straight to gymnasium; the
+                discrete index is mapped through `_action_map`.
 
         Returns:
             (observation, reward, terminal, info) tuple compatible
             with EnvironmentProtocol. Observation is cached for
             subsequent _get_observation() calls.
         """
-        continuous_action = self._action_map[action]
+        if self._continuous_cfg is not None:
+            continuous_action = np.asarray(action, dtype=np.float32)
+        else:
+            continuous_action = self._action_map[action]
         obs, reward, terminated, truncated, info = self._env.step(continuous_action)
         terminal = terminated or truncated
 
