@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python lint bench-level-0 bench-all profile-cycle clean setup
+.PHONY: all test-all test-python test-mujoco lint bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -27,10 +27,19 @@ test-all: test-python
 	@echo "✅ All tests passed"
 
 test-python:
-	@echo "Running Python tests..."
+	@echo "Running Python tests (no MuJoCo — fast path)..."
 	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ \
 	    --ignore=python/tests/test_mujoco_env.py \
 	    --ignore=python/tests/test_cycle_with_mujoco.py \
+	    --ignore=python/tests/test_continuous_actions.py \
+	    -v --tb=short -x
+
+test-mujoco:
+	@echo "Running MuJoCo integration tests (needs gymnasium[mujoco])..."
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python -m pytest \
+	    python/tests/test_mujoco_env.py \
+	    python/tests/test_cycle_with_mujoco.py \
+	    python/tests/test_continuous_actions.py \
 	    -v --tb=short -x
 
 # ── Linting ──────────────────────────────────────────────────
@@ -83,6 +92,53 @@ pre-gate-1:
 	@echo "  Gate 1 Verification Complete"
 	@echo "============================================"
 
+# ── Nightly CI hardening (Phase 6 / C3) ──────────────────────
+#
+# `make nightly` runs the full hardening suite: static Φ-IQ gate, MuJoCo
+# benchmark gate (continuous + discrete), assumption validation (--ci),
+# OOD calibration, and the long-run stress test. Override the stress length
+# with NIGHTLY_CYCLES (default 1000 for CI; use 10000 for a true soak):
+#     make nightly NIGHTLY_CYCLES=10000
+# This is a script+gate target, NOT a cron job — schedule it externally
+# (GitHub Actions nightly, systemd timer, or cron) as documented in README.
+
+nightly: nightly-mujoco
+	@echo "============================================"
+	@echo "  PHCA v3.0 — Nightly CI Hardening"
+	@echo "============================================"
+	@echo "[1/5] Static Φ-IQ benchmark (200cyc MLP)..."
+	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --use-mlp --cycles=200 --output=logs/nightly_static.json >/dev/null
+	@python scripts/check_benchmark_gate.py logs/nightly_static.json logs/benchmark_ci_baseline.json
+	@echo "[2/5] MuJoCo benchmark gate (see nightly-mujoco) — done."
+	@echo "[3/5] Assumption validation (A1/A3/A4/A5, --ci)..."
+	@MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
+	    --output=logs/nightly_assumptions.json
+	@echo "[4/5] OOD calibration (σ-sweep, monotonic)..."
+	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/ood_calibration.py \
+	    --output=logs/nightly_ood.json
+	@echo "[5/5] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."
+	@MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
+	    python scripts/nightly_stress.py --output=logs/nightly_stress.json
+	@echo "============================================"
+	@echo "  Nightly hardening: ALL PASS"
+	@echo "============================================"
+
+nightly-mujoco:
+	@echo "[2/5] MuJoCo benchmark gate (Pendulum continuous + Cartpole/Reacher discrete)..."
+	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null
+	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env cartpole --use-mlp --cycles=100 --output=logs/nightly_mujoco_cartpole.json >/dev/null
+	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env reacher --use-mlp --cycles=100 --output=logs/nightly_mujoco_reacher.json >/dev/null
+	@python scripts/check_benchmark_gate.py --mujoco \
+	    logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json logs/nightly_mujoco_reacher.json
+	@python scripts/check_benchmark_gate.py --neg-test >/dev/null
+
+# Set a default stress length for `make nightly` (override on the command line).
+NIGHTLY_CYCLES ?= 1000
+
 # ── Profiling ────────────────────────────────────────────────
 
 profile-cycle:
@@ -109,5 +165,9 @@ help:
 	@echo "  make bench-level-0  Run Level 0 benchmark"
 	@echo "  make bench-all      Run all benchmarks"
 	@echo "  make profile-cycle  Profile the cognitive cycle"
+	@echo "  make nightly        Run the full nightly hardening suite (static+MuJoCo gates,"
+	@echo "                      assumption validation --ci, OOD calibration, stress test)"
+	@echo "                      override length: make nightly NIGHTLY_CYCLES=10000"
+	@echo "  make test-mujoco    Run MuJoCo integration tests (needs gymnasium[mujoco])"
 	@echo "  make clean          Remove build artifacts"
 	@echo "  make help           Show this message"

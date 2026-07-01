@@ -1,0 +1,64 @@
+{
+  "sigmas": [
+    0.0,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0
+  ],
+  "trials_per_sigma": 50,
+  "train_cycles": 80,
+  "curve": [
+    {
+      "sigma": 0.0,
+      "aleatoric_mean": 0.9939801507463547,
+      "epistemic_mean": 0.042830142128619325,
+      "blended_mean": 0.9727366857418868,
+      "mse_mean": 0.006038678409531713,
+      "blended_std": 0.0023925824207252297
+    },
+    {
+      "sigma": 0.05,
+      "aleatoric_mean": 0.9923074143898227,
+      "epistemic_mean": 0.04325145014346433,
+      "blended_mean": 0.9690624127185596,
+      "mse_mean": 0.0077240665443241594,
+      "blended_std": 0.0034398504893345555
+    },
+    {
+      "sigma": 0.1,
+      "aleatoric_mean": 0.9876146222517606,
+      "epistemic_mean": 0.0457839638309315,
+      "blended_mean": 0.9604683611891225,
+      "mse_mean": 0.012467811210080981,
+      "blended_std": 0.005567649560239901
+    },
+    {
+      "sigma": 0.25,
+      "aleatoric_mean": 0.9575276363304264,
+      "epistemic_mean": 0.060675247911719035,
+      "blended_mean": 0.9018350927228859,
+      "mse_mean": 0.043525886684656144,
+      "blended_std": 0.02146902559914028
+    },
+    {
+      "sigma": 0.5,
+      "aleatoric_mean": 0.8659425528221515,
+      "epistemic_mean": 0.11573152046506349,
+      "blended_mean": 0.7295942754320993,
+      "mse_mean": 0.1452133312821388,
+      "blended_std": 0.049089495687138975
+    },
+    {
+      "sigma": 1.0,
+      "aleatoric_mean": 0.5108396123259445,
+      "epistemic_mean": 0.33984094273212845,
+      "blended_mean": 0.25983454387017424,
+      "mse_mean": 0.715655834376812,
+      "blended_std": 0.09610253711861357
+    }
+  ],
+  "blended_monotonic_non_increasing": true,
+  "blended_drop": 0.7129021418717125
+}

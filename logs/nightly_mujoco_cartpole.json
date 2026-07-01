@@ -1,0 +1,15 @@
+{
+  "env": "InvertedPendulum-v5",
+  "n_cycles": 100,
+  "model": "MLP",
+  "mean_latency_ms": 5.227508902316913,
+  "p95_latency_ms": 8.10969774320256,
+  "max_latency_ms": 8.48652102285996,
+  "mean_error": 2.0873864260368773,
+  "early_error": 3.650085858585442,
+  "late_error": 0.2510687692974019,
+  "error_improved": true,
+  "violations": 0,
+  "violation_rate": 0.0,
+  "no_errors": true
+}
