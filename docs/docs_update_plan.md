@@ -298,7 +298,24 @@ Phase 3 — New document:
 
 ---
 
-## 5. Dependency Map
+## 5. Phase 4 Gap Closure Additions (S-006/S-007)
+
+After execution of the above plan, two surgical fixes were applied to resolve L2 goal pursuit performance:
+
+| ID | Description | File | Change |
+|----|-------------|------|--------|
+| S-006 | Remove terminal-on-goal | `grid_world.py:147` | `terminal = at_goal or ...` → `terminal = ...` |
+| S-007 | Fix goal-state distance_gain | `cycle.py:734-735` | STAY preferred at goal via signed gain |
+
+These are reflected in:
+- `DECISIONS.md` → D-070, D-071 added
+- `docs/phase4_gap_closure_report.md` → Round 2 section added
+- `docs/phase4_gap_report.md` → Section 4 updated with new findings table
+- `docs/architecture.md` → Key Design Decisions updated, system diagram note added
+
+Benchmark improvement: L2 Φ-IQ 0.331 → **0.476** (+44%).
+
+## 6. Dependency Map
 
 ```
 Quick fixes (Phase 1)
@@ -320,4 +337,4 @@ docs/phase4_gap_closure_report.md  ← depends on phase4_gap_report.md (uses it 
 
 ---
 
-*End of Documentation Update Plan — 12 files audited, 8 action items identified, ~4 hours estimated.*
+*End of Documentation Update Plan — 14 files audited, 8 action items identified, ~4 hours estimated.*

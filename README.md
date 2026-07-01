@@ -1,6 +1,6 @@
 # PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **283 tests passing.**
+A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **284 tests passing.**
 
 ---
 
@@ -160,7 +160,7 @@ python scripts/benchmark.py --levels=0,2 --cycles=200 --output=my_report.json
 ### Running Tests
 
 ```bash
-# All 283 tests
+# All 284 tests
 make test-all
 
 # Or directly:

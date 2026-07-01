@@ -10,7 +10,7 @@
 > - `python/phca/logging.py` — `setup_file_logging()` with `RotatingFileHandler`
 > - `scripts/phca-logs.py` — structured log viewer with filtering
 >
-> All acceptance criteria (M1–M8) verified. 283 tests pass. See the completion report.
+> All acceptance criteria (M1–M8) verified. 284 tests pass. See the completion report.
 
 ---
 

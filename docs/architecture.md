@@ -41,8 +41,10 @@ per the v3.0 specification §3.2–§4.
                                         ▼
                      ┌──────────────────────────────────────────┐
                      │              GridWorld (env)             │
-                     │  step(action) → obs, reward, done        │
-                     └──────────────────────────────────────────┘
+                      │  step(action) → obs, reward, terminal    │
+                      │  (terminal not set on goal — cognitive   │
+                      │   architecture sustains goal achievement) │
+                      └──────────────────────────────────────────┘
 ```
 
 ---
@@ -62,7 +64,6 @@ per the v3.0 specification §3.2–§4.
 | **ATTN** | `phca/attention/attention.py` | Precision-weighted sparse attention with Gumbel noise |
 | **HPM** | `phca/hpm/parser.py` | Hierarchical procedure memory: composition operators + `compute_bounds()` |
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement |
-| **PID** | `phca/regulation/pid_controller.py` | PID-inspired controller for error volatility homeostasis |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
 | **Cycle** | `phca/core/cycle.py` | 20-step cognitive cycle orchestrator |
@@ -77,6 +78,13 @@ per the v3.0 specification §3.2–§4.
 - **EnvironmentProtocol** (`phca/environments/protocol.py`) decouples `CognitiveCycle` from
   any concrete environment. Any object implementing `get_action_names()`, `get_possible_actions()`,
   and `get_goal_position()` can drive the cycle. Both `GridWorld` and `MuJoCoSimpleEnv` implement it.
+- **No terminal-on-goal.** The environment does not return terminal=True when the agent reaches
+  the goal (D-070). Unlike RL episodic conventions, the PHCA cognitive architecture sustains
+  goal achievement rather than resetting on success. The `goal_reached` flag is still reported
+  in the info dict for benchmark metrics.
+- **STAY preferred at goal.** When the agent is at the goal position, `_compute_distance_gain()`
+  assigns distance_gain=0.0 (best) to STAY and 1.0 (worst) to any move away from the goal
+  (D-071). This prevents the agent from leaving the goal immediately after reaching it.
 - **P-Stream only.** E-Stream and S-Stream were removed in Phase 3.3 (D-020). Consolidation
   runs on a fixed 10-cycle timer (Steps 16-18) with batch SQLite commits (D-014).
 - **HPM validation layer** stripped. Only `compute_bounds()` (resource additivity per v3.0
@@ -106,5 +114,5 @@ This was fixed in gap-closure issue A-001/A-004 (D-036).
 
 ### Up-to-Date Reference
 
-See `DECISIONS.md` (D-001 through D-049) for the complete design decision history,
-and `docs/phase3.3_full_completion_report.md` for the gap-closure execution summary.
+See `DECISIONS.md` (D-001 through D-071) for the complete design decision history,
+and `docs/phase4_gap_closure_report.md` for the Phase 4 gap-closure execution summary.

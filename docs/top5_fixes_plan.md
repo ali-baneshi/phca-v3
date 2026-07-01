@@ -10,12 +10,16 @@
 > 1. ✅ MLP hidden_dim changed from 32→128 (D-028)
 > 2. ✅ Consolidation facts wired into MDIM context (D-031)
 > 3. ✅ Error-modulated learning rate implemented (D-029)
-> 4. ✅ MDIM target_state in action scoring (D-030)
+> 4. ✅ MDIM target_state in action scoring (D-030) — further refined by S-007 (goal-state distance_gain)
 > 5. ✅ Energy bounds wired into composition tree (D-032)
 >
 > An additional **architectural audit** (`docs/architectural_audit_report.md`) found 28
 > further issues, 22 of which were resolved in the gap-closure phase (`docs/gap_closure_plan.md`).
 > See `docs/phase3.3_full_completion_report.md` for the complete record.
+>
+> **Phase 4 gap audit (S-006/S-007):** Two additional surgical fixes applied post-completion:
+> S-006: removed terminal-on-goal from GridWorld; S-007: fixed goal-state distance_gain scoring.
+> See `docs/phase4_gap_closure_report.md` for details.
 
 ---
 
