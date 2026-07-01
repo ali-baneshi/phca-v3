@@ -199,7 +199,14 @@ class BenchmarkRunner:
 
         # Benchmark cycles
         history: List[CycleMetrics] = []
-        for _ in range(n):
+        # Week 3 dynamic-goal curriculum (L2 only): static for the first 100
+        # cycles so the agent stabilises, then relocate the goal every 100
+        # cycles — gentler than the rejected Iteration B (every 50). Gives
+        # adaptation_speed real improvement headroom without overwhelming.
+        relocate_every = 100 if (level == 2 and self.config.dynamic_goals) else 0
+        for i in range(n):
+            if relocate_every and i > 0 and i % relocate_every == 0:
+                cycle.env.relocate_goal()
             metrics = cycle.step()
             history.append(metrics)
 
@@ -613,6 +620,8 @@ def main() -> None:
                         help="Output JSON report path")
     parser.add_argument("--diagnose-level", type=int, default=-1,
                         help="Dump per-step history CSV for this level (default: off)")
+    parser.add_argument("--dynamic-goals", action="store_true",
+                        help="L2 curriculum: static goal for 100 cycles, then relocate every 100")
     args = parser.parse_args()
 
     if args.quick:
@@ -629,7 +638,8 @@ def main() -> None:
         sys.exit(0 if report["no_errors"] else 1)
 
     config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp,
-                             diagnose_level=args.diagnose_level)
+                             diagnose_level=args.diagnose_level,
+                             dynamic_goals=args.dynamic_goals)
     runner = BenchmarkRunner(config)
     report = runner.run_all(levels)
     print_report(report)

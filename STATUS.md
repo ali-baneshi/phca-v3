@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-01  
-**Phase:** 4 Weeks 1–4 hardening (W1–W2 complete — long-run + TC-6 + MuJoCo CI; W3 in progress)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-089)
+**Phase:** 4 COMPLETE — Weeks 1–4 done; Phase 4 ready (see docs/phase4_readiness_report.md)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-091)
 
 ---
 
@@ -120,4 +120,6 @@
 | 2026-07-01 | PGA ramp onset lowered (50→150 cycles); Iteration B (goal randomization) tested + rejected | D-087; L0/L1/L3 unchanged; 293 tests pass |
 | 2026-07-01 | W1: TC-6 closed (pytest-mock) + 1000-cycle stability probe | D-088; 322 passed 0 errors; Φ-IQ 0.7919 @ 1000cyc; RSS +3.23% no leak |
 | 2026-07-01 | W2: MuJoCo into CI + requirements-mujoco.txt + `--env` flag | D-089; Cartpole+Pendulum PASS C1/C3/C4/C6; 16ms latency, error 8.4→0.3 |
+| 2026-07-01 | W3: Dynamic-goal curriculum (`--dynamic-goals`, relocate @100) | D-090; dynamic L2 0.573≥0.50 (adapt 0.66 real); static 0.738 unchanged; gate PASS |
+| 2026-07-01 | W4: Profile (gprime_learn 95% of cycle) + empowerment 8→4 + PRAGMA review + readiness report | D-091; Φ-IQ 0.733 gate PASS; 322 tests; Phase 4 READY |
 

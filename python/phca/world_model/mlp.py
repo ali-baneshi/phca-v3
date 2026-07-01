@@ -44,7 +44,7 @@ class WorldModelMLP:
     # Empowerment estimation (D-077): MC-Dropout passes per action and a
     # hard cap on total forward passes per call, honouring A1.  With
     # action_dim=5 and K=8 this is 40 passes (~1.2M FLOPs) << 60M cap.
-    EMPOWERMENT_MC_SAMPLES: int = 8
+    EMPOWERMENT_MC_SAMPLES: int = 4
     EMPOWERMENT_FLOP_CAP: int = 32
 
     def __init__(

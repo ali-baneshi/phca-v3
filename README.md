@@ -1,6 +1,6 @@
 # PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **293 tests passing.**
+A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **322 tests passing** (299 core + 23 MuJoCo). **Phase 4 ready** — see [docs/phase4_readiness_report.md](docs/phase4_readiness_report.md).
 
 ---
 
@@ -10,17 +10,26 @@ A formally specified, resource-bounded cognitive architecture for continual lear
 # Install dependencies
 make setup
 
-# Run all tests (293 core + 2 optional MuJoCo if gymnasium installed)
-make test-all
+# Run all tests (322 = 299 core + 23 MuJoCo; set MUJOCO_GL=disabled for headless)
+MUJOCO_GL=disabled make test-all
 
 # Run benchmark suite (all 4 levels, 200 cycles each, MLP mode)
-PYTHONPATH=python python scripts/benchmark.py --cycles=200 --use-mlp
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --cycles=200 --use-mlp
 
 # Quick smoke test (Level 0 only, 20 cycles)
 PYTHONPATH=python python scripts/benchmark.py --quick
 
+# Dynamic-goal curriculum (L2 relocates goal @cycle 100)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals
+
+# MuJoCo environments (Cartpole / Pendulum)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env cartpole --use-mlp --cycles=100
+
 # Diagnose a single level (per-step CSV dump for analysis)
 PYTHONPATH=python python scripts/benchmark.py --levels=2 --cycles=200 --use-mlp --diagnose-level=2
+
+# Long-duration stability probe (1000 cycles, latency creep + RSS)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/longrun_probe.py --cycles=1000
 ```
 
 ---
@@ -222,7 +231,8 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 | `docs/phase3.3_full_completion_report.md` | Gap-closure completion report (post-gap analysis, all items resolved) |
 | `docs/monitoring_completion_report.md` | Monitoring system — MetricsStore, dashboard, file logging |
 | `STATUS.md` | Audit progress, issue registry, test/benchmark status |
-| `DECISIONS.md` | Complete design decision log (D-001 through D-087) |
+| `DECISIONS.md` | Complete design decision log (D-001 through D-091) |
+| `docs/phase4_readiness_report.md` | Phase 4 sign-off: metrics, limitations, Phase-5 recommendations |
 | `docs/architectural_audit_report.md` | Full audit of 28 issues with resolution status |
 | `research/outputs/07-rigorous-whitepaper.md` | Formal scientific whitepaper (historical) |
 | `research/glossary.md` | Terminology reference |
@@ -234,7 +244,8 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 - **Gaussian inference caching**: The G' Bayesian network's joint moments are computed once and cached across all `predict()` calls per cycle providing a **1000× speedup** (24s/cycle → 13ms/cycle).
 - **Goal-directed action selection**: Goal alignment is computed directly from environment state (`agent_pos`, `goal_pos`, `grid`) rather than from predictions, since G' applies uniform weights to all state dimensions.
 - **MLP mode**: The MLP world model (38,868 params, hidden_dim=128) replaces the Gaussian G' for environments that benefit from learned transition dynamics. Needs ≥200 cycles to stabilise. Confidence is aleatoric `exp(-MSE)` blended with epistemic MC-Dropout variance (D-080); empowerment `I(s';a|s)` is estimated via MC-Dropout mutual information (D-077). Learning uses a hybrid online/replay schedule with a unified `lr*0.5` rate (D-081).
-- **L2 benchmark metric**: `adaptation_speed` for Goal Pursuit uses `max(improvement, maintenance)` aligned with L0/L1 (D-086); the predicted-goal-alignment ramp engages over cycles 50–150 so the learned model drives action selection during measurement (D-087).
+- **L2 benchmark metric**: `adaptation_speed` for Goal Pursuit uses `max(improvement, maintenance)` aligned with L0/L1 (D-086); the predicted-goal-alignment ramp engages over cycles 50–150 so the learned model drives action selection during measurement (D-087). A `--dynamic-goals` curriculum (D-090) relocates the goal at cycle 100 to exercise real continual adaptation (L2 ≥ 0.50).
+- **MuJoCo integration**: `MuJoCoSimpleEnv` wraps Cartpole/Pendulum/Reacher into the `EnvironmentProtocol`; `--env {cartpole,pendulum}` runs a single-level MuJoCo benchmark. CI exercises all 23 MuJoCo tests with `MUJOCO_GL=disabled` (D-089).
 - **EnvironmentProtocol**: `CognitiveCycle.build_for_env()` accepts any object implementing `get_action_names()`, `get_possible_actions()`, and `get_goal_position()` — not just `GridWorld`.
 
 ---
