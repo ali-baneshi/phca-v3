@@ -140,3 +140,39 @@ def test_environment_error_on_bad_name():
     if gym is not None:
         with pytest.raises((ValueError, gym.error.NameNotFound)):
             MuJoCoSimpleEnv("UnknownEnv-v0", seed=42)
+
+
+# ── Reacher-v5 (Phase 5 / D-093) ───────────────────────────
+
+
+def test_reacher_env_creation():
+    """Reacher-v5 wrapper has 5 discrete actions and a 10-dim observation."""
+    env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    assert env.action_space_size == 5
+    assert env.get_state_dim() == 10
+    assert env.size == 1
+    assert env.env_name == "Reacher-v5"
+    # STAY is the middle action (index 2) of the 5-action 2D grid
+    assert env.stay_action == 2
+    assert env.get_action_names() == ["MOVE_SW", "MOVE_NW", "STAY", "MOVE_NE", "MOVE_SE"]
+
+
+def test_reacher_step_all_actions():
+    """All 5 discrete Reacher actions produce valid finite observations."""
+    env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    env.reset()
+    for action in range(env.action_space_size):
+        next_obs, reward, terminal, info = env.step(action)
+        assert next_obs.shape == (10,), f"Failed on action {action}"
+        assert next_obs.dtype == np.float32
+        assert np.all(np.isfinite(next_obs)), f"Non-finite obs on action {action}"
+        assert isinstance(reward, float)
+        assert isinstance(terminal, bool)
+        assert isinstance(info, dict)
+
+
+def test_reacher_goal_position_is_none():
+    """Reacher has no grid goal position (continuous target, not grid-based)."""
+    env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    assert env.get_goal_position() is None
+

@@ -1,0 +1,13 @@
+{
+  "cycles": 200,
+  "warmup_discarded": 64,
+  "measured_cycles": 136,
+  "train_steps": 8,
+  "batch_size": 64,
+  "gprime_learn_mean_ms": 27.95373852303087,
+  "gprime_learn_p95_ms": 35.680554748978466,
+  "gprime_learn_max_ms": 62.20808596117422,
+  "cycle_mean_ms": 32.778535638285305,
+  "cycle_p95_ms": 42.077207763213664,
+  "a1_p95_under_500ms": true
+}

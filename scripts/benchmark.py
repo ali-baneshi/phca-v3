@@ -613,7 +613,7 @@ def main() -> None:
     parser.add_argument("--use-mlp", action="store_true",
                         help="Use MLP world model instead of Gaussian G'")
     parser.add_argument("--env", type=str, default="gridworld",
-                        choices=["gridworld", "cartpole", "pendulum"],
+                        choices=["gridworld", "cartpole", "pendulum", "reacher"],
                         help="Environment: gridworld (4-level Φ-IQ) or a MuJoCo env "
                              "(single-level latency/error report)")
     parser.add_argument("--output", type=str, default=None,
@@ -632,8 +632,12 @@ def main() -> None:
         n_cycles = args.cycles
 
     # MuJoCo environments: single-level latency/error report (no grid goal_reached).
-    if args.env in ("cartpole", "pendulum"):
-        env_name = "InvertedPendulum-v5" if args.env == "cartpole" else "Pendulum-v1"
+    if args.env in ("cartpole", "pendulum", "reacher"):
+        env_name = {
+            "cartpole": "InvertedPendulum-v5",
+            "pendulum": "Pendulum-v1",
+            "reacher": "Reacher-v5",
+        }[args.env]
         report = _run_mujoco(env_name, n_cycles, args.use_mlp, args.output)
         sys.exit(0 if report["no_errors"] else 1)
 
