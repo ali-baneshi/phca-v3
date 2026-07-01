@@ -1,0 +1,23 @@
+{
+  "cycles": 1000,
+  "duration_s": 13.46,
+  "rss_slope_bytes_per_cycle": 5222.52,
+  "rss_start_bytes": 229371904,
+  "rss_end_bytes": 233979904,
+  "latency_p95_ms": 15.54,
+  "latency_p99_ms": 30.61,
+  "latency_mean_ms": 12.95,
+  "total_violations": 0,
+  "violation_rate": 0.0,
+  "phi_iq_checkpoints": {
+    "1000": 0.6965
+  },
+  "phi_collapse_first_to_final": 0.0,
+  "criteria": {
+    "no_rss_leak": false,
+    "p95_latency_under_500ms": true,
+    "violation_rate_under_10pct": true,
+    "phi_iq_stable": true
+  },
+  "all_pass": false
+}

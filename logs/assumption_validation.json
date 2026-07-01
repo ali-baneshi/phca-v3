@@ -1,0 +1,31 @@
+{
+  "experiments": [
+    {
+      "invariant": "A1",
+      "name": "RBTA flags over-budget module",
+      "violations": 1,
+      "passed": true
+    },
+    {
+      "invariant": "A3",
+      "name": "belief entropy floor \u2265 \u03b5",
+      "min_entropy": 0.5,
+      "floor": 0.01,
+      "passed": true
+    },
+    {
+      "invariant": "A4",
+      "name": "prediction consumed by MPC action selector",
+      "predict_calls_during_selection": 8,
+      "passed": true
+    },
+    {
+      "invariant": "A5",
+      "name": "feedback drives world-model updates",
+      "frozen_rel_change": 0.0,
+      "active_rel_change": 0.042914987523636074,
+      "passed": true
+    }
+  ],
+  "all_pass": true
+}
