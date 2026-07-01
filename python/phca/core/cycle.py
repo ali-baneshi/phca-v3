@@ -141,6 +141,9 @@ class CognitiveCycle:
         # dashboard can show RBTA reasons + action-selection rationale.
         self.last_violations: list = []
         self.last_action_rationale: dict = {}
+        # Observability v3: per-action / per-candidate scores for the
+        # Action-Selection tab of the Qt dashboard.
+        self.last_candidate_scores: list = []
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
 
@@ -603,6 +606,7 @@ class CognitiveCycle:
             self.last_action_rationale = {"explored": True, "eps": float(eps),
                                           "goal_id": int(goal_id), "continuous": False,
                                           "best_score": None, "k_candidates": None}
+            self.last_candidate_scores = []
             return int(rng.randint(0, self.env.action_space_size))
 
         # D5 (Energy Efficiency): prefer STAY
@@ -611,11 +615,13 @@ class CognitiveCycle:
                                           "goal_id": 5, "continuous": False,
                                           "best_score": None, "k_candidates": None,
                                           "note": "D5 energy: STAY"}
+            self.last_candidate_scores = []
             return self.env.stay_action
 
         best_action = self.env.stay_action
         best_score = -float("inf")
         action_confidences = []
+        scores_per_action = [0.0] * self.env.action_space_size
 
         for action_idx in range(self.env.action_space_size):
             action = np.zeros(self.env.action_space_size, dtype=np.float32)
@@ -661,6 +667,7 @@ class CognitiveCycle:
                     state_align = self._state_space_alignment(predicted, target)
                     score = state_align
 
+                scores_per_action[action_idx] = float(score)
                 if score > best_score:
                     best_score = score
                     best_action = action_idx
@@ -672,6 +679,7 @@ class CognitiveCycle:
 
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
         self._cached_confidences = action_confidences
+        self.last_candidate_scores = scores_per_action
 
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": int(goal_id), "continuous": False,
@@ -703,18 +711,21 @@ class CognitiveCycle:
             self.last_action_rationale = {"explored": True, "eps": float(eps),
                                           "goal_id": None, "continuous": True,
                                           "best_score": None, "k_candidates": None}
+            self.last_candidate_scores = []
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
 
         ref = getattr(self.env, "get_goal_reference", lambda: None)()
         ref = np.asarray(ref, dtype=np.float32) if ref is not None else None
 
         best_a, best_score = None, -float("inf")
+        cand_scores = []
         for _ in range(K):
             a = (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
             self.engine.update_action(a)
             try:
                 predicted, confidence = self.engine.predict(self.current_state, horizon=1)
             except Exception:
+                cand_scores.append(0.0)
                 continue
             pga = self._predicted_goal_alignment(predicted)
             if ref is not None:
@@ -725,8 +736,10 @@ class CognitiveCycle:
             else:
                 ref_align = 0.5
             score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
+            cand_scores.append(float(score))
             if score > best_score:
                 best_score, best_a = score, a
+        self.last_candidate_scores = cand_scores
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": None, "continuous": True,
                                       "best_score": float(best_score) if best_a is not None else None,

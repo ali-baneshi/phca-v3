@@ -24,3 +24,6 @@ click==8.1.7
 
 # Visual Observability Layer (Phase 7 ext) — graphical live view + replay
 matplotlib==3.11.0
+
+# Observability v3 — PyQt5 Cognitive Observatory (multi-tab live dashboard)
+PyQt5==5.15.11

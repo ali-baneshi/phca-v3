@@ -95,6 +95,8 @@ class ObservabilityFrame:
     attention_indices: List[int] = field(default_factory=list)
     rbta_violations: List[Dict[str, Any]] = field(default_factory=list)  # module/bound_type/measured/allowed
     action_rationale: Dict[str, Any] = field(default_factory=dict)  # explored/eps/goal_id/best_score/k_candidates
+    candidate_scores: List[float] = field(default_factory=list)  # per-action / per-candidate scores
+    module_timings: Dict[str, float] = field(default_factory=dict)  # per-module ms (cognitive flow)
     # CycleMetrics scalar mirrors
     latency_ms: float = 0.0
     prediction_error: float = 0.0
@@ -168,6 +170,9 @@ class ObservabilityFrame:
         action_rationale = dict(getattr(cycle, "last_action_rationale", {}) or {})
         # Latest CycleMetrics (last appended, not yet pushed to observability)
         m = cycle.metrics_history[-1] if getattr(cycle, "metrics_history", None) else None
+        candidate_scores = [float(x) for x in getattr(cycle, "last_candidate_scores", []) or []]
+        module_timings = {k: float(v) for k, v in
+                          dict(getattr(m, "module_timings", {}) or {}).items()}
         # Retention caps
         m3_cap = 0
         try:
@@ -195,6 +200,8 @@ class ObservabilityFrame:
             attention_indices=attention_indices,
             rbta_violations=rbta_violations,
             action_rationale=action_rationale,
+            candidate_scores=candidate_scores,
+            module_timings=module_timings,
             latency_ms=getattr(m, "latency_ms", 0.0),
             prediction_error=getattr(m, "prediction_error", 0.0),
             prediction_confidence=getattr(m, "prediction_confidence", 0.0),
@@ -240,6 +247,8 @@ class ObservabilityFrame:
         d["drive_levels"] = [float(v) for v in self.drive_levels]
         d["drive_targets"] = [float(v) for v in self.drive_targets]
         d["attention_saliences"] = [float(v) for v in self.attention_saliences]
+        d["candidate_scores"] = [float(v) for v in self.candidate_scores]
+        d["module_timings"] = {str(k): float(v) for k, v in self.module_timings.items()}
         for k in ("cycle_id", "episode_count", "fact_count", "violations_count",
                   "drive_id", "active_drive_id", "rss_bytes", "m3_cap",
                   "m4_cap", "m4_prune_target"):
