@@ -143,8 +143,8 @@ class GridWorld:
         at_hazard = self.grid[self.agent_pos] == self.HAZARD
         reward = 1.0 if at_goal else -0.5 if at_hazard else -0.01
 
-        # Terminal condition
-        terminal = at_goal or self.step_count >= self.max_steps
+        # Terminal condition (not on goal — cognitive architecture doesn't reset on achievement)
+        terminal = self.step_count >= self.max_steps
 
         info = {
             "agent_pos": self.agent_pos,

@@ -36,13 +36,12 @@ class TestGridWorld:
             assert obs.shape == (expected,), f"Size {size}: expected ({expected},), got {obs.shape}"
             assert gw.get_state_dim() == expected
 
-    def test_goal_reached_triggers_terminal(self, small_grid_world):
-        """Reaching the goal should set terminal=True and reward=1.0."""
-        # Manually move agent to goal
+    def test_goal_reached_sets_info(self, small_grid_world):
+        """Reaching the goal should set reward=1.0 and info['goal_reached']."""
         goal = small_grid_world.goal_pos
         small_grid_world.agent_pos = goal
         obs, reward, terminal, info = small_grid_world.step(4)  # STAY
-        assert terminal, "Agent at goal should trigger terminal"
+        assert not terminal, "Cognitive architecture does not reset on goal"
         assert reward == 1.0, f"Expected reward 1.0, got {reward}"
         assert info["goal_reached"]
 
