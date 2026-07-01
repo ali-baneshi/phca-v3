@@ -17,7 +17,7 @@ setup:
 	@echo "Setting up Rust workspace..."
 	cd rust && cargo fetch
 	@echo "Done. Run 'make test-all' to verify."
-	@echo "Install Phase 3.2+ deps when needed: pip install -r requirements-phase-3.2.txt"
+	@echo "Optional MuJoCo: pip install 'gymnasium[mujoco]'"
 
 # ── Testing ───────────────────────────────────────────────────
 
@@ -26,7 +26,10 @@ test-all: test-python test-rust
 
 test-python:
 	@echo "Running Python tests..."
-	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ -v --tb=short -x
+	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ \
+	    --ignore=python/tests/test_mujoco_env.py \
+	    --ignore=python/tests/test_cycle_with_mujoco.py \
+	    -v --tb=short -x
 
 test-rust:
 	@echo "Running Rust tests..."

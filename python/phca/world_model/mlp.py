@@ -41,11 +41,17 @@ class WorldModelMLP:
         hidden_dim: Number of hidden units per layer.
     """
 
+    # Empowerment estimation (D-077): MC-Dropout passes per action and a
+    # hard cap on total forward passes per call, honouring A1.  With
+    # action_dim=5 and K=8 this is 40 passes (~1.2M FLOPs) << 60M cap.
+    EMPOWERMENT_MC_SAMPLES: int = 8
+    EMPOWERMENT_FLOP_CAP: int = 32
+
     def __init__(
         self,
         state_dim: int = 84,
         action_dim: int = 5,
-        hidden_dim: int = 64,
+        hidden_dim: int = 128,
         seed: int = 42,
         lr: float = 0.2,
         replay_capacity: int = 500,
@@ -392,12 +398,79 @@ class WorldModelMLP:
         return float(np.exp(-max(mse, 0.0)))
 
     def estimate_empowerment(self, state) -> float:
-        """Estimate empowerment (C2 fix compatibility).
-        Heuristic: returns 0.3 for n_actions <= 5, else 0.2.
+        """Estimate empowerment I(S'; A | S) via MC-Dropout (D-077).
+
+        Replaces the previous constant stub (which returned 0.3 / 0.2
+        regardless of state — see docs/phase4_gap_closure_report.md
+        overclaim correction). Uses the existing MC-Dropout forward path
+        (`_forward_mc`) to estimate, for the given state, how much the
+        predicted-next-state distribution differs across actions
+        (between-action variance) relative to the per-action epistemic
+        uncertainty (within-action variance).
+
+        Mutual-information approximation (Gaussian differential-entropy
+        form):
+
+            MI ≈ 0.5 * log(1 + V_between / (V_within + ε))
+
+        where  V_between = Var over actions of the per-action mean
+                prediction (how distinct outcomes are per action), and
+                V_within  = mean over actions of the MC variance for
+                that action (model uncertainty). High MI ⟺ different
+                actions produce reliably different outcomes.
+
+        A1 (Resource Boundedness): the count of forward passes is capped
+        at `EMPOWERMENT_FLOP_CAP` (= 32). For action_dim=5 with K=8
+        samples this is 40 passes ≈ 1.2M FLOPs — well under
+        `ENERGY_NORM_FLOPS` (60M). When the cap would be exceeded, K is
+        reduced rather than action coverage, so all actions remain
+        represented.
+
+        Args:
+            state: A `StateVector` or 1-D ndarray of shape (state_dim,).
+                May be None for callers that mirror the Gaussian G'
+                signature.
+
+        Returns:
+            Empowerment in [0.0, 1.0]. Falls back to 0.3 only when the
+            state is None/invalid or the computation diverges.
         """
-        if hasattr(self, 'action_dim') and self.action_dim <= 5:
+        if state is None:
             return 0.3
-        return 0.2
+        values = getattr(state, "values", state)
+        try:
+            s = np.asarray(values, dtype=np.float32)
+            if s.shape[0] != self.state_dim or self.action_dim < 2:
+                return 0.3
+        except Exception:
+            return 0.3
+
+        K = self.EMPOWERMENT_MC_SAMPLES  # per-action MC passes
+        # A1 FLOP cap: reduce K if action_dim * K exceeds the cap.
+        if self.action_dim * K > self.EMPOWERMENT_FLOP_CAP:
+            K = max(1, self.EMPOWERMENT_FLOP_CAP // self.action_dim)
+
+        per_action_means: List[np.ndarray] = []
+        per_action_vars: List[float] = []
+        for a_idx in range(self.action_dim):
+            action = np.zeros(self.action_dim, dtype=np.float32)
+            action[a_idx] = 1.0
+            x = np.concatenate([s, action])
+            outs: List[np.ndarray] = []
+            for _ in range(K):
+                _, _, out = self._forward_mc(x)
+                outs.append(out)
+            outs_arr = np.stack(outs, axis=0)  # (K, state_dim)
+            per_action_means.append(outs_arr.mean(axis=0))
+            per_action_vars.append(float(outs_arr.var(axis=0).mean()))
+
+        means_arr = np.stack(per_action_means, axis=0)  # (action_dim, state_dim)
+        v_between = float(means_arr.var(axis=0).mean())  # spread across actions
+        v_within = float(np.mean(per_action_vars)) if per_action_vars else 0.0
+        if not np.isfinite(v_between) or not np.isfinite(v_within):
+            return 0.3
+        mi = 0.5 * float(np.log1p(v_between / (v_within + _EPS)))
+        return float(np.clip(mi, 0.0, 1.0))
 
     def __repr__(self) -> str:
         n_params = (

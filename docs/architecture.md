@@ -21,8 +21,8 @@ per the v3.0 specification §3.2–§4.
                      └──────────────────┬───────────────────────┘
                                         │ raw_obs
                                         ▼
-  ┌─────────────────────────────────────────────────────────────────┐                     │  Cognitive Cycle (20 steps)                  │
-  │                                                                  │
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Cognitive Cycle (12 active steps)                              │
   │  Step  0: ASI Sanitize       sanitize(raw_obs) → clean_state    │
   │  Step  1: WM Write           m2.write(state) + m1.write(state)  │
   │  Steps 2-4: G' Prediction    engine.predict(state)              │
@@ -30,7 +30,7 @@ per the v3.0 specification §3.2–§4.
   │  Step  7: TSPL P-Stream      tspl.update(error, state, pred)    │
   │  Step  8: (reserved)                                            │
   │  Step  9: Action Selection   argmax(goal_alignment + confidence)│
-  │  Steps 10-13: MDIM+CR+ATTN+HPM   generate_goal, regulate,      │
+  │  Steps 10-13: MDIM+APC+ATTN+HPM  generate_goal, regulate,      │
   │                                  attend, compute_bounds         │
   │  Step 14: RBTA Enforcement   check_cycle(runtime, mem, energy)  │
   │  Step 15: Logging            append metrics to history           │
@@ -66,7 +66,7 @@ per the v3.0 specification §3.2–§4.
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
-| **Cycle** | `phca/core/cycle.py` | 20-step cognitive cycle orchestrator |
+| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment (5×5, obstacles) |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper |
 | **Config** | `phca/config.py` | Global constants, resource bounds, `StreamID` (P-Stream only) |

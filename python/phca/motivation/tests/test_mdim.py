@@ -108,6 +108,24 @@ class TestDriveComputation:
                                             "energy_cost": 1.0})
         assert drives_low[5].deficit < drives_high[5].deficit
 
+    def test_d6_blend_decreases_with_prediction_error(self, mdim):
+        """D6 (Empowerment) value should DECREASE as prediction error rises.
+
+        Empowerment measures action-effect channel capacity. When prediction
+        error is high, the model poorly understands action effects, so the
+        empowerment signal must be lower (GAP-013 / D-078 inversion fix).
+        Holds empowerment input constant and varies only prediction_error.
+        """
+        ctx_low_err = {"prediction_error": 0.05, "error_volatility": 0.5,
+                       "skill_accuracy": 0.9, "model_entropy": 0.5,
+                       "energy_cost": 0.1, "empowerment": 0.6}
+        ctx_high_err = {"prediction_error": 0.95, "error_volatility": 0.5,
+                        "skill_accuracy": 0.9, "model_entropy": 0.5,
+                        "energy_cost": 0.1, "empowerment": 0.6}
+        drives_low_err = mdim.compute_drives(ctx_low_err)
+        drives_high_err = mdim.compute_drives(ctx_high_err)
+        assert drives_low_err[6].value > drives_high_err[6].value
+
     def test_drive_history_logged(self, mdim, default_context):
         """Drive history should be logged after computation."""
         mdim.compute_drives(default_context)

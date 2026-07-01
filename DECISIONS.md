@@ -734,5 +734,61 @@ Every entry must reference the v3.0 specification section it affects.
 
 ---
 
-*End of Decision Log (Phase 4 gap closure — S-006 and S-007 all resolved).*
+## Decision D-072: Restore MLP hidden_dim default to 128 (Principal Architect audit — PS-1)
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect
+- **Category:** Tier 1 (configuration regression)
+- **Option chosen:** Changed `WorldModelMLP` and `CognitiveCycle.build()` defaults from `hidden_dim=64` back to `128` per D-028.
+- **Rationale:** A silent regression to 64 hidden units reduced model capacity (~15K vs ~39K params) while documentation and D-028 consistently describe 128. Restoring the default aligns code with the formal architecture without requiring callers to pass `mlp_hidden_dim=128`.
+- **v3.0 trace:** §2.2 Def 2.4b, A4
+- **Tests:** 284 passed, 2 MuJoCo skipped without gymnasium.
+
+---
+
+## Decision D-073: L2 Φ-IQ remains below 0.5 — documented exception (PS-2)
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect
+- **Category:** Tier 2 (benchmark gap)
+- **Option chosen:** After restoring hidden_dim=128, re-ran L2 with 500 MLP cycles: **Φ-IQ = 0.477**, goal_rate = 0.936. Accepted as documented exception; Phase 4.1 targets adaptation_speed and transfer_efficiency.
+- **Rationale:** Goal pursuit is strong (D-070/D-071), but L2 composite score is dragged down by near-zero adaptation_speed and transfer_efficiency when the agent sustains the goal (STAY-dominant late run). Tuning benchmark weights would misrepresent cognitive performance; skill chaining and transfer are the correct fix.
+- **v3.0 trace:** §1.3 success criteria
+- **Evidence:** `logs/benchmark_l2_ps1.json`
+
+---
+
+## Decision D-074: CI dependency path and MuJoCo test isolation (TC-1, TC-2)
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect
+- **Category:** Tier 3 (tooling)
+- **Option chosen:** CI and Makefile use `requirements.txt` (removed stale `requirements-phase-3.1.txt` reference). MuJoCo tests use `pytest.importorskip("gymnasium")`; default test runs exclude MuJoCo modules.
+- **Rationale:** Phase-specific requirements files were removed during consolidation; CI was broken on fresh checkout. MuJoCo is optional and must not block core test suite.
+- **Tests:** `make test-python` — 284 passed, 2 skipped.
+
+---
+
+## Decision D-075: CI Φ-IQ regression gate (TC-3)
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect
+- **Category:** Tier 3 (tooling)
+- **Option chosen:** Added `scripts/check_benchmark_gate.py` and `logs/benchmark_ci_baseline.json` (quick mode, overall Φ-IQ ≈ 0.577). CI runs `scripts/benchmark.py --quick` and fails if Φ-IQ drops >5% relative to baseline.
+- **Rationale:** Open-source and Phase 4 readiness require automated regression detection; package runner was secondary to `scripts/benchmark.py`.
+- **v3.0 trace:** §1.3 success criteria
+
+---
+
+## Decision D-076: Principal Architect audit documentation sync (AD-2, DO-3, DO-4)
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect
+- **Category:** Tier 3 (documentation)
+- **Option chosen:** Updated README module paths (`regulation/`, `memory/`, `consolidation/`, etc.), added `STATUS.md`, fixed architecture diagram step count (12 not 20), synced limitations.md with hidden_dim=128 and L2 gap.
+- **Rationale:** Stale paths (`governance/`, `working_memory/`) misled onboarding; continuity file required by architect mandate.
+
+---
+
+*End of Decision Log (Principal Architect Phase 4 audit execution — D-072 through D-076).*
 

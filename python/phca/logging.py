@@ -61,7 +61,10 @@ def setup_file_logging(log_dir: str = _LOG_DIR) -> None:
 
         _structlog.configure(
             processors=[
-                _structlog.stdlib.filter_by_level,
+                # NOTE: structlog.stdlib.filter_by_level is intentionally
+                # omitted — it requires a stdlib logger with isEnabledFor,
+                # which PrintLoggerFactory's logger does not provide. Using
+                # it caused AttributeError on every _log() call (D-085).
                 _structlog.stdlib.add_log_level,
                 _structlog.stdlib.PositionalArgumentsFormatter(),
                 _structlog.processors.TimeStamper(fmt="iso"),

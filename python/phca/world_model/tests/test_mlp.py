@@ -220,3 +220,59 @@ class TestCacheManagement:
         mlp.predict(state2, sample_action)
         cache2 = mlp._last_activations
         assert not np.allclose(cache1[0], cache2[0])  # outputs differ
+
+
+# ── Empowerment (D-077) ───────────────────────────────────────
+
+
+class TestEmpowerment:
+    """MC-Dropout mutual-information empowerment estimate (D-077).
+
+    Replaces the constant stub that previously returned 0.3 / 0.2
+    regardless of state (docs/phase4_gap_closure_report.md overclaim).
+    """
+
+    def test_empowerment_in_unit_range(self, mlp, sample_state):
+        """Empowerment must be a finite float in [0, 1]."""
+        e = mlp.estimate_empowerment(sample_state)
+        assert isinstance(e, float)
+        assert np.isfinite(e)
+        assert 0.0 <= e <= 1.0
+
+    def test_empowerment_not_constant_across_states(self, mlp):
+        """Empowerment must vary across distinct states (not a stub).
+
+        Three one-hot states at well-separated positions should produce
+        at least two distinct empowerment values up to a tolerance.
+        """
+        states = []
+        for pos in (0, 40, 83):
+            v = np.zeros(84, dtype=np.float32)
+            v[pos] = 1.0
+            states.append(StateVector(
+                values=v, precision=np.ones(84, dtype=np.float32), timestamp=0.0,
+            ))
+        values = [mlp.estimate_empowerment(s) for s in states]
+        # At least one pair differs by more than a small epsilon.
+        assert max(values) - min(values) > 1e-6, (
+            f"empowerment is constant across states: {values}"
+        )
+
+    def test_empowerment_none_state_fallback(self, mlp):
+        """None state must fall back to 0.3 without raising."""
+        assert mlp.estimate_empowerment(None) == 0.3
+
+    def test_empowerment_wrong_dim_fallback(self, mlp):
+        """A state of wrong dimensionality must fall back to 0.3."""
+        bad = StateVector(
+            values=np.zeros(7, dtype=np.float32),
+            precision=np.ones(7, dtype=np.float32), timestamp=0.0,
+        )
+        assert mlp.estimate_empowerment(bad) == 0.3
+
+    def test_empowerment_accepts_ndarray(self, mlp):
+        """A bare ndarray (no StateVector wrapper) must be accepted."""
+        v = np.zeros(84, dtype=np.float32)
+        v[20] = 1.0
+        e = mlp.estimate_empowerment(v)
+        assert 0.0 <= e <= 1.0

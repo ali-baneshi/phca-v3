@@ -233,8 +233,12 @@ class MDIM:
         # Approximated as entropy of state transitions under different actions.
         # High empowerment = many distinct outcomes from different actions.
         empowerment = context.get("empowerment", 0.3)
-        # Also blend in prediction_error as a proxy for action effectiveness
-        empowerment_blend = 0.7 * empowerment + 0.3 * min(prediction_error * 0.5, 1.0)
+        # Blend in (1 - prediction_error) as a proxy for action-effect understanding:
+        # when the model understands action effects (low error), empowerment is high;
+        # when it does not (high error), the action-effect channel is poorly modelled
+        # so empowerment should be low. Previous formula used prediction_error * 0.5
+        # directly, which inverted the relationship (GAP-013 / D-078).
+        empowerment_blend = 0.7 * empowerment + 0.3 * (1.0 - min(prediction_error, 1.0))
         d6_deficit = max(0.0, abs(empowerment_blend - self._targets[6]))
         self.drives[6] = DriveState(
             drive_id=6, value=empowerment_blend,

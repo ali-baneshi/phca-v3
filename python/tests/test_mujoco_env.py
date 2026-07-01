@@ -9,6 +9,8 @@ Cross-ref: docs/mujoco_integration_plan.md §5.1
 import numpy as np
 import pytest
 
+pytest.importorskip("gymnasium")
+
 from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
 

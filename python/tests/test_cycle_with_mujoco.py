@@ -10,6 +10,8 @@ Cross-ref: docs/mujoco_integration_plan.md §5.2
 import numpy as np
 import pytest
 
+pytest.importorskip("gymnasium")
+
 from phca.core.cycle import CognitiveCycle
 
 

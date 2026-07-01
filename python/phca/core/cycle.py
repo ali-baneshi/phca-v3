@@ -910,7 +910,7 @@ class CognitiveCycle:
         use_mlp: bool = False,
         use_continuous: bool = False,
         mlp_lr: float = 0.2,
-        mlp_hidden_dim: int = 64,
+        mlp_hidden_dim: int = 128,
         gprime_b_time: float = 0.020,
         action_b_time: float = 0.020,
         metrics_store: Optional["MetricsStore"] = None,

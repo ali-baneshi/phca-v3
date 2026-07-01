@@ -15,7 +15,7 @@ Erasmus is a cognitive architecture for **embodied, resource-bounded autonomous 
 | **Continuous actions** | ⚠️ Experimental | Action spaces are discretised into ≤5 bins. Continuous action support is in development. |
 | **Vision / image processing** | ❌ Not supported | No convolutional layers, no image input. States are flat numerical vectors. |
 | **Multi-agent coordination** | ❌ Not supported | Single-agent only. Multiple cycles cannot share memory. |
-| **Planning beyond 1 step** | ❌ Not implemented | The G' world model predicts one step ahead. Hierarchical planning is Phase 4+ scope. |
+| **Multi-level grounding (levels 0–2)** | ⚠️ Partial | ASI always emits level 1; Grounding Level Adapter (§2.5.1) deferred to Phase 4.2 |
 | **Long-term procedural memory (M5)** | ❌ Not implemented | Skills are compiled in TSPL but not stored in a persistent library. |
 
 ---
@@ -51,11 +51,13 @@ Erasmus is a cognitive architecture for **embodied, resource-bounded autonomous 
 
 ## Known Weaknesses
 
-### Level 2 (Goal Pursuit) Φ-IQ = 0.476
-Goal reaching in a maze with obstacles is the weakest benchmark level. The target is ≥ 0.5. The bottleneck is the world model's ability to learn long-range navigation patterns. Expected to improve in Phase 4 with better skill chaining.
+### Level 2 (Goal Pursuit) Φ-IQ = 0.477
 
-### MLP Default hidden_dim = 64
-The MLP world model uses 64 hidden units (~15K parameters) by default. The original architecture specification targeted 128 hidden units (~39K params). When maximum capacity is needed, pass `mlp_hidden_dim=128` to `CognitiveCycle.build()`. Not all documentation has been updated to reflect the 64-unit default.
+Goal reaching (`goal_rate ≈ 0.94`) is strong after D-070/D-071 fixes, but L2 Φ-IQ remains below the 0.5 target because **adaptation_speed** and **transfer_efficiency** sub-metrics score near zero in sustained goal-holding runs. Phase 4.1 will address skill chaining and cross-episode transfer.
+
+### MLP Default hidden_dim = 128
+
+The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-028/D-072. This is the canonical capacity for GridWorld-scale environments.
 
 ### Discrete Actions Only
 All environments currently discretise actions into 3–5 bins. For Cartpole: `[-3, 0, +3]`. For Pendulum: `[-2, 0, +2]`. Fine-grained or continuous control is not yet supported.
@@ -97,8 +99,8 @@ MuJoCo support is functional but experimental:
 ## Review Notes (Pass 1 — Accuracy)
 - MLP latency 50ms p95 verified from gate_phase3.3_final.md (MLP mode).
 - Gaussian G' latency 214ms verified from same source.
-- L2 Φ-IQ 0.476 verified from docs/phase4_gap_closure_report.md.
-- MLP hidden_dim=64 verified from cycle.py `build()` method and `mlp.py` constructor.
+- L2 Φ-IQ 0.477 verified from `logs/benchmark_l2_ps1.json` (500 cycles, hidden_dim=128).
+- MLP hidden_dim=128 verified from cycle.py `build()` and mlp.py constructor (D-072).
 - All "not supported" capabilities verified by searching source for relevant modules.
 - Discrete action counts verified from action maps in mujoco_env.py and grid_world.py.
 

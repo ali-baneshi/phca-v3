@@ -10,7 +10,7 @@ A formally specified, resource-bounded cognitive architecture for continual lear
 # Install dependencies
 make setup
 
-# Run all tests (289 tests, ~5s)
+# Run all tests (284 core + 2 optional MuJoCo if gymnasium installed)
 make test-all
 
 # Run benchmark suite (all 4 levels, 500 cycles each, MLP mode)
@@ -36,8 +36,8 @@ Steps 5-6: PEU Error         ─ peu.compute(state, prediction) → error
 Step  7: TSPL P-Stream       ─ tspl.update(prediction_error, state, prediction)
 Step  8: (reserved)
 Step  9: Action Selection    ─ argmax(goal_alignment + confidence)
-Steps 10-13: MDIM + CR + ATTN + HPM
-                               ─ generate_goal, regulate_criticality, attend, bounds
+Steps 10-13: MDIM + APC + ATTN + HPM
+                               ─ generate_goal, regulate_params, attend, bounds
 Step 14: RBTA Enforcement    ─ check_cycle(runtime, memory, energy, entropy)
 Step 15: Logging             ─ append metrics to history
 Steps 16-18: Consolidation   ─ periodic E→S episodic→semantic transfer
@@ -48,22 +48,22 @@ Step 19: Increment           ─ cycle_count += 1
 
 | Module | File | Function |
 | :--- | :--- | :--- |
-| **ASI** | `phca/perception/asi.py` | Input sanitization, NaN/Inf detection, finite checks. |
-| **M1 (Sensory)** | `phca/working_memory/m1_sensory.py` | Short-term sensory buffer (50-cycle FIFO). |
-| **M2 (Working)** | `phca/working_memory/m2_working.py` | Ring-buffer working memory with salience tracking. |
-| **G' (Engine)** | `phca/world_model/engine.py` | Gaussian G' / MLP prediction engine. 1000× speedup via cached joint moments for G'. |
-| **PEU** | `phca/learning/peu.py` | Precision-weighted prediction error. |
+| **ASI** | `phca/asi/sanitizer.py` | Input sanitization, NaN/Inf detection, finite checks. |
+| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (50-cycle FIFO). |
+| **M2 (Working)** | `phca/memory/m2_working.py` | Ring-buffer working memory with salience tracking. |
+| **G' (Engine)** | `phca/prediction/engine.py` | Prediction engine wrapping Gaussian / discrete / MLP G'. |
+| **PEU** | `phca/prediction/error_unit.py` | Precision-weighted prediction error. |
 | **TSPL** | `phca/learning/tspl.py` | Single-stream predictive learning (P-Stream only). |
-| **MDIM** | `phca/motivation/mdim.py` | Multi-Drive Intrinsic Motivation: 6 homeostatic drives (exploration, competence, novelty, etc.) with softmax goal selection. |
-| **CR (PID)** | `phca/governance/pid_controller.py` | PID loop on Φ (integrated information) with orthogonality constraint. |
-| **Attention** | `phca/learning/attention.py` | Precision-weighted sparse attention. |
+| **MDIM** | `phca/motivation/mdim.py` | Multi-Drive Intrinsic Motivation: 6 homeostatic drives with softmax goal selection. |
+| **APC** | `phca/regulation/pid_controller.py` | Adaptive parameter control (PID on prediction-error volatility). |
+| **Attention** | `phca/attention/attention.py` | Precision-weighted sparse attention with goal-driven biasing. |
 | **HPM** | `phca/hpm/parser.py` | Hierarchical procedure memory: composition operators + resource bound computation. |
-| **RBTA** | `phca/governance/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets. |
-| **M3 (Episodic)** | `phca/episodic_memory/m3_episodic.py` | SQLite-backed episode store. |
-| **Consolidation** | `phca/episodic_memory/consolidation.py` | Periodic episodic→semantic transfer. |
+| **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets. |
+| **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store. |
+| **Consolidation** | `phca/consolidation/scheduler.py` | Periodic episodic→statistical fact extraction. |
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator. |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
-| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper for continuous control. |
+| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper (optional `gymnasium`). |
 
 ### Verified Invariants (A1-A5)
 
@@ -95,28 +95,21 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite 
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment |
 
-### Latest Results (Gaussian G', 100 cycles/level)
+### Latest Results (MLP G', 500 cycles L2 / 200 cycles full suite)
 
 ```
-  PHCA v3.0 — Φ-IQ Benchmark Report
-  Overall Φ-IQ: 0.484  ~ (just below threshold)
-
-  Level  Φ-IQ     Pred    Adapt   Goals   Transfer Resource Fail
-  ────────────────────────────────────────────────────────────────
-  L0     0.469    0.647   0.200   1.000   0.155    0.951    0.010
-  L1     0.548    0.650   0.618   0.600   0.291    0.950    0.030
-  L2     0.280    0.584   0.000   0.114   0.000    0.927    0.020
-  L3     0.637    0.695   0.782   0.000   0.689    0.944    0.010
+  PHCA v3.0 — Φ-IQ Benchmark Report (post Phase 4 audit)
+  Overall Φ-IQ (4 levels, MLP): 0.668
+  L2 Goal Pursuit (500 cycles):   0.477  (goal_rate 0.94; target ≥ 0.5)
 
   Pass Criteria:
-    [✓] Cycle latency < 500ms           (actual: ~50ms p95)
-    [✓] Failure rate < 10%              (actual: 1.8%)
-    [✓] Goal autonomy achieved          (Level 3 drive diversity)
-    [~] Φ-IQ > 0.5                      (actual: 0.484 — L2 bottleneck from discrete G')
+    [✓] Cycle latency < 500ms
+    [✓] Failure rate < 10%
+    [✓] Overall Φ-IQ > 0.5 (full suite)
+    [~] L2 Φ-IQ ≥ 0.5 (bottleneck: adaptation_speed + transfer_efficiency)
 ```
 
-**Note:** The MLP world model (38,868 params, hidden_dim=128) achieves Φ-IQ > 0.6 with 500 cycles.
-See `logs/benchmark_full_final.json` for latest run data.
+See `logs/benchmark_phase4_fix3.json` (full suite) and `logs/benchmark_l2_ps1.json` (L2).
 
 ---
 
@@ -168,7 +161,7 @@ PYTHONPATH=python python -m pytest python/tests/ python/phca/ -v --tb=short
 
 # Single module
 PYTHONPATH=python python -m pytest python/phca/motivation/tests/ -v
-PYTHONPATH=python python -m pytest python/phca/governance/tests/ -v
+PYTHONPATH=python python -m pytest python/phca/regulation/tests/ -v
 PYTHONPATH=python python -m pytest python/phca/hpm/tests/ -v
 
 # Cycle integration tests
@@ -183,29 +176,31 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 ├── python/
 │   ├── phca/                    # Core cognitive architecture
 │   │   ├── core/                # CognitiveCycle orchestrator (12-step cycle)
-│   │   ├── perception/          # ASI sanitizer
-│   │   ├── working_memory/      # M1 (sensory), M2 (working)
-│   │   ├── episodic_memory/     # M3 (episodic) + consolidation
-│   │   ├── world_model/         # G' + MLP prediction engine
-│   │   ├── learning/            # PEU + TSPL (P-Stream) + attention
-│   │   ├── motivation/          # MDIM (6 drives) + criticality
-│   │   ├── governance/          # RBTA enforcer + PID controller
+│   │   ├── asi/                 # ASI sanitizer
+│   │   ├── memory/              # M1 (sensory), M2 (working), M3 (episodic)
+│   │   ├── consolidation/       # Episodic → statistical fact extraction
+│   │   ├── world_model/         # G' Gaussian / discrete graph / MLP
+│   │   ├── prediction/          # Prediction engine + PEU
+│   │   ├── learning/            # TSPL (P-Stream)
+│   │   ├── attention/           # Goal-driven sparse attention
+│   │   ├── motivation/          # MDIM (6 drives)
+│   │   ├── regulation/          # RBTA enforcer + adaptive parameter control
 │   │   ├── hpm/                 # HPM composition grammar
 │   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
 │   │   └── config.py            # Shared types + resource bounds
-│   ├── tests/                   # Integration tests
-│   └── benchmarks/              # Benchmark runner *
+│   ├── tests/                   # Integration tests (stress, chaos, edge cases)
+│   └── benchmarks/              # Package benchmark runner (scripts/benchmark.py preferred)
 ├── scripts/
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary)
+│   ├── check_benchmark_gate.py  # CI Φ-IQ regression gate
 │   ├── phca-monitor.py          # Live terminal dashboard
 │   ├── phca-logs.py             # Structured log viewer
 │   └── profile_cycle.py         # Per-cycle profiling
 ├── docs/                        # Architecture, decisions, completion reports
-├── logs/                        # Benchmark reports + phca.log
+├── logs/                        # Benchmark reports + phca.log + CI baseline
+├── STATUS.md                    # Audit progress and issue registry
 ├── Makefile                     # setup, test-all, bench-* targets
 └── README.md
-
-*Note: Use `python scripts/benchmark.py` for benchmarks, not `python -m phca.benchmarks.runner`.
 ```
 
 ---
@@ -217,7 +212,8 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 | `docs/architecture.md` | Current architecture overview — 12-step cycle, module map, invariants |
 | `docs/phase3.3_full_completion_report.md` | Gap-closure completion report (post-gap analysis, all items resolved) |
 | `docs/monitoring_completion_report.md` | Monitoring system — MetricsStore, dashboard, file logging |
-| `DECISIONS.md` | Complete design decision log (D-001 through D-044) |
+| `STATUS.md` | Audit progress, issue registry, test/benchmark status |
+| `DECISIONS.md` | Complete design decision log (D-001 through D-075+) |
 | `docs/architectural_audit_report.md` | Full audit of 28 issues with resolution status |
 | `research/outputs/07-rigorous-whitepaper.md` | Formal scientific whitepaper (historical) |
 | `research/glossary.md` | Terminology reference |

@@ -17,7 +17,7 @@ All five critical issues identified in the Phase 4 gap audit have been resolved.
 | ID | Description | Severity | Status | Verification |
 |:---|:------------|:---------|:-------|:-------------|
 | C1 | Pareto front magnitude comparison | CRITICAL | ✅ Already fixed | True vector dominance in `mdim.py:271-354` — confirmed in source |
-| C2 | MLP empowerment = std(confidences) | CRITICAL | ✅ Already fixed | MC Dropout Gaussian MI in `mlp.py:343-401` — confirmed in source |
+| C2 | MLP empowerment = std(confidences) | CRITICAL | ✅ Fixed (D-077) | Originally overclaimed as "already fixed" — the `mlp.py:394-400` body was a constant stub (`return 0.3`). D-077 replaces it with a real MC-Dropout MI estimate across actions (`0.5·log(1+V_between/(V_within+ε))`) using the existing `_forward_mc` path, with an A1 FLOP cap (`EMPOWERMENT_FLOP_CAP=32`). See `python/phca/world_model/mlp.py` and `TestEmpowerment` |
 | C3 | Energy pipeline inconsistent | CRITICAL | ✅ Already fixed (partial) | Both use `_cycle_flops` — 10x divisor mismatch fixed in this round (AF-005) |
 | C4 | Consolidation facts never consumed | CRITICAL | ✅ Already fixed | Fact modulation in `mdim.py:174-181` — confirmed in source |
 | C5 | PID orthogonality uses covariance | MAJOR | ✅ Already fixed | `np.corrcoef` at `pid_controller.py:212` — confirmed in source |
