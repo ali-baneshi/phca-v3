@@ -137,6 +137,10 @@ class CognitiveCycle:
         )
         self.last_action: np.ndarray = np.zeros(env.action_space_size, dtype=np.float32)
         self.last_prediction: Optional[StateVector] = None
+        # Observability v2: expose signals discarded on the hot path so the
+        # dashboard can show RBTA reasons + action-selection rationale.
+        self.last_violations: list = []
+        self.last_action_rationale: dict = {}
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
 
@@ -513,6 +517,7 @@ class CognitiveCycle:
             )
             metrics.rbta_action = enforcer_action.name
             metrics.violations_count = len(violations)
+            self.last_violations = violations  # Observability v2: RBTA reasons
             metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
 
             # Step 15: Logging — also populate dashboard fields
@@ -595,10 +600,17 @@ class CognitiveCycle:
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         rng = np.random.RandomState(self.cycle_count)
         if rng.random() < eps:
+            self.last_action_rationale = {"explored": True, "eps": float(eps),
+                                          "goal_id": int(goal_id), "continuous": False,
+                                          "best_score": None, "k_candidates": None}
             return int(rng.randint(0, self.env.action_space_size))
 
         # D5 (Energy Efficiency): prefer STAY
         if goal_id == 5:
+            self.last_action_rationale = {"explored": False, "eps": float(eps),
+                                          "goal_id": 5, "continuous": False,
+                                          "best_score": None, "k_candidates": None,
+                                          "note": "D5 energy: STAY"}
             return self.env.stay_action
 
         best_action = self.env.stay_action
@@ -661,6 +673,10 @@ class CognitiveCycle:
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
         self._cached_confidences = action_confidences
 
+        self.last_action_rationale = {"explored": False, "eps": float(eps),
+                                      "goal_id": int(goal_id), "continuous": False,
+                                      "best_score": float(best_score),
+                                      "k_candidates": int(self.env.action_space_size)}
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:
@@ -684,6 +700,9 @@ class CognitiveCycle:
         rng = np.random.RandomState(self.cycle_count)
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         if rng.random() < eps:
+            self.last_action_rationale = {"explored": True, "eps": float(eps),
+                                          "goal_id": None, "continuous": True,
+                                          "best_score": None, "k_candidates": None}
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
 
         ref = getattr(self.env, "get_goal_reference", lambda: None)()
@@ -708,6 +727,10 @@ class CognitiveCycle:
             score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
             if score > best_score:
                 best_score, best_a = score, a
+        self.last_action_rationale = {"explored": False, "eps": float(eps),
+                                      "goal_id": None, "continuous": True,
+                                      "best_score": float(best_score) if best_a is not None else None,
+                                      "k_candidates": int(K)}
         return best_a if best_a is not None else (
             low + (high - low) * 0.5).astype(np.float32)
 
