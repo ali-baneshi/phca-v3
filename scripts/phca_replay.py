@@ -189,13 +189,15 @@ def _play_jsonl(session_dir: str, fps: float) -> int:
     return 0
 
 
-def _play_qt(session_dir: str, fps: float) -> int:
-    """Replay a session in the PyQt5 Cognitive Observatory dashboard."""
+def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
+    """Replay a session in the PyQt5 Cognitive Observatory dashboard with a
+    scrubber (QSlider) + Play/Pause control."""
     _pkg = Path(__file__).resolve().parent.parent / "python"
     if str(_pkg) not in sys.path:
         sys.path.insert(0, str(_pkg))
     from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app
     from phca.monitoring.render import frame_from_json
+    from PyQt5 import QtWidgets, QtCore
     meta, lines, video = _load_session(session_dir)
     if meta is None:
         return 1
@@ -203,41 +205,77 @@ def _play_qt(session_dir: str, fps: float) -> int:
         print("No JSONL frames to replay.", file=sys.stderr)
         return 1
     frames = [frame_from_json(json.loads(ln)) for ln in lines]
+    n = len(frames)
 
     app = make_app()
     win = ObservatoryWindow(title=f"PHCA Observatory — replay {Path(session_dir).name}")
     ctrl = win.controller
+    # Wrap the tab widget so we can dock a scrubber bar at the bottom.
+    tabs = win.centralWidget()
+    tabs.setParent(None)
+    container = QtWidgets.QWidget()
+    cl = QtWidgets.QVBoxLayout(container)
+    cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+    cl.addWidget(tabs, 1)
+    bar = QtWidgets.QWidget()
+    bl = QtWidgets.QHBoxLayout(bar); bl.setContentsMargins(8, 4, 8, 4)
+    play_btn = QtWidgets.QToolButton(); play_btn.setText("Pause"); play_btn.setCheckable(True)
+    slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+    slider.setMinimum(0); slider.setMaximum(n - 1); slider.setValue(0)
+    label = QtWidgets.QLabel(f"0 / {n - 1}")
+    bl.addWidget(play_btn); bl.addWidget(slider, 1); bl.addWidget(label)
+    cl.addWidget(bar)
+    win.setCentralWidget(container)
     win.show()
 
     interval = int(1000 / max(fps, 0.1))
-    state = {"i": 0}
+    state = {"i": 0, "playing": True}
+
+    def _render(i: int) -> None:
+        f = frames[i]
+        lo = max(0, i - 200)
+        ctrl.update(f, frames[lo:i + 1], None)
+        slider.blockSignals(True); slider.setValue(i); slider.blockSignals(False)
+        label.setText(f"{i} / {n - 1}")
 
     def _advance():
         try:
             i = state["i"]
-            if i >= len(frames):
-                timer.stop(); win.close(); return
-            f = frames[i]
-            # Feed a trailing window so trend/Pareto/retention populate.
-            lo = max(0, i - 200)
-            ctrl.update(f, frames[lo:i + 1], None)
-            if scrubber is not None:
-                scrubber.blockSignals(True); scrubber.setValue(i); scrubber.blockSignals(False)
+            if i >= n:
+                timer.stop(); state["playing"] = False
+                play_btn.blockSignals(True); play_btn.setChecked(True)
+                play_btn.setText("Play"); play_btn.blockSignals(False)
+                if close_at_end:
+                    win.close()
+                return
+            _render(i)
             state["i"] = i + 1
         except Exception as e:
             import traceback
             print(f"[replay] exception: {e}", file=sys.stderr)
             traceback.print_exc()
-            ctrl.update(frames[state["i"] - 1] if state["i"] else None, None, f"replay: {e}")
             timer.stop(); win.close()
 
-    # Optional scrubber for step-by-step replay.
-    scrubber = None
-    from PyQt5 import QtWidgets, QtCore
+    def _on_play(state_checked: bool):
+        # button is checkable: checked == paused
+        if state_checked:
+            timer.stop(); state["playing"] = False; play_btn.setText("Play")
+        else:
+            if state["i"] >= n:
+                state["i"] = 0  # restart from beginning
+            state["playing"] = True; play_btn.setText("Pause"); timer.start(interval)
+
+    def _on_seek(val: int):
+        state["i"] = val
+        _render(val)
+
+    play_btn.toggled.connect(_on_play)
+    slider.valueChanged.connect(_on_seek)
+
     timer = QtCore.QTimer(win)
     timer.timeout.connect(_advance)
     timer.start(interval)
-    print(f"Replaying {len(frames)} frames in Qt dashboard at {fps} fps. Close to exit.")
+    print(f"Replaying {n} frames in Qt dashboard at {fps} fps. Scrubber + Play/Pause enabled. Close to exit.")
     try:
         rc = app.exec_()
     except KeyboardInterrupt:
@@ -254,12 +292,15 @@ def main() -> None:
                         help="reconstruct the matplotlib dashboard from JSONL")
     parser.add_argument("--qt", action="store_true",
                         help="reconstruct the PyQt5 Observatory dashboard from JSONL")
+    parser.add_argument("--qt-close-at-end", action="store_true",
+                        help="with --qt, close the window when playback reaches the end "
+                             "(default: pause so the scrubber stays usable)")
     parser.add_argument("--fps", type=float, default=10.0, help="playback fps")
     args = parser.parse_args()
     if args.check:
         sys.exit(_check(args.session))
     if args.qt:
-        sys.exit(_play_qt(args.session, args.fps))
+        sys.exit(_play_qt(args.session, args.fps, close_at_end=args.qt_close_at_end))
     if args.from_jsonl:
         sys.exit(_play_jsonl(args.session, args.fps))
     meta, lines, video = _load_session(args.session)

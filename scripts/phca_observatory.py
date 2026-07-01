@@ -125,6 +125,9 @@ def main() -> None:
                         help="capture an mp4 from the widget (requires ffmpeg)")
     parser.add_argument("--record-fps", type=float, default=8.0, help="video capture rate")
     parser.add_argument("--record-dir", default="logs/sessions")
+    parser.add_argument("--video-cycle-ms", type=int, default=1500,
+                        help="when recording video, auto-cycle tabs every N ms so the "
+                             "mp4 captures all 5 tabs (0 = off, stay on clicked tab)")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -198,9 +201,15 @@ def main() -> None:
     record_interval = 1.0 / max(args.record_fps, 0.1)
     last_grab = -record_interval
     target = args.cycles
+    # Auto-cycle tabs during video recording so one mp4 captures all 5 tabs.
+    tabs = win._tabs
+    n_tabs = tabs.count()
+    cycle_tab_ms = args.video_cycle_ms if (args.record_video and args.video_cycle_ms > 0) else 0
+    last_tab_switch = 0.0
+    user_tab = {"i": tabs.currentIndex()}  # remember user's tab when not auto-cycling
 
     def _tick():
-        nonlocal last_recorded_cycle, last_rendered_cycle, last_grab
+        nonlocal last_recorded_cycle, last_rendered_cycle, last_grab, last_tab_switch
         try:
             # Drain new frames: JSONL every cycle, render only the latest.
             new = [f for f in store.latest_n(256) if f.cycle_id > last_recorded_cycle]
@@ -221,6 +230,11 @@ def main() -> None:
                 _finish(); return
             if video is not None:
                 now = time.monotonic()
+                # Auto-cycle tabs so the mp4 records every tab.
+                if cycle_tab_ms > 0 and now - last_tab_switch >= cycle_tab_ms / 1000.0:
+                    cur = tabs.currentIndex()
+                    tabs.setCurrentIndex((cur + 1) % n_tabs)
+                    last_tab_switch = now
                 if now - last_grab >= record_interval and last_rendered_cycle >= 0:
                     video.grab(win)
                     last_grab = now
