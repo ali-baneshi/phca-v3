@@ -121,6 +121,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--mlp", action="store_true", help="use MLP world model")
     parser.add_argument("--poll-ms", type=int, default=30, help="Qt poll interval (ms)")
+    parser.add_argument("--render-fps", type=float, default=30.0,
+                        help="max dashboard render rate (decoupled from poll/cycle; "
+                             "JSONL still records every cycle). 0 = render every poll.")
     parser.add_argument("--no-record", action="store_true", help="live view only, no JSONL/video")
     parser.add_argument("--record-video", action="store_true",
                         help="capture an mp4 from the widget (requires ffmpeg)")
@@ -202,7 +205,12 @@ def main() -> None:
     record_interval = 1.0 / max(args.record_fps, 0.1)
     last_grab = -record_interval
     target = args.cycles
-    # Auto-cycle tabs during video recording so one mp4 captures all 5 tabs.
+    # Render throttle: decouple dashboard repaint from poll/cycle rate so the
+    # visible tab is repainted at most --render-fps times/sec (stable, no
+    # flicker). JSONL still records every cycle (above). 0 => render every poll.
+    render_interval = (1.0 / args.render_fps) if args.render_fps > 0 else 0.0
+    last_render = -render_interval
+    # Auto-cycle tabs during video recording so one mp4 captures all 7 tabs.
     tabs = win._tabs
     n_tabs = tabs.count()
     cycle_tab_ms = args.video_cycle_ms if (args.record_video and args.video_cycle_ms > 0) else 0
@@ -211,17 +219,22 @@ def main() -> None:
 
     def _tick():
         nonlocal last_recorded_cycle, last_rendered_cycle, last_grab, last_tab_switch
+        nonlocal last_render
         try:
-            # Drain new frames: JSONL every cycle, render only the latest.
+            now = time.monotonic()
+            # Drain new frames: JSONL every cycle (always), render only the latest
+            # and only when the render throttle allows.
             new = [f for f in store.latest_n(256) if f.cycle_id > last_recorded_cycle]
             if new:
                 for f in new:
                     recorder.record(f)
                 last_recorded_cycle = new[-1].cycle_id
                 latest = new[-1]
-                if latest.cycle_id > last_rendered_cycle:
+                if (latest.cycle_id > last_rendered_cycle
+                        and (render_interval <= 0 or now - last_render >= render_interval)):
                     ctrl.update(latest, new, cycle_holder.get("error"))
                     last_rendered_cycle = latest.cycle_id
+                    last_render = now
             err = cycle_holder.get("error")
             if err:
                 ctrl.update(store.latest(), None, err)

@@ -283,6 +283,9 @@ class ObservabilityFrame:
     m4_relevant: List[Dict[str, Any]] = field(default_factory=list)
     m4_top: List[Dict[str, Any]] = field(default_factory=list)
     last_action_vector: Optional[np.ndarray] = None
+    # v5: named labels for dimension-adaptive views (default empty → d{i} fallback)
+    dim_names: List[str] = field(default_factory=list)
+    action_names: List[str] = field(default_factory=list)
 
     @classmethod
     def from_cycle(cls, cycle: Any) -> "ObservabilityFrame":
@@ -369,6 +372,22 @@ class ObservabilityFrame:
             action_dim_v = 0
             action_count = int(getattr(env, "action_space_size", 0))
         state_dim_v = int(getattr(cycle, "state_dim", 0))
+
+        # v5: named dimension + action labels (additive; default empty).
+        dim_names: List[str] = []
+        try:
+            gdn = getattr(env, "get_dim_names", None)
+            if callable(gdn):
+                dim_names = [str(x) for x in (gdn() or [])][:state_dim_v]
+        except Exception:
+            dim_names = []
+        action_names: List[str] = []
+        try:
+            gan = getattr(env, "get_action_names", None)
+            if callable(gan):
+                action_names = [str(x) for x in (gan() or [])]
+        except Exception:
+            action_names = []
 
         # Live RGB camera frame (throttled, live-only).
         env_frame = _cached_env_frame(env)
@@ -588,6 +607,8 @@ class ObservabilityFrame:
             m4_relevant=m4_relevant,
             m4_top=m4_top,
             last_action_vector=last_action_vector,
+            dim_names=dim_names,
+            action_names=action_names,
         )
 
     def to_json(self) -> Dict[str, Any]:

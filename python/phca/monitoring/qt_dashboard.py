@@ -33,6 +33,7 @@ All polling-side: read-only on the frame; the cycle thread never touches Qt.
 """
 from __future__ import annotations
 
+import time
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
@@ -81,6 +82,63 @@ GRID_COL = QtGui.QColor(60, 60, 70)
 TEXT_COL = QtGui.QColor(210, 210, 220)
 DIM_COL = QtGui.QColor(150, 150, 160)
 ACCENT = QtGui.QColor(241, 196, 15)
+
+# v5: cached QFont instances (no per-frame QFont construction → stable metrics).
+_F_TITLE = QtGui.QFont("Sans", 10, QtGui.QFont.Bold)
+_F_AXIS = QtGui.QFont("Sans", 7)
+_F_LABEL = QtGui.QFont("Sans", 8)
+_F_LABEL_B = QtGui.QFont("Sans", 8, QtGui.QFont.Bold)
+_F_CAPTION = QtGui.QFont("Sans", 7)
+_F_DIMSEL = QtGui.QFont("Sans", 8, QtGui.QFont.Bold)
+
+
+def _dim_label(i: int, f: Optional[ObservabilityFrame]) -> str:
+    """Named dimension label from frame.dim_names, else d{i} fallback."""
+    if f is not None and f.dim_names and i < len(f.dim_names):
+        nm = f.dim_names[i]
+        return nm if nm else f"d{i}"
+    return f"d{i}"
+
+
+class ScaleState:
+    """Stable autoscale bounds with hysteresis + EMA contraction.
+
+    Eliminates per-frame scale jitter: bounds expand *immediately* when a new
+    extreme appears, but contract *slowly* (EMA toward the rolling min/max at
+    ``contract`` per update) so the y-axis / projection range never twitches
+    frame-to-frame. Add ``head`` fractional headroom on top. Pure read on
+    frames; never mutates the cycle.
+    """
+
+    __slots__ = ("lo", "hi", "_ema_lo", "_ema_hi", "contract", "head", "_have")
+
+    def __init__(self, contract: float = 0.05, head: float = 0.05):
+        self.lo: float = 0.0
+        self.hi: float = 1.0
+        self._ema_lo: float = 0.0
+        self._ema_hi: float = 1.0
+        self.contract = contract
+        self.head = head
+        self._have: bool = False
+
+    def update(self, rlo: float, rhi: float) -> Tuple[float, float]:
+        if not self._have:
+            self._ema_lo = float(rlo); self._ema_hi = float(rhi)
+            self.lo = float(rlo); self.hi = float(rhi)
+            self._have = True
+        else:
+            # EMA of the rolling extremes (smoothed target).
+            self._ema_lo += (float(rlo) - self._ema_lo) * 0.2
+            self._ema_hi += (float(rhi) - self._ema_hi) * 0.2
+            # Expand immediately to real extremes; contract slowly toward EMA.
+            self.lo = min(float(rlo), self.lo + (self._ema_lo - self.lo) * self.contract)
+            self.hi = max(float(rhi), self.hi + (self._ema_hi - self.hi) * self.contract)
+        span = (self.hi - self.lo) or 1.0
+        self.lo -= span * self.head
+        self.hi += span * self.head
+        if self.hi - self.lo < 1e-9:
+            self.hi = self.lo + 1.0
+        return self.lo, self.hi
 
 
 def _qss() -> str:
@@ -165,6 +223,9 @@ class BeliefProjection:
         self._fallback: Tuple[int, int] = (0, min(1, 0))
         self._raw2d: bool = False
         self._hist: Deque[Tuple[float, float]] = deque(maxlen=window)
+        # stable per-axis bounds (no per-frame rescale jitter on projection views)
+        self._bx = ScaleState(contract=0.04, head=0.08)
+        self._by = ScaleState(contract=0.04, head=0.08)
 
     def update(self, f: ObservabilityFrame) -> None:
         v = f.sanitized_state
@@ -252,14 +313,13 @@ class BeliefProjection:
         return list(self._hist)
 
     def bounds(self) -> Tuple[float, float, float, float]:
-        """Stable autoscale bounds (min/max of history + current projected pts)."""
+        """Stable autoscale bounds (ScaleState per axis — no per-frame jumps)."""
         pts = self._hist
         if not pts:
             return (-1.0, 1.0, -1.0, 1.0)
         xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-        xlo, xhi = min(xs), max(xs); ylo, yhi = min(ys), max(ys)
-        xr = (xhi - xlo) or 1.0; yr = (yhi - ylo) or 1.0
-        xlo -= 0.1 * xr; xhi += 0.1 * xr; ylo -= 0.1 * yr; yhi += 0.1 * yr
+        xlo, xhi = self._bx.update(float(min(xs)), float(max(xs)))
+        ylo, yhi = self._by.update(float(min(ys)), float(max(ys)))
         return (xlo, xhi, ylo, yhi)
 
     def uncertainty_ellipse(self, per_dim_std: Optional[np.ndarray]
@@ -356,16 +416,20 @@ class _BaseCanvas(QtWidgets.QWidget):
         p.setPen(DIM_COL); p.drawText(self.rect(), 0x84, text)
 
     def _title(self, p: QtGui.QPainter, text: str, y: int = 15, x: int = 10) -> None:
-        p.setPen(TEXT_COL); p.setFont(QtGui.QFont("Sans", 9, QtGui.QFont.Bold))
+        p.setPen(TEXT_COL); p.setFont(_F_TITLE)
         p.drawText(x, y, text)
-        p.setFont(QtGui.QFont("Sans", 9))
+
+    def _caption(self, p: QtGui.QPainter, text: str, y: int = 28, x: int = 10) -> None:
+        """One-line dim 'what this tells you' under a title."""
+        p.setPen(DIM_COL); p.setFont(_F_CAPTION)
+        p.drawText(x, y, text)
 
     def _legend(self, p: QtGui.QPainter, items: List[Tuple[str, QtGui.QColor]],
                 x: int = 10, y: Optional[int] = None) -> None:
         """Generic swatch+label legend (x-right progression)."""
         if y is None:
             y = self.height() - 14
-        p.setFont(QtGui.QFont("Sans", 8))
+        p.setFont(_F_LABEL)
         cx = x
         for lbl, col in items:
             c = col if isinstance(col, QtGui.QColor) else _to_qcolor(col)
@@ -387,22 +451,27 @@ class _ChartCanvas(_BaseCanvas):
 
     def add_series(self, name: str, color: str, data: Any,
                    log: bool = False, fill: bool = False) -> None:
-        self._series.append(dict(name=name, color=color, data=data, log=log, fill=fill))
+        # Each series carries its own ScaleState so the y-band is stabilised
+        # across frames (no per-frame min/max jumps -> no line/bar twitching).
+        self._series.append(dict(name=name, color=color, data=data, log=log,
+                                 fill=fill, scale=ScaleState()))
 
-    @staticmethod
-    def _norm(vals: List[float], log: bool) -> Tuple[List[float], float, float]:
-        vals = [float(v) for v in vals if v is not None]
+    def _norm(self, s: Dict[str, Any]) -> Tuple[List[float], float, float]:
+        """Stabilised normalisation for one series (uses its ScaleState)."""
+        vals = [float(v) for v in s["data"] if v is not None]
         if not vals:
             return [], 0.0, 1.0
+        log = s["log"]
+        scale: ScaleState = s["scale"]
         if log:
             vals = [v if v > 0 else 1e-6 for v in vals]
-            lo, hi = min(vals), max(vals)
-            if hi <= lo:
-                hi = lo * 2 if lo > 0 else 1.0
-            return [float(np.log(v)) for v in vals], float(np.log(lo)), float(np.log(hi))
-        lo, hi = min(vals), max(vals)
-        if hi - lo < 1e-9:
-            hi = lo + 1.0
+            rlo, rhi = float(min(vals)), float(max(vals))
+            if rhi <= rlo:
+                rhi = rlo * 2 if rlo > 0 else 1.0
+            lo, hi = scale.update(float(np.log(rlo)), float(np.log(rhi)))
+            return [float(np.log(v)) for v in vals], lo, hi
+        rlo, rhi = float(min(vals)), float(max(vals))
+        lo, hi = scale.update(rlo, rhi)
         return vals, lo, hi
 
     def _plot_rect(self) -> Tuple[int, int, int, int]:
@@ -422,7 +491,7 @@ class _ChartCanvas(_BaseCanvas):
             y = py0 + g * (py1 - py0) // 4
             p.setPen(QtGui.QPen(QtGui.QColor(40, 40, 50), 1))
             p.drawLine(px0, y, px1, y)
-        p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(4, py1 + 6, self.xlabel)
         any_data = False
         for s in self._series:
@@ -430,7 +499,7 @@ class _ChartCanvas(_BaseCanvas):
             if not vals:
                 continue
             any_data = True
-            nv, lo, hi = self._norm(vals, s["log"])
+            nv, lo, hi = self._norm(s)
             n = len(nv)
             col = _to_qcolor(s["color"])
             if s["fill"]:
@@ -458,13 +527,13 @@ class _ChartCanvas(_BaseCanvas):
     def _legend(self, p: QtGui.QPainter, py0: int) -> None:
         x = self.width() - 14
         y = py0 + 12
-        p.setFont(QtGui.QFont("Sans", 8))
+        p.setFont(_F_LABEL)
         for s in self._series:
             vals = list(s["data"])
             col = _to_qcolor(s["color"])
             p.setPen(QtGui.QPen(col, 2)); p.drawLine(x - 14, y - 4, x - 4, y - 4)
             if vals:
-                _, lo, hi = self._norm(vals, s["log"])
+                _, lo, hi = self._norm(s)
                 cur = vals[-1]
                 tag = f"{s['name']}={cur:.3g} [{lo:.2g}..{hi:.2g}]"
             else:
@@ -566,6 +635,7 @@ class WorldCanvas(_BaseCanvas):
                           int(cell * 0.5), int(cell * 0.5))
         self._title(p, f"GridWorld {n}×{n}  conf={f.prediction_confidence:.2f}  "
                        f"err={f.prediction_error:.2f}  (amber ghost = G′ predicted next cell)")
+        self._caption(p, "agent ● + trail · amber ghost = predicted next cell · env=grid (dim-adaptive)")
 
     def _draw_rgb(self, p, f, w, h):
         frame = getattr(f, "env_frame", None)
@@ -576,6 +646,7 @@ class WorldCanvas(_BaseCanvas):
         p.drawRect(dx - 1, dy - 1, dw + 2, dh + 2)
         self._title(p, f"MuJoCo camera  cycle={f.cycle_id}  conf={f.prediction_confidence:.2f}  "
                        f"err={f.prediction_error:.2f}")
+        self._caption(p, "live RGB camera frame · env=mujoco_rgb (dim-adaptive; high-dim → see Phase Space)")
         cx, cy = dx + dw // 2, dy + dh // 2
         pred = f.predicted_state
         if pred is not None and pred.size >= 2:
@@ -632,6 +703,7 @@ class WorldCanvas(_BaseCanvas):
             p.drawRect(gx - 6, gy - 6, 12, 12)
         self._title(p, f"State-space projection (PCA-2D)  dim={f.state_dim}  "
                        f"kind={f.gprime_kind or '?'}  ●now ◆goal ●pred")
+        self._caption(p, "PCA-2D of belief state · scales grid→2D→3D→n-D · stable bounds (no jitter)")
         p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
         p.drawText(8, h - 6, "dimension-agnostic — scales grid/2D/3D/n-D")
 
@@ -711,6 +783,7 @@ class DrivesCanvas(_BaseCanvas):
                 p.setPen(TEXT_COL)
                 p.drawText(int(x + 4), h - 4, DRIVE_NAMES[did].split()[1])
         self._title(p, f"Drives  value vs ◆target  active={DRIVE_SHORT.get(f.active_drive_id,'?')}")
+        self._caption(p, "fixed 0..1 scale (no per-frame rescale) · ◆ = target · 6 homeostatic drives")
         # color legend
         p.setFont(QtGui.QFont("Sans", 7))
         lx = left + 4
@@ -749,6 +822,7 @@ class AttentionCanvas(_BaseCanvas):
         if f is None or not f.attention_indices:
             self._empty(p, "Attention…"); return
         self._title(p, "Attention focus (attended chunk ids, by salience)")
+        self._caption(p, "attended state chunks ranked by precision/salience · gumbel-τ shown")
         w, h = self.width(), self.height()
         n = len(f.attention_indices)
         top, bot = 34, h - 24
@@ -857,11 +931,29 @@ class CognitiveFlowView(_BaseCanvas):
         self.viol_mods: set = set()
         self.last_viol: Dict[str, str] = {}
         self.cycle_id: int = 0
+        # slow wall-clock animation (decoupled from cycle rate → no strobe)
+        self._anim_t: float = 0.0
+        self._last_wall: float = time.monotonic()
+        self._active_idx: int = 0
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
         self.cycle_id = int(f.cycle_id)
         self.heat.append(dict(f.module_timings))
+        # advance the slow animation clock (~0.5s per pipeline step)
+        now = time.monotonic()
+        dt = now - self._last_wall; self._last_wall = now
+        self._anim_t = (self._anim_t + dt / 0.5) % len(PIPELINE)
+        # active node = most-recently-active by timing delta (stable, meaningful)
+        try:
+            if len(self.heat) >= 2:
+                prev, cur = self.heat[-2], self.heat[-1]
+                deltas = {m: float(cur.get(m, 0.0)) - float(prev.get(m, 0.0))
+                          for m in PIPELINE}
+                self._active_idx = int(max(range(len(PIPELINE)),
+                                           key=lambda i: deltas.get(PIPELINE[i], 0.0)))
+        except Exception:
+            pass
         self.viol_mods = {RBTA_TO_FLOW.get(v.get("module_id", v.get("module", "")),
                                           v.get("module_id", v.get("module", "")))
                           for v in f.rbta_violations}
@@ -903,18 +995,21 @@ class CognitiveFlowView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Cognitive flow…"); return
+        self._title(p, "Cognitive flow — node cost · measured-vs-bound (▮ + sparkline) · active edge")
+        self._caption(p, "node radius/colour = timing cost · red = RBTA violation · packet = most-recently-active edge")
         pos = self._node_pos(w, h)
         n = len(PIPELINE)
-        # main chain edges with arrowheads + travelling packet
-        active_idx = self.cycle_id % n
+        # main chain edges with arrowheads + travelling packet (slow wall-clock)
+        active_idx = self._active_idx
         for i in range(n - 1):
             a, b = pos[PIPELINE[i]], pos[PIPELINE[i + 1]]
             col = QtGui.QColor(241, 196, 15, 230) if i == active_idx else QtGui.QColor(120, 120, 140, 150)
             _arrow(p, a[0], a[1], b[0], b[1], col, size=10)
-        # travelling data packet on the active edge
+        # travelling data packet on the active edge — slow, smooth, off wall-clock
         if 0 <= active_idx < n - 1:
             a, b = pos[PIPELINE[active_idx]], pos[PIPELINE[active_idx + 1]]
-            t = (self.cycle_id % 4) / 4.0
+            t = self._anim_t - active_idx
+            t = t - int(t)  # fractional position along the active edge
             px = int(a[0] + t * (b[0] - a[0])); py = int(a[1] + t * (b[1] - a[1]))
             p.setBrush(QtGui.QColor(255, 255, 255)); p.setPen(QtGui.QPen(ACCENT, 1))
             p.drawEllipse(px - 4, py - 4, 8, 8)
@@ -940,20 +1035,23 @@ class CognitiveFlowView(_BaseCanvas):
             p.setBrush(col); p.setPen(QtGui.QPen(QtGui.QColor(240, 240, 240), 2))
             p.drawEllipse(x - r, y - r, r * 2, r * 2)
             p.setPen(QtGui.QColor(20, 20, 24))
-            p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
+            p.setFont(_F_LABEL_B)
             p.drawText(x - 26, y - 3, 52, 12, 0x84, PIPELINE_LABEL.get(mod, mod))
-            p.setFont(QtGui.QFont("Sans", 7))
+            p.setFont(_F_AXIS)
             p.drawText(x - 22, y + 9, 44, 11, 0x84, f"{ms:.1f}ms")
-            # sparkline under node
-            self._spark(p, mod, x - 25, y + r - 2, w=50)
-            # v4: measured-vs-bound bar (TIME envelope) — replaces red-only signal
+            # v5: consolidated measured-vs-bound bar WITH overlaid sparkline
+            # (replaces the separate _spark mini-chart — one chart, not two).
             self._mb_bar(p, mod, ms, x - 30, y + r + 12, 60)
-            # v4: content thumbnail per node (what the node is actually carrying)
-            self._content_thumb(p, mod, f, x - 30, y - r - 26, 60, 20)
+            # v5: content thumbnail only for the 2 most informative nodes;
+            # others get a clear status badge (OK / NEAR-BOUND / VIOLATION).
+            if mod in ("prediction", "action_selection"):
+                self._content_thumb(p, mod, f, x - 30, y - r - 26, 60, 20)
+            else:
+                self._status_badge(p, mod, ms, x - 30, y - r - 24, 60)
             # violation bound below
             if viol and mod in self.last_viol:
-                p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(QtGui.QFont("Sans", 7))
-                p.drawText(x - 30, y + r + 28, 60, 10, 0x84, self.last_viol[mod])
+                p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_AXIS)
+                p.drawText(x - 30, y + r + 30, 60, 10, 0x84, self.last_viol[mod])
         self._composite_bounds(p)
         self._heatmap(p)
         # legend
@@ -969,29 +1067,61 @@ class CognitiveFlowView(_BaseCanvas):
 
     def _mb_bar(self, p: QtGui.QPainter, mod: str, measured: float,
                 x: int, y: int, w: int) -> None:
-        """Measured-vs-bound horizontal bar with a bound tick mark."""
+        """Measured-vs-bound bar with a faint overlaid timing sparkline
+        (one consolidated mini-chart per node, not two)."""
         bounds = getattr(self.frame, "rbta_bounds", None) or {}
         b = self._bound_for(mod, bounds)
-        p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 6))
         # track
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-        p.drawRect(x, y, w, 5)
+        p.drawRect(x, y, w, 7)
         # measured fill (scaled to bound, or to 25ms if no bound)
         scale = b if b else 25.0
         ratio = max(0.0, min(measured / scale, 1.5))
         fw = int(min(ratio, 1.0) * w)
         col = QtGui.QColor(231, 76, 60) if ratio > 1.0 else (
             _to_qcolor(_cost_color(measured)))
-        p.fillRect(x, y, fw, 5, col)
+        p.fillRect(x, y, fw, 7, col)
+        # faint timing sparkline overlaid on the bar (consolidates _spark)
+        vals = [float(mt.get(mod, 0.0)) for mt in self.heat]
+        if len(vals) >= 2:
+            mx = max(vals) or 1.0
+            sc = QtGui.QColor(255, 255, 255, 120)
+            p.setPen(QtGui.QPen(sc, 1)); n = len(vals)
+            for i in range(1, n):
+                x0 = x + (i - 1) * w / max(n - 1, 1)
+                x1 = x + i * w / max(n - 1, 1)
+                y0 = y + 7 - (vals[i - 1] / mx) * 6
+                y1 = y + 7 - (vals[i] / mx) * 6
+                p.drawLine(int(x0), int(y0), int(x1), int(y1))
         # bound tick
         if b:
             bx = x + w
-            p.setPen(QtGui.QPen(ACCENT, 2)); p.drawLine(bx, y - 2, bx, y + 7)
-            p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 6))
-            p.drawText(x, y + 14, f"{measured:.1f}/{b:.0f}ms")
+            p.setPen(QtGui.QPen(ACCENT, 2)); p.drawLine(bx, y - 2, bx, y + 9)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, y + 16, f"{measured:.1f}/{b:.0f}ms")
         else:
-            p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 6))
-            p.drawText(x, y + 14, f"{measured:.1f}ms")
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, y + 16, f"{measured:.1f}ms")
+
+    def _status_badge(self, p: QtGui.QPainter, mod: str, measured: float,
+                      x: int, y: int, w: int) -> None:
+        """Compact OK / NEAR-BOUND / VIOLATION badge (replaces per-node thumbnail
+        for nodes that don't carry a directly visualisable payload)."""
+        viol = mod in self.viol_mods
+        bounds = getattr(self.frame, "rbta_bounds", None) or {}
+        b = self._bound_for(mod, bounds)
+        scale = b if b else 25.0
+        ratio = measured / scale if scale else 0.0
+        if viol or ratio > 1.0:
+            txt, c = "VIOLATION", QtGui.QColor(231, 76, 60)
+        elif ratio > 0.8:
+            txt, c = "NEAR-BOUND", QtGui.QColor(241, 196, 15)
+        else:
+            txt, c = "OK", QtGui.QColor(46, 204, 113)
+        p.setPen(QtGui.QPen(c, 1)); p.setBrush(QtGui.QColor(c.red(), c.green(), c.blue(), 40))
+        p.drawRoundedRect(x, y, w, 14, 4, 4)
+        p.setPen(c); p.setFont(_F_AXIS)
+        p.drawText(x, y, w, 14, 0x84, txt)
 
     def _content_thumb(self, p: QtGui.QPainter, mod: str, f: ObservabilityFrame,
                        x: int, y: int, w: int, h: int) -> None:
@@ -1260,6 +1390,8 @@ class CandidateScoreView(_BaseCanvas):
         if isinstance(bs, (int, float)):
             hdr += f"  score={bs:.3f}"
         self._title(p, hdr)
+        kind = "continuous τ" if is_continuous else "discrete action"
+        self._caption(p, f"candidate {kind} scores · amber = chosen · rollout cloud + torque dial below · stable scale")
         # candidate bars region
         bar_top, bar_bot = 36, h // 2 - 10
         if scores:
@@ -1374,6 +1506,7 @@ class TrajectoryView(_BaseCanvas):
                 p.drawEllipse(int(ox + c * cell + cell * 0.3), int(oy + r * cell + cell * 0.3),
                               int(cell * 0.4), int(cell * 0.4))
             self._title(p, f"GridWorld trajectory (trail={len(tl)}) + G′ |pred−actual| heatmap")
+            self._caption(p, "agent trail over time · cell heat = per-dim prediction error magnitude")
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
             p.drawText(8, h - 6, "red = where world model is wrong")
         else:
@@ -1436,6 +1569,7 @@ class TrajectoryView(_BaseCanvas):
                 p.drawEllipse(cx - 4, cy - 4, 8, 8)
             kind = getattr(f, "gprime_kind", None) or "g′"
             self._title(p, f"Belief-space projection (PCA-2D, dim={f.state_dim or '?'}) + {kind} uncertainty ellipse")
+            self._caption(p, "belief trajectory in PCA-2D · ellipse = G′ posterior σ projected · candidate cloud = rollouts")
             self._legend(p, [("● current", ACCENT), ("● predicted next", QtGui.QColor(46, 204, 113)),
                              ("○ goal", ACCENT), ("◐ candidates", QtGui.QColor(150, 150, 160)),
                              ("◯ ±σ ellipse", QtGui.QColor(52, 152, 219))],
@@ -1509,6 +1643,7 @@ class DriveRadarView(_BaseCanvas):
             p.drawEllipse(int(cx + lvl * R * math.cos(ang)) - 3,
                           int(cy + lvl * R * math.sin(ang)) - 3, 6, 6)
         self._title(p, "6-drive radar (current solid + faded history)")
+        self._caption(p, "radial drive levels 0..1 · faded = recent history · shows drive balance at a glance")
 
 
 class PerDimErrorView(_BaseCanvas):
@@ -1653,6 +1788,170 @@ class UncertaintyPortraitView(_BaseCanvas):
         p.setPen(QtGui.QPen(col, 2)); p.drawPath(path)
 
 
+class _DimSelector(QtWidgets.QWidget):
+    """Prev/next range pager for high-dimensional per-dim views (10..1000 dims)."""
+
+    def __init__(self, view: "_PhasePortraitView", parent=None):
+        super().__init__(parent)
+        self.view = view
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(6, 0, 6, 0)
+        self.prev = QtWidgets.QPushButton("‹ prev")
+        self.next = QtWidgets.QPushButton("next ›")
+        self.label = QtWidgets.QLabel("")
+        for b in (self.prev, self.next):
+            b.setFixedWidth(70); lay.addWidget(b)
+        lay.addWidget(self.label); lay.addStretch(1)
+        self.prev.clicked.connect(self._back)
+        self.next.clicked.connect(self._fwd)
+
+    def _back(self):
+        self.view.set_page(self.view.page - 1)
+
+    def _fwd(self):
+        self.view.set_page(self.view.page + 1)
+
+    def refresh(self):
+        v = self.view
+        n_pages = max(1, (v.n_dims + v.page_size - 1) // v.page_size)
+        a = v.page * v.page_size
+        b = min(v.n_dims, (v.page + 1) * v.page_size) - 1
+        b = max(b, 0)
+        self.label.setText(f"page {v.page + 1}/{n_pages}  dims {a}..{b} of {v.n_dims}")
+        self.prev.setEnabled(v.page > 0)
+        self.next.setEnabled(v.page + 1 < n_pages)
+
+
+class _PhasePortraitView(_BaseCanvas):
+    """Consolidated Phase-Space portrait: per-dim |pred−actual| error bar with
+    the ±σ uncertainty band overlaid on the SAME axis (one view, not two),
+    named dims, a shared stable scale, and a _DimSelector pager so it scales
+    from 10 → 1000 dims. Mutual-info / belief-entropy trend strip below."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frame: Optional[ObservabilityFrame] = None
+        self.page: int = 0
+        self.page_size: int = 24
+        self.n_dims: int = 0
+        self.mi_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self.be_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._scale = ScaleState(contract=0.05, head=0.06)
+
+    def set_frame(self, f: ObservabilityFrame) -> None:
+        self.frame = f
+        mi = getattr(f, "gprime_mutual_info", None)
+        if mi is None and f.belief_entropies:
+            mi = float(list(f.belief_entropies.values())[0])
+        if mi is not None:
+            self.mi_hist.append(float(mi))
+        be = f.belief_entropies.get("total") if f.belief_entropies else None
+        if be is None and f.belief_entropies:
+            be = float(list(f.belief_entropies.values())[0])
+        if be is not None:
+            self.be_hist.append(float(be))
+        self.update()
+
+    def set_page(self, p: int) -> None:
+        n_pages = max(1, (self.n_dims + self.page_size - 1) // self.page_size)
+        self.page = max(0, min(n_pages - 1, int(p)))
+        self.update()
+
+    def _draw(self, p: QtGui.QPainter) -> None:
+        f = self.frame
+        w, h = self.width(), self.height()
+        if f is None or f.predicted_state is None:
+            self._empty(p, "Phase portrait (collecting…)"); return
+        pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
+        ref = f.obs_vector if f.obs_vector is not None else f.goal_ref
+        if ref is None:
+            self._empty(p, "Phase portrait (no reference)"); return
+        ref = np.asarray(ref, dtype=np.float32).reshape(-1)
+        d = int(min(len(pred), len(ref)))
+        if d == 0:
+            self._empty(p, "Phase portrait (empty)"); return
+        errs = np.abs(pred[:d] - ref[:d])
+        std = None
+        if f.gprime_uncertainty is not None and len(f.gprime_uncertainty):
+            us = np.asarray(f.gprime_uncertainty, dtype=np.float32).reshape(-1)
+            std = us[:d] if len(us) >= d else us
+        self.n_dims = d
+        # page selection (top-K highest-error within the current page window)
+        n_pages = max(1, (d + self.page_size - 1) // self.page_size)
+        self.page = max(0, min(n_pages - 1, self.page))
+        lo_i = self.page * self.page_size
+        hi_i = min(d, lo_i + self.page_size)
+        if d > self.page_size:
+            # within the page, show the highest-error dims of that window
+            window_err = errs[lo_i:hi_i]
+            k = min(self.page_size, len(window_err))
+            local = np.argsort(-window_err)[:k]
+            idx = local + lo_i
+            idx.sort()
+        else:
+            idx = np.arange(lo_i, hi_i)
+        errs_s = errs[idx]
+        std_s = std[idx] if std is not None else None
+        n = len(idx)
+        bw = (w - 40) / max(n, 1)
+        top, bot = 44, h // 2
+        kind = getattr(f, "gprime_kind", "g′") or "g′"
+        mi = getattr(f, "gprime_mutual_info", None)
+        mi_txt = f"  mi={float(mi):.3f}" if mi is not None else ""
+        self._title(p, f"Phase portrait  |pred−actual| ▮ + {kind} ±σ ░  dims {n}/{d}{mi_txt}")
+        self._caption(p, "red = prediction error · blue band = model uncertainty σ · shared stable scale")
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(20, bot, w - 20, bot)
+        raw_max = float(errs_s.max()) if errs_s.size else 1.0
+        if std_s is not None:
+            raw_max = max(raw_max, float(std_s.max()))
+        _, mx = self._scale.update(0.0, float(raw_max if raw_max > 1e-6 else 1.0))
+        mx = mx if mx > 1e-6 else 1.0
+        for i in range(n):
+            x = 20 + i * bw
+            if std_s is not None:
+                sb = float(std_s[i]) / mx * (bot - top)
+                p.fillRect(int(x + 1), int(bot - sb), int(bw - 6), int(sb * 2),
+                           QtGui.QColor(52, 152, 219, 60))
+            eh = int(errs_s[i] / mx * (bot - top))
+            p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            if n <= 24:
+                p.drawText(int(x), bot + 11, _dim_label(int(idx[i]), f))
+            else:
+                p.drawText(int(x), bot + 11, str(int(idx[i])))
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(20, h - 4, f"scale 0..{mx:.3g}  (named dims · pager below)")
+        self._legend(p, [("▮ error", QtGui.QColor(231, 76, 60)),
+                         ("░ ±σ band", QtGui.QColor(52, 152, 219))],
+                     y=h // 2 + 4, x=20)
+        # mutual-info / belief-entropy trend strip (lower half)
+        t_top, t_bot = h // 2 + 22, h - 16
+        self._trend(p, self.mi_hist, t_top, t_bot, QtGui.QColor(155, 89, 182),
+                    "mutual_info trend", left=40, right=w // 2 - 6)
+        self._trend(p, self.be_hist, t_top, t_bot, QtGui.QColor(46, 204, 113),
+                    "belief-entropy trend", left=w // 2 + 6, right=w - 16)
+
+    def _trend(self, p: QtGui.QPainter, s: Deque[float], top: int, bot: int,
+               col: QtGui.QColor, label: str, left: int, right: int) -> None:
+        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
+        p.drawText(left, top - 4, label)
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(left, bot, right, bot)
+        vals = list(s)
+        if len(vals) < 2:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(left + 4, top + 14, "collecting…"); return
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9:
+            hi = lo + 1
+        n = len(vals)
+        path = QtGui.QPainterPath()
+        for i, v in enumerate(vals):
+            x = left + i * (right - left) / (n - 1)
+            y = bot - (v - lo) / (hi - lo) * (bot - top - 4)
+            (path.moveTo if i == 0 else path.lineTo)(x, y)
+        p.setPen(QtGui.QPen(col, 2)); p.drawPath(path)
+
+
 # ----- Retention tab ---------------------------------------------------------
 
 class RetentionView(_BaseCanvas):
@@ -1666,6 +1965,7 @@ class RetentionView(_BaseCanvas):
         self.m3_events: List[int] = []   # cycle indices where count dropped (prune/VACUUM)
         self.m4_events: List[int] = []
         self.cycle_base: int = 0
+        self._panel_scales: Dict[str, ScaleState] = {}
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         if not self.m3:
@@ -1708,7 +2008,9 @@ class RetentionView(_BaseCanvas):
             p.drawText(right - rect.width(), top + 12, vtxt)
         lo = min(vals) if vals else 0
         hi = max(vals) if vals else 1
-        hi = max(hi, cap) if cap else hi
+        # stable per-panel scale (no per-frame rescale jitter); cap kept in range
+        sc = self._panel_scales.setdefault(title, ScaleState(contract=0.05, head=0.05))
+        lo, hi = sc.update(float(lo), float(max(hi, cap) if cap else hi))
         if hi - lo < 1e-9:
             hi = lo + 1
         n = len(vals)
@@ -1752,19 +2054,59 @@ class RetentionView(_BaseCanvas):
         w, h = self.width(), self.height()
         if not self.m3:
             self._empty(p, "Retention…"); return
-        # latency histogram is drawn inline in the latency panel; to keep it
-        # simple, render 4 stacked panels + a leak-rate header.
         leak = self._leak_rate()
         self._title(p, f"Retention & resources   RSS leak-rate (last 30) ≈ {leak:.1f} B/cyc", y=15)
-        ph = (h - 30) // 4
+        self._caption(p, "M3 episodic · M4 consolidated facts · resources = RSS (orange) + latency (green) on one shared stable scale")
+        # v5: 3 panels — M3, M4, and a consolidated Resources panel (RSS+latency)
+        ph = (h - 36) // 3
         self._panel(p, 30, 30 + ph, "M3 episodes (memory)", self.m3, float(self.m3_cap),
                     QtGui.QColor(52, 152, 219), self.m3_events)
         self._panel(p, 30 + ph, 30 + 2 * ph, "M4 facts (consolidated)", self.m4, float(self.m4_cap),
                     QtGui.QColor(155, 89, 182), self.m4_events)
-        self._panel(p, 30 + 2 * ph, 30 + 3 * ph, "RSS (bytes)", self.rss, 0.0,
-                    QtGui.QColor(230, 126, 34), [], unit="")
-        # latency as a small histogram in the last panel
-        self._latency_panel(p, 30 + 3 * ph, h - 4)
+        self._resources_panel(p, 30 + 2 * ph, h - 4)
+
+    def _resources_panel(self, p: QtGui.QPainter, top: int, bot: int) -> None:
+        """Consolidated resources panel: RSS + latency on one shared stable
+        scale (normalised 0..1 of each series' own ScaleState) with dual labels
+        — replaces the separate RSS line + latency histogram panels."""
+        w = self.width()
+        left, right = 60, w - 16
+        self._title(p, "Resources — RSS (B, orange) + latency (ms, green)", y=top + 12)
+        rss = list(self.rss); lat = list(self.lat)
+        if not rss and not lat:
+            return
+        # dual labels (right-aligned)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        rss_txt = f"RSS now={rss[-1]/1e6:.1f}MB" if rss else "RSS —"
+        lat_txt = f"lat now={lat[-1]:.1f}ms med={float(np.median(lat)):.1f}ms" if lat else "lat —"
+        r1 = p.boundingRect(QtCore.QRect(0, 0, 1, 1), 0, rss_txt)
+        r2 = p.boundingRect(QtCore.QRect(0, 0, 1, 1), 0, lat_txt)
+        p.drawText(right - r1.width(), top + 12, rss_txt)
+        p.drawText(right - r2.width(), top + 24, lat_txt)
+        pt0, pt1 = top + 30, bot - 6
+        # gridlines
+        for g in range(1, 3):
+            y = pt0 + g * (pt1 - pt0) // 3
+            p.setPen(QtGui.QPen(QtGui.QColor(40, 40, 50), 1)); p.drawLine(left, y, right, y)
+        rss_sc = self._panel_scales.setdefault("rss_res", ScaleState())
+        lat_sc = self._panel_scales.setdefault("lat_res", ScaleState())
+        for vals, col, sc in ((rss, QtGui.QColor(230, 126, 34), rss_sc),
+                              (lat, QtGui.QColor(46, 204, 113), lat_sc)):
+            if not vals:
+                continue
+            lo, hi = sc.update(float(min(vals)), float(max(vals)))
+            if hi - lo < 1e-9:
+                hi = lo + 1
+            n = len(vals)
+            p.setPen(QtGui.QPen(col, 2))
+            for i in range(1, n):
+                x0 = left + (i - 1) * (right - left) / max(n - 1, 1)
+                x1 = left + i * (right - left) / max(n - 1, 1)
+                y0 = pt1 - (vals[i - 1] - lo) / (hi - lo) * (pt1 - pt0)
+                y1 = pt1 - (vals[i] - lo) / (hi - lo) * (pt1 - pt0)
+                p.drawLine(int(x0), int(y0), int(x1), int(y1))
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(left, bot - 1, "shared 0..1 normalised scale · stable bounds")
 
     def _latency_panel(self, p: QtGui.QPainter, top: int, bot: int) -> None:
         w = self.width()
@@ -1860,6 +2202,7 @@ class RBTABoundsView(_BaseCanvas):
         n = len(items)
         rowh = (h - 30) / max(n, 1)
         self._title(p, f"RBTA bound envelope — measured vs B_time  ({n} modules)")
+        self._caption(p, "▮ measured timing vs │ bound · red = violation · stable shared time scale")
         bw_max = w - 160
         for i, (mid, flow, meas, b) in enumerate(items):
             y = 28 + int(i * rowh)
@@ -1892,6 +2235,7 @@ class MemoryBeliefView(_BaseCanvas):
         # ---- left column: M3 episodes (recent + high-error) ----
         col_w = w // 2 - 8
         self._title(p, "M3 episodic memory (recent / high-error)", x=10, y=14)
+        self._caption(p, "recent episodes + highest prediction-error replays · mini state preview", x=10, y=26)
         m3r = getattr(f, "m3_recent", None) or []
         m3e = getattr(f, "m3_top_error", None) or []
         y = 30
@@ -1909,6 +2253,7 @@ class MemoryBeliefView(_BaseCanvas):
         # ---- right-top: M4 facts (relevant + top) ----
         rx = col_w + 16
         self._title(p, "M4 facts (relevant to state / top by support)", x=rx, y=14)
+        self._caption(p, "consolidated statistical facts · relevance to current state + support rank", x=rx, y=26)
         m4r = getattr(f, "m4_relevant", None) or []
         m4t = getattr(f, "m4_top", None) or []
         y = 30
@@ -1926,6 +2271,7 @@ class MemoryBeliefView(_BaseCanvas):
         # ---- bottom: belief portrait (sanitized vs raw diff + precision) ----
         bt = h // 2 + 20
         self._title(p, "Belief portrait — |sanitized−raw| per-dim + state-precision", x=10, y=bt)
+        self._caption(p, "per-dim salience (sanitised vs raw) · precision weights · named dims", x=10, y=bt + 12)
         self._belief_portrait(p, f, 10, bt + 10, w - 20, h - bt - 30)
 
     def _ep_line(self, p, ep: dict, x: int, y: int, w: int) -> int:
@@ -2033,6 +2379,7 @@ class GoalsMotivationView(_BaseCanvas):
         # ---- left: goal stack ----
         lw = w // 3
         self._title(p, "Goal stack (deepest active first)", x=8, y=14)
+        self._caption(p, "active sub-goals by depth · ✓done = completed · target magnitude shown", x=8, y=26)
         stack = getattr(f, "goal_stack", None) or []
         y = 30
         for i, g in enumerate(stack[:8]):
@@ -2051,19 +2398,25 @@ class GoalsMotivationView(_BaseCanvas):
         if not stack:
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 8))
             p.drawText(8, y, "(no active goals)")
-        # ---- middle: drives full + Pareto + meta-stable ----
+        # ---- middle: drives compact strip + Pareto + meta-stable ----
+        # v5: replaced the per-drive deficit BAR ROW (duplicated the heatmap)
+        # with a compact "deficit now" numeric strip + Pareto ● markers.
         mx = lw + 8
         mw = w // 3
-        self._title(p, "Drives full (value/deficit/target) + Pareto●", x=mx, y=14)
+        self._title(p, "Drives — deficit now + Pareto● (heatmap → right)", x=mx, y=14)
+        self._caption(p, "one clear deficit view (strip here, history heatmap right); ● = on Pareto front", x=mx, y=26)
         defs = f.drive_deficits; levels = f.drive_levels
         targets = getattr(f, "drive_goals", None)
         pareto = set(getattr(f, "pareto_front", None) or [])
-        y = 30
+        y = 42
+        # compact numeric strip header
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(mx, y, "drive   value  deficit  target")
+        y += 16
         for i in range(6):
             did = i + 1
             val = float(levels[i]) if levels is not None and i < len(levels) else 0.0
             dfc = float(defs[i]) if defs is not None and i < len(defs) else 0.0
-            # drive_goals entries may be None for drives without a target_state
             tgt = None
             if targets is not None and i < len(targets) and targets[i] is not None:
                 try:
@@ -2071,26 +2424,23 @@ class GoalsMotivationView(_BaseCanvas):
                 except Exception:
                     tgt = None
             col = _to_qcolor(DRIVE_COLORS[did])
-            p.setPen(col); p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
             mark = "●" if i in pareto else " "
+            p.setPen(col); p.setFont(_F_LABEL_B)
             p.drawText(mx, y, f"{mark} {DRIVE_SHORT[did]}")
-            p.setPen(TEXT_COL); p.setFont(QtGui.QFont("Sans", 7))
+            p.setPen(TEXT_COL); p.setFont(_F_LABEL)
             tgt_s = f"{tgt:.2f}" if tgt is not None else "—"
-            p.drawText(mx + 40, y, f"v={val:.2f} def={dfc:.2f} tgt={tgt_s}")
-            # deficit bar
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-            p.drawRect(mx + 40, y + 3, mw - 60, 6)
-            p.fillRect(mx + 40, y + 3, int(dfc * (mw - 60)), 6, col)
-            y += 20
+            p.drawText(mx + 40, y, f"{val:.2f}   {dfc:.2f}    {tgt_s}")
+            y += 16
         ms = getattr(f, "meta_stable", None) or {}
         stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
         p.setPen(ACCENT if stable else QtGui.QColor(231, 76, 60))
-        p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
+        p.setFont(_F_LABEL_B)
         cse = ms.get("cycles_since_entry", "?")
         p.drawText(mx, y + 6, f"meta-stable: {'YES' if stable else 'NO'}  ({cse} cyc)")
         # ---- right: heatmaps + temperature/empowerment ----
         rx = mx + mw + 8
         self._title(p, "Drive history heatmap + temperature/empowerment", x=rx, y=14)
+        self._caption(p, "deficit-over-time (6 drives × cycles) · temperature/empowerment trend below", x=rx, y=26)
         self._heatmap(p, rx, 28, w - rx - 8, h // 2 - 30)
         self._trend_pair(p, rx, h // 2 + 10, w - rx - 8, h - h // 2 - 20)
 
@@ -2162,7 +2512,7 @@ class DashboardController:
             self.w.traj.set_frame(f)
             self.w.radar.set_frame(f)
             self.w.perdim.set_frame(f)
-            self.w.uncert.set_frame(f)
+            self.w.dim_selector.refresh()
             self.w.retention.set_frame(f)
             self.w.rbta_bounds.set_frame(f)
             self.w.viol.add_frame(f)
@@ -2215,12 +2565,13 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ps_lay.setContentsMargins(6, 6, 6, 6); ps_lay.setSpacing(6)
         self.traj = TrajectoryView(); self.traj.set_projection(self.proj)
         self.radar = DriveRadarView()
-        self.perdim = PerDimErrorView()
-        self.uncert = UncertaintyPortraitView()
+        # v5: consolidated per-dim error + uncertainty (one view, not two) + pager
+        self.perdim = _PhasePortraitView()
+        self.dim_selector = _DimSelector(self.perdim)
         ps_lay.addWidget(self.traj, 0, 0, 2, 2)
         ps_lay.addWidget(self.radar, 0, 2, 1, 1)
-        ps_lay.addWidget(self.uncert, 1, 2, 1, 1)
         ps_lay.addWidget(self.perdim, 2, 0, 1, 3)
+        ps_lay.addWidget(self.dim_selector, 3, 0, 1, 3)
         tabs.addTab(ps, "Phase Space & Trajectory")
 
         # Retention & Resources
