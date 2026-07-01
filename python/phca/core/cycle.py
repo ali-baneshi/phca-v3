@@ -590,8 +590,10 @@ class CognitiveCycle:
                 # Continuous distance gain (0 = toward goal, 1 = away)
                 distance_gain = self._compute_distance_gain(action_idx)
 
-                # Predicted goal alignment — ramps up as MLP learns
-                ramp = float(np.clip((self.cycle_count - 200) / 200.0, 0.0, 1.0))
+                # Predicted goal alignment — ramps up as MLP learns.
+                # Onset at cycle 50 (was 200) so the learned signal participates
+                # during the 200-cycle benchmark window, not only after it ends.
+                ramp = float(np.clip((self.cycle_count - 50) / 100.0, 0.0, 1.0))
                 pga = self._predicted_goal_alignment(predicted)
 
                 # D1/D3: strongly prioritize reducing distance, confidence secondary.

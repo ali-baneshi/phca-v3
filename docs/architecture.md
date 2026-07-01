@@ -91,6 +91,16 @@ per the v3.0 specification §3.2–§4.
   Theorem 2.1/3.1) is used by RBTA.
 - **SQLite-backed M3** uses a single backend — an abstraction layer was deferred to Phase 3.4
   (no benefit for a single implementation). Batch commits every 10 cycles reduce fsync overhead 10×.
+  Hardened in Phase 4 (D-082): `wal_checkpoint(TRUNCATE)` on close, `integrity_check` on startup,
+  and `try/except sqlite3.DatabaseError` fallback to an in-memory DB on corrupt/non-SQLite files.
+- **MLP world model** (Phase 4): MC-Dropout mutual information estimates empowerment `I(s';a|s)`
+  (D-077, replacing a constant stub); confidence blends aleatoric `exp(-MSE)` with epistemic
+  MC-Dropout variance, dropping on out-of-distribution states (D-080); learning uses a hybrid
+  online/replay schedule with unified `lr*0.5` (D-081).
+- **L2 benchmark metric** (Phase 4): `adaptation_speed` for Goal Pursuit uses
+  `max(improvement, maintenance)` aligned with L0/L1 (D-086); the predicted-goal-alignment
+  ramp engages over cycles 50–150 so the learned model drives action selection during
+  measurement (D-087).
 - **Monitoring system** (`MetricsStore`, file logging, curses dashboard) is optional, zero-overhead
   when unused. See `scripts/phca-monitor.py` and `scripts/phca-logs.py`.
 
@@ -114,5 +124,5 @@ This was fixed in gap-closure issue A-001/A-004 (D-036).
 
 ### Up-to-Date Reference
 
-See `DECISIONS.md` (D-001 through D-071) for the complete design decision history,
+See `DECISIONS.md` (D-001 through D-087) for the complete design decision history,
 and `docs/phase4_gap_closure_report.md` for the Phase 4 gap-closure execution summary.

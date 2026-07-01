@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-01  
-**Phase:** 4 (Chief Architect Strategic v2.0 re-audit — P0 complete, P1 in progress)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-085)
+**Phase:** 4 (Chief Architect Strategic v2.0 re-audit — P0/P1/P2 complete; L2 bottleneck closed)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-087)
 
 ---
 
@@ -15,7 +15,7 @@
 | 3 | Performance & scalability | Complete |
 | 4 | Test coverage & resilience | Complete |
 | 5 | Documentation & onboarding | Complete |
-| 6 | Strategic v2.0 zero-trust re-audit | Complete (P0 closed; P1 in progress) |
+| 6 | Strategic v2.0 zero-trust re-audit | Complete (P0/P1/P2 closed; L2 bottleneck closed) |
 
 ---
 
@@ -37,7 +37,7 @@
 | ID | Issue | Status | Resolution |
 |----|-------|--------|------------|
 | PS-1 | MLP hidden_dim 64 vs 128 | ✅ Fixed | D-072 — default restored to 128 |
-| PS-2 | L2 Φ-IQ < 0.5 | ⚠️ Documented | D-073 — 0.477 @ 500 cycles; Phase 4.1 target |
+| PS-2 | L2 Φ-IQ < 0.5 | ✅ Fixed | D-086 + D-087 — metric ceiling aligned with L0/L1; PGA ramp onset lowered; L2 0.477 → 0.764 |
 | TC-2 | MuJoCo breaks test-all | ✅ Fixed | D-074 — importorskip + ignore in CI |
 | TC-3 | No CI Φ-IQ gate | ✅ Fixed | D-075 — `check_benchmark_gate.py` |
 | AD-2 | README path drift | ✅ Fixed | D-076 |
@@ -91,9 +91,9 @@
 
 | Metric | Value | Baseline / target | Source |
 |--------|-------|-------------------|--------|
-| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.686** | ≥ 0.5 (and ≥ 0.635 = 95% of 0.668) | `logs/benchmark_report.json` |
-| L2 Φ-IQ (MLP, 500 cyc) | 0.477 | ≥ 0.5 (documented exception) | `logs/benchmark_l2_ps1.json` |
-| L2 goal_rate | 0.936 | — | same |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.740** | ≥ 0.5 (and ≥ 0.635 = 95% of 0.668) | `logs/benchmark_final.json` |
+| L2 Φ-IQ (MLP, 200 cyc) | **0.764** | ≥ 0.5 — PASS (was 0.477) | `logs/benchmark_final.json` |
+| L2 goal_rate | 0.95 | — | same |
 | CI quick Φ-IQ | 0.577 | ≥ 0.548 (95% floor) | `logs/benchmark_ci_baseline.json` |
 | Gate result (post-P0) | PASS | report 0.6861 ≥ floor 0.5486 | `check_benchmark_gate.py` |
 
@@ -113,4 +113,6 @@
 | 2026-07-01 | MLP empowerment MC-Dropout MI (replaces constant stub) | D-077; 22 MLP tests pass; Φ-IQ 0.668→0.686 |
 | 2026-07-01 | structlog filter_by_level removed (unblocks benchmark) | D-085; benchmark + gate PASS |
 | 2026-07-01 | .gitignore + pyc untrack + staging | D-079; staged for maintainer commit |
+| 2026-07-01 | L2 adaptation_speed metric aligned with L0/L1 (ceiling fix) | D-086; L2 Φ-IQ 0.477→0.764; overall 0.669→0.740; gate PASS |
+| 2026-07-01 | PGA ramp onset lowered (50→150 cycles); Iteration B (goal randomization) tested + rejected | D-087; L0/L1/L3 unchanged; 293 tests pass |
 

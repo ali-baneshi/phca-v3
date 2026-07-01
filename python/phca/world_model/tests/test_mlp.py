@@ -331,9 +331,9 @@ class TestConfidenceCalibration:
         )
 
 
-# ── Replay Schedule (G-017 / D-080) ───────────────────────────
+# ── Replay Schedule (G-017 / D-081) ───────────────────────────
 class TestReplaySchedule:
-    """Hybrid online/replay learning schedule (G-017 / D-080).
+    """Hybrid online/replay learning schedule (G-017 / D-081).
 
     Verifies that online and replay gradient steps never run in the
     same cycle (the warm-up branch returns early), and that both

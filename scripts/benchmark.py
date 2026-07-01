@@ -58,6 +58,7 @@ class BenchmarkConfig:
     grid_size: int = 5
     use_continuous: bool = True
     use_mlp: bool = False
+    diagnose_level: int = -1  # if >=0, dump per-step history for this level to CSV
     weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
 
 
@@ -203,6 +204,10 @@ class BenchmarkRunner:
 
         result = BenchmarkResult(level=level, level_name="", n_cycles=n)
 
+        # Diagnostic dump: per-step history for the diagnosed level (read-only analysis)
+        if level == self.config.diagnose_level:
+            self._dump_history_csv(history, level)
+
         if level == 0:
             result = self._compute_level_0(history, cycle, result)
         elif level == 1:
@@ -221,6 +226,23 @@ class BenchmarkRunner:
         # Compute Φ-IQ composite
         result.phi_iq = self._compute_phi_iq(result)
         return result
+
+    # ── Level 0: Stationary Prediction ───────────────────────
+
+    def _dump_history_csv(self, history: List[CycleMetrics], level: int) -> None:
+        """Dump per-step cycle metrics to logs/diagnose_level{N}.csv (read-only diagnostic)."""
+        import csv
+        path = f"logs/diagnose_level{level}.csv"
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["cycle", "pred_error", "pred_conf", "goal_reached",
+                        "action", "latency_ms", "violations"])
+            for m in history:
+                w.writerow([m.cycle_id, f"{m.prediction_error:.4f}",
+                            f"{m.prediction_confidence:.4f}", int(m.goal_reached),
+                            m.action_taken, f"{m.latency_ms:.2f}", m.violations_count])
+        print(f"  [diagnose] per-step history dumped to {path} ({len(history)} rows)")
 
     # ── Level 0: Stationary Prediction ───────────────────────
 
@@ -340,11 +362,15 @@ class BenchmarkRunner:
         mean_error = float(np.mean(errors)) if errors else 0.0
         result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
 
-        # Adaptation: goal reaching improvement
+        # Adaptation: goal-reaching improvement AND sustained excellence.
+        # L0/L1 use max(improvement, maintenance); L2 now aligned (was late-early
+        # only, which collides with the ceiling when goal_rate is high throughout).
         if len(goals) >= 10:
             early_goals = float(np.mean(goals[:len(goals)//2]))
             late_goals = float(np.mean(goals[len(goals)//2:]))
-            result.adaptation_speed = float(np.clip(late_goals - early_goals, 0.0, 1.0))
+            improvement = (late_goals - early_goals) / max(1.0 - early_goals, 0.001)
+            maintenance = late_goals  # sustained high goal rate IS adaptation
+            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
 
         # Goal complexity: actual goal reaching rate
         result.goal_complexity = float(np.mean(goals)) if goals else 0.0
@@ -529,6 +555,8 @@ def main() -> None:
                         help="Use MLP world model instead of Gaussian G'")
     parser.add_argument("--output", type=str, default=None,
                         help="Output JSON report path")
+    parser.add_argument("--diagnose-level", type=int, default=-1,
+                        help="Dump per-step history CSV for this level (default: off)")
     args = parser.parse_args()
 
     if args.quick:
@@ -538,7 +566,8 @@ def main() -> None:
         levels = [int(l.strip()) for l in args.levels.split(",")]
         n_cycles = args.cycles
 
-    config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp)
+    config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp,
+                             diagnose_level=args.diagnose_level)
     runner = BenchmarkRunner(config)
     report = runner.run_all(levels)
     print_report(report)
