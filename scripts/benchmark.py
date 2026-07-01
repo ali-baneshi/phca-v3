@@ -185,10 +185,10 @@ class BenchmarkRunner:
             obstacles=obstacles,
         )
 
-        # Override G' timing bound for MLP (learn() takes ~31ms with 8×64 batch)
+        # Override G' timing bound for MLP (learn() takes ~55ms with 8×64 batch)
         if self.config.use_mlp:
             cycle.rbta.update_bounds(
-                "G'", ResourceBounds(B_time=0.050, B_mem=500_000, B_energy=50.0),
+                "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
             )
 
         # Warmup

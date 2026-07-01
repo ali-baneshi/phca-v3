@@ -1,0 +1,50 @@
+{
+  "config": {
+    "n_cycles": 500,
+    "warmup": 10,
+    "seed": 42,
+    "grid_size": 5,
+    "use_continuous": true,
+    "use_mlp": true,
+    "weights": {
+      "prediction_accuracy": 0.2,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 0.15,
+      "transfer_efficiency": 0.15,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 2,
+      "level_name": "Goal Pursuit",
+      "n_cycles": 500,
+      "prediction_accuracy": 0.0,
+      "adaptation_speed": 0.0040000000000000036,
+      "goal_complexity": 0.23,
+      "transfer_efficiency": 0.0,
+      "resource_efficiency": 0.8986351741948165,
+      "failure_rate": 0.512,
+      "phi_iq": 0.16382703483896333,
+      "raw_metrics": {
+        "mean_error": 40.527900801144135,
+        "mean_latency_ms": 50.68241290259175,
+        "p95_latency_ms": 66.99082265258765,
+        "violations": 256,
+        "goals_reached": 115,
+        "goal_rate": 0.23,
+        "skill_accuracy": 0.9993134214929317
+      }
+    }
+  ],
+  "overall_phi_iq": 0.16382703483896333,
+  "total_cycles": 500,
+  "duration_s": 25.580927975999657,
+  "pass_criteria": {
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": false,
+    "goal_autonomy_achieved": false,
+    "phi_iq_above_0_5": false
+  }
+}

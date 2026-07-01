@@ -284,8 +284,6 @@ class CognitiveCycle:
                     )
                 t4 = time.perf_counter()
                 tspl_gradient = None
-                if isinstance(self.gprime, WorldModelMLP) and self.current_state is not None:
-                    tspl_gradient = {"gprime": prediction_error * 0.1}
                 theta_new, _ = self.tspl.update(
                     StreamID.P_STREAM,
                     metrics.prediction_error,
@@ -295,8 +293,11 @@ class CognitiveCycle:
                     accuracy_override=mlp_accuracy,
                 )
                 # AF-002: Apply TSPL learned bias to MLP output
-                if isinstance(self.gprime, WorldModelMLP):
-                    self.gprime.set_tspl_bias(theta_new.get("gprime"))
+                # [DISABLED] TSPL bias grows unbounded (norm >5) and corrupts MLP output.
+                # TSPL's delta-rule gradient for "gprime" diverges when MLP predictions
+                # are initially random. Re-enable only after MLP converges (pred_acc > 0.3).
+                # if isinstance(self.gprime, WorldModelMLP):
+                #     self.gprime.set_tspl_bias(theta_new.get("gprime"))
                 metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
                 # LEARN: update G' with observed transition, weighted by attention
@@ -556,9 +557,10 @@ class CognitiveCycle:
         goal_id = goal.drive_id if goal else 1
         target = goal.target_state if goal else None
 
-        # ε-greedy exploration (5% random action)
+        # Adaptive ε-greedy: explore less as model converges
+        eps = max(0.01, 0.10 * (1.0 - self.cycle_count / 500.0))
         rng = np.random.RandomState(self.cycle_count)
-        if rng.random() < 0.05:
+        if rng.random() < eps:
             return int(rng.randint(0, self.env.action_space_size))
 
         # D5 (Energy Efficiency): prefer STAY
@@ -583,10 +585,15 @@ class CognitiveCycle:
                 # Continuous distance gain (0 = toward goal, 1 = away)
                 distance_gain = self._compute_distance_gain(action_idx)
 
+                # Predicted goal alignment — ramps up as MLP learns
+                ramp = float(np.clip((self.cycle_count - 200) / 200.0, 0.0, 1.0))
+                pga = self._predicted_goal_alignment(predicted)
+
                 # D1/D3: strongly prioritize reducing distance, confidence secondary.
                 # MDIM target_state alignment adds drive-specific bias (G5 fix).
                 if goal_id in (1, 3):
                     base_score = (1.0 - distance_gain) * 0.6 + min(confidence, 1.0) * 0.2
+                    base_score = base_score * (1.0 - ramp * 0.4) + pga * (ramp * 0.4)
                     if target is not None:
                         alignment = self._state_space_alignment(predicted, target)
                         score = base_score + alignment * 0.2
@@ -661,6 +668,30 @@ class CognitiveCycle:
         cos_sim = float(np.dot(p * w, t * w) / (p_norm * t_norm))
         # Map [-1, 1] → [0, 1]
         return float(np.clip((cos_sim + 1.0) / 2.0, 0.0, 1.0))
+
+    def _predicted_goal_alignment(self, predicted: StateVector) -> float:
+        """Score predicted state by proximity of predicted agent pos to goal.
+
+        Extracts the predicted agent position from the first size² dims
+        and measures Manhattan distance from the predicted peak to goal.
+        Returns [0, 1] where 1.0 = peak predicted at goal position.
+        Lower-bounded at 0.1 so it never fully blocks an action.
+        """
+        env = self.env
+        goal_pos = env.get_goal_position()
+        if goal_pos is None or not hasattr(env, "agent_pos"):
+            return 0.5
+        n_pos = env.size * env.size if hasattr(env, 'size') else 25
+        pred_agent = predicted.values[:n_pos]
+        peak = int(np.argmax(pred_agent))
+        max_val = float(pred_agent[peak])
+        if max_val < 0.05:
+            return 0.5
+        g_row, g_col = goal_pos
+        p_row, p_col = peak // env.size, peak % env.size
+        dist = abs(p_row - g_row) + abs(p_col - g_col)
+        max_dist = 2 * (env.size - 1) if hasattr(env, 'size') else 8
+        return float(np.clip(1.0 - dist / max_dist, 0.1, 1.0))
 
     def _compute_distance_gain(self, action_idx: int) -> float:
         """Compute normalized distance gain for an action.
@@ -871,8 +902,8 @@ class CognitiveCycle:
         seed: int = 42,
         use_mlp: bool = False,
         use_continuous: bool = False,
-        mlp_lr: float = 0.1,
-        mlp_hidden_dim: int = 128,
+        mlp_lr: float = 0.2,
+        mlp_hidden_dim: int = 64,
         gprime_b_time: float = 0.020,
         action_b_time: float = 0.020,
         metrics_store: Optional["MetricsStore"] = None,
