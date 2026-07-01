@@ -2,6 +2,11 @@
 # For linting, formatting, and developer tooling
 # Install: pip install -r requirements-dev.txt
 
+# Test fixtures
+pytest>=8.0
+pytest-mock>=3.12
+pytest-timeout>=2.2
+
 # Linting
 ruff==0.2.0
 black==24.1.1

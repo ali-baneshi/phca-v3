@@ -930,5 +930,18 @@ Every entry must reference the v3.0 specification section it affects.
 - **v3.0 trace:** §3.1 (G' drives action selection), A4 (prediction as primary), A5.
 - **Tests/Validation:** On the current easy L2 task (5×5 maze, fixed goal, agent reaches+stays), A2 was *neutral* — goal_rate stayed 0.95 because STAY-at-goal is already optimal, so PGA engagement changed no action. No regression (L0/L1/L3 unchanged). The fix is correct for harder tasks where PGA matters; it is retained as the right structural default. **Corollary — Iteration B rejected:** goal randomization (relocate every 50 cycles) was tested to create real improvement headroom; it made L2 genuinely harder (goal_rate 0.95→0.51) but L2 Φ-IQ fell to 0.42 (< 0.50 target) and overall to 0.654, so B was reverted. Final state = A1+A2 (L2 0.764, overall 0.740, gate PASS).
 
+## Decision D-088: TC-6 closure (pytest-mock) + 1000-cycle stability validation (Week 1)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect (Phase 4 Week 1)
+- **Category:** Tier 3 (test-infrastructure gap + stability verification)
+- **Problem:** TC-6 — `pytest-mock` was missing from the env, causing 6 `mocker` fixture errors in `test_engine.py`, blocking the "all tests pass ≥293" success criterion. Separately, Phase 4 readiness required a long-duration run to rule out memory leaks / latency creep before extending to MuJoCo and dynamic goals.
+- **Option chosen:** (a) Added `pytest-mock>=3.12` (+ `pytest`, `pytest-timeout`) to `requirements-dev.txt`; installed. (b) Wrote `scripts/longrun_probe.py` (new, read-only) running the L2 MLP cycle for 1000 cycles with per-100-cycle latency blocks + RSS sampling via `resource.getrusage`. (c) Ran the full 4-level benchmark at 1000 cycles.
+- **Results:** Core suite 293→**299 passed, 0 errors**; MuJoCo 23 passed → **322 total, 0 errors**. Long-run probe: RSS 218→225 MB (**+3.23%, bounded — no leak**); mean latency 16.6ms (block 1, warm-up) → ~57ms (blocks 2-10, **plateau, not monotonic creep**) — the step is the D-081 warm-up→steady-state replay transition (buffer fills at ~64 cycles, mini-batch replay activates), not a leak; p95 max 66ms (<< 500ms A1 bound). 1000-cycle benchmark: Overall Φ-IQ **0.7919** (≥ 200-cycle 0.739 — more cycles → more learning), gate PASS, all criteria pass.
+- **Alternatives:** Lower the long-run acceptance to ignore the warm-up→replay step (rejected — the step is real and is a W4 optimisation target, documented honestly); skip the long-run (rejected — readiness requires leak evidence).
+- **Rationale:** TC-6 was the last blocker for a clean test suite. The long-run confirms A1 (resource boundedness) holds over 1000 cycles with no leak and p95 well under budget. The warm-up→replay latency step (3.4×) is flagged as the top W4 profiling target.
+- **v3.0 trace:** A1 (resource boundedness over long horizon), test infrastructure.
+- **Tests/Validation:** 322 passed, 0 errors. Gate PASS (0.7919 ≥ floor 0.5486). `logs/longrun_probe.json`, `logs/benchmark_longrun.json`.
+
 
 

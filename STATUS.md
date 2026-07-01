@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-01  
-**Phase:** 4 (Chief Architect Strategic v2.0 re-audit — P0/P1/P2 complete; L2 bottleneck closed)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-087)
+**Phase:** 4 Weeks 1–4 hardening (W1 complete — long-run + TC-6 closed; W2 in progress)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-088)
 
 ---
 
@@ -67,7 +67,7 @@
 | PS-4 | Mid-cycle RBTA preemption | 4.2 | — |
 | TC-4 | 10K-cycle nightly stress job | 4.1 | — |
 | TC-5 | Assumption validation experiments | 4.1 | — |
-| TC-6 | `pytest-mock` undeclared — `test_engine.py` errors on missing `mocker` fixture | 4.1 | — |
+| TC-6 | `pytest-mock` undeclared — `test_engine.py` errors on missing `mocker` fixture | ✅ Fixed | D-088 — `pytest-mock>=3.12` added to `requirements-dev.txt`; 6 errors cleared |
 
 ---
 
@@ -75,15 +75,18 @@
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python core | 2026-07-01 | **289 passed**, 7 errors (pre-existing: `pytest-mock` not installed — see TC-6), 2 skipped (MuJoCo) |
-| Rust | Not re-run (empty `.rs` sources) | N/A |
-| CI gate script | 2026-07-01 | PASS (Φ-IQ 0.6861 ≥ floor 0.5486) |
+| Python core | 2026-07-01 | **299 passed**, 0 errors (TC-6 closed via D-088) |
+| MuJoCo (`MUJOCO_GL=disabled`) | 2026-07-01 | **23 passed**, 0 errors |
+| Total | 2026-07-01 | **322 passed**, 0 errors |
+| Rust | N/A (workspace removed D-084) | — |
+| CI gate script | 2026-07-01 | PASS (1000-cyc Φ-IQ 0.7919 ≥ floor 0.5486) |
 
 **Notes:**
-- The 7 `test_engine.py` errors are `fixture 'mocker' not found` — the `pytest-mock` plugin is not declared in `requirements-dev.txt` and not installed in this venv. Pre-existing, unrelated to P0 fixes. Tracked as TC-6.
-- P0 fixes added 6 new passing tests (5 `TestEmpowerment`, 1 MDIM D6-blend test).
+- TC-6 closed: `pytest-mock` installed + declared; the 6 `mocker` fixture errors in `test_engine.py` are gone.
+- 1000-cycle long-run probe (`logs/longrun_probe.json`): RSS +3.23% (bounded, no leak); latency 16.6ms→57ms plateau (D-081 warm-up→replay transition, not creep); p95 max 66ms << 500ms A1 bound.
+- W4 optimisation target identified: steady-state replay path is 3.4× slower than warm-up.
 
-**Failing tests:** None (7 errors are environment/dependency gaps, not code failures).
+**Failing tests:** None.
 
 ---
 
@@ -115,4 +118,5 @@
 | 2026-07-01 | .gitignore + pyc untrack + staging | D-079; staged for maintainer commit |
 | 2026-07-01 | L2 adaptation_speed metric aligned with L0/L1 (ceiling fix) | D-086; L2 Φ-IQ 0.477→0.764; overall 0.669→0.740; gate PASS |
 | 2026-07-01 | PGA ramp onset lowered (50→150 cycles); Iteration B (goal randomization) tested + rejected | D-087; L0/L1/L3 unchanged; 293 tests pass |
+| 2026-07-01 | W1: TC-6 closed (pytest-mock) + 1000-cycle stability probe | D-088; 322 passed 0 errors; Φ-IQ 0.7919 @ 1000cyc; RSS +3.23% no leak |
 
