@@ -49,6 +49,10 @@ from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
 from phca.environments.protocol import EnvironmentProtocol
 
+# AF-005: Normalisation factor for FLOP-based energy signals.
+# ~30M FLOPs (MLP forward at h=128, bs=32, ts=4) ≈ 0.5 on energy scale.
+ENERGY_NORM_FLOPS = 60_000_000.0
+
 
 @dataclass
 class CycleMetrics:
@@ -279,13 +283,20 @@ class CognitiveCycle:
                         self.current_state.values, action_vec, next_state.values
                     )
                 t4 = time.perf_counter()
-                self.tspl.update(
+                tspl_gradient = None
+                if isinstance(self.gprime, WorldModelMLP) and self.current_state is not None:
+                    tspl_gradient = {"gprime": prediction_error * 0.1}
+                theta_new, _ = self.tspl.update(
                     StreamID.P_STREAM,
                     metrics.prediction_error,
                     self.current_state,
                     self.last_prediction,
+                    gradient=tspl_gradient,
                     accuracy_override=mlp_accuracy,
                 )
+                # AF-002: Apply TSPL learned bias to MLP output
+                if isinstance(self.gprime, WorldModelMLP):
+                    self.gprime.set_tspl_bias(theta_new.get("gprime"))
                 metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
                 # LEARN: update G' with observed transition, weighted by attention
@@ -349,14 +360,17 @@ class CognitiveCycle:
             # C3 fix: FLOP-based energy unified for D5 and RBTA
             self._cycle_flops = self._compute_cycle_flops()
             if self._cycle_flops > 0:
-                energy_cost = max(0.01, min(1.0, self._cycle_flops / 60_000_000.0))
+                energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
             else:
                 energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
+            # AF-001: model_entropy from prediction confidence (real uncertainty)
+            # Low confidence → high entropy → D4 drives exploration.
+            model_entropy = max(0.01, 1.0 - metrics.prediction_confidence)
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
                 "error_volatility": error_volatility,
                 "skill_accuracy": self.tspl.skill_accuracy,
-                "model_entropy": 0.5 - self.cycle_count * 0.001,
+                "model_entropy": model_entropy,
                 "energy_cost": energy_cost,
                 "cycle": self.cycle_count,
                 "prediction_confidence": metrics.prediction_confidence,
@@ -837,7 +851,7 @@ class CognitiveCycle:
                 self.energy_log[mod] = val
         # FLOP-based G' energy (C3 fix: unified with MDIM energy_cost via self._cycle_flops)
         if self._cycle_flops > 0:
-            gprime_energy = self._cycle_flops / 6_000_000.0
+            gprime_energy = self._cycle_flops / ENERGY_NORM_FLOPS
             self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
         # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
         if len(self.metrics_history) >= 5:

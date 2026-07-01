@@ -660,5 +660,57 @@ Every entry must reference the v3.0 specification section it affects.
 
 ---
 
-*End of Decision Log (Phase 4 gap closure — C1-C5 all resolved).*
+## Decision D-065: Wire real model_entropy from prediction confidence (AF-001)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 1 (A3 violation — D4 curiosity driven by fabricated signal)
+- **Option chosen:** Replaced `"model_entropy": 0.5 - self.cycle_count * 0.001` in `cycle.py:359` with `model_entropy = max(0.01, 1.0 - metrics.prediction_confidence)`. The prediction confidence is available after `engine.predict()` (line 226), well before MDIM context construction (line 355). Low confidence → high entropy → D4 drives exploration toward uncertain states.
+- **Rationale:** The previous formula was a linear decay from 0.5 that went negative after cycle 500 — D4's primary input was a fabricated clock signal, not actual model uncertainty. The real G' posterior entropy WAS computed in `_collect_runtime_log` (line 849) but never forwarded to MDIM. Using `1.0 - confidence` maps the already-computed MC Dropout confidence inversely to entropy, which is the correct relationship: low confidence = high model uncertainty = high D4 drive. This violates A3 (Incomplete Knowledge) because without real uncertainty, the system cannot know what it doesn't know.
+- **v3.0 trace:** §3.3 Def 3.5 (D4 Epistemic Curiosity), A3 (Incomplete Knowledge)
+- **Tests:** 284 tests pass (unchanged).
+
+## Decision D-066: Connect TSPL learned bias to MLP output (AF-002)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (phantom parameter — TSPL theta had zero behavioural effect)
+- **Option chosen:** Added `WorldModelMLP._tspl_bias` (initially zero, shape `(state_dim,)`) and `set_tspl_bias()` method. Modified `predict()` to add `_tspl_bias` to the MC Dropout mean prediction before returning. In `cycle.py`, after `tspl.update()`, the returned `theta["gprime"]` is passed to `gprime.set_tspl_bias()`. The TSPL gradient for theta (shape `(state_dim,)`) is computed from prediction_error — the existing `_compute_gradient()` path already handles 1-D params correctly (line 224), so no change to TSPL's internal gradient was needed.
+- **Rationale:** TSPL maintained `theta["gprime"]` of shape `(state_dim,)` — updated every cycle with gradient + elastic consolidation + noise — but no production code ever read this parameter. The entire TSPL learning channel was a phantom with zero behavioural effect (other than skill compilation). Connecting it as an output bias closes the cycle: G' predicts → error is computed → TSPL updates bias → bias improves next prediction. The bias starts at zero and is learned incrementally, so initial behaviour is identical.
+- **v3.0 trace:** §3.1 Def 3.2 (TSPL), §2.2 Def 2.4b (G' learning), A5 (Feedback-Driven Adaptation)
+- **Tests:** 284 tests pass (unchanged).
+
+## Decision D-067: Fix PID freeze reset oscillation (AF-004)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (design flaw — freeze never converges)
+- **Option chosen:** Removed `self._high_cov_cycles = 0` at `pid_controller.py:247`, which was resetting the high-correlation counter after every freeze swap. The freeze now stays swapped once triggered, converging to a stable state. Also renamed `cov`/`max_cov`/`abs_cov` to `corr`/`max_corr`/`abs_corr` to accurately reflect that the variables hold `np.corrcoef` output (correlation, not covariance).
+- **Rationale:** The old code froze parameter A for 100 high-correlation cycles → swapped to B → reset counter → froze B for 100 cycles → swapped back → reset → oscillates indefinitely. Removing the reset means the first swap is permanent until the correlation naturally drops below threshold. This makes the freeze mechanism converge instead of oscillate.
+- **v3.0 trace:** §3.4 Def 3.7 (orthogonality constraint)
+- **Tests:** 284 tests pass (unchanged).
+
+## Decision D-068: Unify energy divisor (AF-005)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 3 (internal consistency)
+- **Option chosen:** Added module-level `ENERGY_NORM_FLOPS = 60_000_000.0` constant to `cycle.py`. Changed the RBTA energy divisor at line 840 from `6_000_000.0` to `ENERGY_NORM_FLOPS`. Both D5 and RBTA now use the same normalisation factor for FLOP-based G' energy.
+- **Rationale:** D5 divided by 60M (`[0.01, 1.0]` range) while RBTA divided by 6M (`[0.1, 10.0]` range) — same FLOP count yielded 10× different scaled values. The "unified energy" claimed by the C3 fix was misleading. Now both use the same divisor; different clamp ranges are appropriate for different subsystems (drive vs constraint).
+- **v3.0 trace:** §2.1 Def 2.1 (resource bounds), §3.3 Def 3.5 (D5)
+- **Tests:** 284 tests pass (unchanged).
+
+## Decision D-069: Fix CPD multi-parent key in graph normalization (AF-003)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (latent correctness bug)
+- **Option chosen:** Changed `_normalize_cpds()` in `graph.py:875-879` to build CPD lookup keys from ALL parents (`"&".join(sorted(parents)) + "->" + node_name`) instead of only `parents[0] -> node`. Replaced `parent_idx % card` with `parent_idx` as the direct row index — for single-parent nodes (current GridWorld), `parent_idx` is the parent value; for multi-parent, it's the flattened parent combination index. The `_cpd_params` matrix shape `(card, card)` for single-parent is equivalent to `(n_parent_combos, card)` where n_parent_combos = card.
+- **Rationale:** The old code only used `parents[0]` in the key, so multi-parent nodes shared CPD counts across all parent combinations — corrupting the conditional distribution. The indexing `parent_idx % card` wrapped by the child node's cardinality instead of using the proper parent combination index, producing dimensionally wrong probabilities. The bug is currently latent (GridWorld uses only single-parent temporal edges) but structurally incorrect. The fix preserves single-parent behaviour while enabling correct multi-parent CPDs when the graph topology is extended.
+- **v3.0 trace:** §2.2 Def 2.4b (G' Bayesian network), Phase 4 gap audit finding AF-003
+- **Tests:** 284 tests pass (unchanged).
+
+---
+
+*End of Decision Log (Phase 4 second round — AF-001 through AF-005 all resolved).*
 

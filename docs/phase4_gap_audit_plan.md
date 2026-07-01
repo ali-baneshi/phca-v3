@@ -2,13 +2,13 @@
 
 **Date:** 2026-07-01
 **Auditor:** Chief Architect & Principal Engineer
-**Status:** NOT READY — 2 mathematically incorrect algorithms must be fixed before proceeding
+**Status:** NOT READY — 2 fractured core systems (D4 guidance, TSPL gradient) must be fixed before proceeding
 
 ---
 
 ## Executive Summary
 
-PHCA v3.0 passes 289 tests, achieves Φ-IQ = 0.626 overall (0.320 at Level 2), runs at ~50ms latency with 3.4% failure rate. Superficially, the system works. Architecturally, it contains two mathematically incorrect algorithms at its core — the Pareto front (compares drive deficits with different units as if they were the same quantity) and the MLP empowerment proxy (`std(confidences)` has no guaranteed relationship to mutual information `I(S';A|S)`). A third issue makes the energy optimisation loop internally inconsistent (D5 minimises wall-clock time while RBTA enforces FLOP-based energy). A fourth means the consolidation pipeline (~5ms/10 cycles) has zero behavioural effect. A fifth makes the PID orthogonality freeze fire based on parameter scale, not genuine redundancy. **Verdict: NOT READY.** All five must be resolved before Phase 4 proceeds.
+PHCA v3.0 passes 289 tests, achieves Φ-IQ = 0.626 overall (0.320 at Level 2), runs at ~50ms latency with 3.4% failure rate. The Phase 4 gap closure report correctly claimed C1, C2, C4, C5 were fixed — true vector-dominance Pareto, MC Dropout Gaussian MI, fact consumption in MDIM, and PID correlation coefficient are all confirmed in source. However, a fresh zero-trust audit reveals **two new critical fractures**: D4 (epistemic curiosity) is driven by a fabricated linear decay (`0.5 - cycle * 0.001`) instead of actual model uncertainty — the real G' posterior entropy is computed but never forwarded, violating A3. Additionally, TSPL gradient computation degenerates to flat mean-abs-error for every MLP parameter except output bias — the P-Stream learning channel is effectively a placebo. A latent CPD corruption bug in the graph model and two functional design flaws (PID freeze oscillation, energy scaling mismatch) complete the top 5. **Verdict: NOT READY.** These five issues must be resolved before Phase 4 proceeds.
 
 ---
 
@@ -16,229 +16,256 @@ PHCA v3.0 passes 289 tests, achieves Φ-IQ = 0.626 overall (0.320 at Level 2), r
 
 | ID | Dimension | Severity | Location | Description |
 |:---|:----------|:---------|:---------|:------------|
-| C1 | Over-Simplification / AI Hallucination | CRITICAL | `mdim.py:259-327` | Pareto front compares deficit magnitudes across different drives — not true Pareto dominance |
-| C2 | AI Hallucination / Over-Simplification | CRITICAL | `cycle.py:685-707` | MLP empowerment = `std(confidences)` — not mutual information; mathematically unrelated |
-| C3 | Hidden Assumption | CRITICAL | `cycle.py:351,807-833` | Energy pipeline inconsistent: D5 uses wall-clock, RBTA uses FLOP-based; contradictory signals |
-| C4 | Dead Code / Logical Fallacy | CRITICAL | `cycle.py:336-358`, `mdim.py:147-255` | Consolidation facts injected into MDIM context but never consumed — A5 violation |
-| C5 | Over-Simplification | MAJOR | `pid_controller.py:210-212` | Orthogonality uses `np.cov()` — scale-dependent; T always frozen first |
-| F1 | Dead Code | MINOR | `hpm/parser.py:18-27` | `CompositionOp.INTERLEAVE` and `TEMPORAL_INVARIANT` — dead enum values |
-| F2 | Dead Code | MINOR | `mdim.py:325-327` | Pareto front results commented out — called but never used |
-| F3 | Hidden Assumption | MAJOR | `monitoring/metrics_store.py` | All timeseries data stored in memory — no persistence or eviction policy |
-| F4 | Over-Simplification | MAJOR | `world_model/mlp.py` | 3-layer MLP (89→128→128→84) used for all environments — no architecture search |
-| F5 | Over-Simplification | MINOR | `environments/grid_world.py` | Grid distances and action effects hardcoded; not data-driven |
-| F6 | Dead Code | MINOR | `asi/sanitizer.py:77-80` | VSA stubs referenced but `vsa` module does not exist |
-| F7 | Hidden Assumption | MINOR | `cycle.py:500-502` | D5 `elapsed_time * 2.0` magic number — origin unknown |
-| F8 | AI Hallucination | MAJOR | `cycle.py:metric_logging` | Φ proxy = `std(error)/mean(error)` — not Integrated Information |
-| F9 | Dead Code | MINOR | `core/config.py` | Several configuration parameters defined but never read |
-| F10 | Over-Simplification | MINOR | `regulation/pid_controller.py` | Simple PID for "edge-of-chaos" dynamics — no chaos theory basis |
-| F11 | Hidden Assumption | MAJOR | `world_model/graph.py:578-638` | Gaussian empowerment assumes Gaussian posterior — may not hold for multimodal state dist |
-| F12 | Dead Code | MINOR | `learning/tspl.py` | E-Stream / S-Stream remnants in type annotations |
-| F13 | Logical Fallacy | MINOR | `environments/grid_world.py` | "Ground truth" derived from agent's internal state, not environment |
-| F14 | Over-Simplification | MINOR | `consolidation/scheduler.py` | Cosine similarity for semantic fact extraction — statistical, not semantic |
+| **AF-001** | Hidden Assumption / AI Hallucination | **CRITICAL** | `cycle.py:359` | `model_entropy = 0.5 - self.cycle_count * 0.001` — D4's primary input is a fabricated linear decay, not G' posterior entropy; goes negative after cycle 500. Real entropy computed at `cycle.py:849` but never forwarded to MDIM. Violates A3 (Incomplete Knowledge). |
+| **AF-002** | Logical Fallacy | **CRITICAL** | `tspl.py:224-245` | `_compute_gradient()` falls through to flat `mean_abs_error` fallback for every MLP parameter except output bias b3. Weight matrices `(89,128)`, `(128,128)`, `(128,84)` and hidden biases `(128,)` all receive identical gradient per element — no per-dimension structure. P-Stream learning is a shape-mismatch noise channel. |
+| **AF-003** | AI Hallucination | **CRITICAL** | `graph.py:875,879,834` | CPD normalization uses `f"{parents[0]}->{node_name}"` as key — only captures first parent. Indexing `parent_idx % card` uses child cardinality instead of parent cardinality. Latent bug: not triggered with single-parent GridWorld topology, but structurally wrong and will corrupt multi-parent graphs. |
+| **AF-004** | Over-Simplification | **MAJOR** | `pid_controller.py:244-247` | After 100 high-cov cycles, freeze swap resets `_high_cov_cycles = 0`, causing oscillation: freeze parameter A for 100 cycles → swap to B for 100 cycles → swap back. Never converges to a stable freeze set. Also: variable `cov` actually holds `corrcoef` (cosmetic). |
+| **AF-005** | Hidden Assumption | **MAJOR** | `cycle.py:352 vs 840` | D5 divides FLOPs by 60M (`[0.01, 1.0]` range), RBTA divides by 6M (`[0.1, 10.0]` range) — same FLOP count, 10× different scaled values. The "unified energy" claim is misleading. Both use FLOP source but with inconsistent calibration. |
+| F1 | Dead Code | MINOR | `scheduler.py:256` | `rng = np.random.RandomState(42)` in `_extract_facts()` — created but never used. |
+| F2 | Dead Code | MINOR | `scheduler.py:324` | `n_new = 0` immediately overwritten at line 327. |
+| F3 | Dead Code | MINOR | `pid_controller.py:96-98` | `self._param_history` dict initialized but never updated or read. |
+| F4 | Dead Code | MINOR | `attention/attention.py:62` | `self.state_dim` stored in constructor but never read — and value `4` is inconsistent with GridWorld's 84. |
+| F5 | Dead Code | MINOR | `graph.py:105` | `self.state_history` written and trimmed but never read by production code (test-only). |
+| F6 | Dead Code | MINOR | Various | `GoalVector.drive_name` property, `ensure_logging()` function, `M1SensoryBuffer.read_latest()`/`is_full`, `GridWorld.render()` — defined but never called from production. |
+| F7 | Dead Code | MINOR | `hpm/parser.py:18-27` | `CompositionOp` — `HIERARCHY`, `RECURSE`, `INTERLEAVE`, `TEMPORAL_INVARIANT`, `REACTIVE` — 5 of 8 enum values never referenced. |
+| F8 | Dead Code | MINOR | `config.py:183-185` | `CYCLE_TARGET`, `T_COMP`, `T_SYNC` — defined but never imported or referenced. |
+| F9 | Dead Code | MINOR | `mdim.py:53,584` | `GoalStackEntry.completed` — declared, never set or checked. `MetaStableState.drive_values` — set but never read. |
+| F10 | Over-Simplification | MINOR | `scheduler.py:264-267` | Fact signature truncates `state_after.values[:4]` — hardcoded 4-dim assumption. |
+| F11 | Over-Simplification | MINOR | `attention/attention.py:40-45` | `state_dim=4` hardcoded — inconsistent with MLP/GridWorld's 84-dim states. |
+| F12 | Over-Simplification | MINOR | `tspl.py:131` | E-Stream / S-Stream path causes KeyError before disabled-stream guard executes — broken but unreachable. |
+| F13 | Hidden Assumption | MINOR | `mdim.py:254-258 vs 566-575` | Disruption detection baselines computed from same rolling window containing current signal — threshold self-adapts to the signal it detects. |
+| F14 | Hidden Assumption | MINOR | `mdim.py:469-470` | D3 goal target hardcoded to zeros ("seek familiar states") — not near current state as claimed. |
+| F15 | Dead Code | MINOR | `cycle.py:605` | `self._cached_confidences` assigned but never read. |
+| F16 | Dead Code | MINOR | `graph.py:875` | Single-parent key in CPD normalization (covered under AF-003 as the core bug manifestation). |
+| F17 | Over-Simplification | MINOR | `mlp.py:92-93` | `self._last_input` and `self._last_activations` — cache set but never read by production code. |
+| F18 | Over-Simplification | MINOR | `cycle.py:564-566` | `_select_action` iterates all actions calling `engine.update_action()` — engine left in state of last iterated action, not the selected `best_action`. |
+| F19 | Over-Simplification | MINOR | `pid_controller.py:135` | NaN gate fallback uses previous temperature value (`self._prev_output[0]`), not previous error_volatility — fallback returns unrelated parameter. |
 
 ---
 
 ## The 5 Critical Issues (Detailed)
 
-### C1: Pareto Front Algorithm is Mathematically Incorrect
+### AF-001: D4 Epistemic Curiosity Driven by Fabricated Signal
 
 | Field | Value |
 |:------|:------|
-| **Dimension** | Over-Simplification / AI Hallucination |
+| **Dimension** | Hidden Assumption / AI Hallucination |
 | **Severity** | CRITICAL |
-| **Location** | `python/phca/motivation/mdim.py:259-327` |
-| **Description** | The `_compute_pareto_front()` function compares drive deficits via magnitude comparison: `j_deficit > i_deficit + 0.01`. This is mathematically **not** Pareto dominance. A point `a` dominates `b` iff `a_k <= b_k` for all objectives `k` and `a_m < b_m` for at least one `m`. Comparing deficits across different drives (D1 error O(1), D3 competence O(0.1), D5 energy O(1)) is a category error — they have different units, scales, and meanings. The `0.01` threshold is an arbitrary magic number. The function only evaluates a single configuration against itself, not a set of candidates — a Pareto front requires multiple candidates to compare. Downstream, `mdim.py:372-379` uses this incorrect front for meta-stable state suppression, producing unpredictable behaviour. |
-| **Root Cause** | The concept of Pareto dominance was understood superficially. The implementer treated "better/worse" as a magnitude comparison across objectives rather than a vector dominance relation. This is likely an AI hallucination where the output "looks like" a Pareto front but isn't one. |
-| **Proposed Fix** | Rewrite `_compute_pareto_front()` to: (1) accept an array of candidate configuration vectors, (2) normalise each objective dimension to [0,1] using min-max over candidates, (3) apply true vector-dominance check: `a` dominates `b` iff `all(a <= b) and any(a < b)`, (4) return set of Pareto-optimal indices. Replace the single-configuration call site with a sampled neighbourhood (e.g., ±10% perturbation of each deficit, 10 candidates). |
-| **Effort Estimate** | 5 hours |
+| **Location** | `python/phca/core/cycle.py:359` |
+| **Description** | `model_entropy` in the MDIM context is `"model_entropy": 0.5 - self.cycle_count * 0.001`. This is a linear decay from 0.5 that goes negative after cycle 500. D4 (epistemic curiosity) uses this as its primary drive value: `d4_value = model_entropy` (mdim.py:215). The real G' posterior entropy IS computed at `cycle.py:843-849` and stored in `self.belief_entropies["G'"]` but is **never forwarded to MDIM**. The entire exploration system is operating on a fake clock signal, not on actual model uncertainty. This directly violates Invariant A3 (Incomplete Knowledge → all beliefs carry uncertainty; entropy floor is enforced). Without real uncertainty, the agent cannot know what it doesn't know. |
+| **Root Cause** | A placeholder value was left in place when the entropy computation pipeline was not yet connected to MDIM. The entropy is computed in `_collect_runtime_log` (late in the cycle) while MDIM context is built earlier. The two were never wired together. |
+| **Proposed Fix** | (1) Move or duplicate the G' entropy computation earlier in `step()` so it's available before MDIM context construction. (2) Replace `"model_entropy": 0.5 - self.cycle_count * 0.001` with `"model_entropy": self.belief_entropies.get("G'", 0.5)` after ensuring `belief_entropies` is populated. (3) Remove the decay formula entirely. |
+| **Effort Estimate** | 2 hours |
 | **Dependencies** | None |
-| **Acceptance Criteria** | Property-based test: for any set of random normalised vectors, `_compute_pareto_front()` returns only non-dominated points. Integration test: with fixed deficits `[0.5, 0.2, 0.8]` and candidate deficits `[[0.4, 0.1, 0.7], [0.5, 0.3, 0.6], [0.6, 0.2, 0.9]]`, verify [0.4, 0.1, 0.7] is the only Pareto-optimal point. |
+| **Acceptance Criteria** | Unit test: after `_collect_runtime_log`, verify `belief_entropies["G'"] > 0`. Integration test: run 600 cycles; verify D4 value after cycle 500 is positive (not negative). |
 
-### C2: MLP Empowerment = std(confidences) is Not Mutual Information
-
-| Field | Value |
-|:------|:------|
-| **Dimension** | AI Hallucination / Over-Simplification |
-| **Severity** | CRITICAL |
-| **Location** | `python/phca/core/cycle.py:685-707` (MLP path), `python/phca/motivation/mdim.py:223-229` (D6 consumer) |
-| **Description** | `I(S';A|S)` — empowerment — measures the causal influence of an action on the outcome state. The Gaussian path computes it correctly via closed-form mutual information (`graph.py:578-638`). The MLP path computes `empowerment = np.std(confidences)` where `confidences` is `[mean(1/(1+var))]` per action. Counterexample: an agent in a deterministic environment where actions 1-4 lead to different outcomes with equal confidence → `std(confidences) = 0` → empowerment = 0, but true MI is maximal (actions cause different outcomes). Conversely, actions with wildly varying confidences but identical outcome distributions produce non-zero "empowerment" with zero true MI. D6 drives exploration toward states with high `std(confidences)`, which may be completely unrelated to states with high action→outcome causality. This is an architectural hallucination: `std` of confidence is not an approximation of mutual information; it is a different concept entirely. |
-| **Root Cause** | The developer knew empowerment ≈ mutual information but did not know how to compute it from an MLP. They substituted a quantity they could compute (`std(confidences)`) without verifying the mathematical relationship. The Gaussian path shows the correct approach already exists in the codebase. |
-| **Proposed Fix** | For n ≤ 5 discrete actions, run MC Dropout (20 forward passes) per action to estimate `p(s'|s,a)` as a Gaussian Mixture Model. Compute `I(S';A|s) ≈ H(Σ p(a) * p(s'|s,a)) - Σ p(a) * H(p(s'|s,a))` where `H` is differential entropy of a GMM (approximate via sampling). Fall back to variance-based heuristic only when n > 5. |
-| **Effort Estimate** | 7 hours |
-| **Dependencies** | None architecturally, but the MLP must support MC Dropout at inference time (already does — `confidences` uses MC Dropout). |
-| **Acceptance Criteria** | Unit test: construct a toy MLP with known input/output where empowerment can be computed analytically (e.g., 2 actions, 2 possible outcomes). Verify MLP empowerment ≥ 0.8 of the analytic value. Integration test: for a random state in GridWorld, D6 values from MLP path must correlate (r > 0.5) with D6 values from Gaussian path for same state. |
-
-### C3: Energy Estimation Pipeline is Internally Inconsistent
+### AF-002: TSPL Gradient Computation Degenerates to Flat Noise for MLP
 
 | Field | Value |
 |:------|:------|
-| **Dimension** | Hidden Assumption |
+| **Dimension** | Logical Fallacy |
 | **Severity** | CRITICAL |
-| **Location** | `python/phca/core/cycle.py:351` (D5), `python/phca/core/cycle.py:807-833` (RBTA) |
-| **Description** | D5 (energy efficiency drive) receives wall-clock-based energy: `energy_cost = elapsed_time * 2.0` clamped to [0.01, 1.0] (`cycle.py:500-502`). RBTA receives FLOP-based energy: `runtime_s * 50.0` or FLOP estimate clamped to [0.1, 10.0] (`cycle.py:807-833`). These use different units, different scales, and different clamping ranges. A module with low FLOP cost but high latency (e.g., waiting for SQLite I/O) would appear cheap to RBTA but expensive to D5 — the agent receives contradictory optimisation signals. The correct signal depends on what the architect intended to minimise (computation vs. wall time), but the code uses both with no unifying principle. |
-| **Root Cause** | Energy estimation was implemented by two different developers (or one developer at different times) without unifying the definition. D5 inherited an earlier wall-clock heuristic; RBTA introduced a later FLOP-based estimate. |
-| **Proposed Fix** | Unify both to use the same FLOP-based estimate: `energy_cost = clip(total_flops / baseline_flops, 0.01, 1.0)`. Calibrate `baseline_flops` from a 100-cycle warmup period at startup. Route the same FLOP count to both D5 and RBTA. Remove the `elapsed_time * 2.0` heuristic. |
-| **Effort Estimate** | 5 hours |
-| **Dependencies** | None |
-| **Acceptance Criteria** | After warmup, D5 `energy_cost` and RBTA `energy_ratio` must match exactly for any given step. Unit test: mock module that reports known FLOP counts; verify both D5 and RBTA receive identical energy values. |
+| **Location** | `python/phca/learning/tspl.py:224-245` |
+| **Description** | `_compute_gradient()` tries to match per-dimension error signals to parameter shapes. For MLP parameters: `w1: (89,128)`, `b1: (128,)`, `w2: (128,128)`, `b2: (128,)`, `w3: (128,84)`, `b3: (84,)`. The per-dimension `scaled_error` has shape `(84,)`. The matching logic: `ndim==1, shape[0]==84` → matches only `b3`. `ndim==2, shape[0]==84` → matches nothing (first dims are 89, 128, 128). `size == 84` → matches nothing (sizes are 11392, 128, 16384, 128, 10752, 84). All weight matrices and hidden biases fall through to the fallback at line 244: `mean_abs_error` replicated into every element. This means w1, b1, w2, b2, w3 all receive a flat gradient — no per-dimension structure, no directional signal. The P-Stream learning channel, which is supposed to bias parameters toward better predictions, is effectively a noise process for 5 of 6 MLP parameter groups. Only b3 (output bias) receives a proper gradient. |
+| **Root Cause** | The gradient shaping logic was designed for a different parameter structure (likely a linear or single-layer model) and was never adapted to the MLP's 3-layer architecture. The `scaled_error` shape is `(state_dim,)` = `(84,)`, but MLP weight matrices have first dimensions of 89, 128, 128 — all mismatched. |
+| **Proposed Fix** | Replace the shape-matching approach with proper backpropagation: project the `(state_dim,)` error signal backward through each layer's transpose to compute per-parameter gradients. Specifically: (1) Cache the MLP's forward activations (z1, a1, z2, a2, out) during predict. (2) In `_compute_gradient`, use these cached activations to compute `d_out`, then propagate back through w3.T, ReLU, w2.T, ReLU, w1.T. (3) This gives dimensionally correct gradients for every parameter. Alternatively, expose the MLP's `_backward()` method via a new public `compute_gradient(state, action, target)` that TSPL can call. |
+| **Effort Estimate** | 6 hours |
+| **Dependencies** | MLP must cache activations (already done in `self._last_activations` — currently dead, used here). |
+| **Acceptance Criteria** | Unit test: for a random MLP state, compute gradient via TSPL and via MLP._backward; verify Spearman ρ > 0.9 between gradient vectors. Integration test: after 100 learning steps, MLP prediction error must decrease (was not decreasing before, since gradient was flat noise). |
 
-### C4: Consolidation Facts Collected But Never Consumed by MDIM
+### AF-003: Graph CPD Normalization Uses Single-Parent Key Only
 
 | Field | Value |
 |:------|:------|
-| **Dimension** | Dead Code / Logical Fallacy |
-| **Severity** | CRITICAL |
-| **Location** | `python/phca/core/cycle.py:336-358`, `python/phca/motivation/mdim.py:147-255` |
-| **Description** | Every 10 cycles, the cycle reads M3 → `get_relevant_facts()` computes cosine similarity against all committed facts, acquires M4 lock, extracts `fact_confidence_mean` and `fact_count`, injects these into `mdim_context` (`cycle.py:350-358`). However, `MDIM.compute_drives()` (`mdim.py:147-255`) only reads 6 keys from context: `prediction_error`, `volatility`, `empowerment`, `energy_cost`, `curiosity`, `competence`. The three fact keys are injected with correct names `fact_confidence_mean`, `fact_count`, `attention_confidence` but are **never read**. This violates Invariant A5 (Feedback-Driven Adaptation): the accumulated knowledge base has zero influence on goal generation. The entire consolidation pipeline (~2-5ms every 10 cycles) is pure computational overhead with no behavioural effect. As M3 grows, this overhead increases without bound. |
-| **Root Cause** | The consolidation→MDIM connection was designed as a planned feature but the MDIM `compute_drives()` function was never updated to consume the fact keys. The injection code was written but the consumer was not. |
-| **Proposed Fix** | Wire `fact_confidence_mean` into D3 (competence) modulation: high fact confidence → competence deficit decreases (agent has already learned this area). Wire `fact_count` into D4 (curiosity) modulation: many facts → curiosity target decreases (area is well-explored). Specifically: `mdim.py` in `compute_drives()`, after computing base deficits, read `fact_confidence_mean` and `fact_count` from context; apply `competence_target *= (1 - 0.3 * fact_confidence_mean)` and `curiosity_target *= (1 - 0.2 * clip(fact_count / max_facts, 0, 1))`. Remove the 10-cycle gating from the injection in `cycle.py` — let facts flow every cycle for smoother modulation. |
-| **Effort Estimate** | 3 hours |
-| **Dependencies** | None |
-| **Acceptance Criteria** | Integration test: seed M3 with 10 episodes → run consolidation → verify D3 deficit decreases when `fact_confidence_mean` is high. Unit test: mock context with varying `fact_confidence_mean` values → verify D3 competence target changes. |
+| **Dimension** | AI Hallucination |
+| **Severity** | CRITICAL (latent) |
+| **Location** | `python/phca/world_model/graph.py:875,879` (normalization), `834` (learning) |
+| **Description** | In `_normalize_cpds()`, the CPD parameter key is `f"{parents[0]}->{node_name}"` — only the **first parent** is used. For a node with multiple parents, all parent combinations map to the same key, sharing the same transition counts. The indexing `parent_idx % card` uses the child node's cardinality instead of the correct parent combination index, collapsing distinct parent states. In `learn()`, the key at line 833 is `f"{s_name}->{t1_name}"` which is correct for single-parent temporal edges but the normalization side at line 875 does not handle multi-parent nodes. Currently latent: GridWorld's graph has each state dimension node with exactly one parent (itself at t-1), so multi-parent code paths never execute. However, the code explicitly handles `n_parent_combos > 1` (line 867, 872), implying multi-parent was intended — and the implementation is broken. |
+| **Root Cause** | The CPD normalization code was written assuming each node has exactly one parent. The loop over `parent_idx in range(n_parent_combos)` suggests multi-parent was considered but not correctly implemented — the key should include all parent IDs, and the row index should use the full parent combination index, not `parent_idx % card`. |
+| **Proposed Fix** | (1) Replace key `f"{parents[0]}->{node_name}"` with a key that includes all parents, e.g., `"&".join(parents) + "->" + node_name`. (2) Replace `parent_idx % card` with the correct indexing into the CPD matrix: encode the parent combination index as the flattened product of parent cardinalities. (3) Update the learning side (line 833) to use the same multi-parent key scheme if multi-parent nodes are present. |
+| **Effort Estimate** | 4 hours |
+| **Dependencies** | None — bug is latent but structurally wrong. |
+| **Acceptance Criteria** | Unit test: construct a 2-parent discrete node, run 100 learn steps, verify CPD params show distinct distributions for each parent combination. Not just `parent[0]`'s distribution repeated. |
 
-### C5: PID Orthogonality Constraint Uses Covariance, Not Correlation
+### AF-004: PID Freeze Cycle Reset Causes Oscillation
 
 | Field | Value |
 |:------|:------|
 | **Dimension** | Over-Simplification |
 | **Severity** | MAJOR |
-| **Location** | `python/phca/regulation/pid_controller.py:210-212` |
-| **Description** | The orthogonality freeze mechanism checks whether parameter updates are redundant by computing `np.cov(update_trajectory)`. Covariance is scale-dependent: if parameter A has range [0.1, 2.0] and parameter B has range [0.001, 0.2], A's variance dominates the covariance matrix. Parameter T (temperature, range ~2.0) has ~1000× the variance of eta (learning rate, range ~0.2). Consequently, `abs(cov(T, eta))` almost always exceeds the threshold of 0.8 regardless of whether T and eta are actually correlated. T gets frozen in nearly every check, regardless of whether freezing is justified. Conversely, if eta and alpha were perfectly correlated (r=1.0) but both have small scales, `cov(eta, alpha)` would be well below 0.8 and they would never be frozen — even though they are perfectly redundant. |
-| **Root Cause** | The implementer used `np.cov()` (covariance) instead of `np.corrcoef()` (correlation/Pearson's r). Both measure association, but covariance is unit-dependent and scale-dependent; correlation is unitless and scale-invariant. The intent was clearly to detect redundant parameters, which requires scale-invariant measurement. |
-| **Proposed Fix** | Replace `np.cov()` with `np.corrcoef()` at `pid_controller.py:210`. Change the threshold from `0.8` to `abs(r) > 0.8` (already absolute-value semantics). No other changes needed. |
-| **Effort Estimate** | 2 hours (trivial change) |
+| **Location** | `python/phca/regulation/pid_controller.py:244-247` |
+| **Description** | The orthogonality freeze mechanism swaps which parameter is frozen after 100 consecutive high-covariance cycles. However, line 247 resets `self._high_cov_cycles = 0` after the swap. This means: freeze T for 100 cycles → swap to freeze eta → `_high_cov_cycles` resets → 100 more cycles → swap back to T → repeat indefinitely. The system never converges to a stable freeze state — it oscillates between freezing one parameter for 100 cycles then the other. The variable name `cov` throughout (lines 212, 215-216, 220-222, 225) actually holds the output of `np.corrcoef`, which is a **correlation** matrix, not covariance. Cosmetic but misleading. |
+| **Root Cause** | The reset at line 247 treats the swap as a resolution rather than a symptom. If high covariance persists, it means the root cause (redundant parameter dynamics) hasn't changed — swapping which parameter is frozen is a band-aid that needs to be sustained, not reset. |
+| **Proposed Fix** | Remove the reset at line 247. Instead, after the first swap, keep `_high_cov_cycles` incrementing so the system maintains the freeze. Only swap back if covariance drops and then rises again (cold restart). Alternatively, make both parameters flagged as "one must be frozen" and let the swap be permanent until covariance drops below threshold naturally. |
+| **Effort Estimate** | 1 hour |
 | **Dependencies** | None |
-| **Acceptance Criteria** | Unit test: construct update trajectories where T varies 10× more than eta but they are uncorrelated (r ≈ 0). Verify `abs(r) < 0.8` → no freeze. Construct trajectories where eta and alpha are perfectly correlated (r = 1.0) but small scale → verify `abs(r) > 0.8` → freeze triggers. |
+| **Acceptance Criteria** | Unit test: simulate 250 cycles with constant high covariance between T and eta → verify after cycle 100, the freeze swaps and stays swapped (doesn't swap back at cycle 200). |
+
+### AF-005: Energy Pipeline 10× Scaling Mismatch
+
+| Field | Value |
+|:------|:------|
+| **Dimension** | Hidden Assumption |
+| **Severity** | MAJOR |
+| **Location** | `python/phca/core/cycle.py:352` (D5) vs `line 840` (RBTA) |
+| **Description** | Both D5 and RBTA now use the same `_cycle_flops` source for G' energy (C3 fix applied). However: D5 normalises by 60M → range `[0.01, 1.0]` (line 352), while RBTA normalises by 6M → range `[0.1, 10.0]` (line 840). Same FLOP count yields 10× different values. The two subsystems receive inconsistent energy signals from the same underlying computation. Additionally, non-G' modules still use `runtime_s * 50.0` (line 832), which is a wall-clock proxy and has no consistent relationship to FLOP-based values. The unification is partial: only G' is unified, and with a 10× scaling discrepancy. |
+| **Root Cause** | The two divisors were calibrated independently — 60M for D5 to keep `energy_cost` in `[0,1]` drive range, 6M for RBTA to match pre-existing bound ranges. No cross-calibration was performed. |
+| **Proposed Fix** | (1) Move the divisor to a named constant: `ENERGY_NORMALISATION_FLOPS = 60_000_000.0`. (2) Change line 840 to use the same constant: `self._cycle_flops / 60_000_000.0`. (3) Keep the RBTA clamp at `[0.1, 10.0]` — this widening is fine for a constraint check based on the same normalised value. (4) Document the scaling factor rationale (6e7 FLOPs ≈ 1.0 on drive scale, derived from MLP forward pass at h=128, bs=32, ts=4). |
+| **Effort Estimate** | 1 hour |
+| **Dependencies** | None |
+| **Acceptance Criteria** | Unit test: mock `_cycle_flops = 30_000_000.0` → verify `energy_cost == 0.5` and `energy_log["G'"] == 0.5`. |
 
 ---
 
 ## Surgical Repair Plan
 
-### Execution Order (with Parallel Tracks)
+### Execution Order (Sequential — single engineer)
 
 ```
-Week 1 (Track A - Engineer 1)            Week 1 (Track B - Engineer 2)
-┌─────────────────────────────┐          ┌─────────────────────────────┐
-│ C5: PID corrcoef fix (2h)   │          │ C1: Pareto rewrite (5h)     │
-├─────────────────────────────┤          ├─────────────────────────────┤
-│ C3: Energy unify (5h)       │          │ C4: Wire facts (3h)         │
-├─────────────────────────────┤          └─────────────────────────────┘
-│ C2: MLP MI (7h) *           │
-└─────────────────────────────┘
+Step 1: AF-001 (2h) — Wire real model_entropy      ← MOST CRITICAL, no deps
+Step 2: AF-002 (6h) — Fix TSPL gradient for MLP     ← Depends on MLP cache (already exists, dead)
+Step 3: AF-004 (1h) — Fix PID freeze reset          ← Simple fix, no deps
+Step 4: AF-005 (1h) — Unify energy divisor          ← Simple fix, no deps
+Step 5: AF-003 (4h) — Fix CPD multi-parent key      ← Latent bug, deferrable
 ```
-
-*\* C2 can be deferred to Track B after C1/C4 if Track A finishes early.*
 
 ### Detailed Steps
 
-#### Step 1: C5 — PID Correlation Fix (2h)
+#### Step 1: AF-001 — Wire Real Model Entropy Into MDIM (2h)
+
+**Files:** `python/phca/core/cycle.py`
+
+1. In `step()`, compute `model_entropy` from `self.belief_entropies` after `_collect_runtime_log()` populates it. The current ordering has MDIM context built at line 355 and `_collect_runtime_log` at line 785. Move the entropy computation earlier, or compute it inline from `self.engine`'s prediction confidence before MDIM context.
+2. Replace `"model_entropy": 0.5 - self.cycle_count * 0.001` with a call to `self._compute_model_entropy()`.
+3. Implement `_compute_model_entropy()` that reads G' posterior entropy from the engine (or from cached prediction confidence variance).
+4. Verify the baseline disruption detection (`_baseline_wm_entropy`) receives real entropy values.
+
+**Difficulty:** Requires understanding ordering of `step()` — MDIM context is built early (line 355), but `belief_entropies` is computed late (line 843). Need to compute entropy earlier or pass it directly from the prediction phase.
+
+**Chief Architect Review Questions:**
+- Does this preserve A1 (no new infinite loops)? Yes — single computation per cycle.
+- Does this preserve A3 (entropy floor)? Yes — now entropy is real.
+- Does this add unnecessary complexity? No — replaces a fake value with a real one.
+- New silent failure modes? If `belief_entropies` is empty, fallback to 0.5.
+
+#### Step 2: AF-002 — Fix TSPL Gradient for MLP (6h)
+
+**Files:** `python/phca/learning/tspl.py`, `python/phca/world_model/mlp.py`
+
+**Option A (preferred):** Expose MLP backward computation to TSPL.
+1. Add method `WorldModelMLP.compute_gradient(state, action, target) -> Dict` that calls `_forward` + `_backward` and returns per-parameter gradients.
+2. In `cycle.py`, when TSPL updates, pass `gprime.compute_gradient(state, action, next_state)` instead of the current error-only gradient.
+3. TSPL receives dimensionally correct gradients for all MLP parameters.
+
+**Option B (simpler):** Fix shape matching in `tspl.py:_compute_gradient()`.
+1. For 2D params where `param.shape[0] != scaled_error.shape[0]`, compute `error_projected = scaled_error @ some_projection` — but this requires knowing the parameter structure, which TSPL doesn't.
+
+**Recommendation:** Option A — it reuses existing tested backward code.
+
+**Chief Architect Review Questions:**
+- Does this preserve A4 (Prediction as Primary)? Yes — now gradient actually drives learning.
+- Does this add unnecessary coupling? Minimal — MLP already exposes `get_theta()`. Adding `compute_gradient()` is consistent.
+- New silent failure modes? If `compute_gradient` is called before any predict, cached activations may be stale. Guard with a version counter.
+
+#### Step 3: AF-004 — Fix PID Freeze Reset (1h)
+
 **Files:** `python/phca/regulation/pid_controller.py`
-- Change `np.cov()` → `np.corrcoef()` at line 210.
-- Verify threshold `0.8` applies to `abs(r)` correctly.
-- Run full test suite.
-- Chief Architect review.
 
-#### Step 2: C3 — Energy Unification (5h)
-**Files:** `python/phca/core/cycle.py`, possibly `python/phca/core/config.py`
-- Add FLOP counter to `CognitiveCycle` (or reuse cycle timing with MFLOPS calibration).
-- Implement 100-cycle warmup for baseline FLOP estimation.
-- Route same FLOP count to both D5 (via `mdim_context`) and RBTA.
-- Remove `elapsed_time * 2.0` heuristic.
-- Run full test suite.
-- Chief Architect review.
+1. Remove `self._high_cov_cycles = 0` at line 247.
+2. Let `_high_cov_cycles` continue incrementing after swap.
+3. Only swap back if covariance drops below threshold and then rises again (new cold detection window). Simplest: leave the freeze in place once swapped.
 
-#### Step 3: C1 — Pareto Front Rewrite (5h)
-**Files:** `python/phca/motivation/mdim.py`
-- Replace `_compute_pareto_front()` with true vector-dominance.
-- Add `_normalise_objectives()` helper.
-- Replace single-configuration call with sampled neighbourhood.
-- Update meta-stable suppression to use correct Pareto-optimal set.
-- Run full test suite.
-- Chief Architect review.
+**Chief Architect Review Questions:**
+- Does this preserve A1? Yes — no new loops.
+- Does this preserve A5 (Feedback-Driven Adaptation)? Yes — now freeze converges.
+- New silent failure modes? Once swapped, T might never be frozen again even if circumstances change. Mitigation: add a decay mechanism that periodically re-evaluates the freeze after N cycles of low covariance.
 
-#### Step 4: C4 — Wire Facts into MDIM (3h)
-**Files:** `python/phca/motivation/mdim.py`, `python/phca/core/cycle.py`
-- In `MDIM.compute_drives()`, add reads for `fact_confidence_mean`, `fact_count` from context.
-- Modulate D3 competence target by fact confidence.
-- Modulate D4 curiosity target by fact count.
-- Remove 10-cycle gating from injection in `cycle.py`.
-- Run full test suite.
-- Chief Architect review.
+#### Step 4: AF-005 — Energy Divisor Unification (1h)
 
-#### Step 5: C2 — MLP Empowerment MI (7h)
-**Files:** `python/phca/core/cycle.py`, `python/phca/world_model/mlp.py`
-- For n ≤ 5 actions: run MC Dropout (20 passes) per action.
-- Estimate `p(s'|s,a)` as GMM from MC samples.
-- Compute differential entropy of GMM via sampling approximation.
-- Compute `I(S';A|s) = H(Σ p(a)p(s'|s,a)) - Σ p(a)·H(p(s'|s,a))`.
-- Set uniform `p(a) = 1/n` (no action prior).
-- For n > 5: fall back to variance-based heuristic.
-- Run full test suite.
-- Chief Architect review.
+**Files:** `python/phca/core/cycle.py`
+
+1. Define `ENERGY_NORM_FLOPS = 60_000_000.0` as a module-level constant.
+2. Change line 840 divisor from `6_000_000.0` to `ENERGY_NORM_FLOPS`.
+3. Keep RBTA clamp as `[0.1, 10.0]` — different clamp ranges are valid for different subsystems (drive vs constraint), but the base normalised value must match.
+
+**Chief Architect Review Questions:**
+- Does this preserve any invariant? Yes — now D5 and RBTA agree on what "1.0 energy" means.
+- New coupling? No — just constant unification.
+
+#### Step 5: AF-003 — Fix CPD Multi-Parent Key (4h)
+
+**Files:** `python/phca/world_model/graph.py`
+
+1. In `_normalize_cpds()`, build the key from all parents: `"&".join(sorted(parents)) + "->" + node_name`.
+2. Replace `parent_idx % card` with proper multi-dimensional indexing: decode `parent_idx` into individual parent values using the product of cardinalities, then use those as indices into the CPD matrix.
+3. In `learn()`, update the key construction to include all parents if multi-parent.
+
+**Chief Architect Review Questions:**
+- Does this add complexity? Yes — but the alternative (broken multi-parent) is worse.
+- Latent bug — is it worth fixing now? Yes — it's a correctness issue that will bite anyone extending the graph.
 
 ### Timeline
-- **Total effort:** 22 engineering hours
-- **With 2 engineers in parallel:** ~1.5 wall-clock days
-- **With 1 engineer sequentially:** ~3 wall-clock days
+
+| Step | Issue | Effort |
+|:-----|:------|:-------|
+| 1 | AF-001 — Real model_entropy | 2h |
+| 2 | AF-002 — TSPL gradient | 6h |
+| 3 | AF-004 — PID freeze reset | 1h |
+| 4 | AF-005 — Energy divisor | 1h |
+| 5 | AF-003 — CPD multi-parent key | 4h |
+| **Total** | | **14 engineering hours** |
+
+With 1 engineer: ~2 wall-clock days.
 
 ---
 
 ## Assumption Validation Plan
 
-For each critical assumption, here is a simple experiment to validate it:
-
 | Assumption | Experiment | Success Criterion |
 |:-----------|:-----------|:-----------------|
-| Pareto dominance is correct after fix | Generate 1,000 random normalised deficit vectors; check that all returned points are non-dominated | ≥ 99.9% pass rate over 10 runs |
-| MLP empowerment correlates with mutual information | On 100 random GridWorld states, compute both MLP MI (new) and Gaussian MI (existing); compute Spearman correlation | ρ > 0.7 |
-| Unified energy gives same behaviour in simple cases | Run 10 GridWorld episodes with heat-seeking goal (D5 dominant) using old and new energy; compare trajectory similarity | Trajectory edit distance < 20% of max |
-| Fact consumption actually changes behaviour | Run 2 × 200-cycle benchmarks: one with fact modulation, one without (fact keys = 0). Compare D3/D4 deficits after cycle 50 | Deficit divergence > 0.05 after cycle 50 |
-| PID orthogonality counts only true redundancy | Random uncorrelated PID trajectories with 10× scale difference → never freeze. Perfectly correlated small-scale trajectories → always freeze | 100% pass on 100 random trials |
-| SQLite can handle 10,000+ episodes at 50ms cycle | Insert 10,000 episodes of realistic size (84 floats + metadata); benchmark query time | p95 query time < 10ms |
-| k-WTA attention (k=3) is sufficient | Run ablation with k=1,3,5,all; compare Φ-IQ at Level 2 | k=3 ≥ 90% of "all" performance |
-| MC Dropout (20 samples) is sufficient | Run ablation with N=5,10,20,50; compare MI estimate stability | N=20 gives σ < 0.05 of N=50 estimate |
+| Real model entropy improves exploration | Run 2 × 500-cycle benchmarks: one with fake entropy (current), one with real entropy. Compare D4 deficit variance and state coverage | Real entropy benchmark covers ≥ 20% more distinct states |
+| Fixed TSPL gradient reduces prediction error | Run 2 × 500-cycle benchmarks: one with old flat gradient, one with backprop gradient. Compare MLP prediction error at cycle 500 | New gradient: error decreases ≥ 20% relative to old gradient |
+| PID freeze converges after fix | Run 500-cycle simulation with constant high T-eta covariance. Log frozen params every cycle | After cycle 200, no further freeze swaps occur |
+| Unified energy gives consistent D5/RBTA signals | Mock 100 cycles with known FLOP counts. Log both D5 energy_cost and RBTA energy_log["G'"] | Spearman ρ = 1.0 between the two signals |
+| CPD multi-parent fix is correct | Create 2-parent node with known transition probabilities. Run 1000 learn steps. Compare learned vs true CPD | KL divergence < 0.05 between learned and true CPD |
 
 ---
 
 ## Open Questions
 
-1. **Should Pareto operate over all 6 drives or just D1/D3/D5?** D2 (volatility) is derived from D1 (error) — they are not independent objectives. Including both creates a weighted duplicata. Recommend excluding D2 from Pareto (it is a meta-drive).
+1. **Should the TSPL gradient fix use Option A (MLP.compute_gradient) or Option B (fix shape matching)?** Option A reuses tested backprop code but adds a new cross-module API. Option B keeps TSPL self-contained but requires engineering the shape-matching logic. Option A is recommended unless the MLP backward path is unreliable.
 
-2. **Is 20 MC samples × 5 actions = 100 forward passes computationally feasible at higher observation dims?** Ant-v2 has 111-dim observation. 100 forward passes of a 89→128→128→84 MLP ≈ 1.2M FLOPs. At 50ms cycle target, this adds ~5ms — acceptable but tight. Consider reducing to 10 samples if benchmarks show insufficient headroom.
+2. **Can model entropy be computed earlier in the cycle?** Currently `_collect_runtime_log()` runs at line 785, after MDIM context at line 355. The G' prediction is done at lines ~210-260. The prediction confidence/variance is available immediately after predict — move the entropy computation inline after the prediction phase rather than in `_collect_runtime_log`.
 
-3. **Should `fact_confidence_mean` *reduce* D4 (don't need to explore known areas) or *increase* D3 (push beyond what we know)?** Two plausible signals. Recommend reducing both D3 and D4 (less error-avoidance, less curiosity when area is well-understood). This is the conservative choice.
+3. **Should dead code (F1–F19) be cleaned up in this pass or deferred?** Recommend deferring all MINOR dead-code items to a separate cleanup pass. Focus on the 5 critical/MAJOR issues only.
 
-4. **Should the FLOP baseline be a static calibration or running EMA?** Static calibration (100-cycle warmup) is simpler and deterministic. Running EMA adapts to workload changes but introduces coupling between cycles. Recommend static baseline for Phase 4; revisit if deployment shows workload drift.
+4. **The graph.py CPD learning-only path (line 833-837) uses single-parent keys — is this also wrong for multi-parent?** For GridWorld, each state dimension node has exactly one parent (itself at t-1), so `s_name->t1_name` is correct. The multi-parent bug only manifests in `_normalize_cpds`. However, the learning path would need identical multi-parent keying if extended.
 
-5. **Are 6 of 8 `CompositionOp` enum values dead weight?** Only `SEQUENCE`/`PARALLEL` are used in `__call__` dispatch. `INTERLEAVE` and `TEMPORAL_INVARIANT` are defined but never referenced in any production code. Recommend removing dead enum values in a separate cleanup pass.
-
-6. **Should `grounding_level` be removed or implemented?** It is defined in `StateVector`, set to 1 (feature level), stripped on deserialization, never checked. If A3 (Incomplete Knowledge) truly requires it, implement the full pipeline. If not, remove it to eliminate dead code.
+5. **Is the PID `cov` variable rename worth doing?** Cosmetic and low-risk. Recommend fixing as part of the AF-004 change since it's in the same function.
 
 ---
 
 ## Appendices
 
-### A. Files to Modify (Complete List)
+### A. Files to Modify
 
 | File | Issue | Change Summary |
 |:-----|:------|:---------------|
-| `python/phca/regulation/pid_controller.py` | C5 | `np.cov()` → `np.corrcoef()` at line 210 |
-| `python/phca/core/cycle.py` | C3 | Add FLOP counter, warmup, unify D5/RBTA energy |
-| `python/phca/core/cycle.py` | C4 | Remove 10-cycle gating for fact injection |
-| `python/phca/motivation/mdim.py` | C1 | Rewrite `_compute_pareto_front()` with true vector dominance |
-| `python/phca/motivation/mdim.py` | C4 | Read fact keys from context; modulate D3/D4 targets |
-| `python/phca/core/cycle.py` | C2 | Replace `std(confidences)` with MC-Dropout MI for n ≤ 5 |
-| `python/phca/world_model/mlp.py` | C2 | (If needed) Add GMM entropy computation helper |
-| `DECISIONS.md` | All | Append decision entry per fix |
+| `python/phca/core/cycle.py` | AF-001 | Replace fake `model_entropy` with real G' posterior entropy |
+| `python/phca/core/cycle.py` | AF-005 | Unify energy divisor (60M for both D5 and RBTA) |
+| `python/phca/learning/tspl.py` | AF-002 | Fix gradient computation — use proper backprop for MLP params |
+| `python/phca/world_model/mlp.py` | AF-002 | Add `compute_gradient()` public method |
+| `python/phca/regulation/pid_controller.py` | AF-004 | Remove freeze reset at line 247; rename `cov` → `corr` |
+| `python/phca/world_model/graph.py` | AF-003 | Fix multi-parent key in CPD normalization |
 
-### B. Test Suite to Run After Each Fix
+### B. Test Suite
 
 ```bash
 cd /home/<username>/Pictures/Autonomous-AI-june2026/new-ai
 python -m pytest tests/ -x -v --timeout=120
 ```
 
-### C. Benchmark to Run for Final Validation
+### C. Final Validation Benchmark
 
 ```bash
 cd /home/<username>/Pictures/Autonomous-AI-june2026/new-ai
@@ -251,4 +278,5 @@ Expected minimums after all fixes:
 - Failure rate < 10%
 - Mean latency < 25ms
 - P95 latency < 50ms
-- Consolidation producing ≥ 10 facts per 100 cycles
+- MLP prediction error decreasing over 500 cycles (AF-002 validation)
+- D4 value positive and driven by real uncertainty (AF-001 validation)

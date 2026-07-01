@@ -209,20 +209,20 @@ class AdaptiveParameterController:
         # Compute correlation matrix over sliding window (v3.0 §2.6.1)
         # Use np.corrcoef for scale-invariant redundancy detection (C5 fix)
         stack = np.column_stack([T_vals, eta_vals, alpha_vals])
-        cov = np.corrcoef(stack.T)
+        corr = np.corrcoef(stack.T)
         names = ["T", "eta", "alpha"]
 
-        # Find max absolute covariance
-        max_cov = 0.0
+        # Find max absolute correlation
+        max_corr = 0.0
         max_pair = (0, 1)
         for i in range(3):
             for j in range(i + 1, 3):
-                abs_cov = abs(cov[i, j])
-                if abs_cov > max_cov:
-                    max_cov = abs_cov
+                abs_corr = abs(corr[i, j])
+                if abs_corr > max_corr:
+                    max_corr = abs_corr
                     max_pair = (i, j)
 
-        if max_cov <= self.orthogonality_threshold:
+        if max_corr <= self.orthogonality_threshold:
             self._high_cov_cycles = 0
             return
 
@@ -240,11 +240,10 @@ class AdaptiveParameterController:
                 other_name = pair_names[0] if pair_names[1] == p else pair_names[1]
                 break
 
-        # If high covariance persists for T_freeze > 100 cycles, switch which is frozen
+        # If high correlation persists for T_freeze > 100 cycles, switch which is frozen.
+        # Once swapped, the freeze stays (no reset) to avoid oscillation (AF-004 fix).
         if self._high_cov_cycles > 100:
-            # Swap: freeze the other parameter instead
             freeze_name, other_name = other_name, freeze_name
-            self._high_cov_cycles = 0
             _log(logger, "info", "cr.orthogonality.swap",
                  new_frozen=freeze_name, unfrozen=other_name)
 
@@ -253,6 +252,6 @@ class AdaptiveParameterController:
             self._frozen_params.add(freeze_name)
             self._frozen_params.discard(other_name)
             _log(logger, "info", "cr.orthogonality.freeze",
-                 frozen=freeze_name, unfrozen=other_name, covariance=float(max_cov))
+                 frozen=freeze_name, unfrozen=other_name, correlation=float(max_corr))
 
 

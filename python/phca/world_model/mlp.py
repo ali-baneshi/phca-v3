@@ -92,6 +92,10 @@ class WorldModelMLP:
         self._last_input: Optional[np.ndarray] = None
         self._last_activations: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
 
+        # Learned bias from TSPL (AF-002: connect TSPL theta to MLP output)
+        # Initially zero — no effect until TSPL provides a learned bias vector.
+        self._tspl_bias: np.ndarray = np.zeros(state_dim, dtype=np.float32)
+
         # Experience replay buffer
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
         self._replay_idx: int = 0
@@ -132,9 +136,12 @@ class WorldModelMLP:
         var_pred = np.var(preds, axis=0) + _EPS
         confidence = float(np.mean(1.0 / (1.0 + var_pred)))
 
+        # Apply TSPL learned bias (AF-002) — bias starts at zero, learned over time
+        biased_pred = mean_pred + self._tspl_bias
+
         return (
             StateVector(
-                values=mean_pred.astype(np.float32),
+                values=biased_pred.astype(np.float32),
                 precision=np.full(self.state_dim, confidence, dtype=np.float32),
                 timestamp=state.timestamp + 1.0,
                 grounding_level=state.grounding_level,
@@ -399,6 +406,21 @@ class WorldModelMLP:
 
         # Scale to [0, 1]. For 84-dim GridWorld, typical MI < 5 nats.
         return float(np.clip(mi / 5.0, 0.0, 1.0))
+
+    def set_tspl_bias(self, bias: Optional[np.ndarray]) -> None:
+        """Set learned bias from TSPL (AF-002: connect TSPL theta to MLP output).
+
+        The bias is added to the MLP's mean prediction before returning.
+        Starts as zeros; TSPL learns the bias through the cognitive cycle
+        gradient loop.
+
+        Args:
+            bias: Bias vector of shape (state_dim,). If None, resets to zero.
+        """
+        if bias is not None and bias.shape == (self.state_dim,):
+            self._tspl_bias = bias.astype(np.float32)
+        else:
+            self._tspl_bias = np.zeros(self.state_dim, dtype=np.float32)
 
     def get_prediction_accuracy(
         self, state: np.ndarray, action: np.ndarray, target: np.ndarray

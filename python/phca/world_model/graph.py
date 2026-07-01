@@ -871,12 +871,12 @@ class WorldModelGPrime:
             # For each parent combination, get the transition counts
             for parent_idx in range(n_parent_combos):
                 for child_val in range(card):
-                    # Sum counts from CPD params
-                    key = f"{parents[0]}->{node_name}"
-                    if key in self._cpd_params:
-                        total = max(float(np.sum(self._cpd_params[key][:, child_val])), 1.0)
+                    # AF-003: use key from all parents (multi-parent support)
+                    parent_key = "&".join(sorted(parents)) + "->" + node_name
+                    if parent_key in self._cpd_params:
+                        total = max(float(np.sum(self._cpd_params[parent_key][:, child_val])), 1.0)
                         params[child_val, parent_idx] = (
-                            self._cpd_params[key][parent_idx % card, child_val] / total
+                            self._cpd_params[parent_key][parent_idx, child_val] / total
                         )
                     else:
                         params[child_val, parent_idx] = 1.0 / card
