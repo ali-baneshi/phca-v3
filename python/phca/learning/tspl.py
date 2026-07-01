@@ -285,6 +285,23 @@ class TSPL:
         self.theta_protected = {key: val.copy() for key, val in self.theta.items()}
         self.compiled_skill_ids.append(skill_id)
 
+    # ── Observability v4: additive snapshot ──
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Read-only portrait of TSPL skill state for the observability dashboard."""
+        theta_norms: Dict[str, float] = {}
+        for key, param in self.theta.items():
+            try:
+                theta_norms[key] = float(np.linalg.norm(param))
+            except Exception:
+                theta_norms[key] = 0.0
+        return {
+            "skill_accuracy": float(self.skill_accuracy),
+            "skill_compiled": bool(self.skill_compiled),
+            "compiled_skill_ids": [str(s) for s in self.compiled_skill_ids],
+            "theta_norms": theta_norms,
+        }
+
 
 
 

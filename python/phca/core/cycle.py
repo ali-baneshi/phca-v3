@@ -144,6 +144,11 @@ class CognitiveCycle:
         # Observability v3: per-action / per-candidate scores for the
         # Action-Selection tab of the Qt dashboard.
         self.last_candidate_scores: list = []
+        # Observability v4: cognitive-portrait captures (only populated when
+        # observability_store is attached — zero-overhead when off).
+        self.last_candidate_rollouts: list = []
+        self.last_per_dim_peu: Optional[np.ndarray] = None
+        self.last_empowerment: float = 0.0
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
 
@@ -292,6 +297,15 @@ class CognitiveCycle:
                     next_state, corrected_prediction, next_state.precision
                 )
                 metrics.prediction_error = error
+                # Observability v4: per-dim PEU breakdown (cheap, guarded).
+                if self.observability_store is not None:
+                    try:
+                        diff = (next_state.values - corrected_prediction.values)
+                        self.last_per_dim_peu = (
+                            next_state.precision * (diff ** 2)
+                        ).astype(np.float32)
+                    except Exception:
+                        self.last_per_dim_peu = None
                 # Update confidence to reflect the corrected prediction
                 if corrected_conf > metrics.prediction_confidence:
                     metrics.prediction_confidence = corrected_conf
@@ -376,6 +390,8 @@ class CognitiveCycle:
             error_volatility = self._approximate_error_volatility()
             # Estimate empowerment from prediction confidence spread across actions
             empowerment = self._estimate_empowerment()
+            if self.observability_store is not None:
+                self.last_empowerment = float(empowerment)
             # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
             consol_stats = self.consolidation.get_stats()
             total_facts = consol_stats.get("total_facts_stored", 0)
@@ -607,6 +623,7 @@ class CognitiveCycle:
                                           "goal_id": int(goal_id), "continuous": False,
                                           "best_score": None, "k_candidates": None}
             self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
             return int(rng.randint(0, self.env.action_space_size))
 
         # D5 (Energy Efficiency): prefer STAY
@@ -616,12 +633,15 @@ class CognitiveCycle:
                                           "best_score": None, "k_candidates": None,
                                           "note": "D5 energy: STAY"}
             self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
             return self.env.stay_action
 
         best_action = self.env.stay_action
         best_score = -float("inf")
         action_confidences = []
         scores_per_action = [0.0] * self.env.action_space_size
+        _obs = self.observability_store is not None
+        _rollouts: list = []
 
         for action_idx in range(self.env.action_space_size):
             action = np.zeros(self.env.action_space_size, dtype=np.float32)
@@ -633,6 +653,15 @@ class CognitiveCycle:
                     self.current_state, horizon=1,
                 )
                 action_confidences.append(confidence)
+                if _obs:
+                    _rollouts.append({
+                        "action": action.copy(),
+                        "action_idx": action_idx,
+                        "predicted": np.asarray(predicted.values,
+                                                dtype=np.float32).copy(),
+                        "score": 0.0,
+                        "chosen": False,
+                    })
 
                 # Continuous distance gain (0 = toward goal, 1 = away)
                 distance_gain = self._compute_distance_gain(action_idx)
@@ -668,6 +697,8 @@ class CognitiveCycle:
                     score = state_align
 
                 scores_per_action[action_idx] = float(score)
+                if _obs and _rollouts and _rollouts[-1].get("action_idx") == action_idx:
+                    _rollouts[-1]["score"] = float(score)
                 if score > best_score:
                     best_score = score
                     best_action = action_idx
@@ -680,6 +711,13 @@ class CognitiveCycle:
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
         self._cached_confidences = action_confidences
         self.last_candidate_scores = scores_per_action
+        if _obs:
+            for r in _rollouts:
+                r["chosen"] = (r["action_idx"] == best_action)
+            _rollouts.sort(key=lambda r: r["score"], reverse=True)
+            self.last_candidate_rollouts = _rollouts[:8]
+        else:
+            self.last_candidate_rollouts = []
 
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": int(goal_id), "continuous": False,
@@ -712,6 +750,7 @@ class CognitiveCycle:
                                           "goal_id": None, "continuous": True,
                                           "best_score": None, "k_candidates": None}
             self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
 
         ref = getattr(self.env, "get_goal_reference", lambda: None)()
@@ -719,6 +758,8 @@ class CognitiveCycle:
 
         best_a, best_score = None, -float("inf")
         cand_scores = []
+        _obs = self.observability_store is not None
+        _rollouts: list = []
         for _ in range(K):
             a = (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
             self.engine.update_action(a)
@@ -737,9 +778,24 @@ class CognitiveCycle:
                 ref_align = 0.5
             score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
             cand_scores.append(float(score))
+            if _obs:
+                _rollouts.append({
+                    "action": a.copy(),
+                    "predicted": np.asarray(predicted.values,
+                                            dtype=np.float32).copy(),
+                    "score": float(score),
+                    "chosen": False,
+                })
             if score > best_score:
                 best_score, best_a = score, a
         self.last_candidate_scores = cand_scores
+        if _obs:
+            for r in _rollouts:
+                if best_a is not None and np.array_equal(r["action"], best_a):
+                    r["chosen"] = True
+            self.last_candidate_rollouts = _rollouts[:8]
+        else:
+            self.last_candidate_rollouts = []
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": None, "continuous": True,
                                       "best_score": float(best_score) if best_a is not None else None,
@@ -1152,6 +1208,7 @@ class CognitiveCycle:
         seed: int = 42,
         use_mlp: bool = True,
         use_continuous: bool = True,
+        render_mode: Optional[str] = None,
         metrics_store: Optional["MetricsStore"] = None,
         observability_store: Optional["ObservabilityStore"] = None,
     ) -> CognitiveCycle:
@@ -1167,6 +1224,9 @@ class CognitiveCycle:
             seed: Random seed.
             use_mlp: If True, use the pure-NumPy MLP world model.
             use_continuous: If True (and use_mlp=False), use Gaussian CPDs.
+            render_mode: Gymnasium render mode. The observability launcher
+                passes ``"rgb_array"`` so the dashboard can embed the live
+                camera frame; None for headless.
             metrics_store: Optional MetricsStore for live monitoring.
 
         Returns:
@@ -1177,7 +1237,8 @@ class CognitiveCycle:
         """
         from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
-        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed)
+        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed,
+                              render_mode=render_mode)
 
         if not use_mlp and not use_continuous:
             import warnings

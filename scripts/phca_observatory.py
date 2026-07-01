@@ -62,6 +62,7 @@ def _build_cycle(args, store: ObservabilityStore) -> CognitiveCycle:
     return CognitiveCycle.build_for_mujoco(
         args.env, seed=args.seed, use_mlp=args.mlp,
         observability_store=store,
+        render_mode="rgb_array",
     )
 
 
@@ -127,7 +128,7 @@ def main() -> None:
     parser.add_argument("--record-dir", default="logs/sessions")
     parser.add_argument("--video-cycle-ms", type=int, default=1500,
                         help="when recording video, auto-cycle tabs every N ms so the "
-                             "mp4 captures all 5 tabs (0 = off, stay on clicked tab)")
+                             "mp4 captures all 7 tabs (0 = off, stay on clicked tab)")
     args = parser.parse_args()
 
     if args.env == "cartpole":

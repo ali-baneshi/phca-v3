@@ -628,3 +628,61 @@ class MDIM:
 
     def is_meta_stable(self) -> bool:
         return self.meta_stable.is_meta_stable
+
+    # ── Observability v4: additive snapshot (zero behaviour change) ──
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Read-only portrait of MDIM for the observability dashboard.
+
+        Returns deficits (D1-D6), per-drive goal targets, the goal stack,
+        the Pareto front, meta-stable state, and downsampled drive/goal
+        history. Pure read — never mutates internal state.
+        """
+        deficits = [float(self.drives[d].deficit) for d in range(1, 7)]
+        goals: List[Optional[np.ndarray]] = []
+        for d in range(1, 7):
+            ds = self.drives.get(d)
+            tgt = getattr(getattr(ds, "goal", None), "target_state", None) if ds else None
+            if tgt is not None and getattr(tgt, "values", None) is not None:
+                goals.append(np.asarray(tgt.values, dtype=np.float32))
+            else:
+                goals.append(None)
+
+        goal_stack: List[Dict[str, Any]] = []
+        for entry in self.goal_stack[-8:]:
+            g = entry.goal
+            tv = getattr(getattr(g, "target_state", None), "values", None)
+            tnorm = float(np.linalg.norm(tv)) if tv is not None else 0.0
+            goal_stack.append({
+                "drive_id": int(getattr(g, "drive_id", 0)),
+                "tolerance": float(getattr(g, "tolerance", 0.0)),
+                "priority": float(getattr(g, "priority", 0.0)),
+                "creation_cycle": int(getattr(g, "creation_cycle", 0)),
+                "depth": int(getattr(entry, "depth", 0)),
+                "completed": bool(getattr(entry, "completed", False)),
+                "target_norm": tnorm,
+            })
+
+        # Downsample drive history to last 48 rows for the heatmap.
+        hist = self._drive_history[-48:]
+        drive_history = [[float(row.get(d, 0.0)) for d in range(1, 7)]
+                         for row in hist]
+        goal_history = [int(getattr(g, "drive_id", 0))
+                        for g in self._goal_history[-60:]]
+
+        meta = {
+            "is_meta_stable": bool(self.meta_stable.is_meta_stable),
+            "cycles_since_entry": int(self.meta_stable.cycles_since_entry),
+            "drive_values": [float(v) for v in self.meta_stable.drive_values],
+        }
+
+        return {
+            "deficits": deficits,
+            "goals": goals,
+            "goal_stack": goal_stack,
+            "pareto_front": [int(d) for d in self._pareto_front_ids],
+            "meta_stable": meta,
+            "drive_history": drive_history,
+            "goal_history": goal_history,
+            "temperature": float(self.temperature),
+        }

@@ -300,6 +300,49 @@ class M3EpisodicMemory:
             cursor = self._connection.execute("SELECT COUNT(*) FROM episodes")
         return cursor.fetchone()[0] or 0
 
+    # ── Observability v4: cheap indexed reads for the Memory tab ──
+
+    def recent_episodes(self, n: int = 5) -> List[EpisodeRecord]:
+        """Return the ``n`` most recent episodes (newest first).
+
+        Indexed by ``idx_episodes_consolidated(timestamp)`` — a bounded tail
+        scan, cheap even at the 10k FIFO cap. Used by the Memory & Belief tab.
+        """
+        try:
+            n = max(0, int(n))
+            if n == 0:
+                return []
+            cursor = self._connection.execute(
+                "SELECT * FROM episodes ORDER BY timestamp DESC, episode_id DESC LIMIT ?",
+                (n,),
+            )
+            return [r for r in (self._row_to_episode(row) for row in cursor.fetchall())
+                    if r is not None]
+        except Exception as e:
+            _log(logger, "warning", "m3.recent_episodes_failed", error=str(e))
+            return []
+
+    def top_error_episodes(self, n: int = 5) -> List[EpisodeRecord]:
+        """Return the ``n`` highest-prediction-error episodes (worst first).
+
+        Used by the Memory & Belief tab to surface the agent's most surprising
+        recent transitions. Bounded ``LIMIT`` scan over the FIFO table.
+        """
+        try:
+            n = max(0, int(n))
+            if n == 0:
+                return []
+            cursor = self._connection.execute(
+                "SELECT * FROM episodes ORDER BY prediction_error DESC, "
+                "timestamp DESC LIMIT ?",
+                (n,),
+            )
+            return [r for r in (self._row_to_episode(row) for row in cursor.fetchall())
+                    if r is not None]
+        except Exception as e:
+            _log(logger, "warning", "m3.top_error_episodes_failed", error=str(e))
+            return []
+
     # ── MVCC Snapshots ────────────────────────────────────────
 
     def create_snapshot(self) -> ConsolidationSnapshot:

@@ -250,3 +250,12 @@ class Attention:
         cos_sim = float(np.dot(a * w, b * w) / (a_norm * b_norm))
         # Map [-1, 1] → [0, 1]
         return float(np.clip((cos_sim + 1.0) / 2.0, 0.0, 1.0))
+
+    # ── Observability v4: additive snapshot ──
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Read-only portrait of attention precisions for the dashboard."""
+        return {
+            "precisions": [float(p) for p in self._precisions.values()],
+            "gumbel_temperature": float(self.gumbel_temperature),
+        }

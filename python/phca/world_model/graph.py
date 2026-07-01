@@ -118,6 +118,8 @@ class WorldModelGPrime:
         self._cached_topology: Tuple[List[str], Dict[str, List[float]],
                                      Dict[str, float], Dict[str, List[str]]] | None = None
         self._cached_joint_moments: Tuple[np.ndarray, np.ndarray] | None = None
+        # Observability v4: cache last per-dim posterior std (uncertainty portrait).
+        self._last_pred_std: Optional[np.ndarray] = None
 
     # ── Graph Construction ────────────────────────────────────
 
@@ -548,6 +550,7 @@ class WorldModelGPrime:
         # Build output StateVector
         predicted_values = np.zeros(self.state_dim, dtype=np.float32)
         precision_values = np.ones(self.state_dim, dtype=np.float32)
+        std_values = np.zeros(self.state_dim, dtype=np.float32)
         confidences: List[float] = []
 
         for var_name, (mean_val, std_val) in posteriors.items():
@@ -557,11 +560,15 @@ class WorldModelGPrime:
                 idx = int(idx_str)
                 if 0 <= idx < self.state_dim:
                     predicted_values[idx] = float(mean_val)
+                    std_values[idx] = float(std_val)
                     conf = confidence_from_variance(std_val ** 2)
                     precision_values[idx] = conf
                     confidences.append(conf)
             except (IndexError, ValueError):
                 continue
+
+        # Observability v4: cache per-dim posterior std for the uncertainty portrait.
+        self._last_pred_std = std_values
 
         avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
@@ -574,6 +581,21 @@ class WorldModelGPrime:
             ),
             avg_confidence,
         )
+
+    def uncertainty_snapshot(self) -> Dict[str, Any]:
+        """Observability v4: per-dim posterior std portrait (Gaussian G').
+
+        Returns the cached per-dim posterior std from the last
+        ``predict_continuous`` call (zero recomputation). For discrete-only
+        graphs, ``per_dim_std`` is None.
+        """
+        kind = "gaussian" if self.has_gaussian_nodes() else "discrete"
+        std = self._last_pred_std
+        return {
+            "kind": kind,
+            "per_dim_std": (std.copy() if std is not None else None),
+            "mutual_info": None,
+        }
 
     def estimate_empowerment(
         self,

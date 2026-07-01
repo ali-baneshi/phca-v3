@@ -12,7 +12,7 @@ Audit Decision O-1: Use Python for Phase 3.1 to eliminate FFI overhead.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -377,3 +377,20 @@ class RBTAEnforcer:
             bounds: New resource bounds for this module.
         """
         self._bounds[module_id] = bounds
+
+    # ── Observability v4: additive public read of the bound envelope ──
+
+    def bounds_snapshot(self) -> Dict[str, Any]:
+        """Return a JSON-friendly copy of the per-module resource bounds.
+
+        Used by the Cognitive Flow and Retention tabs to render measured-vs-bound
+        bars. Pure read — never mutates enforcement state.
+        """
+        out: Dict[str, Any] = {}
+        for module_id, b in self._bounds.items():
+            out[module_id] = {
+                "time": float(getattr(b, "B_time", 0.0)),
+                "mem": float(getattr(b, "B_mem", 0.0)),
+                "energy": float(getattr(b, "B_energy", 0.0)),
+            }
+        return out

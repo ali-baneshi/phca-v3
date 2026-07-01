@@ -239,6 +239,23 @@ class MuJoCoSimpleEnv:
         """Release MuJoCo simulation resources."""
         self._env.close()
 
+    def render_rgb(self) -> Optional[np.ndarray]:
+        """Return the current MuJoCo camera frame as an (H,W,3) uint8 array.
+
+        Observability v4: requires the env to be built with
+        ``render_mode='rgb_array'`` (the launcher requests this only when
+        observability is attached, so headless runs pay nothing). Returns
+        None if rendering is unavailable so the dashboard can fall back to
+        the dimension-agnostic state-space projection.
+        """
+        try:
+            frame = self._env.render()
+            if frame is None:
+                return None
+            return np.asarray(frame, dtype=np.uint8)
+        except Exception:
+            return None
+
     # ── Internal methods called by CognitiveCycle ────────────
 
     def _get_observation(self) -> np.ndarray:

@@ -88,6 +88,9 @@ class WorldModelMLP:
 
         # Phase-4 interface stubs (AF-001/002 compatibility)
         self._tspl_bias: np.ndarray = np.zeros(state_dim, dtype=np.float32)
+        # Observability v4: cache last MC per-dim std + mutual_info.
+        self._last_mc_per_dim_std: Optional[np.ndarray] = None
+        self._last_mutual_info: float = 0.0
 
         # Experience replay buffer
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
@@ -144,6 +147,9 @@ class WorldModelMLP:
         var = np.var(mc_outs, axis=0).mean()
         # mutual information ≈ log(1 + var) clipped to [0, ~1.1]
         mutual_info = float(np.log1p(min(var, 2.0)))
+        # Observability v4: cache per-dim std + mutual info (uncertainty portrait).
+        self._last_mc_per_dim_std = np.sqrt(np.var(mc_outs, axis=0)).astype(np.float32)
+        self._last_mutual_info = mutual_info
         # base (aleatoric) confidence = exp(-MSE on mean prediction)
         base_conf = self._compute_confidence(mean_out, state.values.astype(np.float32))
         # penalize confidence when mutual info is high (epistemic uncertainty)
@@ -573,6 +579,19 @@ class WorldModelMLP:
             return 0.3
         mi = 0.5 * float(np.log1p(v_between / (v_within + _EPS)))
         return float(np.clip(mi, 0.0, 1.0))
+
+    def uncertainty_snapshot(self) -> Dict[str, Any]:
+        """Observability v4: MC-Dropout uncertainty portrait (MLP G').
+
+        Returns the cached per-dim MC std and mutual information from the last
+        ``predict`` call (zero recomputation). ``kind`` is ``"mlp"``.
+        """
+        std = self._last_mc_per_dim_std
+        return {
+            "kind": "mlp",
+            "per_dim_std": (std.copy() if std is not None else None),
+            "mutual_info": float(self._last_mutual_info),
+        }
 
     def __repr__(self) -> str:
         n_params = (
