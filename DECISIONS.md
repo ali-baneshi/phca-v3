@@ -1035,3 +1035,29 @@ Every entry must reference the v3.0 specification section it affects.
 
 
 
+
+## Decision D-095: Phase 6 A0 — zero-trust baseline re-measurement on this machine
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 3 (process — zero-trust verification before any Phase 6 change)
+- **Problem:** Phase 6 hard constraint #5 requires re-measuring the reported Phase-5 state on THIS machine before trusting any number (Phase 5 proved D-090's 0.573 dynamic L2 was machine-specific). Reported: 325 tests, Φ-IQ 0.7419, gprime_learn 5.09 ms, dyn75 L2 0.6444, gate PASS.
+- **Re-measured on this machine (A0):**
+  - Tests: **325 passed, 0 errors** (`pytest python/tests python/phca`).
+  - Canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7415** (L0 0.7063 / L1 0.7126 / L2 0.7785 / L3 0.7685) — matches reported 0.7419 within run-to-run noise; gate PASS (0.7415 ≥ 0.5486 floor). `logs/phase6_baseline_bench.json`.
+  - `gprime_learn` mean **8.77 ms** (p95 14.07, max 16.28) — **higher than reported 5.09 ms** (this machine is currently under more load / different numpy state); still ≪ the 25.4 ms Phase-5 target and the 500 ms A1 bound. Full cycle mean 17.15 ms (p95 31.14). `logs/phase6_baseline_profile.json`.
+  - Dynamic every-75 L2 **0.6443** (overall 0.7084) — matches reported 0.6444. `logs/phase6_baseline_dyn75.json`.
+- **Conclusion:** Baseline confirmed. The only discrepancy (gprime_learn 8.77 vs 5.09) is environmental, not a regression — it is the regression anchor for Phase 6 (any Phase-6 change must not push Φ-IQ below 0.73 on this machine). Proceeding to A1.
+- **Tests/Validation:** 325 passed 0 errors; gate PASS; dyn75 L2 0.6443 ≥ 0.50.
+
+## Decision D-096: Phase 6 A1 — ActionSpace type + get_action_space() plumbing
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 6)
+- **Category:** Tier 2 (architectural plumbing — continuous-action unlock, no behaviour change yet)
+- **Problem:** Phase 6 / A1 needs an `ActionSpace` type so the cycle can branch on discrete vs continuous. Must not break the discrete GridWorld/Cartpole/Reacher path.
+- **Option chosen:** Added `DiscreteSpace(n)` and `ContinuousSpace(low, high, dim)` frozen dataclasses + `ActionSpace = Union[...]` + `discrete_space`/`continuous_space` helpers to [python/phca/config.py](python/phca/config.py) (~35 lines). Added `get_action_space() -> ActionSpace` to [python/phca/environments/protocol.py](python/phca/environments/protocol.py) (Protocol method). Added `get_action_space()` (returns `DiscreteSpace(len(_action_map))` for all three envs) + a `get_goal_reference()` stub returning None to [python/phca/environments/mujoco_env.py](python/phca/environments/mujoco_env.py). GridWorld uses a getattr fallback in the cycle (A2) — no GridWorld change. A3 flips Pendulum to `ContinuousSpace` and overrides `get_goal_reference`. 3 files, ~50 lines net.
+- **Results:** 325 tests pass, 0 errors. `--quick` bench: Φ-IQ 0.580 (Level-0-only smoke; `goal_autonomy_achieved` fails because L3 isn't run — pre-existing, not a regression). No behaviour change: discrete paths unchanged.
+- **Rationale:** Minimal type plumbing with no behaviour change. The continuous branch (A2) and Pendulum wiring (A3) consume these types.
+- **v3.0 trace:** §3.2 (typed module composition), A1 (no runtime cost added), A4 (prediction path unchanged).
+- **Tests/Validation:** 325 passed 0 errors.

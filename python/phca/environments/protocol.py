@@ -6,6 +6,8 @@ from typing import List, Optional, Protocol, Tuple
 
 import numpy as np
 
+from phca.config import ActionSpace, DiscreteSpace
+
 
 class EnvironmentProtocol(Protocol):
     """Minimal environment interface for the cognitive cycle.
@@ -24,6 +26,14 @@ class EnvironmentProtocol(Protocol):
         ...
 
     def get_action_names(self) -> List[str]:
+        ...
+
+    def get_action_space(self) -> ActionSpace:
+        """Return this env's action space (Discrete or Continuous).
+
+        Default-implementing environments may omit this; the cycle falls
+        back to `DiscreteSpace(env.action_space_size)` via getattr.
+        """
         ...
 
     def step(

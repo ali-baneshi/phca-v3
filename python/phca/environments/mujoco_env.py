@@ -131,6 +131,24 @@ class MuJoCoSimpleEnv:
             )
         )
 
+    def get_action_space(self):
+        """Return this env's action space (Phase 6 / A1).
+
+        Default: discrete over the configured action map. A3 flips
+        Pendulum to ContinuousSpace([-2,2], dim=1); Cartpole and Reacher
+        stay discrete.
+        """
+        from phca.config import DiscreteSpace
+        return DiscreteSpace(n=len(self._action_map))
+
+    def get_goal_reference(self):
+        """Homeostatic reference state for goal-directed continuous control.
+
+        Returns None for discrete envs (the discrete path ignores it).
+        A3 overrides this for Pendulum (upright reference).
+        """
+        return None
+
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
         """Execute a discrete action in the MuJoCo environment.
 

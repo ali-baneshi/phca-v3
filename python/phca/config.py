@@ -12,6 +12,45 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Optional, Union
+
+
+# ── Action Space Types (Phase 6 — continuous-action unlock) ────
+
+
+@dataclass(frozen=True)
+class DiscreteSpace:
+    """Discrete action space with `n` mutually-exclusive actions."""
+
+    n: int
+
+
+@dataclass(frozen=True)
+class ContinuousSpace:
+    """Continuous action space: a real vector in [low, high]^dim.
+
+    `low`/`high` are broadcastable to shape (dim,). Used by the MPC-style
+    continuous action selector (Phase 6 / A2) to sample candidate actions.
+    """
+
+    low: np.ndarray
+    high: np.ndarray
+    dim: int
+
+
+ActionSpace = Union[DiscreteSpace, ContinuousSpace]
+
+
+def discrete_space(n: int) -> DiscreteSpace:
+    return DiscreteSpace(n=n)
+
+
+def continuous_space(low, high, dim: int) -> ContinuousSpace:
+    return ContinuousSpace(
+        low=np.broadcast_to(np.asarray(low, dtype=np.float32), (dim,)).copy(),
+        high=np.broadcast_to(np.asarray(high, dtype=np.float32), (dim,)).copy(),
+        dim=dim,
+    )
 
 
 class ASIStatus(Enum):

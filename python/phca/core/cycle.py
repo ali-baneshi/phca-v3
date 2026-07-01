@@ -30,6 +30,8 @@ from phca.config import (
     StateVector,
     StreamID,
     DEFAULT_MODULE_BOUNDS,
+    DiscreteSpace,
+    ContinuousSpace,
 )
 from phca.asi.sanitizer import ASISanitizer
 from phca.memory.m1_sensory import M1SensoryBuffer
@@ -136,6 +138,14 @@ class CognitiveCycle:
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
 
+        # Phase 6 / A2: action-space branch. Resolve once; GridWorld and any
+        # env without get_action_space() fall back to DiscreteSpace(n).
+        space = getattr(env, "get_action_space", None)
+        self.action_space = (
+            space() if callable(space) else DiscreteSpace(n=env.action_space_size)
+        )
+        self._is_continuous: bool = isinstance(self.action_space, ContinuousSpace)
+
         self.runtime_log: Dict[str, float] = {}
         self.memory_log: Dict[str, float] = {}
         self.energy_log: Dict[str, float] = {}
@@ -239,8 +249,12 @@ class CognitiveCycle:
 
             # Step 9a: Action selection + environment step
             t5 = time.perf_counter()
-            action_idx = self._select_action()
-            obs, reward, terminal, info = self.env.step(action_idx)
+            action = self._select_action()  # int (discrete) or np.ndarray (continuous)
+            if self._is_continuous:
+                action_vec_step = np.asarray(action, dtype=np.float32)
+                obs, reward, terminal, info = self.env.step(action_vec_step)
+            else:
+                obs, reward, terminal, info = self.env.step(action)
             metrics.module_timings["action_selection"] = (time.perf_counter() - t5) * 1000
 
             # Step 5-7: PEU + TSPL + LEARN with correct action context.
@@ -249,8 +263,11 @@ class CognitiveCycle:
             # from the previous cycle). This makes the error meaningful for
             # learned world models like the MLP.
             if self.current_state is not None:
-                action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
-                action_vec[action_idx] = 1.0
+                if self._is_continuous:
+                    action_vec = action_vec_step
+                else:
+                    action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
+                    action_vec[action] = 1.0
                 next_state = StateVector(
                     values=obs.astype(np.float32),
                     precision=np.ones(self.state_dim, dtype=np.float32),
@@ -325,13 +342,18 @@ class CognitiveCycle:
                     timestamp=self.cycle_count,
                 )
 
-            self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
-            self.last_action[action_idx] = 1.0
-            self.engine.update_action(self.last_action)
-
-            metrics.action_taken = action_idx
-            action_names = self.env.get_action_names()
-            metrics.action_name = action_names[action_idx]
+            if self._is_continuous:
+                self.last_action = action_vec_step.copy()
+                self.engine.update_action(self.last_action)
+                metrics.action_taken = -1
+                metrics.action_name = "continuous"
+            else:
+                self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
+                self.last_action[action] = 1.0
+                self.engine.update_action(self.last_action)
+                metrics.action_taken = action
+                action_names = self.env.get_action_names()
+                metrics.action_name = action_names[action]
             metrics.goal_reached = info.get("goal_reached", False)
 
             if terminal:
@@ -543,18 +565,17 @@ class CognitiveCycle:
 
         return metrics
 
-    def _select_action(self) -> int:
+    def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
 
-        Uses continuous distance gain rather than discrete goal alignment,
-        with ε-greedy exploration and drive-appropriate scoring.
-
-        The blend depends on the MDIM goal's drive_id:
-          D1/D3 (error/competence): distance gain + confidence + success history
-          D2/D4 (exploration): uncertainty + distance gain
-          D5 (energy): STAY
-          D6 (empowerment): state-space alignment
+        Returns an int (discrete space) or an np.ndarray (continuous space,
+        Phase 6 / A2). The continuous branch is MPC-style: sample K candidate
+        actions, predict each via G', pick the one whose predicted next state
+        best matches the goal reference. Prediction/goal-driven, NOT RL.
         """
+        if self._is_continuous:
+            return self._select_continuous_action()
+
         if self.current_state is None:
             return self.env.stay_action
 
@@ -633,6 +654,54 @@ class CognitiveCycle:
         self._cached_confidences = action_confidences
 
         return best_action
+
+    def _select_continuous_action(self) -> np.ndarray:
+        """MPC-style continuous action selection (Phase 6 / A2).
+
+        Sample K candidate actions ~ U(low, high); for each, predict the next
+        state via G'; score by prediction confidence + goal-reference alignment
+        + predicted-goal-alignment (PGA, neutral for non-grid envs). Return the
+        argmax candidate as an np.ndarray within [low, high]. ε-greedy returns a
+        random in-bounds action. Prediction/goal-driven — no reward, no value
+        function, no policy gradient (A4/A5 preserved).
+
+        A1 (Resource Boundedness): K·dim ≤ 16 forward passes per call.
+        """
+        space = self.action_space
+        low, high = space.low, space.high
+        K = 8
+        if K * space.dim > 16:
+            K = max(2, 16 // space.dim)
+
+        rng = np.random.RandomState(self.cycle_count)
+        eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
+        if rng.random() < eps:
+            return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
+
+        ref = getattr(self.env, "get_goal_reference", lambda: None)()
+        ref = np.asarray(ref, dtype=np.float32) if ref is not None else None
+
+        best_a, best_score = None, -float("inf")
+        for _ in range(K):
+            a = (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
+            self.engine.update_action(a)
+            try:
+                predicted, confidence = self.engine.predict(self.current_state, horizon=1)
+            except Exception:
+                continue
+            pga = self._predicted_goal_alignment(predicted)
+            if ref is not None:
+                min_d = min(predicted.values.shape[0], ref.shape[0])
+                ref_align = float(np.clip(
+                    1.0 - np.linalg.norm(predicted.values[:min_d] - ref[:min_d])
+                    / max(np.linalg.norm(ref[:min_d]), 1e-6), 0.0, 1.0))
+            else:
+                ref_align = 0.5
+            score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
+            if score > best_score:
+                best_score, best_a = score, a
+        return best_a if best_a is not None else (
+            low + (high - low) * 0.5).astype(np.float32)
 
     def _state_space_alignment(
         self,
