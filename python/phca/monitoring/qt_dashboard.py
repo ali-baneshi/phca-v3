@@ -1935,8 +1935,8 @@ class MemoryBeliefView(_BaseCanvas):
         conf_s = f"{float(conf):.2f}" if conf is not None else "?"
         line = f"d{did}  err={pe_s}  conf={conf_s}  t={str(ts)[-7:]}"
         p.drawText(x, y, line)
-        # state-before → state-after mini preview
-        sb = ep.get("state_before"); sa = ep.get("state_after")
+        # state-before → state-after mini preview (sb_head / sa_head from _episode_to_dict)
+        sb = ep.get("sb_head"); sa = ep.get("sa_head")
         if sb is not None and sa is not None:
             try:
                 sbv = np.asarray(sb, dtype=np.float32).reshape(-1)[:8]
@@ -1954,13 +1954,17 @@ class MemoryBeliefView(_BaseCanvas):
         return y + 12
 
     def _fact_line(self, p, fac: dict, x: int, y: int) -> int:
-        pred = str(fac.get("predicate", fac.get("type", "?")))
-        sub = str(fac.get("subject", fac.get("subj", "")))
-        obj = str(fac.get("object", fac.get("obj", "")))
+        ftype = str(fac.get("fact_type", fac.get("predicate", fac.get("type", "?"))))
+        summary = str(fac.get("summary", ""))
         freq = fac.get("frequency", fac.get("support", "?"))
         conf = fac.get("confidence", "?")
-        line = f"{pred}({sub},{obj})  f={freq}  c={conf}"
-        p.drawText(x, y, line[:60])
+        head = f"{ftype}  f={freq} c={conf}"
+        p.drawText(x, y, head[:40])
+        if summary:
+            p.setPen(DIM_COL); p.drawText(x + 40 if len(head) < 38 else x,
+                                          y + 10, summary[:50])
+            p.setPen(TEXT_COL)
+            return y + 22
         return y + 12
 
     def _belief_portrait(self, p, f, x, y, w, h) -> None:
@@ -2032,15 +2036,17 @@ class GoalsMotivationView(_BaseCanvas):
         stack = getattr(f, "goal_stack", None) or []
         y = 30
         for i, g in enumerate(stack[:8]):
-            did = g.get("drive_id", "?"); tgt = g.get("target")
+            did = g.get("drive_id", "?")
+            tnorm = g.get("target_norm")
             tol = g.get("tolerance"); pri = g.get("priority")
             comp = g.get("completed", False)
-            tgt_s = f"{float(tgt):.2f}" if tgt is not None else "?"
+            depth = g.get("depth", "?")
+            tgt_s = f"|tgt|={float(tnorm):.2f}" if tnorm is not None else "no target"
             col = QtGui.QColor(46, 204, 113) if comp else ACCENT
             p.setPen(col); p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
-            p.drawText(8, y, f"#{i+1} d{did} →{tgt_s}")
+            p.drawText(8, y, f"#{i+1} d{did} {tgt_s}")
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
-            p.drawText(8, y + 11, f"tol={tol} pri={pri} {'✓done' if comp else 'active'}")
+            p.drawText(8, y + 11, f"depth={depth} tol={tol} pri={pri} {'✓done' if comp else 'active'}")
             y += 26
         if not stack:
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 8))
@@ -2057,7 +2063,13 @@ class GoalsMotivationView(_BaseCanvas):
             did = i + 1
             val = float(levels[i]) if levels is not None and i < len(levels) else 0.0
             dfc = float(defs[i]) if defs is not None and i < len(defs) else 0.0
-            tgt = float(targets[i]) if targets is not None and i < len(targets) else None
+            # drive_goals entries may be None for drives without a target_state
+            tgt = None
+            if targets is not None and i < len(targets) and targets[i] is not None:
+                try:
+                    tgt = float(targets[i])
+                except Exception:
+                    tgt = None
             col = _to_qcolor(DRIVE_COLORS[did])
             p.setPen(col); p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
             mark = "●" if i in pareto else " "
@@ -2071,10 +2083,11 @@ class GoalsMotivationView(_BaseCanvas):
             p.fillRect(mx + 40, y + 3, int(dfc * (mw - 60)), 6, col)
             y += 20
         ms = getattr(f, "meta_stable", None) or {}
-        p.setPen(ACCENT if ms.get("stable") else QtGui.QColor(231, 76, 60))
+        stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
+        p.setPen(ACCENT if stable else QtGui.QColor(231, 76, 60))
         p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
         cse = ms.get("cycles_since_entry", "?")
-        p.drawText(mx, y + 6, f"meta-stable: {'YES' if ms.get('stable') else 'NO'}  ({cse} cyc)")
+        p.drawText(mx, y + 6, f"meta-stable: {'YES' if stable else 'NO'}  ({cse} cyc)")
         # ---- right: heatmaps + temperature/empowerment ----
         rx = mx + mw + 8
         self._title(p, "Drive history heatmap + temperature/empowerment", x=rx, y=14)
