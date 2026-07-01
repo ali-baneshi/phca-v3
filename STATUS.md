@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-01  
-**Phase:** 4 COMPLETE — Weeks 1–4 done; Phase 4 ready (see docs/phase4_readiness_report.md)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-091)
+**Phase:** 5 COMPLETE — performance + Reacher + dynamic curriculum + docs (see docs/phase5_completion_report.md)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-094)
 
 ---
 
@@ -76,15 +76,15 @@
 | Suite | Last run | Result |
 |-------|----------|--------|
 | Python core | 2026-07-01 | **299 passed**, 0 errors (TC-6 closed via D-088) |
-| MuJoCo (`MUJOCO_GL=disabled`) | 2026-07-01 | **23 passed**, 0 errors |
-| Total | 2026-07-01 | **322 passed**, 0 errors |
+| MuJoCo (`MUJOCO_GL=disabled`) | 2026-07-01 | **26 passed**, 0 errors (D-093 added 3 Reacher smoke tests) |
+| Total | 2026-07-01 | **325 passed**, 0 errors |
 | Rust | N/A (workspace removed D-084) | — |
-| CI gate script | 2026-07-01 | PASS (1000-cyc Φ-IQ 0.7919 ≥ floor 0.5486) |
+| CI gate script | 2026-07-01 | PASS (Φ-IQ 0.7419 ≥ floor 0.5486) |
 
 **Notes:**
 - TC-6 closed: `pytest-mock` installed + declared; the 6 `mocker` fixture errors in `test_engine.py` are gone.
-- 1000-cycle long-run probe (`logs/longrun_probe.json`): RSS +3.23% (bounded, no leak); latency 16.6ms→57ms plateau (D-081 warm-up→replay transition, not creep); p95 max 66ms << 500ms A1 bound.
-- W4 optimisation target identified: steady-state replay path is 3.4× slower than warm-up.
+- 1000-cycle long-run probe (`logs/longrun_probe.json`): RSS +3.18% (bounded, no leak); latency 16.6ms→57ms plateau (D-081 warm-up→replay transition, not creep); p95 max 62.8ms << 500ms A1 bound.
+- Phase 5 / D-092: `gprime_learn` vectorised (35.55ms → 5.09ms, −85.7%); full-cycle mean 38.8ms → 10.6ms.
 
 **Failing tests:** None.
 
@@ -94,11 +94,16 @@
 
 | Metric | Value | Baseline / target | Source |
 |--------|-------|-------------------|--------|
-| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.740** | ≥ 0.5 (and ≥ 0.635 = 95% of 0.668) | `logs/benchmark_final.json` |
-| L2 Φ-IQ (MLP, 200 cyc) | **0.764** | ≥ 0.5 — PASS (was 0.477) | `logs/benchmark_final.json` |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7419** | ≥ 0.5 (and ≥ 0.635 = 95% of 0.668) | `logs/phase5_a1_final_bench.json` |
+| L0 / L1 / L2 / L3 Φ-IQ | 0.7073 / 0.7138 / 0.7782 / 0.7684 | L2 ≥ 0.5 — PASS | same |
 | L2 goal_rate | 0.95 | — | same |
+| `gprime_learn` mean (Phase 5) | **5.09 ms** | ≤ 25.4 ms (≥20% cut) — PASS | `logs/profile_mlp_learn_final.json` |
+| Full cycle mean | 10.6 ms | < 500 ms (A1) | same |
+| Reacher 100-cyc | PASS | 4.0 ms mean, 0 RBTA violations, error 512→91.7 | `logs/benchmark_reacher.json` |
+| Dynamic every-75 L2 | 0.6444 | ≥ 0.50 — PASS (validated cadence) | `logs/phase5_dyn75.json` |
+| Dynamic every-50 L2 | 0.4324 | < 0.50 — NOT achievable (consistent with D-087) | `logs/phase5_dyn50.json` |
 | CI quick Φ-IQ | 0.577 | ≥ 0.548 (95% floor) | `logs/benchmark_ci_baseline.json` |
-| Gate result (post-P0) | PASS | report 0.6861 ≥ floor 0.5486 | `check_benchmark_gate.py` |
+| Gate result | PASS | report 0.7419 ≥ floor 0.5486 | `check_benchmark_gate.py` |
 
 ---
 
@@ -122,4 +127,7 @@
 | 2026-07-01 | W2: MuJoCo into CI + requirements-mujoco.txt + `--env` flag | D-089; Cartpole+Pendulum PASS C1/C3/C4/C6; 16ms latency, error 8.4→0.3 |
 | 2026-07-01 | W3: Dynamic-goal curriculum (`--dynamic-goals`, relocate @100) | D-090; dynamic L2 0.573≥0.50 (adapt 0.66 real); static 0.738 unchanged; gate PASS |
 | 2026-07-01 | W4: Profile (gprime_learn 95% of cycle) + empowerment 8→4 + PRAGMA review + readiness report | D-091; Φ-IQ 0.733 gate PASS; 322 tests; Phase 4 READY |
+| 2026-07-01 | Phase 5 / A1: vectorise MLP replay backward (matmul) | D-092; gprime_learn 35.55ms→5.09ms (−85.7%); Φ-IQ 0.7328→0.7419; 325 tests; gate PASS |
+| 2026-07-01 | Phase 5 / B1-B3: Reacher-v5 in `--env` + 100-cyc benchmark + 3 smoke tests | D-093; 4.0ms mean, 0 violations, error 512→91.7; MuJoCo 23→26 tests |
+| 2026-07-01 | Phase 5 / C1-C3: dynamic-goal curriculum (`--dynamic-goals-every N`) | D-094; every-75 validated (L2 0.6444); every-50 honestly rejected (0.4324); every-100 0.4316 on this machine |
 

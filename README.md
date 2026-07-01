@@ -1,6 +1,41 @@
 # PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-A formally specified, resource-bounded cognitive architecture for continual learning, intrinsic motivation, and self-regulated autonomous agents. **322 tests passing** (299 core + 23 MuJoCo). **Phase 4 ready** — see [docs/phase4_readiness_report.md](docs/phase4_readiness_report.md).
+A formally specified, resource-bounded cognitive architecture for continual
+learning, intrinsic motivation, and self-regulated autonomous agents. Each
+cognitive cycle transforms raw sensor input into a goal-directed action
+through a pipeline of specialised modules, governed by a Resource-Bounded
+Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
+budgets every cycle.
+
+**Phase 5 hardened.** 325 tests passing (299 core + 26 MuJoCo), 0 errors.
+Overall Φ-IQ **0.7419** (4-level MLP, 200 cyc). `gprime_learn` **5.09 ms**
+mean (−85.7% vs Phase 4). Cartpole, Pendulum, and Reacher all run green in CI.
+
+---
+
+## Overview
+
+PHCA (Predictive Hierarchical Cognitive Architecture) is a research
+architecture built around five verified invariants (A1–A5, see
+[research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md)):
+
+- **A1 Resource Boundedness** — every module has time/memory/energy/entropy
+  budgets, enforced every cycle by the RBTA.
+- **A2 Temporal Causality** — module outputs are consumed only after they
+  are produced (pipeline ordering).
+- **A3 Incomplete Knowledge** — belief entropy is floored at ε > 0.
+- **A4 Prediction as Primary** — every cycle computes ŝₜ₊₁ from sₜ.
+- **A5 Feedback-Driven Adaptation** — prediction error drives TSPL learning.
+
+The agent runs in a GridWorld (discrete, 5×5 with walls) or a MuJoCo physics
+environment (Cartpole, Pendulum, Reacher), perceives its state, predicts the
+next state, selects a goal-directed action, learns from the prediction error,
+and self-regulates its exploration/criticality via a PID controller and six
+homeostatic intrinsic drives (MDIM).
+
+It exists to study bounded, autonomous, prediction-first agents that learn
+continually without reward hacking — the formal argument for why each
+component is necessary is in the whitepaper.
 
 ---
 
@@ -9,51 +44,72 @@ A formally specified, resource-bounded cognitive architecture for continual lear
 ```bash
 # Install dependencies
 make setup
+# Optional MuJoCo (Cartpole/Pendulum/Reacher):
+pip install -r requirements-mujoco.txt
 
-# Run all tests (322 = 299 core + 23 MuJoCo; set MUJOCO_GL=disabled for headless)
+# Run all tests (325 = 299 core + 26 MuJoCo; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
+# plus the MuJoCo tests (make test-all ignores them by default):
+MUJOCO_GL=disabled PYTHONPATH=python python -m pytest python/tests/test_mujoco_env.py python/tests/test_cycle_with_mujoco.py -q
 
-# Run benchmark suite (all 4 levels, 200 cycles each, MLP mode)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --cycles=200 --use-mlp
+# Canonical benchmark (4 levels, 200 cycles each, MLP mode)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
 
 # Quick smoke test (Level 0 only, 20 cycles)
 PYTHONPATH=python python scripts/benchmark.py --quick
 
-# Dynamic-goal curriculum (L2 relocates goal @cycle 100)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals
+# Dynamic-goal curriculum (L2 relocates the goal every 75 cycles — validated)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals --dynamic-goals-every 75
 
-# MuJoCo environments (Cartpole / Pendulum)
+# MuJoCo environments (Cartpole / Pendulum / Reacher)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env reacher  --use-mlp --cycles=100
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env cartpole --use-mlp --cycles=100
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env pendulum --use-mlp --cycles=100
 
-# Diagnose a single level (per-step CSV dump for analysis)
-PYTHONPATH=python python scripts/benchmark.py --levels=2 --cycles=200 --use-mlp --diagnose-level=2
+# gprime_learn per-module profile (Phase 5 perf target)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/profile_mlp_learn.py --cycles=200
 
 # Long-duration stability probe (1000 cycles, latency creep + RSS)
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/longrun_probe.py --cycles=1000
+
+# CI Φ-IQ regression gate
+python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
 ```
 
 ---
 
 ## Architecture
 
-PHCA implements a **12-step cognitive cycle** executed at ~40 Hz on consumer hardware (25ms avg latency). Each cycle transforms raw sensor input into a goal-directed action through a pipeline of specialized modules. The entire system is governed by a **Resource-Bounded Turing Supervisor (RBTA)** enforcing time, memory, energy, and entropy budgets per cycle.
+PHCA executes a **12-step cognitive cycle** at ~95 Hz on consumer hardware
+(~10.6 ms mean latency, MLP path, post-Phase-5). The cycle connects ASI
+(input sanitisation) → working memory → world-model prediction → prediction
+error → learning → action selection → intrinsic motivation → regulation →
+attention → RBTA enforcement → consolidation.
 
-### Cognitive Cycle (12 Active Steps)
+### Cognitive Cycle (12 active steps)
 
-```
-Step  0: ASI Sanitize        ─ sanitize(raw_obs) → clean_state
-Step  1: WM Write            ─ m2.write(state) + m1.write(state)
-Steps 2-4: G' Prediction     ─ engine.predict(state) → predicted_state, confidence
-Steps 5-6: PEU Error         ─ peu.compute(state, prediction) → error
-Step  7: TSPL P-Stream       ─ tspl.update(prediction_error, state, prediction)
-Step  8: (reserved)
-Step  9: Action Selection    ─ argmax(goal_alignment + confidence)
-Steps 10-13: MDIM + APC + ATTN + HPM
-                               ─ generate_goal, regulate_params, attend, bounds
-Step 14: RBTA Enforcement    ─ check_cycle(runtime, memory, energy, entropy)
-Step 15: Logging             ─ append metrics to history
-Steps 16-18: Consolidation   ─ periodic E→S episodic→semantic transfer
-Step 19: Increment           ─ cycle_count += 1
+```mermaid
+flowchart TD
+    ENV["Environment (GridWorld / MuJoCo)"] -- "raw_obs" --> ASI
+    subgraph cycle ["Cognitive Cycle (12 active steps)"]
+      ASI["Step 0: ASI Sanitize<br/>sanitize(raw_obs) -> clean_state"]
+      WM["Step 1: WM Write<br/>m2.write(state) + m1.write(state)"]
+      PE["Steps 2-4: G' Prediction<br/>engine.predict(state) -> predicted, confidence"]
+      PEU["Steps 5-6: PEU Error<br/>peu.compute(next, prediction) -> error"]
+      TSPL["Step 7: TSPL P-Stream<br/>tspl.update(error, state, prediction)"]
+      LEARN["LEARN: gprime.learn(transition)<br/>(replay mini-batch, batched)"]
+      ACT["Step 9: Action Selection<br/>argmax(goal_alignment + confidence)"]
+      REG["Steps 10-13: MDIM + APC + ATTN + HPM<br/>generate_goal, regulate, attend, bounds"]
+      RBTA["Step 14: RBTA Enforcement<br/>check_cycle(time, mem, energy, entropy)"]
+      LOG["Step 15: Logging<br/>append metrics"]
+      CONSOL["Steps 16-18: Consolidation<br/>episodic -> semantic transfer"]
+      INC["Step 19: Increment<br/>cycle_count += 1"]
+      ASI --> WM --> PE --> ACT
+      ACT --> PEU --> TSPL --> LEARN
+      PEU --> REG --> RBTA --> LOG --> CONSOL --> INC
+    end
+    ACT -- "action" --> ENV
+    ENV -- "step(action) -> obs, reward, terminal" --> PEU
 ```
 
 ### Module Map
@@ -64,34 +120,35 @@ Step 19: Increment           ─ cycle_count += 1
 | **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (50-cycle FIFO). |
 | **M2 (Working)** | `phca/memory/m2_working.py` | Ring-buffer working memory with salience tracking. |
 | **G' (Engine)** | `phca/prediction/engine.py` | Prediction engine wrapping Gaussian / discrete / MLP G'. |
+| **G' (MLP)** | `phca/world_model/mlp.py` | Pure-NumPy MLP world model (38,868 params, hidden_dim=128). |
 | **PEU** | `phca/prediction/error_unit.py` | Precision-weighted prediction error. |
 | **TSPL** | `phca/learning/tspl.py` | Single-stream predictive learning (P-Stream only). |
 | **MDIM** | `phca/motivation/mdim.py` | Multi-Drive Intrinsic Motivation: 6 homeostatic drives with softmax goal selection. |
 | **APC** | `phca/regulation/pid_controller.py` | Adaptive parameter control (PID on prediction-error volatility). |
-| **Attention** | `phca/attention/attention.py` | Precision-weighted sparse attention with goal-driven biasing. |
+| **Attention** | `phca/attention/attention.py` | Precision-weighted sparse attention with Gumbel noise. |
 | **HPM** | `phca/hpm/parser.py` | Hierarchical procedure memory: composition operators + resource bound computation. |
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets. |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store. |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Periodic episodic→statistical fact extraction. |
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator. |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
-| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics environment wrapper (optional `gymnasium`). |
+| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole/Pendulum/Reacher). |
 
-### Verified Invariants (A1-A5)
+### Verified Invariants (A1–A5)
 
 | Invariant | Enforcement |
 | :--- | :--- |
-| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`) |
-| **A2** Temporal Causality | Pipeline ordering in 12-step cycle |
-| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context |
-| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params) |
-| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights |
+| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`). |
+| **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. |
+| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. |
+| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). |
+| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. |
 
 ---
 
-## Benchmark Suite (Φ-IQ)
+## Benchmark & Results
 
-The Φ-IQ metric measures overall cognitive performance as a weighted composite of 6 sub-metrics:
+The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 
 ```
 Φ-IQ = 0.20·PredictionAccuracy + 0.20·AdaptationSpeed + 0.15·GoalComplexity
@@ -102,89 +159,135 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite 
 
 | Level | Name | What It Measures |
 | :--- | :--- | :--- |
-| **L0** | Stationary Prediction | Prediction accuracy in a static environment (no action needed) |
-| **L1** | Reactive Control | Prediction accuracy under active control + action diversity |
-| **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles |
-| **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment |
+| **L0** | Stationary Prediction | Prediction accuracy in a static environment. |
+| **L1** | Reactive Control | Prediction accuracy under active control + action diversity. |
+| **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
+| **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
 
-### Latest Results (MLP G', 200 cycles/level)
+### Latest Results (MLP G', 200 cycles/level, Phase 5 final)
 
 ```
-  PHCA v3.0 — Φ-IQ Benchmark Report (post Phase 4 P0/P1/P2 hardening)
-  Overall Φ-IQ (4 levels, MLP): 0.740
-  L0 Stationary:   0.732
-  L1 Reactive:     0.703
-  L2 Goal Pursuit: 0.764  (goal_rate 0.95; target ≥ 0.5 — PASS)
-  L3 Exploration:  0.759
+  PHCA v3.0 — Φ-IQ Benchmark Report (Phase 5)
+  Overall Φ-IQ (4 levels, MLP): 0.7419   (gate PASS, ≥ 0.5486 floor)
+  L0 Stationary:   0.7073
+  L1 Reactive:     0.7138
+  L2 Goal Pursuit: 0.7782   (goal_rate 0.95)
+  L3 Exploration:  0.7684
 
   Pass Criteria:
-    [✓] Cycle latency < 500ms
-    [✓] Failure rate < 10%
+    [✓] Cycle latency < 500 ms        (mean 10.6 ms, p95 ~12 ms)
+    [✓] Failure rate < 10%            (0 violations)
     [✓] Overall Φ-IQ > 0.5
-    [✓] L2 Φ-IQ ≥ 0.5  (was 0.48; fixed via D-086 metric alignment + D-087 PGA ramp)
+    [✓] L2 Φ-IQ ≥ 0.5
 ```
 
-L2 bottleneck closure: `adaptation_speed` was capped at 0.04 by a metric ceiling
-(`late_goals − early_goals` with `goal_rate≈0.95` throughout). Aligned with L0/L1
-via `max(improvement, maintenance)` (D-086) and lowered the PGA ramp onset so the
-learned signal engages during measurement (D-087). See `logs/benchmark_final.json`.
+### Performance (Phase 5, Workstream A — D-092)
+
+`gprime_learn` (the MLP replay-backward step, ~95% of cycle time in Phase 4)
+was vectorised from a per-sample Python loop (512 forward+backward passes/cycle)
+to batched NumPy matmuls. Measured by `scripts/profile_mlp_learn.py`
+(200 cyc, MLP, steady-state, warm-up discarded):
+
+| Metric | Phase 4 | Phase 5 | Change |
+| :--- | :--- | :--- | :--- |
+| `gprime_learn` mean | 35.55 ms (this machine) | **5.09 ms** | **−85.7%** |
+| `gprime_learn` p95  | 40.0 ms | 5.51 ms | −86% |
+| Full cycle mean     | 38.8 ms | 10.6 ms | −73% |
+| Overall Φ-IQ        | 0.7328 | 0.7419 | +1.2% (resource_efficiency up) |
+
+Target was ≥20% reduction (≤25.4 ms) with Φ-IQ ≥0.73 — far exceeded with no
+regression. A zero-trust check confirmed the dynamic-goal L2 is unchanged by
+the vectorisation (see Limitations / D-092).
 
 ---
 
-## Usage
+## MuJoCo
 
-### Running the Cognitive Cycle
+`MuJoCoSimpleEnv` wraps gymnasium MuJoCo environments into the
+`EnvironmentProtocol` so the cognitive cycle drives them unchanged. Continuous
+action spaces are discretised into ≤5 bins. MuJoCo is opt-in
+(`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
 
-```python
-from phca.core.cycle import CognitiveCycle
+| Env | ID | Actions | State dim | 100-cyc result (Phase 5) |
+| :--- | :--- | :--- | :--- | :--- |
+| Cartpole | `InvertedPendulum-v5` | 3 (push L / stay / push R) | 4 | PASS — 0 violations, error ↓ |
+| Pendulum | `Pendulum-v1` | 3 (torque L / stay / torque R) | 3 | PASS — 0 violations, error ↓ |
+| Reacher  | `Reacher-v5` | 5 (2D grid: SW/NW/stay/NE/SE) | 10 | PASS — 4.0 ms mean, 0 violations, error 512→91.7 |
 
-# Build a cycle for 5×5 GridWorld with obstacles
-cycle = CognitiveCycle.build_for_env(
-    size=5,
-    seed=42,
-    use_continuous=True,       # Gaussian G' (fast) or MLP
-    use_mlp=False,
-    obstacles=[(0, 2), (1, 2),
-               (2, 2), (3, 2)],  # wall barrier in column 2
-)
+CI exercises all 26 MuJoCo tests with `MUJOCO_GL=disabled` (D-089, D-093).
 
-# Run 100 cognitive cycles
-history = [cycle.step() for _ in range(100)]
-metrics = history[-1]
-print(f"Latency: {metrics.latency_ms:.0f}ms, "
-      f"Error: {metrics.prediction_error:.3f}")
-```
+### Dynamic-Goal Curriculum (experimental)
 
-### Running Benchmarks
+`--dynamic-goals` relocates the L2 goal on a cadence to exercise continual
+adaptation. `--dynamic-goals-every N` controls the cadence (Phase 5 / D-094).
+Graduated curriculum results (200 cyc, MLP, this machine):
+
+| Cadence | L2 Φ-IQ | Verdict |
+| :--- | :--- | :--- |
+| every-100 | 0.4316 | below 0.50 on this machine (D-090's 0.573 was machine-specific) |
+| **every-75**  | **0.6444** | **validated** — L2 ≥ 0.50, L0/L1/L3 within noise of static |
+| every-50 | 0.4324 | not achievable (consistent with D-087's rejection) |
+
+**every-75 is the supported dynamic cadence.** every-50 is honestly documented
+as not achievable. Dynamic mode is experimental and measured separately from
+the canonical static benchmark.
+
+---
+
+## Limitations
+
+- **Discrete actions only.** MuJoCo continuous action spaces are discretised
+  into ≤5 bins; PHCA does not learn continuous control policies.
+- **Reacher is basic.** Validated for 100 cycles with no errors and 0 RBTA
+  violations, but no goal-reaching Φ-IQ composite (Reacher has no grid goal);
+  the benchmark reports latency + prediction-error trend + violations.
+- **Dynamic goals are experimental at the validated cadence (every-75).**
+  every-50 is not achievable (L2 collapses to ~0.43); every-100 is below 0.50
+  on this machine. Dynamic L2 is SGD-trajectory-sensitive and varies by
+  machine/numpy build (D-092 zero-trust finding).
+- **`gprime_learn` remains the known perf bound** even after the Phase-5
+  85.7% cut — it is still the largest per-cycle cost; further gains would need
+  `train_steps`/`batch_size` changes that touch learning dynamics.
+- **P-Stream only.** E-Stream and S-Stream were removed in Phase 3.3 (D-020);
+  consolidation runs on a fixed 10-cycle timer.
+
+---
+
+## Contributing
+
+This is an internal research project. The workflow is audit-driven: every
+change is logged as a `D-XXX` entry in [DECISIONS.md](DECISIONS.md) (kept AND
+reverted attempts), validated by the benchmark suite + gate script + relevant
+unit tests, and must respect the surgical-change mandate (≤50 lines/change,
+≤3 files/change) and the A1–A5 invariants. See `STATUS.md` for the open issue
+registry and `docs/phase4_readiness_report.md` / `docs/phase5_completion_report.md`
+for phase sign-offs.
 
 ```bash
-# Quick mode (Level 0, 20 cycles)
-python scripts/benchmark.py --quick
+# Run tests before any change
+MUJOCO_GL=disabled make test-all
+MUJOCO_GL=disabled PYTHONPATH=python python -m pytest python/tests/test_mujoco_env.py python/tests/test_cycle_with_mujoco.py -q
 
-# Full suite (Levels 0-3, 100 cycles each)
-python scripts/benchmark.py
-
-# Custom configuration
-python scripts/benchmark.py --levels=0,2 --cycles=200 --output=my_report.json
+# Validate with the canonical benchmark + gate
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --output=logs/benchmark_report.json
+python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
 ```
 
-### Running Tests
+---
 
-```bash
-# All 293 tests
-make test-all
+## Key Documents
 
-# Or directly:
-PYTHONPATH=python python -m pytest python/tests/ python/phca/ -v --tb=short
-
-# Single module
-PYTHONPATH=python python -m pytest python/phca/motivation/tests/ -v
-PYTHONPATH=python python -m pytest python/phca/regulation/tests/ -v
-PYTHONPATH=python python -m pytest python/phca/hpm/tests/ -v
-
-# Cycle integration tests
-PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
-```
+| Document | Description |
+| :--- | :--- |
+| [docs/architecture.md](docs/architecture.md) | Architecture overview — 12-step cycle, module map, invariants. |
+| [docs/phase5_completion_report.md](docs/phase5_completion_report.md) | Phase 5 sign-off: metrics, decisions D-092–D-094, limitations. |
+| [docs/phase4_readiness_report.md](docs/phase4_readiness_report.md) | Phase 4 sign-off. |
+| [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-094). |
+| [docs/phase3.3_full_completion_report.md](docs/phase3.3_full_completion_report.md) | Phase 3.3 gap-closure completion report. |
+| [docs/architectural_audit_report.md](docs/architectural_audit_report.md) | Full audit of 28 issues with resolution status. |
+| [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1–A5, RBTA, MDIM, failure modes). |
+| [research/glossary.md](research/glossary.md) | Terminology reference. |
 
 ---
 
@@ -206,14 +309,16 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 │   │   ├── hpm/                 # HPM composition grammar
 │   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
 │   │   └── config.py            # Shared types + resource bounds
-│   ├── tests/                   # Integration tests (stress, chaos, edge cases)
+│   ├── tests/                   # Integration tests (stress, chaos, edge cases, MuJoCo)
 │   └── benchmarks/              # Package benchmark runner (scripts/benchmark.py preferred)
 ├── scripts/
-│   ├── benchmark.py             # Φ-IQ benchmark suite (primary)
+│   ├── benchmark.py             # Φ-IQ benchmark suite (primary; --env gridworld/cartpole/pendulum/reacher)
 │   ├── check_benchmark_gate.py  # CI Φ-IQ regression gate
+│   ├── profile_mlp_learn.py     # gprime_learn per-module profile (Phase 5 perf target)
+│   ├── longrun_probe.py         # 1000-cycle stability probe (latency creep + RSS)
 │   ├── phca-monitor.py          # Live terminal dashboard
 │   ├── phca-logs.py             # Structured log viewer
-│   └── profile_cycle.py         # Per-cycle profiling
+│   └── profile_cycle.py         # Per-cycle profiling (Gaussian path)
 ├── docs/                        # Architecture, decisions, completion reports
 ├── logs/                        # Benchmark reports + phca.log + CI baseline
 ├── STATUS.md                    # Audit progress and issue registry
@@ -223,30 +328,25 @@ PYTHONPATH=python python -m pytest python/phca/core/tests/ -v
 
 ---
 
-## Key Documents
-
-| Document | Description |
-| :--- | :--- |
-| `docs/architecture.md` | Current architecture overview — 12-step cycle, module map, invariants |
-| `docs/phase3.3_full_completion_report.md` | Gap-closure completion report (post-gap analysis, all items resolved) |
-| `docs/monitoring_completion_report.md` | Monitoring system — MetricsStore, dashboard, file logging |
-| `STATUS.md` | Audit progress, issue registry, test/benchmark status |
-| `DECISIONS.md` | Complete design decision log (D-001 through D-091) |
-| `docs/phase4_readiness_report.md` | Phase 4 sign-off: metrics, limitations, Phase-5 recommendations |
-| `docs/architectural_audit_report.md` | Full audit of 28 issues with resolution status |
-| `research/outputs/07-rigorous-whitepaper.md` | Formal scientific whitepaper (historical) |
-| `research/glossary.md` | Terminology reference |
-
----
-
 ## Technical Notes
 
-- **Gaussian inference caching**: The G' Bayesian network's joint moments are computed once and cached across all `predict()` calls per cycle providing a **1000× speedup** (24s/cycle → 13ms/cycle).
-- **Goal-directed action selection**: Goal alignment is computed directly from environment state (`agent_pos`, `goal_pos`, `grid`) rather than from predictions, since G' applies uniform weights to all state dimensions.
-- **MLP mode**: The MLP world model (38,868 params, hidden_dim=128) replaces the Gaussian G' for environments that benefit from learned transition dynamics. Needs ≥200 cycles to stabilise. Confidence is aleatoric `exp(-MSE)` blended with epistemic MC-Dropout variance (D-080); empowerment `I(s';a|s)` is estimated via MC-Dropout mutual information (D-077). Learning uses a hybrid online/replay schedule with a unified `lr*0.5` rate (D-081).
-- **L2 benchmark metric**: `adaptation_speed` for Goal Pursuit uses `max(improvement, maintenance)` aligned with L0/L1 (D-086); the predicted-goal-alignment ramp engages over cycles 50–150 so the learned model drives action selection during measurement (D-087). A `--dynamic-goals` curriculum (D-090) relocates the goal at cycle 100 to exercise real continual adaptation (L2 ≥ 0.50).
-- **MuJoCo integration**: `MuJoCoSimpleEnv` wraps Cartpole/Pendulum/Reacher into the `EnvironmentProtocol`; `--env {cartpole,pendulum}` runs a single-level MuJoCo benchmark. CI exercises all 23 MuJoCo tests with `MUJOCO_GL=disabled` (D-089).
-- **EnvironmentProtocol**: `CognitiveCycle.build_for_env()` accepts any object implementing `get_action_names()`, `get_possible_actions()`, and `get_goal_position()` — not just `GridWorld`.
+- **MLP world model.** 38,868 params (hidden_dim=128). Confidence blends
+  aleatoric `exp(-MSE)` with epistemic MC-Dropout variance (D-080); empowerment
+  `I(s';a|s)` is estimated via MC-Dropout mutual information (D-077, samples=4
+  per D-091). Learning uses a hybrid online/replay schedule with a unified
+  `lr*0.5` rate (D-081); the steady-state replay backward pass is batched
+  (Phase 5 / D-092, 85.7% faster).
+- **Goal-directed action selection.** Goal alignment blends geometric Manhattan
+  distance gain with a predicted-goal-alignment (PGA) term that ramps in over
+  cycles 50–150 so the learned model drives action selection during measurement
+  (D-087).
+- **L2 benchmark metric.** `adaptation_speed` for Goal Pursuit uses
+  `max(improvement, maintenance)` aligned with L0/L1 (D-086).
+- **Gaussian inference caching.** The Gaussian G' joint moments are computed
+  once and cached across all `predict()` calls per cycle (~1000× speedup).
+- **EnvironmentProtocol.** `CognitiveCycle.build_for_env()` accepts any object
+  implementing `get_action_names()`, `get_possible_actions()`, and
+  `get_goal_position()` — not just `GridWorld`.
 
 ---
 
