@@ -206,9 +206,10 @@ class AdaptiveParameterController:
         eta_vals = np.array([p["eta"] for p in self._param_history_buffer], dtype=np.float64)
         alpha_vals = np.array([p["alpha"] for p in self._param_history_buffer], dtype=np.float64)
 
-        # Compute covariance matrix over sliding window (v3.0 §2.6.1)
+        # Compute correlation matrix over sliding window (v3.0 §2.6.1)
+        # Use np.corrcoef for scale-invariant redundancy detection (C5 fix)
         stack = np.column_stack([T_vals, eta_vals, alpha_vals])
-        cov = np.cov(stack.T)
+        cov = np.corrcoef(stack.T)
         names = ["T", "eta", "alpha"]
 
         # Find max absolute covariance

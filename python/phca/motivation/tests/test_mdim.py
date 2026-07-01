@@ -122,7 +122,13 @@ class TestParetoFront:
 
     def test_pareto_returns_list(self, mdim, default_context):
         """Pareto front should return a list of drive IDs."""
-        mdim.compute_drives(default_context)
+        # Set deficits so they are all at their minimum (cannot improve one
+        # without worsening another) — the current config is Pareto-optimal.
+        context = dict(default_context)
+        context["prediction_error"] = 0.0
+        context["skill_accuracy"] = 1.0   # D3 deficit = 0
+        context["energy_cost"] = 0.0
+        mdim.compute_drives(context)
         pareto = mdim.compute_pareto_front()
         assert isinstance(pareto, list)
         assert len(pareto) >= 1

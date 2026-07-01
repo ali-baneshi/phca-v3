@@ -600,5 +600,65 @@ Every entry must reference the v3.0 specification section it affects.
 
 ---
 
-*End of Decision Log (as of Phase 4 gap closure — all 5 AF findings resolved).*
+## Decision D-060: PID orthogonality uses correlation instead of covariance (C5 fix)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (mathematical correctness)
+- **Option chosen:** Replaced `np.cov()` with `np.corrcoef()` at `pid_controller.py:211`. The threshold `0.8` now measures scale-invariant Pearson's r instead of scale-dependent covariance. Parameters T (range ~2.0) and eta (range ~0.2) no longer trigger freeze just because T's larger scale dominates the covariance matrix.
+- **Rationale:** `np.cov()` is scale-dependent — T has ~1000× the variance of eta, making `abs(cov(T, eta))` almost always exceed 0.8 regardless of actual correlation. `np.corrcoef()` returns Pearson's r in [-1, 1], which correctly measures association independent of scale. Perfectly correlated small-scale parameters now correctly trigger freeze; uncorrelated large-scale parameters do not.
+- **v3.0 trace:** §3.4 Def 3.7 (orthogonality constraint), Phase 4 gap audit finding C5
+- **Tests:** All 20 PID controller tests pass (10 unchanged).
+
+---
+
+## Decision D-061: Unified FLOP-based energy signal for D5 and RBTA (C3 fix)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (consistency fix)
+- **Option chosen:** Added `_compute_cycle_flops()` method to `CognitiveCycle` that computes MLP G' FLOPs per cycle. The same FLOP count is stored in `self._cycle_flops` and used by both D5 (`mdim_context["energy_cost"] = clip(flops / 60M, 0.01, 1.0)`) and RBTA (`energy_log["G'"] = clip(flops / 6M, 0.1, 10.0)`). The old wall-clock heuristic (`elapsed_time * 2.0`) is used only as fallback when FLOPs cannot be computed. Removed the duplicated FLOP computation from `_collect_runtime_log()`.
+- **Rationale:** Previously D5 derived energy from wall-clock (`elapsed_time * 2.0`) while RBTA used a separate FLOP/runtime-based computation. A low-FLOP/high-latency module received contradictory signals (cheap to RBTA, expensive to D5). Now both derive from the same underlying FLOP count. The [0.01, 1.0] vs [0.1, 10.0] ranges differ because D5 and RBTA have different use cases, but the signal is unified.
+- **v3.0 trace:** §2.1 Def 2.1 (resource bounds), §3.3 Def 3.5 (D5), Phase 4 gap audit finding C3
+- **Tests:** All 42 core+MDIM tests pass.
+
+---
+
+## Decision D-062: True vector-dominance Pareto front (C1 fix)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 1 (mathematical correctness — previously incorrect algorithm)
+- **Option chosen:** Replaced the magnitude-comparison Pareto algorithm with true vector-dominance. `compute_pareto_front()` now generates n_candidates=10 configurations by perturbing current deficits ±10%, normalises each objective to [0,1] for scale-invariant comparison, and applies: `a` dominates `b` iff `all(a_k <= b_k) and any(a_k < b_k)`. The current config is Pareto-optimal iff no candidate dominates it. Added `_pareto_from_configs()` helper with the core dominance logic.
+- **Rationale:** The previous algorithm compared `j_deficit > i_deficit + 0.01` across drives with different units/scales. This was mathematically **not** Pareto dominance — comparing D1 error (O(1)) with D3 competence deficit (O(0.1)) is a category error. The `0.01` threshold was arbitrary. True Pareto checks whether one vector is ≤ another in every dimension (and < in at least one), which is the correct definition. Normalisation ensures all drives are compared on equal footing regardless of their native scales.
+- **v3.0 trace:** §2.4.1 Def 3.10 (Drive Pareto Front), Phase 4 gap audit finding C1
+- **Tests:** 29 MDIM tests pass. Test `test_pareto_returns_list` was updated to use a context where the current config is genuinely Pareto-optimal.
+
+---
+
+## Decision D-063: Consolidation facts now modulate D3/D4 targets (C4 fix)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 2 (A5 feedback loop activated)
+- **Option chosen:** `MDIM.compute_drives()` now reads `fact_confidence_mean` and `fact_count` from context. D3 competence target is modulated: `d3_target *= max(0.1, 1.0 - 0.3 * fact_confidence_mean)` — high fact confidence reduces competence deficit (agent already knows this area). D4 curiosity target is modulated: `d4_target *= max(0.1, 1.0 - 0.2 * clip(fact_count / 20, 0, 1))` — many facts reduce curiosity deficit (area is well-explored). Only the effective target is changed per cycle; base `_targets` remain unchanged.
+- **Rationale:** The fact injection code in `cycle.py:336-358` was already running every cycle, computing `fact_confidence_mean` and `fact_count` and injecting them into `mdim_context`. However, `compute_drives()` never read these keys — the entire pipeline ran with zero behavioural effect, violating A5 (Feedback-Driven Adaptation). The modulation coefficients (0.3 for D3, 0.2 for D4, max 20 facts) are conservative defaults that prevent over-suppression while making the feedback loop measurable.
+- **v3.0 trace:** §3.3 Def 3.5 (D3/D4), A5 (Feedback-Driven Adaptation), Phase 4 gap audit finding C4
+- **Tests:** All 42 MDIM+cycle tests pass. Existing drive computation tests check that D3/D4 values remain correct with default context (fact keys absent → no modulation).
+
+---
+
+## Decision D-064: MLP empowerment now uses MC Dropout Gaussian MI (C2 fix)
+
+- **Date:** 2026-07-01
+- **Author:** Chief Architect
+- **Category:** Tier 1 (mathematical correctness — previously incorrect measurement)
+- **Option chosen:** Added `WorldModelMLP.estimate_empowerment(state)` that computes true mutual information `I(S';A|S)` via MC Dropout. For each action (n ≤ 5), runs `mc_samples=20` stochastic forward passes, models `p(s'|s,a)` as a diagonal Gaussian. Computes `I = H(Σ p(a)·p(s'|s,a)) - Σ p(a)·H(p(s'|s,a))` where `H(diagonal Gaussian) = 0.5·Σ log(2πe·σ²_i)`. The mixture `H` is approximated via the law of total variance. Updated `cycle.py:_estimate_empowerment()` to call `gprime.estimate_empowerment()` for both MLP and Gaussian paths through the same `hasattr` dispatch.
+- **Rationale:** The previous MLP path used `np.std(confidences)` which has no mathematical relationship to `I(S';A|S)`. Counterexample: all actions deterministic with equal confidence → `std=0` → empowerment=0, but true MI is maximal. The Gaussian path already had correct closed-form MI; the MLP path now computes MI via sampling, using the same MC Dropout infrastructure already present for confidence estimation. The [0, 1] scaling normalises typical GridWorld MI values (~0.1–5 nats) into the range D6 expects.
+- **v3.0 trace:** §3.3 Def 3.5 (D6 Empowerment), Phase 4 gap audit finding C2
+- **Tests:** All 235 module tests + 49 integration tests pass.
+
+---
+
+*End of Decision Log (Phase 4 gap closure — C1-C5 all resolved).*
 

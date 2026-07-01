@@ -142,6 +142,9 @@ class CognitiveCycle:
         self._error_vol_window: List[float] = []
         self._error_vol_window_size: int = 20
 
+        # C3 fix: unified FLOP-based energy signal for D5 and RBTA
+        self._cycle_flops: float = 0.0
+
         # Attention weights for modulating G'.learn() (Issue #4 fix)
         self._attention_weights: np.ndarray = np.ones(self.state_dim, dtype=np.float32)
 
@@ -343,12 +346,18 @@ class CognitiveCycle:
                 relevant_facts = []
                 fact_confidence_mean = 0.0
                 fact_count = 0
+            # C3 fix: FLOP-based energy unified for D5 and RBTA
+            self._cycle_flops = self._compute_cycle_flops()
+            if self._cycle_flops > 0:
+                energy_cost = max(0.01, min(1.0, self._cycle_flops / 60_000_000.0))
+            else:
+                energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
             mdim_context = {
                 "prediction_error": metrics.prediction_error,
                 "error_volatility": error_volatility,
                 "skill_accuracy": self.tspl.skill_accuracy,
                 "model_entropy": 0.5 - self.cycle_count * 0.001,
-                "energy_cost": max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0)),
+                "energy_cost": energy_cost,
                 "cycle": self.cycle_count,
                 "prediction_confidence": metrics.prediction_confidence,
                 "empowerment": empowerment,
@@ -682,14 +691,36 @@ class CognitiveCycle:
                 return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
         return 0.5
 
+    def _compute_cycle_flops(self) -> float:
+        """Compute total FLOPs for current cycle (C3 fix: unified energy signal).
+
+        Returns FLOP count for the dominant compute module (G').
+        Used by both D5 (mdim_context) and RBTA (energy_log) so both
+        derive energy from the same underlying computation.
+        """
+        if hasattr(self.gprime, 'hidden_dim'):
+            h = self.gprime.hidden_dim
+            s = self.state_dim
+            a = self.gprime.action_dim
+            fwd = 2.0 * ((s + a) * h + h * h + h * s)
+            bs = getattr(self.gprime, 'batch_size', 32)
+            ts = getattr(self.gprime, 'train_steps', 4)
+            passes = bs * ts
+            return fwd * passes * 3.0
+        if hasattr(self.gprime, 'state_dim'):
+            s = getattr(self.gprime, 'state_dim', self.state_dim)
+            return 2.0 * s ** 3 + 4.0 * s ** 2
+        return 0.0
+
     def _estimate_empowerment(self) -> float:
-        """Estimate empowerment I(S';A|S) from the world model (AF-002).
+        """Estimate empowerment I(S';A|S) from the world model (C2 fix).
 
         Uses model-specific methods:
           - Gaussian G' (WorldModelGPrime): Closed-form Gaussian MI via
             conditional covariance Schur complements (AF-002).
-          - MLP G' (WorldModelMLP): Variance of MC Dropout confidences
-            across actions — calibrated by MC Dropout (AF-001).
+          - MLP G' (WorldModelMLP): MC Dropout-based Gaussian MI via
+            estimate_empowerment() (C2 fix — replaces std(confidences)).
+          - Discrete G' (WorldModelGPrime): Variance-based heuristic.
 
         Falls back to 0.3 if no model-specific method is available.
 
@@ -699,15 +730,7 @@ class CognitiveCycle:
         if self.current_state is None:
             return 0.3
 
-        # MLP path (AF-001): use MC Dropout confidence spread
-        if isinstance(self.gprime, WorldModelMLP):
-            confidences = getattr(self, '_cached_confidences', None)
-            if not confidences:
-                return 0.3
-            empowerment = float(np.std(confidences))
-            return float(np.clip(empowerment, 0.0, 1.0))
-
-        # Gaussian G' path (AF-002): closed-form Gaussian MI
+        # Both MLP and Gaussian G' now implement estimate_empowerment()
         if hasattr(self.gprime, 'estimate_empowerment'):
             empowerment = self.gprime.estimate_empowerment(self.current_state)
             return float(np.clip(empowerment, 0.0, 1.0))
@@ -812,24 +835,9 @@ class CognitiveCycle:
         for mod, val in baseline.items():
             if mod not in self.energy_log:
                 self.energy_log[mod] = val
-        # FLOP-based G' energy (AF-005: replaces magic runtime*50.0 for the dominant module)
-        if hasattr(self.gprime, 'hidden_dim'):
-            h = self.gprime.hidden_dim
-            s = self.state_dim
-            a = self.gprime.action_dim
-            # Multiply-accumulate FLOPs: 2 per mult-add pair
-            fwd = 2.0 * ((s + a) * h + h * h + h * s)
-            bs = getattr(self.gprime, 'batch_size', 32)
-            ts = getattr(self.gprime, 'train_steps', 4)
-            passes = bs * ts  # replay-buffer only (G-017: online removed)
-            total_flops = fwd * passes * 3.0
-            # Normalize: ~30M FLOPs → ~5.0 (middle of range, matches existing baseline)
-            gprime_energy = total_flops / 6_000_000.0
-            self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
-        elif hasattr(self.gprime, 'state_dim'):
-            s = getattr(self.gprime, 'state_dim', self.state_dim)
-            total_flops = 2.0 * s ** 3 + 4.0 * s ** 2
-            gprime_energy = total_flops / 100_000.0
+        # FLOP-based G' energy (C3 fix: unified with MDIM energy_cost via self._cycle_flops)
+        if self._cycle_flops > 0:
+            gprime_energy = self._cycle_flops / 6_000_000.0
             self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
         # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
         if len(self.metrics_history) >= 5:
