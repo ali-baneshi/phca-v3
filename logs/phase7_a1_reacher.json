@@ -1,0 +1,15 @@
+{
+  "env": "Reacher-v5",
+  "n_cycles": 100,
+  "model": "MLP",
+  "mean_latency_ms": 4.398279377492145,
+  "p95_latency_ms": 5.926691222703084,
+  "max_latency_ms": 8.2285680109635,
+  "mean_error": 54.758757263377014,
+  "early_error": 105.6599252186477,
+  "late_error": 8.366375454094406,
+  "error_improved": true,
+  "violations": 0,
+  "violation_rate": 0.0,
+  "no_errors": true
+}

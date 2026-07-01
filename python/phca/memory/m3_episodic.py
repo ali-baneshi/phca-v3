@@ -389,11 +389,16 @@ class M3EpisodicMemory:
 
         SQLite does not automatically reclaim space from DELETEd rows.
         After enough deletions (evictions or consolidations), the database
-        file grows unbounded. VACUUM rebuilds the database file, reclaiming
-        space. Only runs for persistent databases (G-010).
+        grows unbounded. VACUUM rebuilds the database, reclaiming space.
+
+        Phase 7 / B1: VACUUM now also runs for in-memory (`:memory:`)
+        databases. The in-memory backing store uses a pager cache whose
+        deleted pages go to a free-list but are not returned to the OS, so
+        without VACUUM a long-running `:memory:` M3 (the nightly-stress
+        configuration) fragments and RSS keeps growing after the 10k FIFO
+        cap engages. VACUUM rebuilds the in-memory page cache too (G-010 +
+        D-108 Phase 7 retention fix).
         """
-        if self.db_path == ":memory:":
-            return  # No file to vacuum for in-memory databases
         if self._episodes_since_vacuum < self._vacuum_interval:
             return
         if self._conn is None:
@@ -401,7 +406,8 @@ class M3EpisodicMemory:
         try:
             self._conn.execute("VACUUM")
             self._episodes_since_vacuum = 0
-            _log(logger, "info", "m3.vacuum", interval=self._vacuum_interval)
+            _log(logger, "info", "m3.vacuum", interval=self._vacuum_interval,
+                 db_path=self.db_path)
         except Exception as e:
             _log(logger, "error", "m3.vacuum_failed", error=str(e))
 

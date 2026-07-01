@@ -56,11 +56,13 @@ class MuJoCoSimpleEnv:
         4: np.array([ 1.0,  1.0], dtype=np.float32),
     }
 
-    # Phase 6 / A3: envs with a true continuous action space. Pendulum-v1
-    # torque ∈ [-2, 2], dim 1. Reacher-continuous is deferred to Phase 7.
+    # Phase 6 / A3 + Phase 7 / A1: envs with a true continuous action space.
+    # Pendulum-v1 torque ∈ [-2, 2], dim 1. Reacher-v5 actuator ∈ [-1, 1]^2, dim 2.
     _CONTINUOUS_ENVS: Dict[str, Tuple[np.ndarray, np.ndarray, int]] = {
         "Pendulum-v1": (np.array([-2.0], dtype=np.float32),
                         np.array([2.0], dtype=np.float32), 1),
+        "Reacher-v5": (np.array([-1.0, -1.0], dtype=np.float32),
+                       np.array([1.0, 1.0], dtype=np.float32), 2),
     }
 
     # ── Action names (for PHCA logging and get_action_names) ─
@@ -163,9 +165,23 @@ class MuJoCoSimpleEnv:
 
         Pendulum-v1 obs = [cos(theta), sin(theta), angular_velocity]; upright
         balanced = theta=0 → [1, 0, 0]. Returns None for discrete envs.
+
+        Reacher-v5 obs (10-dim) encodes the fingertip→target vector in its
+        last 2 dims (verified against gymnasium: obs[-2:] == fingertip_xpos -
+        target_com). The reference is "current posture with fingertip on
+        target": a copy of the current observation with obs[-2:] = 0. Holding
+        the joint/target context (dims 0–7) at the current value keeps the
+        MPC scorer's full-state distance well-posed, so the alignment signal
+        is dominated by whether the predicted next state drives the
+        fingertip→target vector to 0. State-dependent (Reacher's target is
+        re-randomised each reset), unlike Pendulum's fixed upright reference.
         """
         if self.env_name == "Pendulum-v1":
             return np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        if self.env_name == "Reacher-v5" and self._last_obs is not None:
+            ref = self._last_obs.copy()
+            ref[-2:] = 0.0
+            return ref
         return None
 
     def step(self, action) -> Tuple[np.ndarray, float, bool, dict]:

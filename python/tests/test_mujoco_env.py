@@ -149,29 +149,36 @@ def test_environment_error_on_bad_name():
 
 
 def test_reacher_env_creation():
-    """Reacher-v5 wrapper has 5 discrete actions and a 10-dim observation."""
+    """Reacher-v5 wrapper has a 2D continuous action space and a 10-dim observation (Phase 7 / A1)."""
+    from phca.config import ContinuousSpace
     env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
-    assert env.action_space_size == 5
+    assert env.action_space_size == 2
     assert env.get_state_dim() == 10
     assert env.size == 1
     assert env.env_name == "Reacher-v5"
-    # STAY is the middle action (index 2) of the 5-action 2D grid
-    assert env.stay_action == 2
-    assert env.get_action_names() == ["MOVE_SW", "MOVE_NW", "STAY", "MOVE_NE", "MOVE_SE"]
+    sp = env.get_action_space()
+    assert isinstance(sp, ContinuousSpace)
+    assert sp.dim == 2
+    np.testing.assert_allclose(sp.low, [-1.0, -1.0])
+    np.testing.assert_allclose(sp.high, [1.0, 1.0])
+    env.close()
 
 
 def test_reacher_step_all_actions():
-    """All 5 discrete Reacher actions produce valid finite observations."""
+    """Continuous Reacher actions (sampled in [-1,1]^2) produce valid finite observations."""
     env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
     env.reset()
-    for action in range(env.action_space_size):
+    rng = np.random.RandomState(42)
+    for _ in range(5):
+        action = rng.uniform(-1.0, 1.0, size=2).astype(np.float32)
         next_obs, reward, terminal, info = env.step(action)
-        assert next_obs.shape == (10,), f"Failed on action {action}"
+        assert next_obs.shape == (10,)
         assert next_obs.dtype == np.float32
-        assert np.all(np.isfinite(next_obs)), f"Non-finite obs on action {action}"
+        assert np.all(np.isfinite(next_obs)), "Non-finite obs on continuous Reacher action"
         assert isinstance(reward, float)
         assert isinstance(terminal, bool)
         assert isinstance(info, dict)
+    env.close()
 
 
 def test_reacher_goal_position_is_none():

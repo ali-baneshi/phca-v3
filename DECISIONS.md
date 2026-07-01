@@ -1211,3 +1211,42 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Phase 6's scientific-hardening goal requires the claims to be *measured and documented*, not asserted — the docs now cite the measured curves and PASS/FAIL results with source log files.
 - **v3.0 trace:** §6 (documentation), A1–A5 (all measured).
 - **Tests/Validation:** docs-only change; 332 unit tests still green; `make nightly` still exit 0.
+
+---
+
+## Decision D-106: Phase 7 A0 — zero-trust baseline re-measurement on this machine
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 7)
+- **Category:** Tier 3 (process — zero-trust verification before any Phase 7 change)
+- **Problem:** Phase 7 hard constraint #5 requires re-measuring the reported Phase-6 state on THIS machine before trusting any number (Phase 5 proved D-090's 0.573 dynamic L2 was machine-specific). Reported: 332 tests, Φ-IQ 0.7414, Pendulum continuous PASS, `make nightly` exit 0, 10k soak ~4 KB/cyc.
+- **Re-measured on this machine (A0):**
+  - Tests: **332 passed, 0 errors** (`pytest python/tests python/phca`).
+  - Canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7416** (L0 0.7069 / L1 0.7137 / L2 0.7780 / L3 0.7679) — matches reported 0.7414 within run-to-run noise; gate PASS (≥ 0.5486 floor AND ≥ 0.73 anchor). `logs/phase7_a0_bench.json`.
+  - Pendulum 100-cyc continuous: mean latency **7.1 ms** (< 300 ms), error **29.628→0.683** (improved=True), **0 RBTA violations**, C1/C3/C4/C6 PASS. `logs/phase7_a0_pendulum.json`.
+  - Assumption validation `--ci`: A1/A3/A4/A5 **4/4 PASS** (A1 violations=1; A3 min_entropy=0.50; A4 predict_calls=8; A5 frozen Δ=0.0000, active Δ=0.0429). `logs/phase7_a0_assumptions.json`.
+  - `make nightly NIGHTLY_CYCLES=1000`: **exit 0** (~42 s). Nightly stress 1000: RSS slope 5232 B/cyc (< 50k), p95 13.1 ms, 0 violations, Φ-IQ @1000=0.697. `logs/nightly_stress.json`.
+  - 10000-cyc canonical soak: RSS 229.2→269.3 MB (slope **3980 B/cyc**, late **3959 B/cyc** — matches the reported ~4 KB/cyc baseline; this is the Phase-7 retention-anchor growth), p95 20.7 ms / p99 36.8 ms, 1 violation/10k (0.01%), Φ-IQ @1000=0.697 / @5000=0.550 / @10000=0.551 (collapse 0.146 < 0.15) → **PASS**. `logs/phase7_a0_stress_10k.json`.
+- **Conclusion:** Baseline confirmed. The 10k soak late-slope (3959 B/cyc) is the **regression anchor for Workstream B** — the retention caps must drive this to ≤ 500 B/cyc without raising the threshold. Φ-IQ must stay ≥ 0.73 on this machine; `make nightly` must stay exit 0. Proceeding to A1 (Reacher continuous).
+- **Tests/Validation:** 332 passed 0 errors; gate PASS; Pendulum continuous PASS; 4/4 assumptions PASS; `make nightly` exit 0; 10k soak PASS with ~4 KB/cyc baseline confirmed.
+
+## Decision D-107: Phase 7 A1+A2 — Reacher-v5 continuous control + Gate A PASS
+
+- **Date:** 2026-07-01
+- **Author:** Principal Architect (Phase 7)
+- **Category:** Tier 1 (architectural unlock — extends continuous control to Reacher's 2D action space, closing the D-098 Phase-6 deferral)
+- **Problem:** Phase 6 / D-098 deferred Reacher-v5 continuous control to keep the Phase-6 surgical budget. Phase 7 / A1 must wire Reacher-v5's `Box([-1,-1],[1,1],(2,))` action space to the proven Pendulum continuous path (D-097 MPC selector) with zero regression to Pendulum-continuous / Cartpole-discrete / GridWorld-discrete.
+- **Option chosen:**
+  - **A1** [python/phca/environments/mujoco_env.py](python/phca/environments/mujoco_env.py): added `"Reacher-v5": ([-1,-1],[1,1],2)` to `_CONTINUOUS_ENVS` (so `action_space_size=2`, `get_action_space()` returns `ContinuousSpace([-1,1],dim=2)`); extended `get_goal_reference()` to return `self._last_obs.copy()` with the last 2 dims zeroed for Reacher. **Goal-reference justification (verified on this machine):** probed `Reacher-v5.unwrapped` — `obs[-2:]` == `fingertip_xpos - target_com` exactly (e.g. `[0.2848, 0.0411]`). The reference is "current posture with fingertip on target": holding dims 0–7 (joint cos/sin, qvel, target) at the current value keeps the MPC scorer's full-state distance well-posed, so the alignment signal is dominated by whether the predicted next state drives the fingertip→target vector (dims 8,9) to 0. State-dependent (Reacher's target is re-randomised each reset), unlike Pendulum's fixed `[1,0,0]`. MPC selector unchanged: `K·dim = 8·2 = 16 ≤ 16` cap → K=8 (confirmed at [cycle.py](python/phca/core/cycle.py) 672–674). ~20 lines net (mostly docstring), 1 file.
+  - **A2** [python/tests/test_continuous_actions.py](python/tests/test_continuous_actions.py) + [python/tests/test_mujoco_env.py](python/tests/test_mujoco_env.py): replaced `test_reacher_still_discrete` with 4 continuous Reacher tests (`test_reacher_action_space_continuous`, `test_reacher_get_goal_reference`, `test_cycle_reacher_continuous_step_no_nan`, `test_reacher_continuous_action_within_bounds`); updated `test_reacher_env_creation` + `test_reacher_step_all_actions` in test_mujoco_env.py to the 2D continuous space + continuous-vector step. Kept `test_cartpole_still_discrete`, `test_discrete_gridworld_unchanged`, and all Pendulum continuous tests as regression guards. 2 files, ~40 lines net.
+  - Total Workstream A: 3 files, ~60 lines net (within the ≤50-line/≤3-file mandate per change — A1 and A2 are two changes; A1 alone is ~20 lines/1 file, A2 alone is ~40 lines/2 files).
+- **Results (this machine — Gate A):**
+  - Reacher 100-cyc continuous: mean latency **4.4 ms** (< 300 ms), error **105.660→8.366** (improved=True), **0 RBTA violations**, C1/C3/C4/C6 PASS. `logs/phase7_a1_reacher.json`.
+  - Pendulum 100-cyc continuous: 5.7 ms, error 29.628→0.683, 0 violations, PASS — **no regression**. `logs/phase7_a1_pendulum.json`.
+  - Cartpole 100-cyc discrete: 5.9 ms, error 3.650→0.251, 0 violations, PASS — **no regression**. `logs/phase7_a1_cartpole.json`.
+  - GridWorld canonical 4-level MLP 200-cyc: Overall Φ-IQ **0.7416** (L0 0.7060 / L1 0.7137 / L2 0.7785 / L3 0.7682), gate PASS (≥ 0.73 anchor AND ≥ 0.5486 floor). `logs/phase7_a1_static.json`.
+  - Assumption validation `--ci`: A1/A3/A4/A5 **4/4 PASS** (A4 predict_calls=8 — MPC consumes prediction per candidate for dim=2 as well as dim=1). `logs/phase7_a1_assumptions.json`.
+  - Tests: **335 passed, 0 errors** (332 + 3 net new Reacher continuous tests: removed `test_reacher_still_discrete`, added 4 continuous Reacher tests).
+- **Rationale:** Reacher's 2D `Box([-1,1]^2)` is the natural second continuous env. The MPC selector's `K·dim ≤ 16` cap holds at K=8 for dim=2 with no cycle.py change — the continuous plumbing (ActionSpace, MPC selector, get_goal_reference) from Phase 6 generalises cleanly. The fingertip→target goal reference is verified against the gymnasium obs spec, not assumed. Prediction/goal-driven (no reward, value, or policy gradient), preserving A4/A5.
+- **v3.0 trace:** §3.2 (typed composition), A1 (4.4 ms ≪ 500 ms; 0 violations), A4 (predict per candidate, dim=2), A5 (gprime.learn on continuous action_vec every cycle).
+- **Tests/Validation:** 335 passed 0 errors; Gate A PASS — Reacher continuous PASS, Pendulum/Cartpole/GridWorld no regression, Φ-IQ 0.7416, assumptions 4/4.
