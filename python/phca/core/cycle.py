@@ -292,12 +292,12 @@ class CognitiveCycle:
                     gradient=tspl_gradient,
                     accuracy_override=mlp_accuracy,
                 )
-                # AF-002: Apply TSPL learned bias to MLP output
-                # [DISABLED] TSPL bias grows unbounded (norm >5) and corrupts MLP output.
-                # TSPL's delta-rule gradient for "gprime" diverges when MLP predictions
-                # are initially random. Re-enable only after MLP converges (pred_acc > 0.3).
-                # if isinstance(self.gprime, WorldModelMLP):
-                #     self.gprime.set_tspl_bias(theta_new.get("gprime"))
+                # AF-002: Apply TSPL learned bias to MLP output (safe mode).
+                # MLP.set_tspl_bias() clamps bias norm to ≤1.0 to prevent corruption.
+                if isinstance(self.gprime, WorldModelMLP):
+                    bias = theta_new.get("gprime")
+                    if bias is not None:
+                        self.gprime.set_tspl_bias(bias)
                 metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
 
                 # LEARN: update G' with observed transition, weighted by attention

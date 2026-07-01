@@ -132,8 +132,14 @@ class WorldModelMLP:
         # penalize confidence when mutual info is high (uncertain)
         confidence = float(np.clip(base_conf * (1.0 - 0.5 * mutual_info), 0.01, 1.0))
 
-        # Apply TSPL learned bias (AF-002 compatibility)
-        biased_out = mean_out + self._tspl_bias
+        # Apply TSPL learned bias (AF-002 compatibility, safe mode).
+        # Only apply when bias norm is small (< 1.0) to avoid output corruption.
+        _bias_norm = float(np.linalg.norm(self._tspl_bias))
+        if _bias_norm < 1.0:
+            biased_out = mean_out + self._tspl_bias
+        else:
+            biased_out = mean_out
+            self._tspl_bias[:] = 0.0  # reset corrupted bias
 
         return (
             StateVector(
@@ -279,6 +285,21 @@ class WorldModelMLP:
         # dL/d(out) for MSE: (out - target) / state_dim
         n = float(out.shape[0])
         d_out = (out - target) / n
+
+        # Add cross-entropy on agent position (first 25 dims)
+        # Treats out[:25] as logits for a 25-class softmax.
+        # This gives a strong gradient signal for learning position dynamics.
+        pos_target = target[:25]
+        pos_idx = int(np.argmax(pos_target))
+        if pos_target.max() > 0.5:  # valid one-hot position in target
+            logits = out[:25].copy()
+            logits -= logits.max()  # numerical stability
+            exp_l = np.exp(logits)
+            probs = exp_l / (exp_l.sum() + 1e-8)
+            ce_grad = probs.copy()
+            ce_grad[pos_idx] -= 1.0  # = softmax - one_hot
+            d_out[:25] += ce_grad / n  # same scaling as MSE
+
         a1 = np.maximum(0, z1)
         a2 = np.maximum(0, z2)
 
@@ -349,9 +370,17 @@ class WorldModelMLP:
         self.b3 -= lr * grad["gprime_b3"]
 
     def set_tspl_bias(self, bias: Optional[np.ndarray]) -> None:
-        """Set learned bias from TSPL (AF-002 compatibility)."""
+        """Set learned bias from TSPL (AF-002 compatibility).
+
+        Clamps bias norm to ≤1.0 to prevent corruption of MLP output
+        when the TSPL delta-rule produces extreme values.
+        """
         if bias is not None:
-            self._tspl_bias = bias.astype(np.float32) if isinstance(bias, np.ndarray) else np.zeros(self.state_dim, dtype=np.float32)
+            bias_arr = bias.astype(np.float32) if isinstance(bias, np.ndarray) else np.zeros(self.state_dim, dtype=np.float32)
+            bias_norm = float(np.linalg.norm(bias_arr))
+            if bias_norm > 1.0:
+                bias_arr = bias_arr / bias_norm  # project to unit sphere
+            self._tspl_bias = bias_arr
 
     def get_prediction_accuracy(self, state, action, target) -> float:
         """Get MLP prediction accuracy (G-019 compatibility).
