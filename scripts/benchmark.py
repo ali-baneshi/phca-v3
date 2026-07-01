@@ -59,7 +59,8 @@ class BenchmarkConfig:
     use_continuous: bool = True
     use_mlp: bool = False
     diagnose_level: int = -1  # if >=0, dump per-step history for this level to CSV
-    dynamic_goals: bool = False  # Week 3: L2 curriculum (static 100 cyc, then relocate every 100)
+    dynamic_goals: bool = False  # Week 3: L2 curriculum (static 100 cyc, then relocate every N)
+    dynamic_goals_every: int = 100  # Phase 5 / D-094: relocation cadence in cycles (every-100 default)
     weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
 
 
@@ -203,7 +204,7 @@ class BenchmarkRunner:
         # cycles so the agent stabilises, then relocate the goal every 100
         # cycles — gentler than the rejected Iteration B (every 50). Gives
         # adaptation_speed real improvement headroom without overwhelming.
-        relocate_every = 100 if (level == 2 and self.config.dynamic_goals) else 0
+        relocate_every = self.config.dynamic_goals_every if (level == 2 and self.config.dynamic_goals) else 0
         for i in range(n):
             if relocate_every and i > 0 and i % relocate_every == 0:
                 cycle.env.relocate_goal()
@@ -621,7 +622,9 @@ def main() -> None:
     parser.add_argument("--diagnose-level", type=int, default=-1,
                         help="Dump per-step history CSV for this level (default: off)")
     parser.add_argument("--dynamic-goals", action="store_true",
-                        help="L2 curriculum: static goal for 100 cycles, then relocate every 100")
+                        help="L2 curriculum: static goal, then relocate every --dynamic-goals-every cycles")
+    parser.add_argument("--dynamic-goals-every", type=int, default=100,
+                        help="L2 goal-relocation cadence in cycles (default 100; Phase 5 / D-094)")
     args = parser.parse_args()
 
     if args.quick:
@@ -643,7 +646,8 @@ def main() -> None:
 
     config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp,
                              diagnose_level=args.diagnose_level,
-                             dynamic_goals=args.dynamic_goals)
+                             dynamic_goals=args.dynamic_goals,
+                             dynamic_goals_every=args.dynamic_goals_every)
     runner = BenchmarkRunner(config)
     report = runner.run_all(levels)
     print_report(report)

@@ -225,22 +225,23 @@ class WorldModelMLP:
 
         # Steady state: replay-only. The current transition is in the
         # buffer and is learned only if sampled into a mini-batch.
+        # Batched (Phase 5 / D-092): collapse the per-sample Python loop
+        # (train_steps × batch_size separate forward+backward passes) into
+        # `train_steps` batched matmuls over the whole mini-batch. Same
+        # math, same lr*0.5, same hybrid schedule — pure perf. Zero-trust
+        # verification confirmed the dynamic-goal L2 is unchanged by this
+        # (it is ~0.43 on this machine for BOTH the original loop and the
+        # batched version — the D-090 reported 0.573 was machine-specific;
+        # see D-092). The per-sample gradient clip becomes a single clip on
+        # the batch-averaged gradient; verified numerically identical here
+        # because gradient elements are ~0.05 (well within [-1,1]).
         for _ in range(self.train_steps):
-                indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
-                avg_grad: Optional[Dict[str, np.ndarray]] = None
-                for idx in indices:
-                    bx, btarget = self._replay_buffer[idx]
-                    bz1, bz2, bout = self._forward(bx)
-                    bgrad = self._backward(bx, bz1, bz2, bout, btarget)
-                    if avg_grad is None:
-                        avg_grad = {k: v.copy() for k, v in bgrad.items()}
-                    else:
-                        for k in avg_grad:
-                            avg_grad[k] += bgrad[k]
-                if avg_grad is not None:
-                    for k in avg_grad:
-                        avg_grad[k] /= float(self.batch_size)
-                    self._apply_gradient(avg_grad, lr=effective_lr)
+            indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
+            X = np.stack([self._replay_buffer[i][0] for i in indices]).astype(np.float32)
+            T = np.stack([self._replay_buffer[i][1] for i in indices]).astype(np.float32)
+            Z1, Z2, Out = self._forward_batch(X)
+            avg_grad = self._backward_batch(X, Z1, Z2, Out, T)
+            self._apply_gradient(avg_grad, lr=effective_lr)
 
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
@@ -268,6 +269,79 @@ class WorldModelMLP:
         z3 = a2 @ self.w3 + self.b3
         out = z3  # linear output — GridWorld states contain values 0, 1, 2
         return z1, z2, out
+
+    def _forward_batch(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Batched forward pass over a mini-batch (Phase 5 / D-092)."""
+        Z1 = X @ self.w1 + self.b1
+        A1 = np.maximum(0, Z1)
+        Z2 = A1 @ self.w2 + self.b2
+        A2 = np.maximum(0, Z2)
+        Out = A2 @ self.w3 + self.b3  # linear output
+        return Z1, Z2, Out
+
+    def _backward_batch(
+        self, X: np.ndarray, Z1: np.ndarray, Z2: np.ndarray,
+        Out: np.ndarray, T: np.ndarray,
+    ) -> Dict[str, np.ndarray]:
+        """Batched backward pass of MSE loss over a mini-batch (Phase 5 / D-092).
+
+        Mirrors _backward (MSE + conditional softmax CE on the first
+        min(25, S) agent-position dims, gradient clipping to [-1,1]) then
+        averages over the batch. Zero-trust verification (D-092) confirmed
+        this is dynamics-equivalent to the original per-sample loop on this
+        machine: dynamic-goal L2 is ~0.43 for both (D-090's 0.573 was
+        machine-specific).
+        """
+        B, S = Out.shape
+        n = float(S)
+        d_out = (Out - T) / n  # (B, S)
+
+        # Conditional CE on the first min(25, S) dims (agent position).
+        pos_dim = min(25, S)
+        if pos_dim >= 2:
+            pos_target = T[:, :pos_dim]
+            mask = pos_target.max(axis=1) > 0.5
+            if mask.any():
+                logits = Out[:, :pos_dim].astype(np.float32, copy=True)
+                logits[mask] -= logits[mask].max(axis=1, keepdims=True)
+                exp_l = np.exp(logits)
+                probs = exp_l / (exp_l.sum(axis=1, keepdims=True) + 1e-8)
+                ce_grad = probs.copy()
+                pos_idx = np.argmax(pos_target, axis=1)
+                rows = np.where(mask)[0]
+                ce_grad[rows, pos_idx[rows]] -= 1.0
+                d_out[:, :pos_dim] += np.where(mask[:, None], ce_grad, 0.0) / n
+
+        A1 = np.maximum(0, Z1)
+        A2 = np.maximum(0, Z2)
+
+        d_z3 = d_out
+        grad_w3 = A2.T @ d_z3          # (H, S)
+        grad_b3 = d_z3.sum(axis=0)     # (S,)
+        d_a2 = d_z3 @ self.w3.T        # (B, H)
+        d_z2 = d_a2 * (Z2 > 0).astype(np.float32)
+        grad_w2 = A1.T @ d_z2          # (H, H)
+        grad_b2 = d_z2.sum(axis=0)     # (H,)
+        d_a1 = d_z2 @ self.w2.T        # (B, H)
+        d_z1 = d_a1 * (Z1 > 0).astype(np.float32)
+        grad_w1 = X.T @ d_z1           # (in, H)
+        grad_b1 = d_z1.sum(axis=0)     # (H,)
+
+        inv = 1.0 / float(B)
+        grads = (grad_w1 * inv, grad_b1 * inv, grad_w2 * inv, grad_b2 * inv,
+                 grad_w3 * inv, grad_b3 * inv)
+        for g in grads:
+            np.clip(g, -1.0, 1.0, out=g)
+        grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3 = grads
+
+        return {
+            "gprime_w1": np.ascontiguousarray(grad_w1.astype(np.float32)),
+            "gprime_b1": np.ascontiguousarray(grad_b1.astype(np.float32)),
+            "gprime_w2": np.ascontiguousarray(grad_w2.astype(np.float32)),
+            "gprime_b2": np.ascontiguousarray(grad_b2.astype(np.float32)),
+            "gprime_w3": np.ascontiguousarray(grad_w3.astype(np.float32)),
+            "gprime_b3": np.ascontiguousarray(grad_b3.astype(np.float32)),
+        }
 
     def _forward_mc(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Stochastic forward pass with dropout (inference only).
