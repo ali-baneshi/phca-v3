@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
-"""PHCA v3.0 Phase 6 / C1 — nightly stress test.
+"""PHCA v3.0 nightly stress test (Phase 6 / C1; Phase 7 / B3 tightened gate).
 
 Long-run stability probe: drives a single L2 (Goal Pursuit) MLP cognitive
 cycle for N cycles (default 10000; override via --cycles or NIGHTLY_CYCLES env)
 and reports the four stability signals a 24h soak must hold:
 
-  - RSS slope leak detector: psutil current RSS sampled every 100 cycles,
-    linear-fit slope (bytes/cycle). A leak shows a sustained positive slope.
+  - RSS leak detector: psutil current RSS sampled every 100 cycles, linear-fit
+    full-run slope AND late-half slope (bytes/cycle). The GATE uses the late
+    slope (post-cap steady state) — the early slope legitimately stays ~4 KB/cyc
+    during the M3 fill phase (0→10k episodes). Phase 7 / B3 tightens the
+    threshold to LEAK_SLOPE_LATE = 500 B/cyc (was 50 KB/cyc full-slope).
   - Latency trend: p95 / p99 over the full run and per-checkpoint.
-  - Φ-IQ proxy at checkpoints {1k, 5k, 10k} (windowed composite from per-cycle
-    metrics — prediction accuracy, adaptation, goal rate, resource, failures).
+  - Φ-IQ proxy at checkpoints {1k, 5k, 10k, 50k, 100k} (windowed composite from
+    per-cycle metrics — prediction accuracy, adaptation, goal rate, resource,
+    failures).
   - RBTA violations total + per-cycle rate (A1 bound).
 
-Exits non-zero on critical failure (RSS leak slope > LEAK_SLOPE, p95 latency
-≥ 500 ms, violation rate ≥ 10 %, or Φ-IQ proxy collapses > 0.15 between 1k and
-final checkpoint). Read-only; modifies no production code.
+Exits non-zero on critical failure (RSS late-slope ≥ LEAK_SLOPE_LATE, p95
+latency ≥ 500 ms, violation rate ≥ 10 %, or Φ-IQ proxy collapses > 0.15 between
+the first and final checkpoint). Read-only; modifies no production code.
+
+`--neg-test` runs a synthetic 4 KB/cyc unbounded-leak series and PASSes only
+if the tightened gate flags it (proves the gate is non-vacuous).
 
 Usage:
     MUJOCO_GL=disabled PYTHONPATH=python python scripts/nightly_stress.py --cycles=10000
     MUJOCO_GL=disabled NIGHTLY_CYCLES=1000 python scripts/nightly_stress.py
+    python scripts/nightly_stress.py --neg-test
 """
 from __future__ import annotations
 
@@ -37,15 +45,15 @@ from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
 
 
-CHECKPOINTS = [1000, 5000, 10000]
+CHECKPOINTS = [1000, 5000, 10000, 50000, 100000]
 SAMPLE_EVERY = 100
-# Leak detector threshold (bytes/cycle). Calibrated ABOVE the known baseline
-# growth (~3.9 KB/cyc during the M3 fill phase, M3 cap=10k + M4 fact
-# accumulation + in-memory SQLite skipping VACUUM — pre-existing architecture,
-# NOT a Phase 6 regression). A catastrophic leak (e.g. an unbounded new
-# structure) blows past this; the finer M3/M4 retention-cap work is a Phase 7
-# target (documented in DECISIONS.md D-102 / STATUS limitations).
-LEAK_SLOPE = 50_000.0
+# Leak detector threshold (bytes/cycle) — Phase 7 / B3. The gate now uses the
+# LATE-half slope (post-cap steady state), not the full-run slope, because the
+# early slope legitimately stays ~4 KB/cyc during the M3 fill phase (0→10k
+# episodes). With the M3 in-memory VACUUM (D-108) + M4 cap 1000/500 (D-109),
+# the late slope must drop to ≤ 500 B/cyc (a real leak blows past this). The
+# previous 50 KB/cyc full-slope threshold is retired. D-110.
+LEAK_SLOPE_LATE = 500.0
 P95_LIMIT_MS = 500.0
 VIOL_RATE_LIMIT = 0.10
 PHI_COLLAPSE_LIMIT = 0.15
@@ -88,14 +96,49 @@ def _phi_proxy(window) -> float:
     return 0.25 * pred_acc + 0.20 * adapt + 0.15 * goal + 0.20 * resource + 0.15 * transfer - 0.10 * failure
 
 
+def _neg_test() -> int:
+    """Phase 7 / B3 negative self-test for the tightened late-slope gate.
+
+    Synthesises an RSS series with a sustained 4 KB/cyc leak (an unbounded
+    accumulator that appends a 4 KB bytearray every cycle and is never
+    capped), runs the gate logic, and PASSes only if the gate flags it
+    (late_slope ≥ LEAK_SLOPE_LATE). Proves the tightened gate is non-vacuous.
+    """
+    n = 2000
+    base = 229_000_000
+    xs = np.array([i * SAMPLE_EVERY for i in range(n // SAMPLE_EVERY)], dtype=np.float64)
+    ys = np.array([base + (i * SAMPLE_EVERY) * 4000 for i in range(n // SAMPLE_EVERY)],
+                  dtype=np.float64)
+    slope = float(np.polyfit(xs, ys, 1)[0])
+    half = len(xs) // 2
+    late_slope = float(np.polyfit(xs[half:], ys[half:], 1)[0])
+    flagged = late_slope >= LEAK_SLOPE_LATE
+    print("=" * 60)
+    print(f"  PHCA v3.0 — Nightly Stress NEG-TEST ({n} synthetic cyc)")
+    print("=" * 60)
+    print(f"  Synthetic leak: 4 KB/cyc sustained  →  late_slope = {late_slope:.1f} B/cyc")
+    print(f"  Threshold (LEAK_SLOPE_LATE) = {LEAK_SLOPE_LATE:.1f} B/cyc")
+    print(f"  Gate flagged the leak: {flagged}")
+    if flagged:
+        print("  Neg-test PASS: tightened gate correctly flagged the synthetic unbounded leak.")
+        return 0
+    print("  Neg-test FAIL: tightened gate did NOT flag the synthetic leak.")
+    return 1
+
+
 def main() -> None:
     ensure_logging()
-    parser = argparse.ArgumentParser(description="PHCA nightly stress (Phase 6 / C1)")
+    parser = argparse.ArgumentParser(description="PHCA nightly stress (Phase 7 / B3)")
     parser.add_argument("--cycles", type=int,
                         default=int(os.environ.get("NIGHTLY_CYCLES", "10000")))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", default="logs/nightly_stress.json")
+    parser.add_argument("--neg-test", action="store_true",
+                        help="Run the synthetic-leak negative self-test and exit.")
     args = parser.parse_args()
+
+    if args.neg_test:
+        sys.exit(_neg_test())
 
     n = args.cycles
     checkpoints = sorted(c for c in CHECKPOINTS if c <= n) or [n]
@@ -138,7 +181,7 @@ def main() -> None:
     phi_collapse = phi_first - phi_final
 
     crit = {
-        "no_rss_leak": slope < LEAK_SLOPE,
+        "no_rss_leak": late_slope < LEAK_SLOPE_LATE,
         "p95_latency_under_500ms": p95 < P95_LIMIT_MS,
         "violation_rate_under_10pct": viol_rate < VIOL_RATE_LIMIT,
         "phi_iq_stable": phi_collapse < PHI_COLLAPSE_LIMIT,
@@ -155,7 +198,7 @@ def main() -> None:
         "total_violations": int(violations), "violation_rate": round(viol_rate, 5),
         "phi_iq_checkpoints": {str(k): round(v, 4) for k, v in phi_checkpoints.items()},
         "phi_collapse_first_to_final": round(phi_collapse, 4),
-        "leak_slope_threshold": LEAK_SLOPE,
+        "leak_late_slope_threshold": LEAK_SLOPE_LATE,
         "criteria": crit, "all_pass": bool(all_pass),
     }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)

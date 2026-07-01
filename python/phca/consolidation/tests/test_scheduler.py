@@ -381,8 +381,9 @@ class TestFactTypeClassification:
 class TestStoreFactsPruning:
     """Tests for _store_facts pruning logic."""
 
-    def test_prune_at_10000(self):
-        """_store_facts prunes lowest-confidence facts when exceeding 10_000."""
+    def test_prune_at_capacity(self):
+        """_store_facts prunes lowest-confidence facts when exceeding M4_MAX_FACTS (Phase 7 / B2: 1000)."""
+        from phca.consolidation.scheduler import M4_MAX_FACTS
         m3 = M3EpisodicMemory(max_episodes=10000, state_dim=2, action_dim=1)
         cs = ConsolidationScheduler(m3=m3, state_dim=2, max_facts_per_cycle=100)
 
@@ -393,13 +394,14 @@ class TestStoreFactsPruning:
                 state_pattern=StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2)),
                 confidence=0.5, frequency=1,
             )
-            for i in range(10_000)
+            for i in range(M4_MAX_FACTS)
         ]
         cs._store_facts(facts)
-        assert len(cs._committed_facts) == 10_000
+        assert len(cs._committed_facts) == M4_MAX_FACTS
 
     def test_prune_removes_lowest(self):
-        """After exceeding 10_000, only 5_000 highest-confidence facts remain."""
+        """After exceeding M4_MAX_FACTS, only M4_PRUNE_TARGET highest-confidence facts remain (Phase 7 / B2: 500)."""
+        from phca.consolidation.scheduler import M4_MAX_FACTS, M4_PRUNE_TARGET
         m3 = M3EpisodicMemory(max_episodes=10000, state_dim=2, action_dim=1)
         cs = ConsolidationScheduler(m3=m3, state_dim=2, max_facts_per_cycle=100)
 
@@ -407,12 +409,12 @@ class TestStoreFactsPruning:
             SemanticFact(
                 fact_id=f"f{i}", source_episode_id=i, fact_type="transition",
                 state_pattern=StateVector(values=np.zeros(2, dtype=np.float32), precision=np.ones(2)),
-                confidence=float(i) / 10_000, frequency=1,
+                confidence=float(i) / (M4_MAX_FACTS + 1), frequency=1,
             )
-            for i in range(10_001)
+            for i in range(M4_MAX_FACTS + 1)
         ]
         cs._store_facts(facts)
-        assert len(cs._committed_facts) == 5_000
+        assert len(cs._committed_facts) == M4_PRUNE_TARGET
         # All remaining facts should be high-confidence (top half)
         min_conf = min(f.confidence for f in cs._committed_facts)
         assert min_conf > 0.5

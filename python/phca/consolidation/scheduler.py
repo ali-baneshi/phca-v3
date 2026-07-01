@@ -34,9 +34,13 @@ from phca.memory.m3_episodic import M3EpisodicMemory, EpisodeRecord
 from phca.logging import logger, _log
 
 # M4 write-lock constants (v3.0 Patch §2.3.2)
+# Phase 7 / B2: cap tightened from 10_000/5_000 to 1_000/500 so the retention
+# bound engages within a 10k-cycle soak (measured ~0.15 facts/cyc → 1000 facts
+# at ~6700 cyc, then confidence-ranked FIFO prune oscillates 500–1000). Bounds
+# M4 to ~1000 facts × ~400 B ≈ 400 KB max. D-108.
 M4_LOCK_TIMEOUT = 0.050       # 50ms max wait for M4 write lock
-M4_MAX_FACTS = 10_000          # max facts before pruning low-confidence
-M4_PRUNE_TARGET = 5_000        # target count after pruning
+M4_MAX_FACTS = 1_000          # max facts before pruning low-confidence
+M4_PRUNE_TARGET = 500         # target count after pruning
 
 
 @dataclass
