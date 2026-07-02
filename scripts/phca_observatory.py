@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 _pkg_root = Path(__file__).resolve().parent.parent / "python"
 if str(_pkg_root) not in sys.path:
@@ -45,6 +46,20 @@ from phca.monitoring.observability import ObservabilityStore, SessionRecorder
 from phca.monitoring.playback import CyclePacer, PlaybackClock
 from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
 from PyQt5 import QtCore
+
+
+def _camera_self_test(env: Any) -> bool:
+    """One-shot MuJoCo RGB capture; False on EGL green slab or missing GL."""
+    from phca.monitoring.camera_render import is_glitchy_rgb_frame
+
+    render_rgb = getattr(env, "render_rgb", None)
+    if not callable(render_rgb):
+        return False
+    try:
+        frame = render_rgb()
+    except Exception:
+        return False
+    return frame is not None and not is_glitchy_rgb_frame(frame)
 
 
 def _build_cycle(args, store: ObservabilityStore) -> CognitiveCycle:
@@ -186,7 +201,7 @@ def main() -> None:
         elif args.camera == "schematic":
             print("Camera mode: schematic (2D arm, no GPU)")
         elif args.camera == "live":
-            print("Camera mode: live (MuJoCo GL camera)")
+            print("Camera mode: live (MuJoCo GL on cycle thread; 2D fallback if fail)")
         else:
             print("Camera mode: auto (live GL, fallback to 2D schematic if GL fails)")
         print("Debug: add --camera-debug  |  probe: scripts/camera_probe_qt.py")
@@ -194,17 +209,47 @@ def main() -> None:
     # Cognitive cycle (incl. M3 SQLite) MUST be built+run in ONE thread.
     stop_flag = threading.Event()
     cycle_holder: dict = {}
+    want_live_camera = args.camera in ("live", "auto") and args.env != "gridworld"
+    cycle_ready = threading.Event()
     pacer = CyclePacer()  # v6: optional cycle throttle/pause (no-op at full speed)
+
+    def _camera_provider_from_holder() -> Any:
+        """Return latest RGB captured on the cycle thread (never touches GL on Qt)."""
+        lock = cycle_holder.get("camera_lock")
+        if lock is None:
+            return None
+        with lock:
+            frame = cycle_holder.get("camera_frame")
+            return frame.copy() if frame is not None else None
 
     def _run_cycle():
         try:
             cycle = _build_cycle(args, store)
             cycle_holder["cycle"] = cycle
+            if want_live_camera:
+                ok = _camera_self_test(cycle.env)
+                cycle_holder["camera_ok"] = ok
+                if ok:
+                    cycle_holder["camera_lock"] = threading.Lock()
+                    cycle_holder["camera_frame"] = None
+            else:
+                cycle_holder["camera_ok"] = False
+            cycle_holder["cycle"] = cycle
+            cycle_ready.set()
             for _ in range(args.cycles):
                 if stop_flag.is_set():
                     break
                 pacer.wait()       # v6: additive; no-op unless throttling/paused
                 cycle.step()
+                if want_live_camera and cycle_holder.get("camera_ok"):
+                    try:
+                        frame = cycle.env.render_rgb()
+                    except Exception:
+                        frame = None
+                    if frame is not None:
+                        with cycle_holder["camera_lock"]:
+                            cycle_holder["camera_frame"] = np.asarray(
+                                frame, dtype=np.uint8).copy()
         except Exception as e:
             cycle_holder["error"] = str(e)
             print(f"[cycle thread] error: {e}", file=sys.stderr)
@@ -227,11 +272,17 @@ def main() -> None:
 
     ct = threading.Thread(target=_run_cycle, daemon=True)
     ct.start()
+    if want_live_camera:
+        # MuJoCo/GLFW must init before QApplication (Qt also uses GLFW on Linux).
+        if not cycle_ready.wait(timeout=60.0):
+            print("[camera] cycle thread did not become ready in time",
+                  file=sys.stderr)
 
     app = make_app()
     win = ObservatoryWindow()
     ctrl = win.controller
     camera_wired = False
+
     if args.camera == "schematic":
         win.set_camera_provider(None, mode="schematic")
         camera_wired = True
@@ -245,12 +296,32 @@ def main() -> None:
         cycle = cycle_holder.get("cycle")
         if cycle is None:
             return
-        env = getattr(cycle, "env", None)
-        render_rgb = getattr(env, "render_rgb", None)
-        if not callable(render_rgb):
-            return
-        win.set_camera_provider(render_rgb, debug=args.camera_debug, mode=args.camera)
+
+        mode = args.camera
+        provider = None
+        if mode in ("live", "auto"):
+            if "camera_ok" not in cycle_holder:
+                return
+            if not cycle_holder.get("camera_ok"):
+                print(
+                    "[camera] capture failed on this system; using 2D schematic",
+                    file=sys.stderr,
+                )
+                mode = "schematic"
+            else:
+                provider = _camera_provider_from_holder
+        elif mode != "schematic":
+            if "camera_ok" not in cycle_holder:
+                return
+            if cycle_holder.get("camera_ok"):
+                provider = _camera_provider_from_holder
+
+        if mode == "schematic":
+            win.set_camera_provider(None, debug=args.camera_debug, mode="schematic")
+        else:
+            win.set_camera_provider(provider, debug=args.camera_debug, mode=mode)
         camera_wired = True
+        win.overview._sync_camera_from_provider()
         win.overview.mark_dirty()
         win.overview.update()
         app.processEvents()
@@ -259,6 +330,9 @@ def main() -> None:
         if camera_wired:
             return
         if "cycle" not in cycle_holder:
+            QtCore.QTimer.singleShot(30, _wait_cycle_and_wire)
+            return
+        if args.camera in ("live", "auto") and "camera_ok" not in cycle_holder:
             QtCore.QTimer.singleShot(30, _wait_cycle_and_wire)
             return
         _wire_camera_if_ready()

@@ -894,77 +894,22 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     return True
 
 
-def _draw_overview_camera(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
-                          proj: Optional["BeliefProjection"] = None,
-                          camera_pixmap: Optional[QtGui.QPixmap] = None,
-                          camera_numpy: Any = None,
-                          camera_stale: bool = False,
-                          use_schematic: bool = False) -> None:
-    """Body panel: full-bleed camera + corner overlay + slim τ bar."""
+def _render_reacher_schematic_pixmap(f: ObservabilityFrame, w: int, h: int) -> QtGui.QPixmap:
+    """Offscreen 2D arm schematic (no GPU / no paintEvent camera blit)."""
+    pm = QtGui.QPixmap(max(w, 2), max(h, 2))
+    pm.fill(QtGui.QColor(12, 12, 16))
+    p = QtGui.QPainter(pm)
+    _draw_reacher_schematic(p, f, QtCore.QRect(0, 0, w, h))
+    p.end()
+    return pm
+
+
+def _draw_overview_tau_bar(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect) -> None:
+    """Slim continuous-action bar below the camera QLabel."""
     x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-    p.fillRect(rect, QtGui.QColor(12, 12, 16))
     tau_h = min(36, max(28, h // 6))
-    cam_h = max(8, h - tau_h - 4)
-    cam_rect = QtCore.QRect(x + 4, y + 2, w - 8, cam_h)
-    tau_rect = QtCore.QRect(x + 4, y + cam_h + 4, w - 8, tau_h)
-    p.fillRect(cam_rect, QtGui.QColor(12, 12, 16))
-
-    dx = dy = dw = dh = 0
-    badge = ""
-    live = camera_numpy
-    live_bad = live is None or is_glitchy_rgb_frame(live)
-
-    p.save()
-    p.setClipRect(cam_rect)
-    # Priority: live numpy → stale validated pixmap → 2D schematic → placeholder.
-    if not live_bad:
-        dx, dy, dw, dh = _draw_qimage(
-            p, live, cam_rect.x(), cam_rect.y(),
-            cam_rect.width(), cam_rect.height())
-        badge = "LIVE"
-    if dw < 2 and camera_stale and camera_pixmap is not None and not camera_pixmap.isNull():
-        if camera_numpy is not None and not is_glitchy_rgb_frame(camera_numpy):
-            dx, dy, dw, dh = _draw_cached_pixmap(
-                p, camera_pixmap, cam_rect.x(), cam_rect.y(),
-                cam_rect.width(), cam_rect.height())
-            badge = "STALE"
-    if dw < 2 and use_schematic and _draw_reacher_schematic(p, f, cam_rect):
-        dx, dy, dw, dh = 1, cam_rect.y(), cam_rect.width(), cam_rect.height()
-        badge = "2D"
-    if dw < 2:
-        p.fillRect(cam_rect, QtGui.QColor(12, 12, 16))
-        p.setPen(DIM_COL)
-        p.setFont(_F_LABEL)
-        p.drawText(
-            cam_rect, 0x84,
-            "Camera unavailable\n(main-thread GL capture failed)",
-        )
-    else:
-        if badge not in ("", "2D"):
-            p.setPen(QtGui.QPen(GRID_COL, 1))
-            p.drawRect(dx - 1, dy - 1, dw + 2, dh + 2)
-        if badge == "STALE":
-            p.setPen(QtGui.QColor(241, 196, 15))
-            p.setFont(_F_AXIS)
-            p.drawText(dx + 6, dy + 14, "STALE")
-        elif badge == "LIVE":
-            p.setPen(QtGui.QColor(46, 204, 113))
-            p.setFont(_F_AXIS)
-            p.drawText(dx + 6, dy + 14, "LIVE")
-        elif badge == "2D":
-            p.setPen(QtGui.QColor(52, 152, 219))
-            p.setFont(_F_AXIS)
-            p.drawText(cam_rect.x() + 8, cam_rect.y() + 14, "2D schematic")
-        if badge in ("LIVE", "STALE"):
-            p.setPen(QtGui.QColor(0, 0, 0, 160))
-            p.setBrush(QtGui.QColor(0, 0, 0, 140))
-            p.drawRoundedRect(dx + dw - 118, dy + 4, 112, 32, 4, 4)
-            p.setPen(TEXT_COL)
-            p.setFont(_F_LABEL_B)
-            p.drawText(dx + dw - 112, dy + 16, f"err={f.prediction_error:.2f}")
-            p.drawText(dx + dw - 112, dy + 28, f"conf={f.prediction_confidence:.3f}")
-    p.restore()
-
+    tau_rect = QtCore.QRect(x + 4, y + h - tau_h - 2, w - 8, tau_h)
+    p.fillRect(rect, QtGui.QColor(12, 12, 16))
     act = f.continuous_action if f.continuous_action is not None else f.last_action_vector
     dim_names = list(getattr(f, "dim_names", []) or [])
     p.save()
@@ -1035,11 +980,7 @@ def _draw_overview_grid(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
 def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
                         proj: Optional["BeliefProjection"],
                         trail: Deque[Any], arena_trail: Deque[Tuple[float, float]],
-                        ax: ScaleState, ay: ScaleState,
-                        camera_pixmap: Optional[QtGui.QPixmap] = None,
-                        camera_numpy: Any = None,
-                        camera_stale: bool = False,
-                        use_schematic: bool = False) -> None:
+                        ax: ScaleState, ay: ScaleState) -> None:
     """Body panel: env-adaptive world (camera / grid / arena / projection)."""
     kind = (getattr(f, "env_kind", "") or "").lower()
     sd = int(getattr(f, "state_dim", 0) or 0)
@@ -1047,9 +988,7 @@ def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
         _draw_overview_grid(p, f, rect, trail)
     elif kind == "mujoco_rgb":
         p.fillRect(rect, QtGui.QColor(12, 12, 16))
-        _draw_overview_camera(p, f, rect, proj, camera_pixmap=camera_pixmap,
-                              camera_numpy=camera_numpy, camera_stale=camera_stale,
-                              use_schematic=use_schematic)
+        _draw_overview_tau_bar(p, f, rect)
     elif kind == "continuous" and 2 <= sd <= 4:
         import math as _m
         margin = 8
@@ -1499,6 +1438,13 @@ class OverviewAgentView(_BaseCanvas):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # QLabel camera avoids QPainter+WA_OpaquePaintEvent green GPU garbage.
+        self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, False)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, False)
+        self._camera_label = QtWidgets.QLabel(self)
+        self._camera_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._camera_label.setStyleSheet("background-color: rgb(12, 12, 16);")
+        self._camera_label.setScaledContents(True)
         self.frame: Optional[ObservabilityFrame] = None
         self.cycle_error: Optional[str] = None
         self.proj: Optional["BeliefProjection"] = None
@@ -1544,10 +1490,11 @@ class OverviewAgentView(_BaseCanvas):
             self._camera_gl_disabled = True
             self._capture_timer.stop()
         self._dirty = True
+        self._update_camera_label()
         self.update()
 
     def _fail_threshold(self) -> int:
-        return 1 if self._camera_mode == "auto" else 3
+        return 1
 
     def _maybe_disable_gl(self) -> None:
         if self._camera_fail_count >= self._fail_threshold():
@@ -1592,6 +1539,56 @@ class OverviewAgentView(_BaseCanvas):
             self._glyph_hist.append(([float(x) for x in levels],
                                      float(getattr(f, "prediction_confidence", 0.0) or 0.0),
                                      active))
+        self._update_camera_label()
+
+    def camera_label_rect(self) -> QtCore.QRect:
+        """Camera QLabel geometry within the overview body panel."""
+        body = self.main_body_rect()
+        tau_h = min(36, max(28, body.height() // 6))
+        cam_h = max(8, body.height() - tau_h - 4)
+        return QtCore.QRect(body.x() + 4, body.y() + 2, body.width() - 8, cam_h)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._layout_camera_label()
+
+    def _layout_camera_label(self) -> None:
+        self._camera_label.setGeometry(self.camera_label_rect())
+        self._camera_label.raise_()
+
+    def _update_camera_label(self) -> None:
+        """Push camera/schematic pixmap to QLabel (never in paintEvent)."""
+        r = self.camera_label_rect()
+        w, h = max(r.width(), 2), max(r.height(), 2)
+        f = self.frame
+        use_schematic = (
+            self._camera_mode == "schematic"
+            or self._camera_gl_disabled
+            or (f is not None and self._use_reacher_schematic(f))
+        )
+        if use_schematic and f is not None and self._reacher_obs_ok(f):
+            self._camera_label.setPixmap(_render_reacher_schematic_pixmap(f, w, h))
+            self._camera_label.show()
+            return
+        if (
+            self._camera_pixmap is not None
+            and not self._camera_pixmap.isNull()
+            and self._camera_numpy is not None
+            and not is_glitchy_rgb_frame(self._camera_numpy)
+        ):
+            scaled, sw, sh = fit_pixmap_to_box(self._camera_pixmap, w, h)
+            self._camera_label.setPixmap(scaled if sw >= 1 and sh >= 1 else self._camera_pixmap)
+            self._camera_label.show()
+            return
+        pm = QtGui.QPixmap(w, h)
+        pm.fill(QtGui.QColor(12, 12, 16))
+        p = QtGui.QPainter(pm)
+        p.setPen(DIM_COL)
+        p.setFont(_F_LABEL)
+        p.drawText(pm.rect(), QtCore.Qt.AlignCenter, "Camera unavailable")
+        p.end()
+        self._camera_label.setPixmap(pm)
+        self._camera_label.show()
 
     def _live_camera_frame(self) -> Optional[np.ndarray]:
         if self._camera_gl_disabled or self._camera_mode == "schematic":
@@ -1640,27 +1637,25 @@ class OverviewAgentView(_BaseCanvas):
             self._camera_pixmap = None
             self._camera_numpy = None
             self._maybe_disable_gl()
+            self._update_camera_label()
             return None
-        frame_ok = frame is not None and not is_glitchy_rgb_frame(frame)
-        if frame_ok:
+        if frame is not None and not is_glitchy_rgb_frame(frame):
             pm = rgb_frame_to_pixmap(frame)
-            pm_ok = (
-                not pm.isNull()
-                and not is_glitchy_pixmap(pm)
-            )
-            if pm_ok:
+            if not pm.isNull() and not is_glitchy_pixmap(pm):
                 self._camera_fail_count = 0
                 self._camera_numpy = frame
                 self._camera_pixmap = pm
                 self._camera_stale = False
                 if self._camera_debug:
                     self._save_camera_debug(frame, pm)
+                self._update_camera_label()
                 return frame
             self._camera_fail_count += 1
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
             self._maybe_disable_gl()
+            self._update_camera_label()
             return None
         self._camera_fail_count += 1
         self._maybe_disable_gl()
@@ -1670,22 +1665,31 @@ class OverviewAgentView(_BaseCanvas):
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
+        self._update_camera_label()
         return self._camera_numpy
 
-    def _use_reacher_schematic(self, f: ObservabilityFrame) -> bool:
-        if self._camera_mode == "schematic" or self._camera_gl_disabled:
-            kind = (getattr(f, "env_kind", "") or "").lower()
-            if kind != "mujoco_rgb":
-                return False
-            v = f.obs_vector if f.obs_vector is not None else f.sanitized_state
-            return v is not None and np.asarray(v).size >= 4
-        if self._camera_fail_count < 1:
-            return False
+    def _reacher_obs_ok(self, f: ObservabilityFrame) -> bool:
         kind = (getattr(f, "env_kind", "") or "").lower()
         if kind != "mujoco_rgb":
             return False
         v = f.obs_vector if f.obs_vector is not None else f.sanitized_state
         return v is not None and np.asarray(v).size >= 4
+
+    def _use_reacher_schematic(self, f: ObservabilityFrame) -> bool:
+        if not self._reacher_obs_ok(f):
+            return False
+        if self._camera_mode == "schematic" or self._camera_gl_disabled:
+            return True
+        if self._camera_mode == "live":
+            return (
+                self._camera_numpy is None
+                or self._camera_pixmap is None
+                or self._camera_pixmap.isNull()
+                or is_glitchy_rgb_frame(self._camera_numpy)
+            )
+        if self._camera_fail_count < 1:
+            return False
+        return True
 
     def repaint_if_dirty(self) -> None:
         if not self._dirty:
@@ -1739,11 +1743,7 @@ class OverviewAgentView(_BaseCanvas):
                               self._emp_sm._v)
             p.restore()
             _draw_overview_body(p, f, body_rect, self.proj, self.trail,
-                                self.arena_trail, self._ax, self._ay,
-                                camera_pixmap=self._camera_pixmap,
-                                camera_numpy=self._camera_numpy,
-                                camera_stale=self._camera_stale,
-                                use_schematic=self._use_reacher_schematic(f))
+                                self.arena_trail, self._ax, self._ay)
             _draw_vitals_ribbon(p, f, ribbon_rect, self._err_hist, self._conf_hist)
         if self.cycle_error:
             p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_LABEL_B)

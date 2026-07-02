@@ -418,6 +418,112 @@ def test_reacher_default_schematic_mode():
     assert camera == "schematic"
 
 
+def test_glitchy_rejects_green_slab():
+    green = np.full((64, 80, 3), (0, 255, 0), dtype=np.uint8)
+    assert is_glitchy_rgb_frame(green)
+
+
+def test_overview_has_camera_label(qt_app):
+    from PyQt5 import QtWidgets
+
+    ov = OverviewAgentView()
+    assert hasattr(ov, "_camera_label")
+    assert isinstance(ov._camera_label, QtWidgets.QLabel)
+
+
+def test_overview_uses_qlabel_not_painter_for_camera(qt_app, monkeypatch):
+    """Camera pixmap is set on QLabel; paint must not call rgb_frame_to_pixmap."""
+    from PyQt5 import QtGui
+
+    calls = {"n": 0}
+    orig = rgb_frame_to_pixmap
+
+    def _track(frame):
+        calls["n"] += 1
+        return orig(frame)
+
+    monkeypatch.setattr("phca.monitoring.qt_dashboard.rgb_frame_to_pixmap", _track)
+
+    ov = OverviewAgentView()
+    ov.resize(800, 600)
+    ov.show()
+    ov.set_camera_provider(None, mode="schematic")
+    ov.set_frame(_reacher_frame())
+    qt_app.processEvents()
+    assert ov._camera_label.pixmap() is not None
+    assert not ov._camera_label.pixmap().isNull()
+    calls["n"] = 0
+    p = QtGui.QPainter(ov)
+    ov._draw(p)
+    p.end()
+    assert calls["n"] == 0
+
+
+def test_camera_self_test_rejects_green():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[4] / "scripts" / "phca_observatory.py"
+    spec = importlib.util.spec_from_file_location("phca_observatory", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    class _Env:
+        def render_rgb(self):
+            return np.full((64, 80, 3), (0, 255, 0), dtype=np.uint8)
+
+    assert not mod._camera_self_test(_Env())
+
+
+def test_draw_never_shows_green_when_implausible(qt_app):
+    """Implausible green cache must fall back to 2D schematic in live mode."""
+    ov = OverviewAgentView()
+    ov.resize(800, 600)
+    ov.show()
+    green = np.full((120, 160, 3), (0, 255, 0), dtype=np.uint8)
+    assert is_glitchy_rgb_frame(green)
+    ov._camera_numpy = green
+    ov._camera_pixmap = rgb_frame_to_pixmap(green)
+    ov._camera_mode = "live"
+    ov.set_frame(_reacher_frame())
+    ov.repaint_if_dirty()
+    qt_app.processEvents()
+    body = ov.main_body_rect()
+    img = ov.grab().toImage()
+    samples = []
+    for x in range(body.x() + 20, body.right() - 20, 30):
+        for y in range(body.y() + 20, body.bottom() - 60, 30):
+            c = img.pixelColor(x, y)
+            samples.append((c.red(), c.green(), c.blue()))
+    solid_green = sum(1 for r, g, b in samples if g > 240 and r < 20 and b < 20)
+    assert solid_green < len(samples) * 0.5
+
+
+def test_live_green_numpy_shows_schematic_not_slab(qt_app):
+    """Live mode with invalid cache shows 2D schematic, not green LIVE slab."""
+    ov = OverviewAgentView()
+    ov.resize(800, 600)
+    ov.show()
+    green = np.full((120, 160, 3), (0, 255, 0), dtype=np.uint8)
+    ov._camera_numpy = green
+    ov._camera_pixmap = None
+    ov._camera_mode = "live"
+    ov.set_frame(_reacher_frame())
+    assert ov._use_reacher_schematic(ov.frame)
+    ov.repaint_if_dirty()
+    qt_app.processEvents()
+    body = ov.main_body_rect()
+    img = ov.grab().toImage()
+    samples = []
+    for x in range(body.x() + 20, body.right() - 20, 30):
+        for y in range(body.y() + 20, body.bottom() - 60, 30):
+            c = img.pixelColor(x, y)
+            samples.append((c.red(), c.green(), c.blue()))
+    solid_green = sum(1 for r, g, b in samples if g > 240 and r < 20 and b < 20)
+    assert solid_green < len(samples) * 0.5
+
+
 def test_camera_provider_called_on_set_frame(qt_app):
     """set_frame alone does not capture; timer/sync does."""
     import threading

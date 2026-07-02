@@ -1238,8 +1238,7 @@ class CognitiveCycle:
         """
         from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
-        use_camera = bool(enable_camera or observability_store is not None
-                          or render_mode == "rgb_array")
+        use_camera = bool(enable_camera or render_mode == "rgb_array")
         env = MuJoCoSimpleEnv(env_name=env_name, seed=seed,
                               render_mode=render_mode,
                               enable_camera=use_camera)
