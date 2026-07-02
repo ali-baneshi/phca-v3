@@ -101,6 +101,64 @@ def _dim_label(i: int, f: Optional[ObservabilityFrame]) -> str:
     return f"d{i}"
 
 
+def _n_drives(f: Optional[ObservabilityFrame] = None,
+              levels: Optional[List[float]] = None) -> int:
+    """Drive count from frame or an explicit levels list (dim-agnostic, not fixed 6)."""
+    if levels is not None and len(levels) > 0:
+        return len(levels)
+    if f is not None:
+        for attr in ("drive_levels", "drive_deficits", "drive_targets"):
+            arr = list(getattr(f, attr, []) or [])
+            if arr:
+                return len(arr)
+    return 6
+
+
+_DRIVE_EXTRA: Dict[int, str] = {}
+
+
+def _drive_color(did: int) -> QtGui.QColor:
+    """1-based drive id → colour; generates a stable HSV swatch for did > 6."""
+    if did in DRIVE_COLORS:
+        c = DRIVE_COLORS[did]
+        return QtGui.QColor(c) if isinstance(c, str) else QtGui.QColor(*c)
+    if did not in _DRIVE_EXTRA:
+        hue = int((did * 137.508) % 360)
+        _DRIVE_EXTRA[did] = QtGui.QColor.fromHsv(hue, 180, 220).name()
+    return QtGui.QColor(_DRIVE_EXTRA[did])
+
+
+def _drive_short(did: int) -> str:
+    return DRIVE_SHORT.get(did, f"D{did}")
+
+
+def _drive_name(did: int) -> str:
+    return DRIVE_NAMES.get(did, f"Drive {did}")
+
+
+def _vec_pca2(v: np.ndarray) -> Tuple[float, float, List[int]]:
+    """Project a vector to 2-D for arrow/glyph drawing.
+
+    d≤2 → raw components; d>2 → the two dims with largest |value| (labelled
+    via dim_names in the caller).  Returns (vx, vy, source_dim_indices).
+    """
+    v = np.asarray(v, dtype=np.float32).reshape(-1)
+    if v.size == 0:
+        return 0.0, 0.0, []
+    if v.size == 1:
+        return float(np.clip(v[0], -1, 1)), 0.0, [0]
+    if v.size == 2:
+        return float(np.clip(v[0], -1, 1)), float(np.clip(v[1], -1, 1)), [0, 1]
+    idx = [int(x) for x in np.argsort(np.abs(v))[-2:][::-1]]
+    return float(np.clip(v[idx[0]], -1, 1)), float(np.clip(v[idx[1]], -1, 1)), idx
+
+
+def _dim_arrow_label(indices: List[int], dim_names: Optional[List[str]] = None) -> str:
+    names = dim_names or []
+    parts = [names[i] if i < len(names) and names[i] else f"d{i}" for i in indices]
+    return "/".join(parts)
+
+
 class ScaleState:
     """Stable autoscale bounds with hysteresis + EMA contraction.
 
@@ -213,6 +271,41 @@ def _arrow(p: QtGui.QPainter, x0: int, y0: int, x1: int, y1: int, col: QtGui.QCo
                             QtCore.QPointF(x1 - size * math.cos(a1), y1 - size * math.sin(a1)),
                             QtCore.QPointF(x1 - size * math.cos(a2), y1 - size * math.sin(a2))])
     p.drawPolygon(poly)
+
+
+def _radial_sankey_link(p: QtGui.QPainter, x0: int, y0: int, x1: int, y1: int,
+                        cx: int, cy: int, col: QtGui.QColor, width: float = 2.0) -> None:
+    """Curved radial Sankey link — pen width encodes activation mass share."""
+    path = QtGui.QPainterPath(QtCore.QPointF(x0, y0))
+    midx = (x0 + x1) * 0.35 + cx * 0.65
+    midy = (y0 + y1) * 0.35 + cy * 0.65
+    path.quadTo(midx, midy, x1, y1)
+    pen = QtGui.QPen(col, max(1, int(width)))
+    pen.setCapStyle(QtCore.Qt.RoundCap)
+    p.setPen(pen); p.setBrush(QtCore.Qt.NoBrush)
+    p.drawPath(path)
+
+
+def _retention_score(t: float, S: float) -> float:
+    """Ebbinghaus retention R = e^{-t/S}."""
+    import math
+    return math.exp(-max(t, 0.0) / max(float(S), 1e-6))
+
+
+def _draw_decay_sparkline(p: QtGui.QPainter, x: int, y: int, w: int, h: int,
+                          S: float, col: QtGui.QColor, n: int = 24) -> None:
+    """Sparkline of R=e^{-t/S} for t=0..n-1."""
+    import math
+    S = max(float(S), 0.5)
+    p.setPen(QtGui.QPen(col, 1))
+    for i in range(1, n):
+        r0 = math.exp(-(i - 1) / S)
+        r1 = math.exp(-i / S)
+        x0 = x + (i - 1) * w / max(n - 1, 1)
+        x1 = x + i * w / max(n - 1, 1)
+        y0 = y + h - r0 * h
+        y1 = y + h - r1 * h
+        p.drawLine(int(x0), int(y0), int(x1), int(y1))
 
 
 # ----- Dimension-agnostic state-space projection (v4 scaling heart) ----------
@@ -667,6 +760,9 @@ class AgentPortraitView(_BaseCanvas):
         self._raw: Dict[str, float] = {k: 0.0 for k in self.GAUGES}
         self._fe_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         self._t0 = time.monotonic()
+        # v8 B1: 3-ghost trail of recent drive-halo snapshots (frozen per cycle).
+        self._glyph_hist: Deque[Tuple[List[float], float, int]] = deque(maxlen=3)
+        self._glyph_sig: tuple = ()
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
@@ -684,6 +780,15 @@ class AgentPortraitView(_BaseCanvas):
         self._sm["RBTA-room"].value(room); self._raw["RBTA-room"] = room * 100.0
         gp = float(getattr(f, "goal_priority", 0.0) or 0.0)
         self._sm["goal-pri"].value(gp); self._raw["goal-pri"] = gp
+        # v8 B1: ghost trail — one snapshot per cycle (freeze_sig on levels+active).
+        levels = list(getattr(f, "drive_levels", []) or [])
+        active = int(getattr(f, "active_drive_id", 0) or 0)
+        sig = freeze_sig((f.cycle_id, tuple(round(x, 3) for x in levels), active))
+        if sig != self._glyph_sig and levels:
+            self._glyph_sig = sig
+            self._glyph_hist.append(([float(x) for x in levels],
+                                     float(getattr(f, "prediction_confidence", 0.0) or 0.0),
+                                     active))
         self._dirty = True
 
     @staticmethod
@@ -736,29 +841,61 @@ class AgentPortraitView(_BaseCanvas):
 
     def _draw_glyph(self, p, f, cx, cy, R):
         import math
-        levels = list(getattr(f, "drive_levels", []) or [0.0] * 6)
-        deficits = list(getattr(f, "drive_deficits", []) or [0.0] * 6)
+        levels = list(getattr(f, "drive_levels", []) or [])
+        deficits = list(getattr(f, "drive_deficits", []) or [])
+        n = _n_drives(f, levels)
+        while len(levels) < n:
+            levels.append(0.0)
+        while len(deficits) < n:
+            deficits.append(0.0)
         active = int(getattr(f, "active_drive_id", 0) or 0)
         conf = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
         emp = self._sm["mean-PEU"]._v
         ms = getattr(f, "meta_stable", None) or {}
         stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
+        # v8 B1: 3-ghost trail (faded halos from prior cycles)
+        for gi, (gh_lvls, _gh_conf, _gh_act) in enumerate(list(self._glyph_hist)[:-1]):
+            fade = int(25 + 35 * (gi + 1))
+            for i in range(min(n, len(gh_lvls))):
+                lvl = max(0.0, min(1.0, float(gh_lvls[i])))
+                a0 = -math.pi / 2 + i * 2 * math.pi / n
+                a1 = a0 + 2 * math.pi / n - 0.08
+                r_out = int(R * (0.50 + 0.35 * lvl))
+                col = _drive_color(i + 1); col.setAlpha(fade)
+                p.setBrush(col); p.setPen(QtGui.QPen(col, 1))
+                from PyQt5 import QtGui as _QtGui
+                path = _QtGui.QPainterPath()
+                path.moveTo(cx + R * 0.42 * math.cos(a0), cy + R * 0.42 * math.sin(a0))
+                path.arcTo(cx - r_out, cy - r_out, r_out * 2, r_out * 2,
+                           math.degrees(a0), math.degrees(a1 - a0))
+                path.lineTo(cx + R * 0.42 * math.cos(a1), cy + R * 0.42 * math.sin(a1))
+                p.drawPath(path)
         # v7: calm breath ring — fixed radius, narrow alpha band 60→90 (no pulse)
         breath = 0.5 + 0.5 * math.sin(2 * math.pi * (time.monotonic() - self._t0) * 0.4)
         br = int(R * 1.20)
         p.setBrush(QtCore.Qt.NoBrush)
         p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, int(60 + 30 * breath)), 2))
         p.drawEllipse(cx - br, cy - br, br * 2, br * 2)
-        # drive halo: 6 segments
-        for i in range(6):
+        # v8 B1: G′ uncertainty halo (per-dim σ → outer dashed ring)
+        unc = getattr(f, "gprime_uncertainty", None)
+        if unc is not None:
+            u = np.asarray(unc, dtype=np.float32).reshape(-1)
+            if u.size:
+                u_mean = float(np.clip(np.mean(u), 0, 1))
+                ur = int(R * (1.28 + min(0.4, u_mean)))
+                p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, int(50 + 100 * u_mean)),
+                                    1, QtCore.Qt.DashLine))
+                p.drawEllipse(cx - ur, cy - ur, ur * 2, ur * 2)
+        # drive halo: N segments (dim-agnostic star-glyph spikes)
+        for i in range(n):
             did = i + 1
-            lvl = float(levels[i]) if i < len(levels) else 0.0
-            dfc = float(deficits[i]) if i < len(deficits) else 0.0
+            lvl = float(levels[i])
+            dfc = float(deficits[i])
             lvl = max(0.0, min(1.0, lvl))
-            a0 = -math.pi / 2 + i * math.pi / 3
-            a1 = a0 + math.pi / 3 - 0.18 * (dfc)  # gap widens with deficit
+            a0 = -math.pi / 2 + i * 2 * math.pi / n
+            a1 = a0 + 2 * math.pi / n - 0.18 * dfc
             r_out = int(R * (0.55 + 0.45 * lvl))
-            col = _to_qcolor(DRIVE_COLORS[did]); col.setAlpha(int(80 + 160 * lvl))
+            col = _drive_color(did); col.setAlpha(int(80 + 160 * lvl))
             p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
             from PyQt5 import QtGui as _QtGui
             path = _QtGui.QPainterPath()
@@ -767,7 +904,7 @@ class AgentPortraitView(_BaseCanvas):
                        math.degrees(a0), math.degrees(a1 - a0))
             path.lineTo(cx + R * 0.45 * math.cos(a1), cy + R * 0.45 * math.sin(a1))
             p.drawPath(path)
-        # core: colour by confidence (green→amber→red), brightness by empowerment
+        # core: confidence colour + dominant-drive tint + empowerment brightness
         cval = max(0.0, min(1.0, conf))
         if cval > 0.66:
             core = QtGui.QColor(46, 204, 113)
@@ -775,35 +912,36 @@ class AgentPortraitView(_BaseCanvas):
             core = QtGui.QColor(241, 196, 15)
         else:
             core = QtGui.QColor(231, 76, 60)
+        if 1 <= active <= n:
+            dom = _drive_color(active)
+            core = QtGui.QColor(
+                int(0.6 * core.red() + 0.4 * dom.red()),
+                int(0.6 * core.green() + 0.4 * dom.green()),
+                int(0.6 * core.blue() + 0.4 * dom.blue()))
         b = int(120 + 110 * max(0.0, min(1.0, emp)))
         core.setAlpha(min(255, b))
         cr = int(R * 0.4)
         p.setBrush(core); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 180), 2))
         p.drawEllipse(cx - cr, cy - cr, cr * 2, cr * 2)
-        # v7: meta-stable as a binary dot inside the core (not a 270° arc)
         if stable:
             p.setBrush(QtGui.QColor(241, 196, 15)); p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
             p.drawEllipse(cx + cr - 12, cy - cr + 4, 8, 8)
-        # active-drive head marker
-        if 1 <= active <= 6:
+        if 1 <= active <= n:
             i = active - 1
-            a = -math.pi / 2 + i * math.pi / 3 + math.pi / 6
+            a = -math.pi / 2 + i * 2 * math.pi / n + math.pi / n
             hx = cx + (R * 1.02) * math.cos(a); hy = cy + (R * 1.02) * math.sin(a)
-            p.setBrush(_to_qcolor(DRIVE_COLORS[active]))
+            p.setBrush(_drive_color(active))
             p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
             p.drawEllipse(int(hx) - 5, int(hy) - 5, 10, 10)
-        # limbs: action vector (continuous) or chosen action_names label (discrete)
         self._draw_limbs(p, f, cx, cy, cr, R)
-        # v7: deficits under the halo (top-3 Δ D#=…)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        order = sorted(range(6), key=lambda i: -(deficits[i] if i < len(deficits) else 0.0))[:3]
+        order = sorted(range(n), key=lambda i: -deficits[i])[:3]
         dy = cy + br + 12
         for i in order:
-            if i < len(deficits) and deficits[i] > 0.02:
-                p.setPen(_to_qcolor(DRIVE_COLORS[i + 1]))
-                p.drawText(cx - br, dy, f"Δ D{i+1}={deficits[i]:.2f}")
+            if deficits[i] > 0.02:
+                p.setPen(_drive_color(i + 1))
+                p.drawText(cx - br, dy, f"Δ {_drive_short(i + 1)}={deficits[i]:.2f}")
                 dy += 11
-        # core label
         p.setPen(QtGui.QColor(20, 20, 24)); p.setFont(_F_LABEL_B)
         p.drawText(cx - cr, cy - cr, cr * 2, cr * 2, 0x84,
                    f"conf\n{conf:.2f}")
@@ -812,10 +950,11 @@ class AgentPortraitView(_BaseCanvas):
         import math
         ca = getattr(f, "continuous_action", None)
         names = list(getattr(f, "action_names", []) or [])
+        dim_names = list(getattr(f, "dim_names", []) or [])
         if ca is not None:
             vec = np.asarray(ca, dtype=np.float32).reshape(-1)
-            if vec.size >= 2:
-                vx = float(np.clip(vec[0], -1, 1)); vy = float(np.clip(vec[1], -1, 1))
+            if vec.size >= 1:
+                vx, vy, dims = _vec_pca2(vec)
                 mag = float(min(1.0, math.hypot(vx, vy)))
                 ang = math.atan2(vy, vx)
                 for off in (0.0, math.pi):
@@ -827,7 +966,8 @@ class AgentPortraitView(_BaseCanvas):
                     p.setBrush(QtGui.QColor(155, 89, 182)); p.setPen(QtCore.Qt.white)
                     p.drawEllipse(int(ex) - 4, int(ey) - 4, 8, 8)
                 p.setPen(ACCENT); p.setFont(_F_AXIS)
-                p.drawText(cx - R, cy + cr + 16, f"τ‖·‖={mag:.2f}")
+                lbl = _dim_arrow_label(dims, dim_names) if dims else "τ"
+                p.drawText(cx - R, cy + cr + 16, f"τ({lbl}) ‖·‖={mag:.2f}")
                 return
             # continuous but 1-D → magnitude arc
             mag = float(min(1.0, abs(float(vec[0]))))
@@ -1062,21 +1202,32 @@ class WorldCanvas(_BaseCanvas):
                        f"err={f.prediction_error:.2f}")
         self._caption(p, "live RGB camera frame · env=mujoco_rgb (dim-adaptive; high-dim → see Phase Space)")
         cx, cy = dx + dw // 2, dy + dh // 2
+        dim_names = list(getattr(f, "dim_names", []) or [])
+        pdims: List[int] = []
+        adims: List[int] = []
         pred = f.predicted_state
-        if pred is not None and pred.size >= 2:
-            ex = int(np.clip(cx + (pred[0] - cx) * 0.3, dx, dx + dw))
-            ey = int(np.clip(cy + (pred[1] - cy) * 0.3, dy, dy + dh))
-            _arrow(p, cx, cy, ex, ey, QtGui.QColor(39, 174, 96), size=8)
+        if pred is not None:
+            pvec = np.asarray(pred, dtype=np.float32).reshape(-1)
+            if pvec.size >= 1:
+                pvx, pvy, pdims = _vec_pca2(pvec)
+                ex = int(np.clip(cx + pvx * 40, dx, dx + dw))
+                ey = int(np.clip(cy - pvy * 40, dy, dy + dh))
+                _arrow(p, cx, cy, ex, ey, QtGui.QColor(39, 174, 96), size=8)
         act = f.continuous_action if f.continuous_action is not None else f.last_action_vector
-        if act is not None and act.size >= 2:
-            ax = int(np.clip(cx + float(np.clip(act[0], -1, 1)) * 40, dx, dx + dw))
-            ay = int(np.clip(cy + float(np.clip(act[1], -1, 1)) * 40, dy, dy + dh))
-            _arrow(p, cx, cy, ax, ay, ACCENT, size=8)
+        if act is not None:
+            avec = np.asarray(act, dtype=np.float32).reshape(-1)
+            if avec.size >= 1:
+                avx, avy, adims = _vec_pca2(avec)
+                ax = int(np.clip(cx + avx * 40, dx, dx + dw))
+                ay = int(np.clip(cy - avy * 40, dy, dy + dh))
+                _arrow(p, cx, cy, ax, ay, ACCENT, size=8)
         if self.proj is not None:
             inset_x = int(w * 0.62) + 6
             self._draw_projection_inset(p, f, inset_x, 28, w - inset_x - 8, h - 40)
         p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
-        p.drawText(dx, dy + dh + 12, "green=predicted goal  amber=chosen action")
+        plbl = _dim_arrow_label(pdims, dim_names) if pdims else "pred"
+        albl = _dim_arrow_label(adims, dim_names) if adims else "act"
+        p.drawText(dx, dy + dh + 12, f"green=predicted({plbl})  amber=action({albl}) · PCA-2D when dim>2")
 
     def _draw_projection(self, p, f, w, h):
         if self.proj is None:
@@ -1177,17 +1328,21 @@ class DrivesCanvas(_BaseCanvas):
             p.setBrush(QtGui.QColor(30, 30, 38))
             p.drawRect(int(x + 4), int(top), int(barw - 10), int(bot - top))
             # value bar
-            col = _to_qcolor(DRIVE_COLORS[did])
+            col = _drive_color(did)
             p.setBrush(col)
             p.setPen(QtGui.QPen(col.darker(140), 1))
             bh = int(v * (bot - top))
             p.drawRect(int(x + 4), int(bot - bh), int(barw - 10), bh)
+            # v8: raw value beside the compressed bar (0..1, unitless level)
+            p.setPen(TEXT_COL if active else DIM_COL)
+            p.setFont(QtGui.QFont("Sans", 7, QtGui.QFont.Bold if active else 0))
+            p.drawText(int(x + 4), int(bot - bh) - 2, f"{v:.2f}")
             # target marker
             ty = bot - t * (bot - top)
             p.setPen(QtGui.QPen(ACCENT, 2))
             p.drawLine(int(x + 2), int(ty), int(x + barw - 6), int(ty))
             # label (abbreviated)
-            lbl = DRIVE_SHORT[did]
+            lbl = _drive_short(did)
             p.setPen(ACCENT if active else TEXT_COL)
             if active:
                 p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
@@ -1195,15 +1350,17 @@ class DrivesCanvas(_BaseCanvas):
             p.setFont(QtGui.QFont("Sans", 8))
             if active:
                 p.setPen(TEXT_COL)
-                p.drawText(int(x + 4), h - 4, DRIVE_NAMES[did].split()[1])
-        self._title(p, f"Drives  value vs ◆target  active={DRIVE_SHORT.get(f.active_drive_id,'?')}")
-        self._caption(p, "fixed 0..1 scale (no per-frame rescale) · ◆ = target · 6 homeostatic drives")
+                p.drawText(int(x + 4), h - 4, _drive_name(did).split()[-1] if " " in _drive_name(did) else _drive_name(did))
+        self._title(p, f"Drives  value vs ◆target  active={_drive_short(f.active_drive_id) if f.active_drive_id else '?'}")
+        self._caption(p, f"fixed 0..1 scale · ◆ = target · {n} homeostatic drives · numbers = raw level")
         # color legend
         p.setFont(QtGui.QFont("Sans", 7))
         lx = left + 4
         for did in (1, 3, 5):
-            p.setPen(_to_qcolor(DRIVE_COLORS[did])); p.drawLine(lx, 30, lx + 10, 30)
-            p.setPen(DIM_COL); p.drawText(lx + 13, 33, DRIVE_NAMES[did])
+            if did > n:
+                continue
+            p.setPen(_drive_color(did)); p.drawLine(lx, 30, lx + 10, 30)
+            p.setPen(DIM_COL); p.drawText(lx + 13, 33, _drive_name(did))
             lx += 92
 
 
@@ -1254,6 +1411,9 @@ class AttentionCanvas(_BaseCanvas):
             p.setBrush(QtGui.QColor(155, 89, 182, 210))
             p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 1))
             p.drawRect(int(x), int(bot - bh), int(bw - 8), bh)
+            # v8: raw salience beside the compressed bar (unitless weight)
+            p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
+            p.drawText(int(x), int(bot - bh) - 2, f"{raw:.2g}")
             p.setPen(TEXT_COL); p.setFont(QtGui.QFont("Sans", 8))
             p.drawText(int(x), h - 8, f"#{int(f.attention_indices[i])}")
         p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
@@ -1383,6 +1543,14 @@ class CognitiveFlowView(_BaseCanvas):
         # slow wall-clock animation (decoupled from cycle rate → no strobe)
         self._anim_t: float = 0.0
         self._last_wall: float = time.monotonic()
+        # v8: heatmap is repaint-heavy (≈80×13 cells) → cache to a QPixmap and
+        # regenerate at most every 0.5 s (2 Hz sub-cadence).
+        self._heat_pm: Optional[QtGui.QPixmap] = None
+        self._heat_t: float = 0.0
+        self._heat_key: tuple = ()
+        # v8 B2: EMA-smoothed link widths (Sankey activation mass share).
+        self._link_smooth: Dict[str, _Smoother] = {}
+        self._topo_sig: tuple = ()
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
@@ -1440,17 +1608,23 @@ class CognitiveFlowView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Cognitive flow…"); return
-        self._title(p, "Cognitive flow — radial pipeline (active node enlarged)")
+        self._title(p, "Cognitive flow — radial Sankey (link width = timing share)")
         self._caption(p, "disc radius/colour = timing cost · red = RBTA violation · "
-                         "gold arc = active edge · satellites = side modules")
+                         "link width = activation mass · gold arc = active edge")
         pos, (cx, cy), R = self._node_pos(w, h)
         n = len(PIPELINE)
         active_idx = self._active_idx
-        # main-chain chords with arrowheads + travelling packet on the active edge
+        tot = sum(float(f.module_timings.get(m, 0.0)) for m in PIPELINE) or 1.0
+        # v8 B2: Sankey links — width ∝ EMA-smoothed timing share between adjacent nodes.
         for i in range(n - 1):
             a, b = pos[PIPELINE[i]], pos[PIPELINE[i + 1]]
-            col = QtGui.QColor(241, 196, 15, 230) if i == active_idx else QtGui.QColor(120, 120, 140, 150)
-            _arrow(p, a[0], a[1], b[0], b[1], col, size=10)
+            m0, m1 = PIPELINE[i], PIPELINE[i + 1]
+            share = (float(f.module_timings.get(m0, 0.0)) + float(f.module_timings.get(m1, 0.0))) / tot
+            sm = self._link_smooth.setdefault(f"{m0}>{m1}", _Smoother(0.2))
+            w_share = sm.value(share)
+            col = QtGui.QColor(241, 196, 15, 230) if i == active_idx else QtGui.QColor(120, 120, 140, 170)
+            lw = 1.5 + w_share * 14.0
+            _radial_sankey_link(p, a[0], a[1], b[0], b[1], cx, cy, col, width=lw)
         if 0 <= active_idx < n - 1:
             a, b = pos[PIPELINE[active_idx]], pos[PIPELINE[active_idx + 1]]
             t = self._anim_t - active_idx
@@ -1600,20 +1774,35 @@ class CognitiveFlowView(_BaseCanvas):
             return
         mods = PIPELINE + SIDE_MODULES
         h = self.height(); strip_h = 18; top = h - strip_h - 4
-        rmax = max((max((mt.get(m, 0.0) for m in mods), default=0.0) for mt in self.heat), default=1.0)
-        rmax = rmax if rmax > 1e-6 else 25.0
-        cw = (self.width() - 20) / max(len(self.heat), 1)
-        for i, mts in enumerate(self.heat):
-            for j, mod in enumerate(mods):
-                ms = float(mts.get(mod, 0.0))
-                a = int(np.clip(ms / rmax, 0, 1) * 230)
-                if a < 6:
-                    continue
-                p.fillRect(int(10 + i * cw), int(top + j * (strip_h / len(mods))),
-                           int(cw) + 1, int(strip_h / len(mods)) - 1,
-                           QtGui.QColor(231, 76, 60, a))
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(10, top - 2, f"module×cycle cost heatmap (rolling-max={rmax:.1f}ms)")
+        # v8: render the heatmap into a backing pixmap at most every 0.5 s
+        # (2 Hz sub-cadence); blit the cache in between. Keyed on size + heat
+        # length so a resize / new cycle column triggers a fresh render.
+        key = (self.width(), self.height(), len(self.heat))
+        now = time.monotonic()
+        if (self._heat_pm is None or key != self._heat_key
+                or now - self._heat_t >= 0.5):
+            self._heat_t = now; self._heat_key = key
+            pm = QtGui.QPixmap(self.width(), self.height())
+            pm.fill(QtCore.Qt.transparent)
+            rp = QtGui.QPainter(pm)
+            rp.setRenderHint(QtGui.QPainter.Antialiasing, False)
+            rmax = max((max((mt.get(m, 0.0) for m in mods), default=0.0) for mt in self.heat), default=1.0)
+            rmax = rmax if rmax > 1e-6 else 25.0
+            cw = (self.width() - 20) / max(len(self.heat), 1)
+            for i, mts in enumerate(self.heat):
+                for j, mod in enumerate(mods):
+                    ms = float(mts.get(mod, 0.0))
+                    a = int(np.clip(ms / rmax, 0, 1) * 230)
+                    if a < 6:
+                        continue
+                    rp.fillRect(int(10 + i * cw), int(top + j * (strip_h / len(mods))),
+                                int(cw) + 1, int(strip_h / len(mods)) - 1,
+                                QtGui.QColor(231, 76, 60, a))
+            rp.setPen(DIM_COL); rp.setFont(_F_AXIS)
+            rp.drawText(10, top - 2, f"module×cycle cost heatmap (rolling-max={rmax:.1f}ms · 2 Hz)")
+            rp.end()
+            self._heat_pm = pm
+        p.drawPixmap(0, 0, self._heat_pm)
 
 
 # ----- Action Selection tab --------------------------------------------------
@@ -1631,6 +1820,12 @@ class CandidateScoreView(_BaseCanvas):
         self.proj: Optional[BeliefProjection] = None
         # v7: stable score range so ranked bar heights don't twitch frame-to-frame.
         self._score_scale = ScaleState(contract=0.05, head=0.10)
+        # v8 B3: freeze ranked list per cycle (no re-sort jitter within a cycle).
+        self._rank_sig: tuple = ()
+        self._rank_scores: List[float] = []
+        self._rank_chosen: int = -1
+        self._rank_names: List[str] = []
+        self._rank_pareto: set = set()
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
@@ -1663,8 +1858,9 @@ class CandidateScoreView(_BaseCanvas):
         and labels PCA variance-explained when the projection exposes it.
         """
         rollouts = list(getattr(f, "candidate_rollouts", []) or [])
-        label = ("MPC candidate cloud (chosen ◆)" if is_continuous
-                 else "per-action predicted-next (chosen ◆)")
+        pareto = set(int(x) for x in (getattr(f, "pareto_front", []) or []))
+        label = ("MPC candidate cloud (chosen solid · alts faded)" if is_continuous
+                 else "per-action predicted-next (chosen solid · alts faded)")
         varexp_fn = getattr(self.proj, "variance_explained", None)
         varexp = varexp_fn() if callable(varexp_fn) else None
         if varexp:
@@ -1691,24 +1887,45 @@ class CandidateScoreView(_BaseCanvas):
                 p.drawEllipse(cx - 3, cy - 3, 6, 6)
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 p.drawText(cx + 6, cy + 3, "now")
-                for r in rollouts:
+                drawn: List[Tuple[int, int, int, QtGui.QColor, bool, bool]] = []
+                for i, r in enumerate(rollouts):
                     pt = self.proj.project(r.get("predicted"))
                     if pt is None:
                         continue
                     rx, ry = _map_pt(pt, bounds, px0, py0, px1, py1)
                     s = float(r.get("score", 0.0))
                     t = (s - smin) / srange
-                    col = QtGui.QColor(int(231 - 180 * t), int(60 + 140 * t), int(60 + 60 * t), 220)
-                    p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
-                    rad = 6 if r.get("chosen") else 4
-                    p.drawEllipse(rx - rad, ry - rad, rad * 2, rad * 2)
-                    if r.get("chosen"):
-                        p.setBrush(QtGui.QColor(241, 196, 15, 60))
-                        p.setPen(QtGui.QPen(ACCENT, 2))
-                        p.drawEllipse(rx - 8, ry - 8, 16, 16)
-                    if is_continuous and cur is not None:
-                        p.setPen(QtGui.QPen(col, 1))
+                    base = QtGui.QColor(int(231 - 180 * t), int(60 + 140 * t), int(60 + 60 * t))
+                    chosen = bool(r.get("chosen"))
+                    is_pareto = i in pareto
+                    drawn.append((rx, ry, i, base, chosen, is_pareto))
+                # v8 B3: alts first (faded), then chosen on top (solid).
+                for rx, ry, i, base, chosen, is_pareto in drawn:
+                    if chosen:
+                        continue
+                    col = QtGui.QColor(base.red(), base.green(), base.blue(), 90)
+                    if is_continuous:
+                        p.setPen(QtGui.QPen(col, 1, QtCore.Qt.DashLine))
                         p.drawLine(cx, cy, rx, ry)
+                    p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
+                    p.drawEllipse(rx - 4, ry - 4, 8, 8)
+                    if is_pareto:
+                        p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
+                        p.setBrush(QtGui.QColor(0, 0, 0, 0))
+                        p.drawEllipse(rx - 7, ry - 7, 14, 14)
+                for rx, ry, i, base, chosen, is_pareto in drawn:
+                    if not chosen:
+                        continue
+                    col = QtGui.QColor(base.red(), base.green(), base.blue(), 230)
+                    if is_continuous:
+                        p.setPen(QtGui.QPen(col, 2))
+                        p.drawLine(cx, cy, rx, ry)
+                    p.setBrush(col); p.setPen(QtGui.QPen(ACCENT, 2))
+                    p.drawEllipse(rx - 6, ry - 6, 12, 12)
+                    if is_pareto:
+                        p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
+                        p.setBrush(QtGui.QColor(0, 0, 0, 0))
+                        p.drawEllipse(rx - 9, ry - 9, 18, 18)
             return
         # Fallback: per-action predicted-bar mini (no projection basis yet).
         n = len(rollouts)
@@ -1763,7 +1980,15 @@ class CandidateScoreView(_BaseCanvas):
         list_x, list_y, list_w, list_h = 10, 40, left_w, h - 70
         rx0 = w // 2 + 6
         if scores:
-            self._ranked_list(p, scores, chosen, pareto, names, is_continuous,
+            sig = freeze_sig((tuple(names), tuple(round(s, 4) for s in scores), chosen))
+            if sig != self._rank_sig:
+                self._rank_sig = sig
+                self._rank_scores = list(scores)
+                self._rank_chosen = chosen
+                self._rank_names = list(names)
+                self._rank_pareto = set(pareto)
+            self._ranked_list(p, self._rank_scores, self._rank_chosen, self._rank_pareto,
+                             self._rank_names, is_continuous,
                              list_x, list_y, list_w, list_h)
         else:
             tag = "EXPLORE (random action)" if explored else (note or "D5 ENERGY → STAY (no candidates)")
@@ -1981,8 +2206,9 @@ class TrajectoryView(_BaseCanvas):
                 p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
                 p.drawEllipse(int(ox + c * cell + cell * 0.3), int(oy + r * cell + cell * 0.3),
                               int(cell * 0.4), int(cell * 0.4))
-            self._title(p, f"GridWorld trajectory (trail={len(tl)}) + G′ |pred−actual| heatmap")
-            self._caption(p, "agent trail over time · cell heat = per-dim prediction error magnitude")
+            emax = float(self.errmap.max()) if self.errmap is not None else 0.0
+            self._title(p, f"GridWorld trajectory (trail={len(tl)}) + G′ |pred−actual| heatmap  max err={emax:.2f}")
+            self._caption(p, "agent trail over time · cell heat = per-dim prediction error magnitude (0..1)")
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
             p.drawText(8, h - 6, "red = where world model is wrong")
         else:
@@ -2064,10 +2290,14 @@ class TrajectoryView(_BaseCanvas):
             proj_lbl = "raw-2D" if raw2d else "PCA-2D"
             self._title(p, f"Belief-space projection ({proj_lbl}, dim={f.state_dim or '?'}) + {kind} uncertainty ellipse{ve_txt}")
             self._caption(p, "belief trajectory · ellipse = G′ posterior σ projected · faint cloud = rollouts")
+            # v8 B4: explained-variance badge (PCA only)
+            if varexp is not None and not raw2d:
+                p.setPen(QtGui.QColor(52, 152, 219)); p.setFont(_F_LABEL_B)
+                p.drawText(px0 + 6, py0 + 14, f"PCA {varexp:.0f}% var")
             # v7: basis-stability badge (only meaningful for PCA, not raw-2D)
             if not raw2d and getattr(self.proj, "basis_changed", False):
                 p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
-                p.drawText(px0 + 6, py0 + 14, "⟳ PCA re-fit")
+                p.drawText(px0 + 6, py0 + 28, "⟳ PCA re-fit")
             self._legend(p, [("● current", ACCENT), ("● predicted next", QtGui.QColor(46, 204, 113)),
                              ("○ goal", ACCENT), ("◐ candidates", QtGui.QColor(150, 150, 160)),
                              ("◯ ±σ ellipse", QtGui.QColor(52, 152, 219))],
@@ -2089,8 +2319,7 @@ class DriveRadarView(_BaseCanvas):
         self.frame = f
         lv = list(f.drive_levels or [])
         if lv:
-            n = min(6, len(lv))
-            self.hist.append([float(lv[i]) for i in range(n)])
+            self.hist.append([float(x) for x in lv])
         self._active = int(getattr(f, "active_drive_id", 0) or 0)
         self._dirty = True
 
@@ -2103,7 +2332,7 @@ class DriveRadarView(_BaseCanvas):
         if not hist:
             self._empty(p, "Drive radar (collecting…)"); return
         n = len(hist[-1])
-        n = max(3, min(6, n))
+        n = max(3, n)
         pts = []
         for i in range(n):
             ang = -math.pi / 2 + i * 2 * math.pi / n
@@ -2119,12 +2348,12 @@ class DriveRadarView(_BaseCanvas):
         for i, (x, y, a) in enumerate(pts):
             did = i + 1
             is_active = (did == self._active)
-            p.setPen(QtGui.QPen(_to_qcolor(DRIVE_COLORS[did]) if is_active else QtGui.QColor(50, 50, 60),
+            p.setPen(QtGui.QPen(_drive_color(did) if is_active else QtGui.QColor(50, 50, 60),
                                 2 if is_active else 1))
             p.drawLine(cx, cy, int(x), int(y))
             lx = cx + (R + 16) * math.cos(a); ly = cy + (R + 16) * math.sin(a)
-            p.setPen(_to_qcolor(DRIVE_COLORS[did])); p.setFont(_F_LABEL_B)
-            p.drawText(int(lx) - 12, int(ly) + 4, DRIVE_SHORT[did])
+            p.setPen(_drive_color(did)); p.setFont(_F_LABEL_B)
+            p.drawText(int(lx) - 12, int(ly) + 4, _drive_short(did))
         # drive_targets ghost polygon (the setpoints the agent is pulled toward)
         tgt = list(getattr(self.frame, "drive_targets", []) or []) if self.frame else []
         if tgt:
@@ -2160,7 +2389,7 @@ class DriveRadarView(_BaseCanvas):
         for i, lvl in enumerate(cur):
             ang = -math.pi / 2 + i * 2 * math.pi / n
             vx = int(cx + lvl * R * math.cos(ang)); vy = int(cy + lvl * R * math.sin(ang))
-            p.setBrush(_to_qcolor(DRIVE_COLORS[i + 1]))
+            p.setBrush(_drive_color(i + 1))
             p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
             p.drawEllipse(vx - 3, vy - 3, 6, 6)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
@@ -2171,8 +2400,8 @@ class DriveRadarView(_BaseCanvas):
                 ty = int(cy + (lvl + 0.06) * R * math.sin(ang))
                 p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 2))
                 p.drawLine(vx, vy, tx, ty)
-        self._title(p, "6-drive radar (solid=level · dashed=target · red tick=deficit)")
-        self._caption(p, "radial drive levels 0..1 · faded = recent history · active spoke bold · numbers = level")
+        self._title(p, f"{n}-drive radar (solid=level · dashed=target · red tick=deficit)")
+        self._caption(p, "radial drive levels 0..1 · faded = recent history · active spoke bold · numbers = raw level")
 
 
 class _DimSelector(QtWidgets.QWidget):
@@ -2331,10 +2560,16 @@ class _PhasePortraitView(_BaseCanvas):
             p.drawText(int(x), bot + 11, lbl if n <= 24 else str(int(idx[i])))
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(20, h - 4, f"scale 0..{mx:.3g}  (named dims · pager below)")
-        # v7: top-K offenders inset (the ranked info the old re-sort tried to show,
-        # now as a stable side list instead of destabilising the bars).
-        self._offenders = [int(x) for x in np.argsort(-errs)[:5]]
-        self._offenders_inset(p, errs, f, w - 150, 40, 140, h // 2 - 44)
+        # v8: top-K offenders inset — recompute at most every ~0.5 s (was every
+        # frame → the inset re-sorted per heartbeat). Use the cached offenders +
+        # errs between recompute ticks.
+        now = time.monotonic()
+        if now - self._offender_t >= 0.5 or not self._offenders:
+            self._offender_t = now
+            self._offenders = [int(x) for x in np.argsort(-errs)[:5]]
+            self._offender_errs = errs
+        self._offenders_inset(p, self._offender_errs if self._offender_errs is not None else errs,
+                              f, w - 150, 40, 140, h // 2 - 44)
         self._legend(p, [("▮ error", QtGui.QColor(231, 76, 60)),
                          ("├─┤ ±σ whisker", QtGui.QColor(52, 152, 219))],
                      y=h // 2 + 4, x=20)
@@ -2344,6 +2579,36 @@ class _PhasePortraitView(_BaseCanvas):
                     "mutual_info trend", left=40, right=w // 2 - 6, scale=self._mi_scale)
         self._trend(p, self.be_hist, t_top, t_bot, QtGui.QColor(46, 204, 113),
                     "belief-entropy trend", left=w // 2 + 6, right=w - 16, scale=self._be_scale)
+        # v8 B4: parallel-coords strip for high-dim residual (pred−actual)
+        if d > 8:
+            pc_top, pc_bot = t_bot + 8, h - 4
+            self._parallel_residual(p, pred[:d], ref[:d], f, 20, pc_top, w - 40, pc_bot - pc_top)
+
+    def _parallel_residual(self, p: QtGui.QPainter, pred: np.ndarray, ref: np.ndarray,
+                           f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
+        """v8 B4: parallel-coords strip for |pred−actual| residual (high-dim)."""
+        if h < 12 or w < 40:
+            return
+        resid = np.abs(pred - ref)
+        n = min(len(resid), 48)
+        if n < 2:
+            return
+        mx = float(resid[:n].max()) or 1.0
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(x, y - 2, f"residual |pred−actual| parallel-coords (top {n} dims)")
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawRect(x, y, w, h)
+        step = w / max(n - 1, 1)
+        path = QtGui.QPainterPath()
+        for i in range(n):
+            frac = float(resid[i]) / mx
+            px = x + i * step
+            py = y + h - frac * (h - 4) - 2
+            (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60, 200), 1))
+        p.drawPath(path)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        for i in range(0, n, max(1, n // 8)):
+            p.drawText(int(x + i * step) - 8, y + h + 10, _dim_label(i, f)[:5])
 
     def _offenders_inset(self, p: QtGui.QPainter, errs: np.ndarray,
                          f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
@@ -2453,12 +2718,12 @@ class RetentionView(_BaseCanvas):
         # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
         self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15)
-        self._envelope_gauge(p, 10, 24, w - 20, 30, env_seg, env_ok)
-        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=60)
+        self._envelope_gauge(p, 10, 24, w - 20, 46, env_seg, env_ok)
+        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=76)
         # v8: demoted the triplicate M3/M4/resources panels to ONE RSS+lat
         # sparkline (the envelope gauge already shows M3/M4 engagement; prune
         # events are covered by the violation table + envelope segments).
-        self._resources_panel(p, 70, h - 8)
+        self._resources_panel(p, 86, h - 8)
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -2651,8 +2916,8 @@ class RBTABoundsView(_BaseCanvas):
                        and any(b.get(t) for t, _, _ in btypes)})
         if not mods:
             self._empty(p, "RBTA bound envelope (no bounds)"); return
-        self._title(p, f"RBTA bound envelope — measured vs B_time/B_mem/B_energy  ({len(mods)} mods)")
-        self._caption(p, "▮ measured vs │ bound · overflow past tick = red violation · faint line = EMA history")
+        self._title(p, f"RBTA bound envelope — retention score R=e^{{-t/S}}  ({len(mods)} mods)")
+        self._caption(p, "sparkline = retention decay · ▮ measured vs │ bound · red = violation")
         col_w = w // max(len(btypes), 1)
         top, bot = 40, h - 8
         for ci, (bt, blbl, bcol) in enumerate(btypes):
@@ -2689,32 +2954,28 @@ class RBTABoundsView(_BaseCanvas):
                 p.drawText(cx, y + 12, f"{mid[:10]:>10}")
                 ratio = meas / b
                 col = QtGui.QColor(231, 76, 60) if ratio > 1.0 else bcol
-                # faint EMA sparkline behind the bar
-                vals = list(self._hist.get(key, []))
-                if len(vals) >= 2:
-                    mx = max(vals) or 1.0
-                    p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 50), 1))
-                    nn = len(vals)
-                    for k in range(1, nn):
-                        x0 = cx + 100 + (k - 1) * bw_max / max(nn - 1, 1)
-                        x1 = cx + 100 + k * bw_max / max(nn - 1, 1)
-                        y0 = y + 14 - (vals[k - 1] / mx) * 10
-                        y1 = y + 14 - (vals[k] / mx) * 10
-                        p.drawLine(int(x0), int(y0), int(x1), int(y1))
+                # v8 B5: retention-score sparkline R=e^{-t/S} (S from bound scale)
+                S = max(b / max(meas, 1e-6), 2.0) * 4.0
+                spark_x, spark_w, spark_h = cx + 100, bw_max - 8, 10
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-                p.drawRect(cx + 100, y + 4, bw_max, 12)
-                # v7: overflow past the tick in red (don't clamp — show magnitude)
+                p.drawRect(spark_x, y + 4, spark_w, spark_h)
+                _draw_decay_sparkline(p, spark_x + 2, y + 5, spark_w - 4, spark_h - 2, S, col)
+                # measured bar + bound tick (compact)
+                bar_y = y + 16
+                p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+                p.drawRect(cx + 100, bar_y, bw_max, 8)
                 fw = int(min(ratio, 1.0) * bw_max)
-                p.fillRect(cx + 100, y + 4, fw, 12, col)
+                p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+                p.fillRect(cx + 100, bar_y, fw, 8, col)
                 if ratio > 1.0:
                     over = int(min((ratio - 1.0) * bw_max, bw_max * 0.5))
-                    p.fillRect(cx + 100 + bw_max, y + 4, over, 12, QtGui.QColor(231, 76, 60, 200))
-                # bound tick
+                    p.fillRect(cx + 100 + bw_max, bar_y, over, 8, QtGui.QColor(231, 76, 60, 200))
                 p.setPen(QtGui.QPen(ACCENT, 2))
-                p.drawLine(cx + 100 + bw_max, y + 2, cx + 100 + bw_max, y + 16)
+                p.drawLine(cx + 100 + bw_max, bar_y - 1, cx + 100 + bw_max, bar_y + 9)
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                r_now = _retention_score(0.0, S)
                 over_t = "  OVER" if ratio > 1.0 else ""
-                p.drawText(cx + 100 + bw_max + 4, y + 14, f"{meas:.1f}/{b:.0f}{over_t}")
+                p.drawText(cx + 100 + bw_max + 4, bar_y + 8, f"R={r_now:.2f}{over_t}")
 
 
 # ----- NEW Memory & Belief tab ------------------------------------------------
@@ -2746,30 +3007,55 @@ class MemoryBeliefView(_BaseCanvas):
         # ---- left: M3 ranked bars (frozen via content hash) ----
         col_w = w // 2 - 8
         my = h // 3 + 40
-        self._title(p, "M3 episodic memory — ranked by prediction error", x=10, y=my)
+        self._title(p, "M3 episodic memory — ranked by retention score", x=10, y=my)
         m3 = list(getattr(f, "m3_recent", None) or []) + list(getattr(f, "m3_top_error", None) or [])
         sig = freeze_sig(m3)
         if sig != self._m3_sig:
             self._m3_cache = m3; self._m3_sig = sig
-        self._ranked_bars(p, self._m3_cache, key="prediction_error",
-                          label_fn=lambda ep: f"d{ep.get('drive_id','?')} conf={ep.get('confidence','?')}",
-                          x=10, y=my + 12, w=col_w, h=h - my - 14,
-                          col=QtGui.QColor(52, 152, 219))
-        # ---- right: M4 ranked bars + retention-cap gauge ----
+        self._ranked_decay_cards(p, self._m3_cache, f,
+                                 label_fn=lambda ep: f"d{ep.get('drive_id','?')} conf={ep.get('confidence','?')}",
+                                 score_fn=lambda ep, fr: _retention_score(
+                                     max(0, int(fr.cycle_id) - int(ep.get('timestamp', fr.cycle_id))),
+                                     max(float(ep.get('confidence', 0.1) or 0.1) * 80.0, 5.0)),
+                                 x=10, y=my + 12, w=col_w, h=h - my - 36,
+                                 col=QtGui.QColor(52, 152, 219))
+        # v8 B6: episodic timeline mark strip (M3 events coloured by salience/confidence)
+        self._episodic_timeline(p, self._m3_cache, f, 10, h - 22, col_w, 14)
+        # ---- right: M4 retention cards + retention-cap gauge ----
         rx = col_w + 16
-        self._title(p, "M4 consolidated facts — ranked by support", x=rx, y=my)
+        self._title(p, "M4 consolidated facts — ranked by retention score", x=rx, y=my)
         m4 = list(getattr(f, "m4_relevant", None) or []) + list(getattr(f, "m4_top", None) or [])
         sig4 = freeze_sig(m4)
         if sig4 != self._m4_sig:
             self._m4_cache = m4; self._m4_sig = sig4
-        self._ranked_bars(p, self._m4_cache, key="support",
-                          label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
-                          x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
-                          col=QtGui.QColor(155, 89, 182))
+        self._ranked_decay_cards(p, self._m4_cache, f,
+                                 label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
+                                 score_fn=lambda fac, fr: float(fac.get('frequency', fac.get('support', 0)) or 0),
+                                 x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
+                                 col=QtGui.QColor(155, 89, 182))
         # retention-cap gauge (top-right of the M4 column)
         self._cap_gauge(p, rx, my - 14, 120, 16, int(f.fact_count), int(f.m4_cap), "M4 cap")
         # v7: demoted |sanitized−raw| diff as a thin EMA-smoothed inset (bottom strip)
         self._diff_inset(p, f, 10, h - 26, w - 20, 22)
+
+    def _episodic_timeline(self, p, items: list, f: ObservabilityFrame,
+                           x: int, y: int, w: int, h: int) -> None:
+        """v8 B6: M3 episodic events as a coloured mark strip along cycle time."""
+        if not items:
+            return
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x, y - 2, "episodic timeline (mark = M3 event · opacity = confidence)")
+        n = len(items); cw = w / max(n, 1)
+        cyc = int(getattr(f, "cycle_id", 0) or 0)
+        for i, ep in enumerate(items[:40]):
+            conf = float(ep.get("confidence", 0.5) or 0.5)
+            did = int(ep.get("drive_id", 1) or 1)
+            col = _drive_color(did); col.setAlpha(int(80 + 140 * min(1.0, conf)))
+            bx = int(x + i * cw)
+            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+            p.fillRect(bx + 1, y + 2, max(int(cw) - 1, 2), h - 4, col)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x + w - 60, y + h - 1, f"now c{cyc}")
 
     def _belief_geography(self, p, f, x, y, w, h) -> None:
         """v7 focal: per-dim belief entropy heat-strip + gprime_uncertainty band."""
@@ -2840,6 +3126,32 @@ class MemoryBeliefView(_BaseCanvas):
         unc = f.gprime_uncertainty
         n = int(unc.size) if (unc is not None and unc.size) else 0
         return [float(tot)] * n if n else [float(tot)]
+
+    def _ranked_decay_cards(self, p, items: list, f: ObservabilityFrame,
+                            label_fn, score_fn, x, y, w, h, col) -> None:
+        """v8 B6: retention-score-ranked cards (swatch + label + decay sparkline)."""
+        if not items:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, y + 12, "(empty)"); return
+        scored = [(float(score_fn(d, f)), d) for d in items]
+        ranked = sorted(scored, key=lambda t: t[0], reverse=True)[:8]
+        rh = max(16, min(30, h // max(len(ranked), 1)))
+        for i, (rscore, d) in enumerate(ranked):
+            ry = y + i * rh
+            if ry + rh > y + h:
+                break
+            S = max(rscore * 0.5, 2.0) if rscore > 1 else max(1.0 / max(rscore, 0.05), 2.0)
+            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+            p.drawRect(x, ry + 4, 6, rh - 10)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(x + 12, ry + rh - 8, label_fn(d)[:28])
+            spark_x = x + 12; spark_w = w - 120
+            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+            p.drawRect(spark_x, ry + 6, spark_w, rh - 14)
+            _draw_decay_sparkline(p, spark_x + 2, ry + 7, spark_w - 4, rh - 16, S, col)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            val_lbl = f"R={rscore:.2f}" if rscore <= 1.0 else f"sup={rscore:.0f}"
+            p.drawText(x + w - 58, ry + rh - 8, val_lbl)
 
     def _ranked_bars(self, p, items: list, key: str, label_fn, x, y, w, h, col) -> None:
         """v7: ranked swatch+bar+caption list (M3 by prediction_error, M4 by support)."""
@@ -2925,15 +3237,21 @@ class GoalsMotivationView(_BaseCanvas):
         self.temp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         self.emp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         # v7: EMA-smoothed per-drive deficit + snapped trend scales.
-        self._def_smooth = [_Smoother(0.2) for _ in range(6)]
+        self._def_smooth: List[_Smoother] = []
         self._temp_scale = ScaleState(contract=0.05, head=0.06)
         self._emp_scale = ScaleState(contract=0.05, head=0.06)
 
+    def _ensure_def_smooth(self, n: int) -> None:
+        while len(self._def_smooth) < n:
+            self._def_smooth.append(_Smoother(0.2))
+
     def set_frame(self, f: ObservabilityFrame) -> None:
         if f.drive_deficits is not None:
-            defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)[:6]
+            defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
+            nd = len(defs)
+            self._ensure_def_smooth(nd)
             self.drive_hist.append([float(x) for x in defs])
-            for i in range(min(6, len(defs))):
+            for i in range(nd):
                 self._def_smooth[i].value(float(defs[i]))
         gh = getattr(f, "goal_history", None)
         if gh:
@@ -2953,13 +3271,16 @@ class GoalsMotivationView(_BaseCanvas):
             self._empty(p, "Goals & motivation…"); return
         levels = f.drive_levels or []
         targets = f.drive_targets or []
-        defs = [self._def_smooth[i]._v if self._def_smooth[i]._have else 0.0 for i in range(6)]
+        nd = _n_drives(f, list(levels))
+        self._ensure_def_smooth(nd)
+        defs = [self._def_smooth[i]._v if i < len(self._def_smooth) and self._def_smooth[i]._have else 0.0
+                for i in range(nd)]
         pareto = set(getattr(f, "pareto_front", None) or [])
         active = int(getattr(f, "active_drive_id", 0) or 0)
         # ---- v7 focal: homeostasis tanks (top, full width) ----
         tank_h = h // 3
-        self._title(p, "Homeostasis tanks — level vs target · gap = deficit · ◯ = Pareto · ▮ = active", x=8, y=14)
-        self._caption(p, "each tank fills to drive_level; dashed line = drive_targets setpoint; red gap = deficit", x=8, y=26)
+        self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active", x=8, y=14)
+        self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint", x=8, y=26)
         self._tanks(p, levels, targets, defs, pareto, active, 8, 32, w - 16, tank_h)
         # ---- bottom-left: goal stack tree + goal_history step-strip ----
         by = tank_h + 40
@@ -2979,13 +3300,13 @@ class GoalsMotivationView(_BaseCanvas):
         self._trend_pair(p, rx, by + h // 4 + 24, rw, h - by - h // 4 - 30)
 
     def _tanks(self, p, levels, targets, defs, pareto, active, x, y, w, h) -> None:
-        """v7 focal: 6 vertical homeostasis tanks."""
-        n = 6
-        tw = w // n - 8
+        """v7 focal: vertical homeostasis tanks (dim-agnostic N drives)."""
+        n = _n_drives(self.frame, list(levels))
+        tw = w // max(n, 1) - 8
         for i in range(n):
             did = i + 1
-            tx = x + i * (w / n) + 4
-            col = _to_qcolor(DRIVE_COLORS[did])
+            tx = x + i * (w / max(n, 1)) + 4
+            col = _drive_color(did)
             lvl = float(levels[i]) if i < len(levels) else 0.0
             tgt = float(targets[i]) if i < len(targets) and targets[i] is not None else None
             dfc = float(defs[i]) if i < len(defs) else 0.0
@@ -2999,17 +3320,26 @@ class GoalsMotivationView(_BaseCanvas):
             lh = int(np.clip(lvl, 0, 1) * (h - 20))
             p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 200))
             p.fillRect(int(tx) + 2, y + (h - 18) - lh, tw - 4, lh, col)
-            # target setpoint dashed line
+            # v8 B7: target setpoint band (lower–upper) + dashed centre line
             if tgt is not None:
+                band = 0.05
+                t_lo = int(np.clip(tgt - band, 0, 1) * (h - 20))
+                t_hi = int(np.clip(tgt + band, 0, 1) * (h - 20))
                 ty = y + (h - 18) - int(np.clip(tgt, 0, 1) * (h - 20))
+                p.setPen(QtCore.Qt.NoPen)
+                p.setBrush(QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
+                p.fillRect(int(tx) + 2, y + (h - 18) - t_hi, tw - 4, t_hi - t_lo, QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
                 p.setPen(QtGui.QPen(ACCENT, 1, QtCore.Qt.DashLine))
                 p.drawLine(int(tx), ty, int(tx) + tw, ty)
-            # deficit gap shading (red between level and target)
+            # deficit gap shading + arrow toward setpoint
             if tgt is not None and dfc > 0.02:
                 ly = y + (h - 18) - lh
-                p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(231, 76, 60, 80))
+                p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(231, 76, 60, 90))
                 gap_top = min(ly, ty); gap_bot = max(ly, ty)
-                p.fillRect(int(tx) + 2, gap_top, tw - 4, gap_bot - gap_top, QtGui.QColor(231, 76, 60, 80))
+                p.fillRect(int(tx) + 2, gap_top, tw - 4, gap_bot - gap_top, QtGui.QColor(231, 76, 60, 90))
+                # deficit arrow (level → setpoint)
+                ax = int(tx + tw // 2); ay = ly
+                _arrow(p, ax, ay, ax, ty, QtGui.QColor(231, 76, 60, 200), size=5)
             # Pareto ring
             if is_pareto:
                 p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
@@ -3017,7 +3347,7 @@ class GoalsMotivationView(_BaseCanvas):
                 p.drawEllipse(int(tx) + tw // 2 - 6, y + (h - 18) - lh - 6, 12, 12)
             # labels
             p.setPen(col if is_active else TEXT_COL); p.setFont(_F_LABEL_B)
-            p.drawText(int(tx), y + h - 4, f"{DRIVE_SHORT[did]} {lvl:.2f}")
+            p.drawText(int(tx), y + h - 4, f"{_drive_short(did)} {lvl:.2f}")
             if tgt is not None:
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 p.drawText(int(tx) + tw - 40, y + h - 4, f"Δ{dfc:.2f}")
@@ -3036,11 +3366,14 @@ class GoalsMotivationView(_BaseCanvas):
             prog = float(g.get("progress", 1.0 if comp else 0.0) or 0.0)
             indent = depth * 14
             col = QtGui.QColor(46, 204, 113) if comp else ACCENT
+            # v8 B7: connector/label line-weight ∝ goal priority (drive dominance proxy)
+            pri_f = float(pri) if isinstance(pri, (int, float)) else 1.0
+            lw = max(1, min(4, int(1 + pri_f)))
             # tree connector
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.setPen(QtGui.QPen(DIM_COL, 1)); p.setFont(_F_AXIS)
             if depth > 0:
                 p.drawText(x + indent - 10, y + 10, "└")
-            p.setPen(col); p.setFont(_F_LABEL_B)
+            p.setPen(QtGui.QPen(col, lw)); p.setFont(_F_LABEL_B)
             tgt_s = f"|tgt|={float(tnorm):.2f}" if tnorm is not None else "no tgt"
             p.drawText(x + indent, y + 10, f"#{i+1} d{did} {tgt_s}")
             # progress bar
@@ -3067,8 +3400,8 @@ class GoalsMotivationView(_BaseCanvas):
         n = len(gh); cw = w / max(n, 1)
         sy = y + 4; sh = h - 4
         for i, did in enumerate(gh):
-            did = max(1, min(6, int(did)))
-            col = _to_qcolor(DRIVE_COLORS[did])
+            did = max(1, int(did))
+            col = _drive_color(did)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             p.fillRect(int(x + i * cw), sy, max(int(cw), 1), sh, col)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
@@ -3079,23 +3412,24 @@ class GoalsMotivationView(_BaseCanvas):
         (magnitude of each drive's pull on the goal vector)."""
         import math
         dgs = getattr(f, "drive_goals", None) or []
+        nd = max(len(dgs), _n_drives(f))
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x + 3, y + 11, "drive pull ‖·‖")
         cx, cy = x + w // 2, y + h // 2 + 6
         R = min(w, h) // 2 - 16
         mags = []
-        for i in range(6):
+        for i in range(nd):
             dg = dgs[i] if i < len(dgs) else None
             m = float(np.linalg.norm(np.asarray(dg, dtype=np.float32))) if dg is not None else 0.0
             mags.append(m)
         mx = max(mags) if mags else 1.0
         mx = mx if mx > 1e-6 else 1.0
-        for i in range(6):
-            ang = -math.pi / 2 + i * math.pi / 3
+        for i in range(nd):
+            ang = -math.pi / 2 + i * 2 * math.pi / max(nd, 1)
             r = (mags[i] / mx) * R
             ex = int(cx + r * math.cos(ang)); ey = int(cy + r * math.sin(ang))
-            col = _to_qcolor(DRIVE_COLORS[i + 1])
+            col = _drive_color(i + 1)
             p.setPen(QtGui.QPen(col, 2)); p.drawLine(cx, cy, ex, ey)
             p.setBrush(col); p.setPen(QtGui.QPen(col, 1))
             p.drawEllipse(ex - 2, ey - 2, 4, 4)
@@ -3105,17 +3439,17 @@ class GoalsMotivationView(_BaseCanvas):
         if not hist:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x, y + 10, "drive×cycle deficit heatmap (collecting…)"); return
-        n = len(hist); cw = w / max(n, 1); rh = h / 6
+        n = len(hist); nd = max((len(d) for d in hist), default=6)
+        cw = w / max(n, 1); rh = h / max(nd, 1)
         for i, defs in enumerate(hist):
-            for j in range(min(6, len(defs))):
+            for j in range(min(nd, len(defs))):
                 a = int(np.clip(defs[j], 0, 1) * 230)
                 if a < 8:
                     continue
-                col = _to_qcolor(DRIVE_COLORS[j + 1]); col.setAlpha(a)
+                col = _drive_color(j + 1); col.setAlpha(a)
                 p.fillRect(int(x + i * cw), int(y + j * rh), int(cw) + 1, int(rh) - 1, col)
-        # v7: correct caption (alpha=more opaque=higher deficit, not 'darker')
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y + h + 8, f"6 drives × {n} cycles · more opaque = higher deficit")
+        p.drawText(x, y + h + 8, f"{nd} drives × {n} cycles · more opaque = higher deficit")
         # v7: labeled colorbar (integer coords — fillRect rejects floats)
         cbw = 6; cbh = int(h); cbx = int(x + w - cbw - 2); cby = int(y)
         steps = 12
@@ -3439,6 +3773,8 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ps_lay.setContentsMargins(6, 6, 6, 6); ps_lay.setSpacing(6)
         self.traj = TrajectoryView(); self.traj.set_projection(self.proj)
         self.radar = DriveRadarView()
+        self.radar.setMaximumHeight(120)  # v8 B4/B7: demoted inset, not co-focal
+        self.radar.setMaximumWidth(200)
         # v5: consolidated per-dim error + uncertainty (one view, not two) + pager
         self.perdim = _PhasePortraitView()
         self.dim_selector = _DimSelector(self.perdim)
