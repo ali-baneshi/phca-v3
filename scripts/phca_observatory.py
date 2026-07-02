@@ -139,6 +139,9 @@ def main() -> None:
     parser.add_argument("--render-fps", type=float, default=30.0,
                         help="hard repaint cap (kept from v5; heartbeat is the effective "
                              "rate). 0 = no cap.")
+    parser.add_argument("--render-hz", type=float, default=6.0,
+                        help="v8 calm-render pacer rate (Hz) — the only rate at which "
+                             "the visible tab's dirty canvases repaint. 6 = calm/no-flicker.")
     parser.add_argument("--no-record", action="store_true", help="live view only, no JSONL/video")
     parser.add_argument("--record-video", action="store_true",
                         help="capture an mp4 from the widget (requires ffmpeg)")
@@ -226,6 +229,9 @@ def main() -> None:
     hb_sync.timeout.connect(_sync_transport)
 
     win.show()
+    # v8: start the calm-render pacer (repaints the visible tab's dirty canvases
+    # at --render-hz; paused/no-new-data → 0 repaints).
+    win.start_render(args.render_hz)
 
     # Optional video pipe.
     video: "_VideoPipe | None" = None

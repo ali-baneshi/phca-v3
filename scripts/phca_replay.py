@@ -232,6 +232,7 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
     transport.play_btn.setChecked(True)
     win.install_transport(transport)
     win.show()
+    win.start_render(6.0)
 
     hb = QtCore.QTimer(win)
     hb.setInterval(int(1000.0 / max(fps, 0.5)))

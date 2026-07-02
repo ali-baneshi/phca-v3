@@ -109,6 +109,9 @@ class ScaleState:
     ``contract`` per update) so the y-axis / projection range never twitches
     frame-to-frame. Add ``head`` fractional headroom on top. Pure read on
     frames; never mutates the cycle.
+
+    v8: ``_AUTOSCALE_FROZEN`` (set by the transport on pause/scrub) freezes the
+    bounds so the eye doesn't re-anchor while inspecting a frozen moment.
     """
 
     __slots__ = ("lo", "hi", "_ema_lo", "_ema_hi", "contract", "head", "_have")
@@ -123,6 +126,10 @@ class ScaleState:
         self._have: bool = False
 
     def update(self, rlo: float, rhi: float) -> Tuple[float, float]:
+        if _AUTOSCALE_FROZEN:
+            # v8: hold bounds while paused/scrubbing — return current without
+            # recomputing so axes don't twitch during inspection.
+            return self.lo, self.hi
         if not self._have:
             self._ema_lo = float(rlo); self._ema_hi = float(rhi)
             self.lo = float(rlo); self.hi = float(rhi)
@@ -174,6 +181,16 @@ def _cost_color(ms: float) -> str:
     if ms < 20.0:
         return "#ff7f0e"
     return "#d62728"
+
+
+# v8: global autoscale-freeze flag — set by the transport on pause/scrub so all
+# ScaleState instances hold their bounds (no eye re-anchoring while inspecting).
+_AUTOSCALE_FROZEN: bool = False
+
+
+def set_autoscale_frozen(frozen: bool) -> None:
+    global _AUTOSCALE_FROZEN
+    _AUTOSCALE_FROZEN = bool(frozen)
 
 
 def _to_qcolor(hex_or_rgb: Any) -> "QtGui.QColor":
@@ -411,28 +428,62 @@ def _draw_qimage(p: QtGui.QPainter, frame: np.ndarray, x: int, y: int,
 # ----- base canvas + shared chart infra --------------------------------------
 
 class _BaseCanvas(QtWidgets.QWidget):
-    """Base for QPainter canvases — stores state, repaints on update()."""
+    """Base for QPainter canvases.
+
+    v8 calm-render: set_frame only stores state + marks ``_dirty``; it does NOT
+    call ``update()``. A single ``RenderPacer`` QTimer (owned by the window)
+    calls :meth:`repaint_if_dirty` on the canvases of the *visible* tab at a
+    calm ~6 Hz cadence. Paused/no-new-data → not dirty → 0 repaints. Subclasses
+    keep their existing ``_draw``; heavy per-frame compute (sorts/argsort/polyfit)
+    must live in ``_draw`` (runs only when visible) not in ``set_frame``."""
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self.setMinimumSize(360, 220)
-        self.setAutoFillBackground(True)
+        # v8: opaque paint + no system background → skip per-frame bg erase.
+        self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
         pal = self.palette()
         pal.setColor(QtGui.QPalette.Window, PANEL_BG)
         self.setPalette(pal)
         self.frame: Optional[ObservabilityFrame] = None
         # v6: repaint counter for the flicker-free acceptance gate.
         self.repaint_count: int = 0
+        # v8: dirty-gating + backing-cache infra.
+        self._dirty: bool = True            # paint at least once on show
+        self._bg_cache: Optional[QtGui.QPixmap] = None
+        self._bg_cache_key: tuple = ()
 
     def set_frame(self, f: ObservabilityFrame) -> None:
+        """Feed state; do NOT repaint. Mark dirty so the RenderPacer picks it up."""
         self.frame = f
-        self.update()
+        self._dirty = True
+
+    def mark_dirty(self) -> None:
+        self._dirty = True
+
+    def repaint_if_dirty(self) -> None:
+        """Called by the RenderPacer on the visible tab. No-op if nothing changed."""
+        if self._dirty:
+            self._dirty = False
+            self.update()
+
+    def _invalidate_cache(self) -> None:
+        self._bg_cache = None
+        self._dirty = True
+
+    def resizeEvent(self, _ev: QtCore.QEvent) -> None:
+        self._invalidate_cache()
+        super().resizeEvent(_ev)
 
     def paintEvent(self, _ev: QtGui.QPaintEvent) -> None:
         self.repaint_count += 1
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.fillRect(self.rect(), PANEL_BG)
+        # v8: blit a cached static layer if the subclass populated one.
+        if self._bg_cache is not None and not self._bg_cache.isNull():
+            p.drawPixmap(0, 0, self._bg_cache)
         try:
             self._draw(p)
         except Exception as e:
@@ -633,7 +684,7 @@ class AgentPortraitView(_BaseCanvas):
         self._sm["RBTA-room"].value(room); self._raw["RBTA-room"] = room * 100.0
         gp = float(getattr(f, "goal_priority", 0.0) or 0.0)
         self._sm["goal-pri"].value(gp); self._raw["goal-pri"] = gp
-        self.update()
+        self._dirty = True
 
     @staticmethod
     def _rbta_room(f: ObservabilityFrame) -> float:
@@ -883,7 +934,7 @@ class WorldCanvas(_BaseCanvas):
                 if not self.arena_trail or self.arena_trail[-1] != pt:
                     self.arena_trail.append(pt)
         # projection history is pushed once by the controller (single source)
-        self.update()
+        self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -1099,7 +1150,7 @@ class DrivesCanvas(_BaseCanvas):
         self.frame: Optional[ObservabilityFrame] = None
 
     def set_frame(self, f: ObservabilityFrame) -> None:
-        self.frame = f; self.update()
+        self.frame = f; self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -1169,7 +1220,7 @@ class TrendCanvas(_ChartCanvas):
         self.conf.append(float(f.prediction_confidence))
         self.title = (f"Prediction error (red, log) & confidence (green)  "
                       f"err={f.prediction_error:.2f}  conf={f.prediction_confidence:.3f}")
-        self.update()
+        self._dirty = True
 
 
 class AttentionCanvas(_BaseCanvas):
@@ -1178,7 +1229,7 @@ class AttentionCanvas(_BaseCanvas):
         self.frame: Optional[ObservabilityFrame] = None
 
     def set_frame(self, f: ObservabilityFrame) -> None:
-        self.frame = f; self.update()
+        self.frame = f; self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -1216,7 +1267,7 @@ class StatusPanel(_BaseCanvas):
         self.cycle_error: Optional[str] = None
 
     def set_state(self, f: Optional[ObservabilityFrame], err: Optional[str]) -> None:
-        self.frame = f; self.cycle_error = err; self.update()
+        self.frame = f; self.cycle_error = err; self._dirty = True
 
     def _gauge(self, p: QtGui.QPainter, x: int, y: int, label: str,
                val: float, vmax: float, unit: str, col: QtGui.QColor,
@@ -1283,22 +1334,6 @@ class StatusPanel(_BaseCanvas):
         self._gauge(p, x, y, "lat", f.latency_ms, 50.0, "ms",
                     QtGui.QColor(46, 204, 113), gw=gw)
         y += 24
-        # v7: 6-segment drive-deficit micro-strip (replaces the MDIM-goal text line)
-        deficits = list(getattr(f, "drive_deficits", []) or [0.0] * 6)
-        active = int(getattr(f, "active_drive_id", 0) or 0)
-        p.setPen(DIM_COL); p.setFont(QtGui.QFont("Monospace", 8))
-        p.drawText(10, y, "Δ drives:")
-        sx = 70; sw = (W - sx - 10) // 6
-        for i in range(6):
-            d = float(deficits[i]) if i < len(deficits) else 0.0
-            col = _to_qcolor(DRIVE_COLORS[i + 1])
-            col.setAlpha(int(60 + 180 * min(1.0, d)))
-            p.setBrush(col)
-            p.setPen(QtGui.QPen(QtCore.Qt.white, 2 if (i + 1) == active else 1))
-            p.drawRect(sx + i * sw, y - 8, sw - 2, 12)
-            p.setPen(TEXT_COL)
-            p.drawText(sx + i * sw + 2, y + 2, f"D{i+1}:{d:.2f}")
-        y += 16
         r = f.action_rationale or {}
         gid = r.get("goal_id")
         goal_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
@@ -1381,7 +1416,7 @@ class CognitiveFlowView(_BaseCanvas):
                                            v.get("module_id", v.get("module", ""))):
                           f"{v.get('bound_type','?')} {v.get('measured','?'):.4g}>{v.get('allowed','?'):.4g}"
                           for v in f.rbta_violations}
-        self.update()
+        self._dirty = True
 
     def _node_pos(self, w: int, h: int):
         import math
@@ -1614,34 +1649,7 @@ class CandidateScoreView(_BaseCanvas):
             self.last_chosen = int(np.argmax(self.last_scores))
         if f.continuous_action is not None:
             self.last_continuous = f.continuous_action
-        self.update()
-
-    def _bars(self, p: QtGui.QPainter, scores: List[float], chosen: int,
-              faded: bool, top: int, bot: int, w: int) -> None:
-        n = len(scores)
-        bw = (w - 40) / n
-        mx = max(scores) if scores else 1.0
-        mx = mx if mx > 1e-6 else 1.0
-        for i, s in enumerate(scores):
-            x = 20 + i * bw
-            bh = int(max(s, 0.0) / mx * (bot - top))
-            if faded:
-                col = QtGui.QColor(241, 196, 15, 70) if i == chosen else QtGui.QColor(52, 152, 219, 60)
-            else:
-                col = QtGui.QColor(241, 196, 15) if i == chosen else QtGui.QColor(52, 152, 219, 200)
-            p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
-            p.drawRect(int(x), int(bot - bh), int(bw - 8), bh)
-            # action name label (gridworld)
-            lbl = GRID_ACTIONS[i] if i < len(GRID_ACTIONS) else str(i)
-            p.setPen(TEXT_COL if i == chosen else DIM_COL)
-            p.setFont(QtGui.QFont("Sans", 7, QtGui.QFont.Bold if i == chosen else 0))
-            p.drawText(int(x), bot + 12, lbl)
-        # chosen annotation
-        if 0 <= chosen < n:
-            x = 20 + chosen * bw
-            p.setPen(ACCENT); p.setFont(QtGui.QFont("Sans", 8, QtGui.QFont.Bold))
-            name = GRID_ACTIONS[chosen] if chosen < len(GRID_ACTIONS) else f"a{chosen}"
-            p.drawText(int(x), bot + 24, f"←{name}")
+        self._dirty = True
 
     def _rollout_cloud(self, p: QtGui.QPainter, f: ObservabilityFrame,
                        x0: int, top: int, x1: int, bot: int, is_continuous: bool) -> None:
@@ -1766,9 +1774,9 @@ class CandidateScoreView(_BaseCanvas):
             p.drawText(list_x, list_y + 42, "(candidate scores are not computed for this branch)")
             if self.last_scores:
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(list_x, list_y + 60, "last non-empty scores (faded):")
-                self._bars(p, self.last_scores, self.last_chosen, faded=True,
-                           top=list_y + 70, bot=list_y + list_h, w=list_w)
+                names = list(getattr(f, "action_names", []) or [])
+                cn = names[self.last_chosen] if self.last_chosen < len(names) else f"a{self.last_chosen}"
+                p.drawText(list_x, list_y + 60, f"last chosen: {cn}  (scores frozen, not redrawn)")
         # right stack: rollout cloud (top) + action heatmap (mid) + ε strip (bottom)
         cloud_top = 40
         self._rollout_cloud(p, f, rx0, cloud_top, w - 10, h // 2 + 10, is_continuous)
@@ -1944,7 +1952,7 @@ class TrajectoryView(_BaseCanvas):
         else:
             self.is_grid = False
             # projection history is pushed once by the controller (single source)
-        self.update()
+        self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -2084,7 +2092,7 @@ class DriveRadarView(_BaseCanvas):
             n = min(6, len(lv))
             self.hist.append([float(lv[i]) for i in range(n)])
         self._active = int(getattr(f, "active_drive_id", 0) or 0)
-        self.update()
+        self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         import math
@@ -2235,6 +2243,10 @@ class _PhasePortraitView(_BaseCanvas):
         self._mi_scale = ScaleState(contract=0.05, head=0.06)
         self._be_scale = ScaleState(contract=0.05, head=0.06)
         self._offenders: List[int] = []
+        # v8: throttle the top-K offender recompute (~0.5 s) so the inset stops
+        # re-sorting every frame.
+        self._offender_t: float = 0.0
+        self._offender_errs: Optional[np.ndarray] = None
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
@@ -2248,12 +2260,12 @@ class _PhasePortraitView(_BaseCanvas):
             be = float(list(f.belief_entropies.values())[0])
         if be is not None:
             self.be_hist.append(float(be))
-        self.update()
+        self._dirty = True
 
     def set_page(self, p: int) -> None:
         n_pages = max(1, (self.n_dims + self.page_size - 1) // self.page_size)
         self.page = max(0, min(n_pages - 1, int(p)))
-        self.update()
+        self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -2412,7 +2424,7 @@ class RetentionView(_BaseCanvas):
         if prev_m4 is not None and int(f.fact_count) < prev_m4:
             self.m4_events.append(len(self.m4) - 1)
             self.m4_reasons[len(self.m4) - 1] = reason
-        self.update()
+        self._dirty = True
 
     def _prune_reason(self, f: ObservabilityFrame) -> str:
         """v7: human-readable prune reason from rbta_action + meta_stable."""
@@ -2433,71 +2445,6 @@ class RetentionView(_BaseCanvas):
         slope = float(np.polyfit(xs, ys, 1)[0])  # B/cyc
         return slope
 
-    def _panel(self, p: QtGui.QPainter, top: int, bot: int, title: str,
-               series: Deque[float], cap: float, col: QtGui.QColor,
-               events: List[int], unit: str = "",
-               reasons: Optional[Dict[int, str]] = None) -> None:
-        w = self.width()
-        left, right = 60, w - 16
-        self._title(p, title, y=top + 12)
-        vals = list(series)
-        p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
-        if vals:
-            cur = vals[-1]
-            if cap and cap > 0:
-                eng = cur / cap * 100 if cap else 0
-                vtxt = f"now={cur:.1f}{unit}  cap={cap:.0f}{unit}  eng={eng:.0f}%"
-            else:
-                vtxt = f"now={cur:.0f}{unit}"
-            rect = p.boundingRect(QtCore.QRect(0, 0, 1, 1), 0, vtxt)
-            p.drawText(right - rect.width(), top + 12, vtxt)
-        lo = min(vals) if vals else 0
-        hi = max(vals) if vals else 1
-        # stable per-panel scale (no per-frame rescale jitter); cap kept in range
-        sc = self._panel_scales.setdefault(title, ScaleState(contract=0.05, head=0.05))
-        lo, hi = sc.update(float(lo), float(max(hi, cap) if cap else hi))
-        if hi - lo < 1e-9:
-            hi = lo + 1
-        n = len(vals)
-        pt0, pt1 = top + 22, bot - 6
-        # gridlines
-        for g in range(1, 3):
-            y = pt0 + g * (pt1 - pt0) // 3
-            p.setPen(QtGui.QPen(QtGui.QColor(40, 40, 50), 1)); p.drawLine(left, y, right, y)
-        # fill + line
-        if n:
-            poly = QtGui.QPolygonF([QtCore.QPointF(left, pt1)])
-            for i, v in enumerate(vals):
-                x = left + i * (right - left) / max(n - 1, 1)
-                y = pt1 - (v - lo) / (hi - lo) * (pt1 - pt0)
-                poly.append(QtCore.QPointF(x, y))
-            poly.append(QtCore.QPointF(left + (n - 1) * (right - left) / max(n - 1, 1), pt1))
-            p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 50))
-            p.setPen(QtGui.QPen(QtGui.QColor(col.red(), col.green(), col.blue(), 50), 1))
-            p.drawPolygon(poly)
-            p.setPen(QtGui.QPen(col, 2))
-            for i in range(1, n):
-                x0 = left + (i - 1) * (right - left) / max(n - 1, 1)
-                x1 = left + i * (right - left) / max(n - 1, 1)
-                y0 = pt1 - (vals[i - 1] - lo) / (hi - lo) * (pt1 - pt0)
-                y1 = pt1 - (vals[i] - lo) / (hi - lo) * (pt1 - pt0)
-                p.drawLine(int(x0), int(y0), int(x1), int(y1))
-            # v7: event markers + prune-reason annotations
-            for ev in events:
-                if 0 <= ev < n:
-                    x = int(left + ev * (right - left) / max(n - 1, 1))
-                    p.setPen(QtGui.QPen(ACCENT, 1)); p.drawLine(x, pt0, x, pt1)
-                    if reasons and ev in reasons:
-                        p.setPen(ACCENT); p.setFont(QtGui.QFont("Sans", 7))
-                        p.drawText(x + 2, pt0 + 8, reasons[ev])
-        # cap line
-        if cap and cap > 0 and hi > 0:
-            cy = pt1 - (cap - lo) / (hi - lo) * (pt1 - pt0)
-            p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 1, QtCore.Qt.DashLine))
-            p.drawLine(left, int(cy), right, int(cy))
-            p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(QtGui.QFont("Sans", 7))
-            p.drawText(right - 60, int(cy) - 3, "cap")
-
     def _draw(self, p: QtGui.QPainter) -> None:
         w, h = self.width(), self.height()
         if not self.m3:
@@ -2506,14 +2453,12 @@ class RetentionView(_BaseCanvas):
         # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
         self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15)
-        self._envelope_gauge(p, 10, 24, w - 20, 26, env_seg, env_ok)
-        self._caption(p, "M3 episodic · M4 consolidated facts · resources = RSS (orange) + latency (green) · prune ticks labelled", y=56)
-        ph = (h - 64) // 3
-        self._panel(p, 64, 64 + ph, "M3 episodes (memory)", self.m3, float(self.m3_cap),
-                    QtGui.QColor(52, 152, 219), self.m3_events, reasons=self.m3_reasons)
-        self._panel(p, 64 + ph, 64 + 2 * ph, "M4 facts (consolidated)", self.m4, float(self.m4_cap),
-                    QtGui.QColor(155, 89, 182), self.m4_events, reasons=self.m4_reasons)
-        self._resources_panel(p, 64 + 2 * ph, h - 4)
+        self._envelope_gauge(p, 10, 24, w - 20, 30, env_seg, env_ok)
+        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=60)
+        # v8: demoted the triplicate M3/M4/resources panels to ONE RSS+lat
+        # sparkline (the envelope gauge already shows M3/M4 engagement; prune
+        # events are covered by the violation table + envelope segments).
+        self._resources_panel(p, 70, h - 8)
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -2597,35 +2542,6 @@ class RetentionView(_BaseCanvas):
                 p.drawLine(int(x0), int(y0), int(x1), int(y1))
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(left, bot - 1, "shared 0..1 normalised scale · stable bounds")
-        # v7: stacked resource breakdown from runtime/memory/energy logs
-        self._resource_breakdown(p, w - 170, top + 30, 160, bot - top - 36)
-
-    def _resource_breakdown(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
-        """v7: stacked bar of runtime_log / memory_log / energy_log totals (wires
-        up the previously-undrawn *_log frame fields)."""
-        f = self.frame
-        if f is None:
-            return
-        logs = [("runtime", getattr(f, "runtime_log", {}) or {}, QtGui.QColor(52, 152, 219)),
-                ("memory", getattr(f, "memory_log", {}) or {}, QtGui.QColor(155, 89, 182)),
-                ("energy", getattr(f, "energy_log", {}) or {}, QtGui.QColor(230, 126, 34))]
-        totals = [(name, float(sum(d.values())) if d else 0.0, col) for name, d, col in logs]
-        gtot = sum(t for _, t, _ in totals) or 1.0
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
-        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-        p.drawText(x + 4, y + 12, "resource logs (stacked)")
-        cy = y + 18; ch = h - 44
-        for name, t, col in totals:
-            bh = int(t / gtot * ch)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(x + 4, cy, w - 8, bh, col)
-            cy += bh
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        ly = y + h - 22
-        for name, t, col in totals:
-            p.setPen(col); p.drawLine(x + 4, ly - 4, x + 16, ly - 4)
-            p.setPen(TEXT_COL); p.drawText(x + 20, ly, f"{name}={t:.2g}")
-            ly += 11
 
 
 class ViolationTable(QtWidgets.QTableWidget):
@@ -2760,7 +2676,10 @@ class RBTABoundsView(_BaseCanvas):
                 items.append((mid, flow, meas_s, float(bv), key))
             if not items:
                 continue
-            items.sort(key=lambda r: r[2] / r[3], reverse=True)
+            # v8: stable fixed module order (PIPELINE-aware) — NO per-frame re-sort
+            # by ratio (that caused positional flicker as rows jumped each frame).
+            order = {k: i for i, k in enumerate(PIPELINE)}
+            items.sort(key=lambda r: (order.get(r[1], 999), r[0]))
             n = len(items)
             rowh = (bot - top - 8) / max(n, 1)
             bw_max = col_w - 170
@@ -3238,14 +3157,19 @@ class GoalsMotivationView(_BaseCanvas):
 # ----- Controller + main window ---------------------------------------------
 
 class _TransportBar(QtWidgets.QFrame):
-    """v6 transport: pause / speed dial / step / scrub / cycle-throttle.
+    """v8 transport: pause-stops-the-world (default) + continuous slow-mo +
+    single-step-cognition + scrub + follow-live.
 
-    Governs a ``PlaybackClock`` (view pause + slow-mo + scrub) and, when
-    "throttle cycles" is checked, a ``CyclePacer`` (slow/stop the real cycle
-    thread). Additive — only shown when installed on a window.
-    """
+    Governs a ``PlaybackClock`` (view cursor) and, when a ``CyclePacer`` is
+    present (live runs), the real cycle thread. **Default semantics (v8
+    inversion):** Pause stops BOTH the view cursor and the cognition; the speed
+    slider slows the cognition continuously down to 0.05× (~3.8 s/step); Step
+    single-steps the cognition. The opt-in **"freeze view only"** checkbox
+    reverts to the old behaviour (Pause/speed affect only the view; cognition
+    continues). Additive — only shown when installed on a window."""
 
-    SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
+    # v8: continuous slow-mo slider range (log-mapped to 0.05× .. 2×).
+    _SMIN, _SMAX = 0.05, 2.0
 
     def __init__(self, clock, pacer=None, parent=None):
         super().__init__(parent)
@@ -3258,72 +3182,109 @@ class _TransportBar(QtWidgets.QFrame):
         self.play_btn.setText("⏸ Pause"); self.play_btn.setCheckable(True)
         self.step_btn = QtWidgets.QToolButton(); self.step_btn.setText("⏭ Step")
         self.follow_btn = QtWidgets.QToolButton(); self.follow_btn.setText("⤓ Live")
-        self.speed = QtWidgets.QComboBox()
-        for s in self.SPEEDS:
-            self.speed.addItem(f"{s:g}×")
-        self.speed.setCurrentIndex(2)  # 1×
+        # v8: continuous slow-mo slider (log scale 0.05× .. 2×, default 1×).
+        import math
+        self._log_lo = math.log(self._SMIN); self._log_hi = math.log(self._SMAX)
+        self.speed = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.speed.setMinimum(0); self.speed.setMaximum(1000); self.speed.setValue(self._speed_to_int(1.0))
+        self.speed.setMaximumWidth(140)
+        self.speed_lbl = QtWidgets.QLabel("1×"); self.speed_lbl.setMinimumWidth(54)
+        # scrubber
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider.setMinimum(0); self.slider.setMaximum(0); self.slider.setValue(0)
         self.label = QtWidgets.QLabel("0 / 0")
         self.label.setMinimumWidth(90)
-        self.throttle = QtWidgets.QCheckBox("throttle cycles")
-        self.throttle.setToolTip("When on, the speed dial + pause also slow/stop the "
-                                 "actual cognitive cycle thread (not just the view).")
+        # v8: "freeze view only" replaces the old "throttle cycles" opt-in.
+        self.freeze_view = QtWidgets.QCheckBox("freeze view only")
+        self.freeze_view.setToolTip("When ON, Pause/speed affect only the VIEW "
+                                    "(the cognition keeps running). Default OFF: "
+                                    "Pause stops the cognition entirely.")
         for w in (self.play_btn, self.step_btn, self.follow_btn, self.speed,
-                  self.slider, self.label):
+                  self.speed_lbl, self.slider, self.label):
             lay.addWidget(w)
-        lay.addWidget(self.throttle, 0)
+        lay.addWidget(self.freeze_view, 0)
         # wire
         self.play_btn.toggled.connect(self._on_play)
         self.step_btn.clicked.connect(self._on_step)
         self.follow_btn.clicked.connect(self._on_follow)
-        self.speed.currentIndexChanged.connect(self._on_speed)
+        self.speed.valueChanged.connect(self._on_speed)
         self.slider.valueChanged.connect(self._on_seek)
         if pacer is None:
-            self.throttle.hide()
+            self.freeze_view.hide()
         else:
-            self.throttle.toggled.connect(self._on_throttle)
+            self.freeze_view.toggled.connect(self._on_freeze_view)
+
+    # --- speed slider log mapping ------------------------------------------
+    def _speed_to_int(self, s: float) -> int:
+        import math
+        s = max(self._SMIN, min(self._SMAX, float(s)))
+        t = (math.log(s) - self._log_lo) / (self._log_hi - self._log_lo)
+        return int(round(t * 1000))
+
+    def _int_to_speed(self, v: int) -> float:
+        import math
+        t = max(0.0, min(1.0, v / 1000.0))
+        return math.exp(self._log_lo + t * (self._log_hi - self._log_lo))
 
     def set_range(self, n: int) -> None:
         self.slider.setMaximum(max(0, n - 1))
+
+    def _cognition_active(self) -> bool:
+        """True when the cognition should be running (not freeze-view-only)."""
+        return self.pacer is not None and not self.freeze_view.isChecked()
 
     def _on_play(self, checked: bool) -> None:
         # checked == paused
         self.play_btn.setText("▶ Play" if checked else "⏸ Pause")
         self.clock.set_paused(checked)
-        if self.pacer is not None and self.throttle.isChecked():
+        set_autoscale_frozen(checked)
+        if self._cognition_active():
             self.pacer.set_paused(checked)
+        elif self.pacer is not None and self.freeze_view.isChecked():
+            # freeze-view-only: cognition runs regardless of pause.
+            self.pacer.set_paused(False)
 
     def _on_step(self) -> None:
-        self.clock.step()
-        self._sync_slider()
+        # v8: if cognition is stopped (paused, not freeze-view-only), single-step
+        # the cognition one cycle; otherwise step the view cursor (replay/freeze).
+        if self._cognition_active() and self.play_btn.isChecked():
+            self.pacer.step_once()
+        else:
+            self.clock.step()
+            self._sync_slider()
+            set_autoscale_frozen(True)
 
     def _on_follow(self) -> None:
         self.clock.follow_live()
         self._sync_slider()
+        set_autoscale_frozen(False)
 
-    def _on_speed(self, _idx: int) -> None:
-        s = self.SPEEDS[self.speed.currentIndex()]
+    def _on_speed(self, val: int) -> None:
+        s = self._int_to_speed(val)
+        self.speed_lbl.setText(f"{s:g}×")
         self.clock.set_speed(s)
-        if self.pacer is not None and self.throttle.isChecked():
+        if self._cognition_active():
             from .playback import throttle_period
             self.pacer.set_period(throttle_period(s))
 
     def _on_seek(self, val: int) -> None:
         self.clock.seek(val)
         self.label.setText(f"{val} / {max(0, self.clock.n - 1)}")
+        set_autoscale_frozen(True)
 
-    def _on_throttle(self, on: bool) -> None:
+    def _on_freeze_view(self, on: bool) -> None:
         if self.pacer is None:
             return
         if on:
-            from .playback import throttle_period
-            s = self.SPEEDS[self.speed.currentIndex()]
-            self.pacer.set_period(throttle_period(s))
-            self.pacer.set_paused(self.play_btn.isChecked())
-        else:
-            self.pacer.set_period(0.0)
+            # freeze-view-only: release the cognition fully.
             self.pacer.set_paused(False)
+            self.pacer.set_period(0.0)
+            set_autoscale_frozen(self.play_btn.isChecked())
+        else:
+            # back to stop-the-world: re-apply current pause + speed.
+            self.pacer.set_paused(self.play_btn.isChecked())
+            from .playback import throttle_period
+            self.pacer.set_period(throttle_period(self._int_to_speed(self.speed.value())))
 
     def _sync_slider(self) -> None:
         i = self.clock.cursor_int
@@ -3382,6 +3343,42 @@ class DashboardController:
             self.w.status.set_state(None, cycle_error)
         if cycle_error:
             self.w.status.set_state(f, cycle_error)
+
+
+class RenderPacer(QtCore.QObject):
+    """v8 calm-render: a single QTimer that repaints only the *visible* tab's
+    canvases, at a calm cadence (default 6 Hz). Each canvas repaints only if it
+    is dirty (new data since last paint). Paused/no-new-data → 0 repaints.
+
+    Owned by ``ObservatoryWindow``; started once. Cheap: one findChildren + a
+    handful of dirty-flag checks per tick."""
+
+    def __init__(self, window: "ObservatoryWindow", render_hz: float = 6.0,
+                 parent: Optional[QtCore.QObject] = None):
+        super().__init__(parent or window)
+        self._window = window
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(int(1000.0 / max(render_hz, 0.5)))
+        self._timer.timeout.connect(self._tick)
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+    def set_hz(self, render_hz: float) -> None:
+        self._timer.setInterval(int(1000.0 / max(render_hz, 0.5)))
+
+    def _tick(self) -> None:
+        tab = self._window._tabs.currentWidget()
+        if tab is None:
+            return
+        for cv in tab.findChildren(_BaseCanvas):
+            try:
+                cv.repaint_if_dirty()
+            except Exception:
+                pass
 
 
 class ObservatoryWindow(QtWidgets.QMainWindow):
@@ -3475,11 +3472,44 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.goals, "Goals & Motivation")
 
         self.controller = DashboardController(self)
+        # v8: calm-render pacer (repaints the visible tab's dirty canvases at
+        # ~6 Hz). Constructed here; started by the launcher via start_render.
+        self.render_pacer = RenderPacer(self, render_hz=6.0)
+        self._transport: Optional[_TransportBar] = None
+
+    def start_render(self, render_hz: Optional[float] = None) -> None:
+        """Start the calm-render pacer (call after show())."""
+        if render_hz is not None:
+            self.render_pacer.set_hz(render_hz)
+        self.render_pacer.start()
 
     def install_transport(self, bar: QtWidgets.QWidget) -> None:
         """Dock a transport bar at the top of the window (additive)."""
         self._top_layout.addWidget(bar, 1)
         self._top_frame.show()
+        if isinstance(bar, _TransportBar):
+            self._transport = bar
+
+    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
+        """v8 keyboard transport: Space=pause, Left/Right=step, Home=seek 0,
+        End=Esc=follow-live. Falls through to super when no transport."""
+        t = self._transport
+        if t is not None:
+            k = ev.key()
+            if k == QtCore.Qt.Key_Space:
+                t.play_btn.toggle(); return
+            if k == QtCore.Qt.Key_Right:
+                t._on_step(); return
+            if k == QtCore.Qt.Key_Left:
+                # step the view cursor back one (scrub); cognition single-step
+                # is forward-only by design.
+                t.clock.seek(max(0, t.clock.cursor_int - 1))
+                t._sync_slider(); set_autoscale_frozen(True); return
+            if k == QtCore.Qt.Key_Home:
+                t.clock.seek(0); t._sync_slider(); set_autoscale_frozen(True); return
+            if k in (QtCore.Qt.Key_End, QtCore.Qt.Key_Escape):
+                t.clock.follow_live(); t._sync_slider(); set_autoscale_frozen(False); return
+        super().keyPressEvent(ev)
 
 
 def make_app() -> "QtWidgets.QApplication":

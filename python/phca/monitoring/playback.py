@@ -90,6 +90,8 @@ class CyclePacer:
         self._paused: bool = False
         self._stop: bool = False
         self._last = time.monotonic()
+        # v8: one-shot gate for single-step-cognition (released by step_once()).
+        self._step_once: int = 0
 
     def set_period(self, seconds: float) -> None:
         with self._lock:
@@ -99,16 +101,26 @@ class CyclePacer:
         with self._lock:
             self._paused = bool(paused)
 
+    def step_once(self) -> None:
+        """v8: release exactly one blocked ``wait()`` (single-step cognition).
+        Idempotent: while paused, calling this lets the next ``cycle.step()``
+        through, then pauses again."""
+        with self._lock:
+            self._step_once += 1
+
     def stop(self) -> None:
         with self._lock:
             self._stop = True
 
     def wait(self) -> None:
-        # Pause: block until unpaused or stopped (coarse 20ms polling).
+        # Pause: block until unpaused, stopped, or a one-shot step token exists.
         while True:
             with self._lock:
                 if self._stop:
                     return
+                if self._step_once > 0:
+                    self._step_once -= 1
+                    break  # allow one step through, then re-loop to re-check pause
                 if not self._paused:
                     break
             time.sleep(0.02)
@@ -123,9 +135,10 @@ class CyclePacer:
         self._last = time.monotonic()
 
 
-# Speed dial → cycle period (seconds) when "throttle cycles" is enabled.
-# 1x/2x/4x = full speed (0); <1 = spaced steps. Pause is handled separately.
-_THROTTLE_PERIOD = {0.25: 0.080, 0.5: 0.030, 1.0: 0.0, 2.0: 0.0, 4.0: 0.0}
+# v8: continuous slow-mo range exported for the transport slider.
+_SPEED_MIN, _SPEED_MAX = 0.05, 2.0
+
+
 
 
 class PlaybackClock:
@@ -259,5 +272,7 @@ class PlaybackClock:
 
 
 def throttle_period(speed: float) -> float:
-    """Map a speed-dial value to a CyclePacer period (seconds)."""
-    return _THROTTLE_PERIOD.get(float(speed), 0.0)
+    """v8: continuous slow-mo. See module docstring above."""
+    s = max(float(speed), 1e-3)
+    period = (1.0 / s - 1.0) * 0.2
+    return max(0.0, min(period, 4.0))
