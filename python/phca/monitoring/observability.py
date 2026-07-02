@@ -88,6 +88,27 @@ def _cached_rss() -> int:
     return val
 
 
+def _normalize_rgb_frame(frame: Any) -> Optional[np.ndarray]:
+    """Coerce MuJoCo/gym camera output to contiguous (H,W,3) uint8 RGB."""
+    if frame is None:
+        return None
+    try:
+        arr = np.asarray(frame)
+    except Exception:
+        return None
+    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4):
+        arr = np.transpose(arr, (1, 2, 0))
+    if arr.ndim != 3 or arr.shape[0] < 1 or arr.shape[1] < 1:
+        return None
+    if arr.shape[-1] == 4:
+        arr = arr[:, :, :3]
+    elif arr.shape[-1] != 3:
+        return None
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+    return np.ascontiguousarray(arr)
+
+
 def _cached_env_frame(env: Any) -> Optional[np.ndarray]:
     """Throttled live RGB camera frame (MuJoCo rgb_array). None if unavailable."""
     getter = getattr(env, "render_rgb", None)
@@ -99,7 +120,10 @@ def _cached_env_frame(env: Any) -> Optional[np.ndarray]:
     if val is None or now - ts > _ENV_FRAME_TTL_S:
         try:
             frame = getter()
-            val = np.asarray(frame).copy() if frame is not None else None
+            if frame is not None:
+                val = _normalize_rgb_frame(frame)
+            else:
+                val = None
             _ENV_FRAME_CACHE[pid] = (now, val)
         except Exception:
             val = None

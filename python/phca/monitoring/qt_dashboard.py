@@ -39,7 +39,14 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .observability import ObservabilityFrame
+from .camera_render import (
+    fit_pixmap_to_box,
+    is_glitchy_pixmap,
+    is_glitchy_rgb_frame,
+    rgb_frame_to_pixmap,
+    rgb_frame_to_qimage as _rgb_frame_to_qimage,
+)
+from .observability import ObservabilityFrame, _normalize_rgb_frame
 from .playback import _Smoother, freeze_sig
 from .render import _grid_base, _prediction_heatmap
 
@@ -509,13 +516,25 @@ def _map_pt(pt: Tuple[float, float], bounds: Tuple[float, float, float, float],
 def _draw_qimage(p: QtGui.QPainter, frame: np.ndarray, x: int, y: int,
                  max_w: int, max_h: int) -> Tuple[int, int, int, int]:
     """Fit an RGB uint8 array into a box; return the placed rect."""
-    fh, fw = frame.shape[0], frame.shape[1]
-    scale = min(max_w / fw, max_h / fh)
-    dw, dh = int(fw * scale), int(fh * scale)
-    dx = x + (max_w - dw) // 2; dy = y + (max_h - dh) // 2
-    qimg = QtGui.QImage(frame.tobytes(), fw, fh, 3 * fw, QtGui.QImage.Format_RGB888)
-    p.drawImage(QtCore.QRect(dx, dy, dw, dh), qimg)
-    return (dx, dy, dw, dh)
+    if max_w < 2 or max_h < 2:
+        return (x, y, 0, 0)
+    if is_glitchy_rgb_frame(frame):
+        return (x, y, 0, 0)
+    return _draw_cached_pixmap(p, rgb_frame_to_pixmap(frame), x, y, max_w, max_h)
+
+
+def _draw_cached_pixmap(p: QtGui.QPainter, pixmap: Optional[QtGui.QPixmap],
+                        x: int, y: int, max_w: int, max_h: int) -> Tuple[int, int, int, int]:
+    """Fit a cached pixmap into a box; return the placed rect."""
+    if pixmap is None or pixmap.isNull():
+        return (x, y, 0, 0)
+    scaled, sw, sh = fit_pixmap_to_box(pixmap, max_w, max_h)
+    if scaled.isNull() or sw < 1 or sh < 1:
+        return (x, y, 0, 0)
+    dx = x + (max_w - sw) // 2
+    dy = y + (max_h - sh) // 2
+    p.drawPixmap(dx, dy, scaled)
+    return (dx, dy, sw, sh)
 
 
 # ----- v8 Overview 1.5 shared draw helpers -----------------------------------
@@ -540,6 +559,10 @@ def _draw_sparkline(p: QtGui.QPainter, vals: List[float], x: int, y: int, w: int
         p.drawLine(int(x0), int(y0), int(x1), int(y1))
 
 
+_TAU_POS = QtGui.QColor(26, 188, 156)   # teal — positive continuous action
+_TAU_NEG = QtGui.QColor(243, 156, 18)   # amber — negative continuous action
+
+
 def _draw_tau_bar(p: QtGui.QPainter, act, dim_names: List[str],
                   x: int, y: int, w: int, h: int) -> None:
     """Signed per-dim continuous action bar (Reacher 2-D friendly)."""
@@ -558,7 +581,7 @@ def _draw_tau_bar(p: QtGui.QPainter, act, dim_names: List[str],
         val = float(np.clip(v[i], -1, 1))
         bx = int(x + i * bw)
         bh = int(abs(val) * max(h // 2 - 6, 4))
-        col = QtGui.QColor(155, 89, 182) if val >= 0 else QtGui.QColor(231, 76, 60)
+        col = _TAU_POS if val >= 0 else _TAU_NEG
         p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
         if val >= 0:
             p.fillRect(bx + 1, mid - bh, max(int(bw) - 2, 1), bh, col)
@@ -721,29 +744,123 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
     p.drawText(cx - cr, cy - cr, cr * 2, cr * 2, 0x84, f"conf\n{conf:.2f}")
 
 
-def _draw_overview_camera(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect) -> None:
+def _draw_obs_vector_bars(p: QtGui.QPainter, f: ObservabilityFrame,
+                          rect: QtCore.QRect) -> bool:
+    """Bar chart of obs/sanitized vector when camera is unavailable or glitched."""
+    v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+    if v is None:
+        return False
+    vec = np.asarray(v, dtype=np.float32).reshape(-1)
+    n = min(int(vec.size), 24)
+    if n == 0:
+        return False
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    p.setPen(TEXT_COL); p.setFont(_F_LABEL)
+    p.drawText(x + 4, y + 14, "obs vector (camera fallback)")
+    gy = y + 20
+    gh = max(h - 28, 8)
+    lo = float(vec[:n].min())
+    hi = float(vec[:n].max())
+    span = hi - lo
+    if span < 1e-9:
+        span = max(abs(lo), abs(hi), 1.0)
+        lo, hi = -span, span
+    mid = gy + gh // 2
+    p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x + 4, mid, x + w - 4, mid)
+    bw = (w - 8) / n
+    for i in range(n):
+        val = float(vec[i])
+        frac = (val - lo) / span
+        bx = int(x + 4 + i * bw)
+        bar_h = int(abs(frac - 0.5) * (gh - 8))
+        col = _TAU_POS if val >= 0 else _TAU_NEG
+        p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+        if val >= 0:
+            p.fillRect(bx + 1, mid - bar_h, max(int(bw) - 2, 1), bar_h, col)
+        else:
+            p.fillRect(bx + 1, mid, max(int(bw) - 2, 1), bar_h, col)
+    return True
+
+
+def _draw_overview_pca_fallback(p: QtGui.QPainter, f: ObservabilityFrame,
+                                rect: QtCore.QRect,
+                                proj: "BeliefProjection") -> None:
+    """PCA projection fallback inside the camera clip rect."""
+    px0, py0, px1, py1 = rect.x() + 4, rect.y() + 4, rect.right() - 4, rect.bottom() - 4
+    p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawRect(px0, py0, px1 - px0, py1 - py0)
+    bounds = proj.bounds()
+    hist = proj.history
+    if len(hist) >= 2:
+        n = len(hist)
+        for i in range(1, n):
+            a = int(40 + 200 * i / n)
+            p0 = _map_pt(hist[i - 1], bounds, px0, py0, px1, py1)
+            p1 = _map_pt(hist[i], bounds, px0, py0, px1, py1)
+            p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, a), 2))
+            p.drawLine(p0[0], p0[1], p1[0], p1[1])
+    cur_v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+    cur = proj.project(cur_v)
+    if cur is not None:
+        cxp, cyp = _map_pt(cur, bounds, px0, py0, px1, py1)
+        p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
+        p.drawEllipse(cxp - 5, cyp - 5, 10, 10)
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    p.drawText(rect, 0x84, "no camera frame\n(PCA projection fallback)")
+
+
+def _draw_overview_camera(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
+                          proj: Optional["BeliefProjection"] = None,
+                          camera_pixmap: Optional[QtGui.QPixmap] = None,
+                          env_frame: Any = None) -> None:
     """Body panel: full-bleed camera + corner overlay + slim τ bar."""
     x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    p.fillRect(rect, QtGui.QColor(12, 12, 16))
     tau_h = min(36, max(28, h // 6))
-    cam_h = h - tau_h - 4
-    frame = getattr(f, "env_frame", None)
-    if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
-        p.setPen(DIM_COL); p.setFont(_F_LABEL)
-        p.drawText(rect, 0x84, "no camera frame\n(collecting…)")
-        return
-    dx, dy, dw, dh = _draw_qimage(p, frame, x + 4, y + 2, w - 8, cam_h)
-    p.setPen(QtGui.QPen(GRID_COL, 1))
-    p.drawRect(dx - 1, dy - 1, dw + 2, dh + 2)
-    p.setPen(QtGui.QColor(0, 0, 0, 160)); p.setBrush(QtGui.QColor(0, 0, 0, 140))
-    p.drawRoundedRect(dx + dw - 118, dy + 4, 112, 32, 4, 4)
-    p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-    p.drawText(dx + dw - 112, dy + 16,
-               f"err={f.prediction_error:.2f}")
-    p.drawText(dx + dw - 112, dy + 28,
-               f"conf={f.prediction_confidence:.3f}")
+    cam_h = max(8, h - tau_h - 4)
+    cam_rect = QtCore.QRect(x + 4, y + 2, w - 8, cam_h)
+    tau_rect = QtCore.QRect(x + 4, y + cam_h + 4, w - 8, tau_h)
+    p.fillRect(cam_rect, QtGui.QColor(12, 12, 16))
+
+    dx = dy = dw = dh = 0
+    p.save()
+    p.setClipRect(cam_rect)
+    live = env_frame if env_frame is not None else getattr(f, "env_frame", None)
+    if live is not None and not is_glitchy_rgb_frame(live):
+        dx, dy, dw, dh = _draw_qimage(
+            p, live, cam_rect.x(), cam_rect.y(),
+            cam_rect.width(), cam_rect.height())
+    if dw < 2 or dh < 2:
+        if (camera_pixmap is not None and not camera_pixmap.isNull()
+                and not is_glitchy_pixmap(camera_pixmap)):
+            dx, dy, dw, dh = _draw_cached_pixmap(
+                p, camera_pixmap, cam_rect.x(), cam_rect.y(),
+                cam_rect.width(), cam_rect.height())
+    if dw < 2 or dh < 2:
+        p.fillRect(cam_rect, QtGui.QColor(12, 12, 16))
+        if not _draw_obs_vector_bars(p, f, cam_rect):
+            if proj is not None:
+                _draw_overview_pca_fallback(p, f, cam_rect, proj)
+            else:
+                p.setPen(DIM_COL); p.setFont(_F_LABEL)
+                p.drawText(cam_rect, 0x84, "no camera frame\n(collecting…)")
+    else:
+        p.setPen(QtGui.QPen(GRID_COL, 1))
+        p.drawRect(dx - 1, dy - 1, dw + 2, dh + 2)
+        p.setPen(QtGui.QColor(0, 0, 0, 160)); p.setBrush(QtGui.QColor(0, 0, 0, 140))
+        p.drawRoundedRect(dx + dw - 118, dy + 4, 112, 32, 4, 4)
+        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
+        p.drawText(dx + dw - 112, dy + 16, f"err={f.prediction_error:.2f}")
+        p.drawText(dx + dw - 112, dy + 28, f"conf={f.prediction_confidence:.3f}")
+    p.restore()
+
     act = f.continuous_action if f.continuous_action is not None else f.last_action_vector
     dim_names = list(getattr(f, "dim_names", []) or [])
-    _draw_tau_bar(p, act, dim_names, x + 4, y + cam_h + 4, w - 8, tau_h)
+    p.save()
+    p.setClipRect(tau_rect)
+    p.fillRect(tau_rect, QtGui.QColor(12, 12, 16))
+    _draw_tau_bar(p, act, dim_names, tau_rect.x(), tau_rect.y(),
+                  tau_rect.width(), tau_rect.height())
+    p.restore()
 
 
 def _draw_overview_grid(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
@@ -806,14 +923,18 @@ def _draw_overview_grid(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
 def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
                         proj: Optional["BeliefProjection"],
                         trail: Deque[Any], arena_trail: Deque[Tuple[float, float]],
-                        ax: ScaleState, ay: ScaleState) -> None:
+                        ax: ScaleState, ay: ScaleState,
+                        camera_pixmap: Optional[QtGui.QPixmap] = None,
+                        env_frame: Any = None) -> None:
     """Body panel: env-adaptive world (camera / grid / arena / projection)."""
     kind = (getattr(f, "env_kind", "") or "").lower()
     sd = int(getattr(f, "state_dim", 0) or 0)
     if f.grid is not None:
         _draw_overview_grid(p, f, rect, trail)
     elif kind == "mujoco_rgb":
-        _draw_overview_camera(p, f, rect)
+        p.fillRect(rect, QtGui.QColor(12, 12, 16))
+        _draw_overview_camera(p, f, rect, proj, camera_pixmap=camera_pixmap,
+                              env_frame=env_frame)
     elif kind == "continuous" and 2 <= sd <= 4:
         import math as _m
         margin = 8
@@ -1242,6 +1363,7 @@ class OverviewAgentView(_BaseCanvas):
         self._t0 = time.monotonic()
         self._emp_sm = _Smoother(alpha=0.25)
         self._last_paint_t: float = 0.0
+        self._camera_pixmap: Optional[QtGui.QPixmap] = None
 
     def set_projection(self, proj: "BeliefProjection") -> None:
         self.proj = proj
@@ -1254,6 +1376,12 @@ class OverviewAgentView(_BaseCanvas):
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.set_state(f, None)
+        frame = getattr(f, "env_frame", None)
+        if frame is not None and not is_glitchy_rgb_frame(frame):
+            pm = rgb_frame_to_pixmap(frame)
+            self._camera_pixmap = pm if not is_glitchy_pixmap(pm) else None
+        else:
+            self._camera_pixmap = None
         self._err_hist.append(float(f.prediction_error))
         self._conf_hist.append(float(f.prediction_confidence))
         self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
@@ -1324,10 +1452,15 @@ class OverviewAgentView(_BaseCanvas):
             cx = mind_rect.x() + mind_rect.width() // 2
             cy = mind_rect.y() + mind_rect.height() // 2 - 8
             R = min(mind_rect.width() * 0.35, mind_rect.height() * 0.42)
+            p.save()
+            p.setClipRect(mind_rect)
             _draw_agent_glyph(p, f, cx, cy, int(R), self._glyph_hist, self._t0,
                               self._emp_sm._v)
+            p.restore()
             _draw_overview_body(p, f, body_rect, self.proj, self.trail,
-                                self.arena_trail, self._ax, self._ay)
+                                self.arena_trail, self._ax, self._ay,
+                                camera_pixmap=self._camera_pixmap,
+                                env_frame=getattr(f, "env_frame", None))
             _draw_vitals_ribbon(p, f, ribbon_rect, self._err_hist, self._conf_hist)
         if self.cycle_error:
             p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_LABEL_B)
