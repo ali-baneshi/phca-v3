@@ -8,11 +8,19 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     _OVERVIEW_PHASE_STEPS,
+    _action_score_margin,
+    _action_status_line,
     _apply_decision_shift,
+    _flow_bound_for,
+    _flow_bottleneck_key,
+    _flow_status_line,
+    _FLOW_ALL_MODULES,
     _overview_evidence_line,
     _overview_goal_id,
     _overview_goal_intent_line,
@@ -103,7 +111,19 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
 
     anchor_targets = _anchor_cycle_ids(n)
     anchor_narratives: Dict[str, Dict[str, Any]] = {}
+    anchor_flow_status: Dict[str, Dict[str, Any]] = {}
+    anchor_action_status: Dict[str, Dict[str, Any]] = {}
     notable_cycles: List[Dict[str, Any]] = []
+
+    module_time_totals: Dict[str, float] = {}
+    bottleneck_counts: Dict[str, int] = {}
+    violation_cycle_count = 0
+    near_bound_cycle_count = 0
+
+    cycles_with_scores = 0
+    cycles_explore_empty_scores = 0
+    score_margins: List[float] = []
+    all_best_scores: List[float] = []
 
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -150,10 +170,51 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             ms = _overview_phase_ms(timings, key)
             phase_totals[label] += ms
             phase_grand_total += ms
+        for mod, ms in timings.items():
+            module_time_totals[str(mod)] = module_time_totals.get(str(mod), 0.0) + float(ms or 0.0)
+
+        bn = _flow_bottleneck_key(f)
+        if bn:
+            bottleneck_counts[bn] = bottleneck_counts.get(bn, 0) + 1
+        if int(getattr(f, "violations_count", 0) or 0) > 0 or bool(getattr(f, "rbta_violations", None)):
+            violation_cycle_count += 1
+        bounds = dict(getattr(f, "rbta_bounds", {}) or {})
+        near_bound = False
+        for mod in _FLOW_ALL_MODULES:
+            measured = float(timings.get(mod, 0.0) or 0.0)
+            bound = _flow_bound_for(mod, bounds)
+            if bound and measured / bound > 0.8:
+                near_bound = True
+                break
+        if near_bound:
+            near_bound_cycle_count += 1
+
+        scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+        if scores:
+            cycles_with_scores += 1
+            margin = _action_score_margin(scores)
+            if margin is not None and not explored:
+                score_margins.append(margin)
+        elif explored:
+            cycles_explore_empty_scores += 1
+        bs = r.get("best_score")
+        if isinstance(bs, (int, float)):
+            all_best_scores.append(float(bs))
+        chosen = int(np.argmax(scores)) if scores else -1
 
         for anchor_key, target_idx in anchor_targets.items():
             if idx == target_idx and anchor_key not in anchor_narratives:
                 anchor_narratives[anchor_key] = _narrative_bundle(f, err_hist, dist_hist)
+            if idx == target_idx and anchor_key not in anchor_flow_status:
+                anchor_flow_status[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "flow_status": _flow_status_line(f),
+                }
+            if idx == target_idx and anchor_key not in anchor_action_status:
+                anchor_action_status[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "action_status": _action_status_line(f, scores, chosen),
+                }
 
         notable = False
         reasons: List[str] = []
@@ -183,6 +244,13 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         for label, total in phase_totals.items():
             phase_budget_pct[label] = round(100.0 * total / phase_grand_total, 2)
 
+    mod_grand = sum(module_time_totals.values()) or 1.0
+    module_time_share_pct = {
+        k: round(100.0 * v / mod_grand, 2) for k, v in module_time_totals.items()
+    }
+    bottleneck_module = max(bottleneck_counts, key=bottleneck_counts.get) if bottleneck_counts else ""
+    bs_early, bs_late = _slice_early_late(all_best_scores)
+
     return {
         "meta": dict(meta),
         "cycles": n,
@@ -205,6 +273,21 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             and dist_late_med < dist_early_med
         ),
         "phase_budget_pct": phase_budget_pct,
+        "flow_metrics": {
+            "module_time_share_pct": module_time_share_pct,
+            "violation_cycle_count": violation_cycle_count,
+            "near_bound_cycle_count": near_bound_cycle_count,
+            "bottleneck_module": bottleneck_module,
+            "anchor_flow_status": anchor_flow_status,
+        },
+        "action_metrics": {
+            "cycles_with_scores": cycles_with_scores,
+            "cycles_explore_empty_scores": cycles_explore_empty_scores,
+            "score_margin_median": _median(score_margins),
+            "best_score_early_median": _median(bs_early),
+            "best_score_late_median": _median(bs_late),
+            "anchor_action_status": anchor_action_status,
+        },
         "anchor_narratives": anchor_narratives,
         "notable_cycles": notable_cycles,
     }
@@ -265,3 +348,25 @@ def print_report_summary(report: Dict[str, Any], *, stream=None) -> None:
         for item in notable[:5]:
             print(f"    cycle {item.get('cycle_id')}: {', '.join(item.get('reasons', []))}",
                   file=out)
+    flow_m = report.get("flow_metrics") or {}
+    if flow_m:
+        print(f"  flow: bottleneck={flow_m.get('bottleneck_module')}"
+              f"  violations={flow_m.get('violation_cycle_count')}"
+              f"  near_bound={flow_m.get('near_bound_cycle_count')}",
+              file=out)
+        for key in ("0", "mid", "last"):
+            item = (flow_m.get("anchor_flow_status") or {}).get(key)
+            if item:
+                print(f"    flow [{key}] cycle {item.get('cycle_id')}: {item.get('flow_status')}",
+                      file=out)
+    action_m = report.get("action_metrics") or {}
+    if action_m:
+        print(f"  action: with_scores={action_m.get('cycles_with_scores')}"
+              f"  explore_empty={action_m.get('cycles_explore_empty_scores')}"
+              f"  margin_med={action_m.get('score_margin_median')}",
+              file=out)
+        for key in ("0", "mid", "last"):
+            item = (action_m.get("anchor_action_status") or {}).get(key)
+            if item:
+                print(f"    action [{key}] cycle {item.get('cycle_id')}: {item.get('action_status')}",
+                      file=out)

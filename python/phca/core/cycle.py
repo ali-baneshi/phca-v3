@@ -621,7 +621,8 @@ class CognitiveCycle:
         if rng.random() < eps:
             self.last_action_rationale = {"explored": True, "eps": float(eps),
                                           "goal_id": int(goal_id), "continuous": False,
-                                          "best_score": None, "k_candidates": None}
+                                          "best_score": None,
+                                          "k_candidates": int(self.env.action_space_size)}
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return int(rng.randint(0, self.env.action_space_size))
@@ -748,7 +749,7 @@ class CognitiveCycle:
         if rng.random() < eps:
             self.last_action_rationale = {"explored": True, "eps": float(eps),
                                           "goal_id": None, "continuous": True,
-                                          "best_score": None, "k_candidates": None}
+                                          "best_score": None, "k_candidates": int(K)}
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)

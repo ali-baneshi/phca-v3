@@ -40,6 +40,10 @@ def test_build_session_report_metrics():
     assert report["anchor_narratives"]["0"]["outcome"].startswith("Outcome:")
     assert report["phase_budget_pct"]
     assert sum(report["phase_budget_pct"].values()) == pytest.approx(100.0, abs=0.1)
+    assert "flow_metrics" in report
+    assert "action_metrics" in report
+    assert report["flow_metrics"].get("violation_cycle_count", 0) >= 1
+    assert report["action_metrics"].get("cycles_with_scores", 0) >= 8
 
 
 def test_decision_shift_parity_with_overview():

@@ -85,8 +85,182 @@ RBTA_TO_FLOW = {
     "ATTN": "attn", "HPM": "hpm", "CR": "cr",
     "CONSOLID": "consolidation", "CONS": "consolidation",
 }
+_FLOW_ALL_MODULES = PIPELINE + SIDE_MODULES
+
+
+def _flow_bound_for(mod: str, bounds: dict) -> Optional[float]:
+    for k, v in (bounds or {}).items():
+        if RBTA_TO_FLOW.get(k, "") == mod and isinstance(v, dict):
+            t = v.get("time")
+            if t is not None and t > 0:
+                return float(t)
+    return None
+
+
+def _flow_pipe_ms(f: ObservabilityFrame) -> float:
+    timings = dict(getattr(f, "module_timings", {}) or {})
+    return sum(float(timings.get(m, 0.0) or 0.0) for m in PIPELINE)
+
+
+def _flow_bottleneck_key(f: ObservabilityFrame) -> str:
+    timings = dict(getattr(f, "module_timings", {}) or {})
+    if not timings:
+        return ""
+    best = max(_FLOW_ALL_MODULES, key=lambda m: float(timings.get(m, 0.0) or 0.0))
+    return best if float(timings.get(best, 0.0) or 0.0) > 0 else ""
+
+
+def _flow_status_line(f: ObservabilityFrame, *, active_idx: Optional[int] = None) -> str:
+    """One-line Flow tab status from module_timings + RBTA fields."""
+    timings = dict(getattr(f, "module_timings", {}) or {})
+    bn_key = _flow_bottleneck_key(f)
+    bn_lbl = PIPELINE_LABEL.get(bn_key, bn_key) if bn_key else "—"
+    pipe_ms = _flow_pipe_ms(f)
+    vcount = int(getattr(f, "violations_count", 0) or 0)
+    viol_mods: set = set()
+    for v in getattr(f, "rbta_violations", []) or []:
+        mid = RBTA_TO_FLOW.get(v.get("module_id", v.get("module", "")),
+                               v.get("module_id", v.get("module", "")))
+        if mid:
+            viol_mods.add(PIPELINE_LABEL.get(mid, mid))
+    if active_idx is not None and 0 <= active_idx < len(PIPELINE):
+        active_lbl = PIPELINE_LABEL.get(PIPELINE[active_idx], PIPELINE[active_idx])
+    elif timings:
+        dom = max(PIPELINE, key=lambda m: float(timings.get(m, 0.0) or 0.0))
+        active_lbl = PIPELINE_LABEL.get(dom, dom)
+    else:
+        active_lbl = "—"
+    viol_s = f"{vcount}V" if vcount else "OK"
+    if viol_mods:
+        viol_s += f" ({','.join(sorted(viol_mods))})"
+    return (f"Flow: bottleneck={bn_lbl} · Σpipe={pipe_ms:.1f}ms · "
+            f"violations={viol_s} · active={active_lbl}")
+
+
+def _heatmap_cell_alpha(ms: float, rmax: float) -> int:
+    """Heatmap cell opacity; floor keeps fast Reacher cycles visible."""
+    scale = rmax if rmax > 1e-6 else 25.0
+    if ms <= 0:
+        return 0
+    return max(6, int(np.clip(ms / scale, 0, 1) * 230))
+
+
+def _heatmap_cell_color(ms: float, rmax: float) -> QtGui.QColor:
+    """Cost-semantic heatmap cell (green/orange/red) with visibility alpha."""
+    a = _heatmap_cell_alpha(ms, rmax)
+    if a <= 0:
+        return QtGui.QColor(0, 0, 0, 0)
+    col = _to_qcolor(_cost_color(ms))
+    col.setAlpha(a)
+    return col
+
+
+def _flow_layout(w: int, h: int, n_mods: int) -> Dict[str, Any]:
+    """Reserve header, graph, and heatmap bands so they do not overlap."""
+    header_h = 52
+    margin = 6
+    heatmap_h = max(90, min(int(h * 0.18), h - header_h - margin - 120))
+    graph_h = max(120, h - header_h - heatmap_h - margin)
+    graph_top = header_h
+    heatmap_top = graph_top + graph_h + margin
+    row_h = max(7.0, heatmap_h / max(n_mods, 1))
+    return {
+        "header_h": header_h,
+        "heatmap_h": int(heatmap_h),
+        "graph_h": int(graph_h),
+        "graph_top": graph_top,
+        "heatmap_top": int(heatmap_top),
+        "row_h": row_h,
+        "label_w": 44,
+        "margin": margin,
+    }
+
+
+def _action_layout(w: int, h: int) -> Dict[str, Any]:
+    """Explicit left/right stack geometry for Action Selection."""
+    header_h = 46
+    margin = 8
+    epsilon_h = 32
+    body_top = header_h + 4
+    body_h = max(100, h - body_top - margin)
+    left_w = max(160, w // 2 - 10)
+    right_x = left_w + 16
+    right_w = max(120, w - right_x - margin)
+    cloud_h = max(80, int((body_h - epsilon_h) * 0.55))
+    tau_h = 40
+    return {
+        "header_h": header_h,
+        "body_top": body_top,
+        "body_h": body_h,
+        "left_x": margin,
+        "left_y": body_top,
+        "left_w": left_w,
+        "left_h": body_h,
+        "right_x": right_x,
+        "right_w": right_w,
+        "cloud_top": body_top,
+        "cloud_h": cloud_h,
+        "tau_y": body_top + cloud_h + 6,
+        "tau_h": tau_h,
+        "epsilon_y": body_top + body_h - epsilon_h,
+        "epsilon_h": epsilon_h,
+    }
+
+
+def _flow_update_active_idx(
+    prev_heat: Dict[str, float],
+    cur_heat: Dict[str, float],
+    delta_smooth: Dict[str, _Smoother],
+    active_idx: int,
+    active_hold: int,
+) -> Tuple[int, int]:
+    """Pure active-node hysteresis (mirrors CognitiveFlowView.set_frame)."""
+    for m in PIPELINE:
+        d = float(cur_heat.get(m, 0.0)) - float(prev_heat.get(m, 0.0))
+        if m in delta_smooth:
+            delta_smooth[m].value(d)
+    if active_hold > 0:
+        return active_idx, active_hold - 1
+    sm = {m: delta_smooth[m]._v for m in PIPELINE}
+    new = int(max(range(len(PIPELINE)), key=lambda i: sm[PIPELINE[i]]))
+    cur_v = sm[PIPELINE[active_idx]]
+    if new != active_idx and sm[PIPELINE[new]] > cur_v * 1.3 + 0.05:
+        return new, 3
+    return active_idx, 0
+
+
+def _action_score_margin(scores: List[float]) -> Optional[float]:
+    if len(scores) < 2:
+        return None
+    ordered = sorted(scores, reverse=True)
+    return float(ordered[0] - ordered[1])
+
+
+def _action_status_line(
+    f: ObservabilityFrame,
+    scores: List[float],
+    chosen: int,
+) -> str:
+    """One-line Action tab status from action_rationale + candidate fields."""
+    r = f.action_rationale or {}
+    mode = "EXPLORE" if r.get("explored") else "EXPLOIT"
+    eps = r.get("eps")
+    eps_s = f"{float(eps):.3f}" if isinstance(eps, (int, float)) else "—"
+    k = r.get("k_candidates")
+    k_s = str(int(k)) if isinstance(k, (int, float)) else "—"
+    bs = r.get("best_score")
+    bs_s = f"{float(bs):.3f}" if isinstance(bs, (int, float)) else "—"
+    margin = _action_score_margin(scores)
+    margin_s = f"{margin:+.3f}" if margin is not None else "—"
+    rollouts = list(getattr(f, "candidate_rollouts", []) or [])
+    return (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
+            f"Δ2nd={margin_s} · rollouts={len(rollouts)}")
+
 
 PANEL_BG = QtGui.QColor(18, 18, 24)
+PANEL_BG_ALT = QtGui.QColor(28, 28, 38)
+PANEL_BORDER = QtGui.QColor(42, 42, 54)
+CHIP_FILL_ALPHA = 120
 GRID_COL = QtGui.QColor(60, 60, 70)
 TEXT_COL = QtGui.QColor(210, 210, 220)
 DIM_COL = QtGui.QColor(150, 150, 160)
@@ -3253,23 +3427,13 @@ class CognitiveFlowView(_BaseCanvas):
         dt = now - self._last_wall; self._last_wall = now
         self._anim_t = (self._anim_t + dt / 0.5) % len(PIPELINE)
         # active node = most-recently-active by EMA'd timing delta + hysteresis
-        try:
-            if len(self.heat) >= 2:
-                prev, cur = self.heat[-2], self.heat[-1]
-                for m in PIPELINE:
-                    d = float(cur.get(m, 0.0)) - float(prev.get(m, 0.0))
-                    self._delta_smooth[m].value(d)
-                if self._active_hold > 0:
-                    self._active_hold -= 1
-                else:
-                    sm = {m: self._delta_smooth[m]._v for m in PIPELINE}
-                    new = int(max(range(len(PIPELINE)), key=lambda i: sm[PIPELINE[i]]))
-                    cur_v = sm[PIPELINE[self._active_idx]]
-                    if new != self._active_idx and sm[PIPELINE[new]] > cur_v * 1.3 + 0.05:
-                        self._active_idx = new
-                        self._active_hold = 3
-        except Exception:
-            pass
+        if len(self.heat) >= 2:
+            prev, cur = self.heat[-2], self.heat[-1]
+            try:
+                self._active_idx, self._active_hold = _flow_update_active_idx(
+                    prev, cur, self._delta_smooth, self._active_idx, self._active_hold)
+            except Exception:
+                pass
         self.viol_mods = {RBTA_TO_FLOW.get(v.get("module_id", v.get("module", "")),
                                           v.get("module_id", v.get("module", "")))
                           for v in f.rbta_violations}
@@ -3279,10 +3443,10 @@ class CognitiveFlowView(_BaseCanvas):
                           for v in f.rbta_violations}
         self._dirty = True
 
-    def _node_pos(self, w: int, h: int):
+    def _node_pos(self, w: int, graph_h: int, y_offset: int = 0):
         import math
-        cx, cy = w // 2, h // 2 + 8
-        R = max(70, min(w, h) // 2 - 78)
+        cx, cy = w // 2, y_offset + graph_h // 2
+        R = max(50, min(w, graph_h) // 2 - 50)
         pos = {}
         n = len(PIPELINE)
         for i, mod in enumerate(PIPELINE):
@@ -3291,8 +3455,8 @@ class CognitiveFlowView(_BaseCanvas):
         ns = len(SIDE_MODULES)
         for j, mod in enumerate(SIDE_MODULES):
             ang = -math.pi / 2 + (j + 0.5) * 2 * math.pi / ns
-            pos[mod] = (int(cx + (R + 40) * math.cos(ang)),
-                        int(cy + (R + 40) * math.sin(ang)))
+            pos[mod] = (int(cx + (R + 36) * math.cos(ang)),
+                        int(cy + (R + 36) * math.sin(ang)))
         return pos, (cx, cy), R
 
     def _draw(self, p: QtGui.QPainter) -> None:
@@ -3301,21 +3465,23 @@ class CognitiveFlowView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Cognitive flow…"); return
-        self._title(p, "Cognitive flow — radial Sankey (link width = timing share)")
-        self._caption(p, "disc radius/colour = timing cost · red = RBTA violation · "
-                         "link width = activation mass · gold arc = active edge")
-        pos, (cx, cy), R = self._node_pos(w, h)
-        n = len(PIPELINE)
         active_idx = self._active_idx
+        lay = _flow_layout(w, h, len(_FLOW_ALL_MODULES))
+        self._title(p, "Cognitive flow — radial Sankey (link width = timing share)")
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(10, 28, _flow_status_line(f, active_idx=active_idx))
+        self._caption(p, "disc radius/colour = timing cost · red = RBTA violation · "
+                         "link width = activation mass · gold arc = active edge", y=40)
+        pos, (cx, cy), R = self._node_pos(w, lay["graph_h"], lay["graph_top"])
+        n = len(PIPELINE)
         tot = sum(float(f.module_timings.get(m, 0.0)) for m in PIPELINE) or 1.0
-        # v8 B2: Sankey links — width ∝ EMA-smoothed timing share between adjacent nodes.
         for i in range(n - 1):
             a, b = pos[PIPELINE[i]], pos[PIPELINE[i + 1]]
             m0, m1 = PIPELINE[i], PIPELINE[i + 1]
             share = (float(f.module_timings.get(m0, 0.0)) + float(f.module_timings.get(m1, 0.0))) / tot
             sm = self._link_smooth.setdefault(f"{m0}>{m1}", _Smoother(0.2))
             w_share = sm.value(share)
-            col = QtGui.QColor(241, 196, 15, 230) if i == active_idx else QtGui.QColor(120, 120, 140, 170)
+            col = QtGui.QColor(241, 196, 15, 230) if i == active_idx else QtGui.QColor(160, 160, 180, 200)
             lw = 1.5 + w_share * 14.0
             _radial_sankey_link(p, a[0], a[1], b[0], b[1], cx, cy, col, width=lw)
         if 0 <= active_idx < n - 1:
@@ -3325,14 +3491,12 @@ class CognitiveFlowView(_BaseCanvas):
             px = int(a[0] + t * (b[0] - a[0])); py = int(a[1] + t * (b[1] - a[1]))
             p.setBrush(QtGui.QColor(255, 255, 255)); p.setPen(QtGui.QPen(ACCENT, 1))
             p.drawEllipse(px - 4, py - 4, 8, 8)
-        # side-module satellite connectors (thin dashed to their anchor node)
         for sm in SIDE_MODULES:
             a = pos[sm]
             anchor = "prediction" if sm in ("gprime_learn", "attn") else "memory_write"
             b = pos[anchor]
-            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 110), 1, QtCore.Qt.DashLine))
+            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 140), 1, QtCore.Qt.DashLine))
             p.drawLine(a[0], a[1], b[0], b[1])
-        # nodes
         for mod in PIPELINE + SIDE_MODULES:
             x, y = pos[mod]
             raw_ms = float(f.module_timings.get(mod, 0.0))
@@ -3344,24 +3508,21 @@ class CognitiveFlowView(_BaseCanvas):
             r = int(18 + min(ms / 20.0, 1.0) * 8 + (6 if is_active else 0))
             p.setBrush(col); p.setPen(QtGui.QPen(QtGui.QColor(240, 240, 240), 2 if is_active else 1))
             p.drawEllipse(x - r, y - r, r * 2, r * 2)
-            p.setPen(QtGui.QColor(20, 20, 24)); p.setFont(_F_LABEL_B)
-            p.drawText(x - 26, y - 3, 52, 12, 0x84, PIPELINE_LABEL.get(mod, mod))
             p.setFont(_F_AXIS); p.setPen(TEXT_COL)
-            p.drawText(x - 22, y + 9, 44, 11, 0x84, f"{ms:.1f}ms")
-            # measured-vs-bound bar (no sparkline — heatmap carries history)
-            self._mb_bar(p, mod, ms, x - 30, y + r + 12, 60)
-            # focal nodes get a dim-agnostic scalar gauge; others a status badge
+            p.drawText(x - 22, y + 4, 44, 11, 0x84, f"{ms:.1f}ms")
+            lbl_y = y + r + 10
+            p.setFont(_F_LABEL_B); p.setPen(TEXT_COL)
+            p.drawText(x - 30, lbl_y, 60, 12, 0x84, PIPELINE_LABEL.get(mod, mod))
+            self._mb_bar(p, mod, ms, x - 30, lbl_y + 14, 60)
             if mod in ("prediction", "action_selection"):
                 self._scalar_gauge_thumb(p, mod, f, x - 30, y - r - 30, 60, 22)
             else:
                 self._status_badge(p, mod, ms, x - 30, y - r - 24, 60)
             if viol and mod in self.last_viol:
                 p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_AXIS)
-                p.drawText(x - 30, y + r + 30, 60, 10, 0x84, self.last_viol[mod])
-        # consolidated composite-bounds + legend panel (top-right)
-        self._side_panel(p)
-        # thin module×cycle heatmap (bottom strip)
-        self._heatmap(p)
+                p.drawText(x - 30, lbl_y + 32, 60, 10, 0x84, self.last_viol[mod])
+        self._side_panel(p, lay["graph_top"])
+        self._heatmap(p, lay)
 
     def _bound_for(self, mod: str, bounds: dict) -> Optional[float]:
         for k, v in bounds.items():
@@ -3377,7 +3538,7 @@ class CognitiveFlowView(_BaseCanvas):
         already carries timing history, so one bar per node is enough)."""
         bounds = getattr(self.frame, "rbta_bounds", None) or {}
         b = self._bound_for(mod, bounds)
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, w, 7)
         scale = b if b else 25.0
         ratio = max(0.0, min(measured / scale, 1.5))
@@ -3406,38 +3567,50 @@ class CognitiveFlowView(_BaseCanvas):
             txt, c = "NEAR-BOUND", QtGui.QColor(241, 196, 15)
         else:
             txt, c = "OK", QtGui.QColor(46, 204, 113)
-        p.setPen(QtGui.QPen(c, 1)); p.setBrush(QtGui.QColor(c.red(), c.green(), c.blue(), 40))
+        p.setPen(QtGui.QPen(c, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(x, y, w, 14, 4, 4)
+        p.setBrush(QtGui.QColor(c.red(), c.green(), c.blue(), CHIP_FILL_ALPHA))
+        p.drawRoundedRect(x + 1, y + 1, w - 2, 12, 3, 3)
         p.setPen(c); p.setFont(_F_AXIS)
         p.drawText(x, y, w, 14, 0x84, txt)
 
-    def _scalar_gauge_thumb(self, p: QtGui.QPainter, mod: str,
-                            f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
-        """v7: dim-agnostic scalar gauge replacing the 12-bar content thumb.
-        prediction → prediction_confidence; action_selection → gprime_mutual_info
-        (a proxy for action-information value). One arc + label + caption."""
+    def _scalar_gauge_value(self, mod: str, f: ObservabilityFrame) -> Tuple[float, str, str]:
+        """Scalar for node gauge with Reacher-friendly fallbacks."""
         if mod == "prediction":
             v = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
-            label, unit = "conf", ""
-        else:
-            v = float(getattr(f, "gprime_mutual_info", 0.0) or 0.0)
-            label, unit = "MI", "bit"
+            return v, "conf", ""
+        v = float(getattr(f, "gprime_mutual_info", 0.0) or 0.0)
+        label, unit = "MI", "bit"
+        if v < 1e-6:
+            r = f.action_rationale or {}
+            bs = r.get("best_score")
+            if isinstance(bs, (int, float)):
+                v, label, unit = float(bs), "score", ""
+            else:
+                scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+                if scores:
+                    v, label, unit = float(np.mean(scores)), "mean", ""
+        return v, label, unit
+
+    def _scalar_gauge_thumb(self, p: QtGui.QPainter, mod: str,
+                            f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
+        """Dim-agnostic scalar gauge (prediction confidence or action score/MI)."""
+        v, label, unit = self._scalar_gauge_value(mod, f)
         vc = max(0.0, min(1.0, v))
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRoundedRect(x, y, w, h, 4, 4)
-        # horizontal fill
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
         col = (QtGui.QColor(46, 204, 113) if vc > 0.66 else
                QtGui.QColor(241, 196, 15) if vc > 0.33 else QtGui.QColor(231, 76, 60))
-        p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 120))
+        p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 180))
         p.drawRoundedRect(x + 2, y + 2, int((w - 4) * vc), h - 4, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x + 3, y + h - 5, f"{label}={v:.2f}{unit}")
 
-    def _side_panel(self, p: QtGui.QPainter) -> None:
-        """Consolidated composite-bounds + legend panel (top-right). Replaces the
-        old _composite_bounds + _legend so nothing collides with the heatmap."""
+    def _side_panel(self, p: QtGui.QPainter, y_offset: int = 12) -> None:
+        """Consolidated composite-bounds + legend panel (top-right)."""
         w, h = self.width(), self.height()
-        x, y, tw, th = w - 168, 12, 158, 118
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+        x, y, tw, th = w - 168, y_offset, 158, 118
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, tw, th)
         p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
         p.drawText(x + 4, y + 12, "composite bounds")
@@ -3462,37 +3635,45 @@ class CognitiveFlowView(_BaseCanvas):
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
             p.drawText(x + 22, ly, lbl); ly += 12
 
-    def _heatmap(self, p: QtGui.QPainter) -> None:
+    def _heatmap(self, p: QtGui.QPainter, lay: Dict[str, Any]) -> None:
         if not self.heat:
             return
-        mods = PIPELINE + SIDE_MODULES
-        h = self.height(); strip_h = 18; top = h - strip_h - 4
-        # v8: render the heatmap into a backing pixmap at most every 0.5 s
-        # (2 Hz sub-cadence); blit the cache in between. Keyed on size + heat
-        # length so a resize / new cycle column triggers a fresh render.
-        key = (self.width(), self.height(), len(self.heat))
+        mods = _FLOW_ALL_MODULES
+        w = self.width()
+        top = lay["heatmap_top"]
+        strip_h = lay["heatmap_h"]
+        label_w = lay["label_w"]
+        row_h = lay["row_h"]
+        key = (w, self.height(), len(self.heat), strip_h)
         now = time.monotonic()
         if (self._heat_pm is None or key != self._heat_key
                 or now - self._heat_t >= 0.5):
             self._heat_t = now; self._heat_key = key
-            pm = QtGui.QPixmap(self.width(), self.height())
+            pm = QtGui.QPixmap(w, self.height())
             pm.fill(QtCore.Qt.transparent)
             rp = QtGui.QPainter(pm)
             rp.setRenderHint(QtGui.QPainter.Antialiasing, False)
+            data_x = 10 + label_w
+            band_w = w - data_x - 10
+            rp.setPen(QtGui.QPen(PANEL_BORDER, 1)); rp.setBrush(PANEL_BG_ALT)
+            rp.drawRect(8, top - 2, w - 16, strip_h + 4)
             rmax = max((max((mt.get(m, 0.0) for m in mods), default=0.0) for mt in self.heat), default=1.0)
             rmax = rmax if rmax > 1e-6 else 25.0
-            cw = (self.width() - 20) / max(len(self.heat), 1)
+            cw = band_w / max(len(self.heat), 1)
+            for j, mod in enumerate(mods):
+                rp.setPen(TEXT_COL); rp.setFont(_F_AXIS)
+                rp.drawText(10, int(top + j * row_h + row_h * 0.75),
+                            PIPELINE_LABEL.get(mod, mod)[:5])
             for i, mts in enumerate(self.heat):
                 for j, mod in enumerate(mods):
                     ms = float(mts.get(mod, 0.0))
-                    a = int(np.clip(ms / rmax, 0, 1) * 230)
-                    if a < 6:
+                    cell = _heatmap_cell_color(ms, rmax)
+                    if cell.alpha() <= 0:
                         continue
-                    rp.fillRect(int(10 + i * cw), int(top + j * (strip_h / len(mods))),
-                                int(cw) + 1, int(strip_h / len(mods)) - 1,
-                                QtGui.QColor(231, 76, 60, a))
+                    rp.fillRect(int(data_x + i * cw), int(top + j * row_h),
+                                max(int(cw), 1), max(int(row_h) - 1, 1), cell)
             rp.setPen(DIM_COL); rp.setFont(_F_AXIS)
-            rp.drawText(10, top - 2, f"module×cycle cost heatmap (rolling-max={rmax:.1f}ms · 2 Hz)")
+            rp.drawText(data_x, top - 4, f"module×cycle cost heatmap (max={rmax:.1f}ms)")
             rp.end()
             self._heat_pm = pm
         p.drawPixmap(0, 0, self._heat_pm)
@@ -3540,7 +3721,8 @@ class CandidateScoreView(_BaseCanvas):
         self._dirty = True
 
     def _rollout_cloud(self, p: QtGui.QPainter, f: ObservabilityFrame,
-                       x0: int, top: int, x1: int, bot: int, is_continuous: bool) -> None:
+                       x0: int, top: int, x1: int, bot: int, is_continuous: bool,
+                       *, has_scores: bool = False) -> None:
         """Render candidate rollouts in the shared PCA plane.
 
         Discrete: per-action predicted-next thumbnails (dot per action, colored
@@ -3561,7 +3743,16 @@ class CandidateScoreView(_BaseCanvas):
         self._title(p, label, y=top + 12, x=x0)
         if not rollouts:
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 8))
-            p.drawText(x0, top + 30, "(no rollouts this cycle — explore/D5 branch)")
+            r = f.action_rationale or {}
+            if bool(r.get("explored")):
+                p.drawText(x0, top + 30,
+                           "ε-greedy explore · random τ · rollouts not computed")
+            elif has_scores:
+                p.drawText(x0, top + 30,
+                           "rollout cloud needs live session (not in JSONL replay)")
+            else:
+                p.drawText(x0, top + 30,
+                           "(no rollouts this cycle — explore/D5 branch)")
             return
         # Score-normalised colour: green=high, red=low.
         scores = [float(r.get("score", 0.0)) for r in rollouts]
@@ -3596,7 +3787,7 @@ class CandidateScoreView(_BaseCanvas):
                 for rx, ry, i, base, chosen, is_pareto in drawn:
                     if chosen:
                         continue
-                    col = QtGui.QColor(base.red(), base.green(), base.blue(), 90)
+                    col = QtGui.QColor(base.red(), base.green(), base.blue(), 165)
                     if is_continuous:
                         p.setPen(QtGui.QPen(col, 1, QtCore.Qt.DashLine))
                         p.drawLine(cx, cy, rx, ry)
@@ -3646,6 +3837,7 @@ class CandidateScoreView(_BaseCanvas):
         if f is None:
             self._empty(p, "Action selection…"); return
         w, h = self.width(), self.height()
+        lay = _action_layout(w, h)
         r = f.action_rationale or {}
         scores = [float(x) for x in f.candidate_scores]
         chosen = int(np.argmax(scores)) if scores else -1
@@ -3657,21 +3849,24 @@ class CandidateScoreView(_BaseCanvas):
         cr_t = float(getattr(f, "cr_temperature", 0.0) or 0.0)
         pareto = set(int(x) for x in (getattr(f, "pareto_front", []) or []))
         names = list(getattr(f, "action_names", []) or [])
-        # header
         hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
             hdr += f"  score={bs:.3f}"
         self._title(p, hdr)
-        kind = "continuous τ" if is_continuous else "discrete action"
-        extra = f" · pareto={len(pareto)} cand · {note}" if note else f" · pareto={len(pareto)} cand"
-        self._caption(p, f"ranked candidate {kind} scores · amber►=chosen · ringed=Pareto{extra}")
-        # best-score sparkline (top-right) — wires up the previously-dead score_hist
+        kind = "continuous τ" if is_continuous else "discrete"
+        status = _action_status_line(f, scores, chosen)
+        status += f" · {kind} · pareto={len(pareto)}"
+        if note:
+            status += f" · {note}"
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(10, 28, status)
         self._best_score_spark(p, w - 190, 6, 180, 26)
-        # layout: ranked list (focal, left) + supporting stack (right)
-        left_w = w // 2 - 6
-        list_x, list_y, list_w, list_h = 10, 40, left_w, h - 70
-        rx0 = w // 2 + 6
+        list_x, list_y = lay["left_x"], lay["left_y"]
+        list_w, list_h = lay["left_w"], lay["left_h"]
+        rx0, right_w = lay["right_x"], lay["right_w"]
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(list_x - 4, list_y - 4, list_w + 8, list_h + 8, 6, 6)
         if scores:
             sig = freeze_sig((tuple(names), tuple(round(s, 4) for s in scores), chosen))
             if sig != self._rank_sig:
@@ -3684,26 +3879,35 @@ class CandidateScoreView(_BaseCanvas):
                              self._rank_names, is_continuous,
                              list_x, list_y, list_w, list_h)
         else:
-            tag = "EXPLORE (random action)" if explored else (note or "D5 ENERGY → STAY (no candidates)")
+            tag = "EXPLORE (ε-greedy random τ)" if explored else (note or "D5 ENERGY → STAY (no candidates)")
             p.setPen(QtGui.QColor(231, 76, 60) if not explored else QtGui.QColor(52, 152, 219))
             p.setFont(QtGui.QFont("Sans", 12, QtGui.QFont.Bold))
             p.drawText(list_x, list_y + 20, f"● {tag}")
-            p.setFont(QtGui.QFont("Sans", 9)); p.setPen(DIM_COL)
-            p.drawText(list_x, list_y + 42, "(candidate scores are not computed for this branch)")
+            p.setFont(QtGui.QFont("Sans", 9)); p.setPen(TEXT_COL)
+            if explored:
+                p.drawText(list_x, list_y + 42,
+                           "ε-greedy explore · random τ · scores not computed")
+                ca = getattr(f, "continuous_action", None)
+                if ca is not None and is_continuous:
+                    self._action_heatmap(p, ca, list(getattr(f, "dim_names", []) or []),
+                                         list_x, list_y + 58, list_w - 10, 28)
+            else:
+                p.drawText(list_x, list_y + 42, "(candidate scores are not computed for this branch)")
             if self.last_scores:
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 names = list(getattr(f, "action_names", []) or [])
                 cn = names[self.last_chosen] if self.last_chosen < len(names) else f"a{self.last_chosen}"
-                p.drawText(list_x, list_y + 60, f"last chosen: {cn}  (scores frozen, not redrawn)")
-        # right stack: rollout cloud (top) + action heatmap (mid) + ε strip (bottom)
-        cloud_top = 40
-        self._rollout_cloud(p, f, rx0, cloud_top, w - 10, h // 2 + 10, is_continuous)
-        # dim-agnostic continuous_action heatmap (replaces the 2D-only torque dial)
+                p.drawText(list_x, list_y + 92, f"last chosen: {cn}  (scores frozen, not redrawn)")
+        cloud_bot = lay["cloud_top"] + lay["cloud_h"]
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(rx0 - 4, lay["cloud_top"] - 4, right_w + 8,
+                          lay["body_h"] + 8, 6, 6)
+        self._rollout_cloud(p, f, rx0, lay["cloud_top"], rx0 + right_w, cloud_bot,
+                            is_continuous, has_scores=bool(scores))
         if is_continuous and self.last_continuous is not None:
             self._action_heatmap(p, self.last_continuous, list(getattr(f, "dim_names", []) or []),
-                                 rx0, h // 2 + 16, w - rx0 - 10, 36)
-        # ε-decay + explore/exploit dots (reserved 30px bottom strip)
-        self._epsilon_strip(p, rx0, h - 34, w - rx0 - 10, 28)
+                                 rx0, lay["tau_y"], right_w, lay["tau_h"])
+        self._epsilon_strip(p, rx0, lay["epsilon_y"], right_w, lay["epsilon_h"])
 
     def _ranked_list(self, p: QtGui.QPainter, scores: List[float], chosen: int,
                      pareto: set, names: List[str], is_continuous: bool,
@@ -3730,25 +3934,22 @@ class CandidateScoreView(_BaseCanvas):
             name = (names[idx] if idx < len(names) else (f"cand {idx}" if is_continuous else f"a{idx}"))
             # row background
             if is_chosen:
-                p.setPen(QtGui.QPen(ACCENT, 1)); p.setBrush(QtGui.QColor(241, 196, 15, 40))
+                p.setPen(QtGui.QPen(ACCENT, 2)); p.setBrush(QtGui.QColor(241, 196, 15, CHIP_FILL_ALPHA))
                 p.drawRoundedRect(x, ry, w, rh - 3, 4, 4)
             elif is_pareto:
-                p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 120), 1))
-                p.setBrush(QtGui.QColor(155, 89, 182, 18))
+                p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 160), 1))
+                p.setBrush(QtGui.QColor(155, 89, 182, 60))
                 p.drawRoundedRect(x, ry, w, rh - 3, 4, 4)
-            # rank
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x + 4, ry + rh - 8, f"#{rank + 1}")
-            # name
-            p.setPen(TEXT_COL if is_chosen else DIM_COL)
+            p.setPen(TEXT_COL)
             p.setFont(_F_LABEL_B if is_chosen else _F_AXIS)
             p.drawText(x + 34, ry + rh - 8, str(name)[:14])
-            # score bar
             bar_x = x + 110; bar_w = w - 110 - 78
             frac = max(0.0, min(1.0, (s - lo) / rng))
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG_ALT)
             p.drawRect(bar_x, ry + 4, bar_w, rh - 12)
-            col = ACCENT if is_chosen else QtGui.QColor(52, 152, 219, 200)
+            col = ACCENT if is_chosen else QtGui.QColor(52, 152, 219, 220)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             p.fillRect(bar_x, ry + 4, int(bar_w * frac), rh - 12, col)
             # value + margin-to-2nd
@@ -3772,15 +3973,18 @@ class CandidateScoreView(_BaseCanvas):
             return
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x, y, "chosen action τ (signed, per-dim)")
-        gy = y + 6
-        bw = (w - 4) / n
-        mid = gy + h // 2
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x, mid, x + w, mid)
+        gy = y + 14
+        chart_h = max(h - 18, 12)
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, gy, w, chart_h, 4, 4)
+        bw = (w - 8) / n
+        mid = gy + chart_h // 2
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x + 4, mid, x + w - 4, mid)
         for i in range(n):
             val = float(np.clip(v[i], -1, 1))
-            bh = int(abs(val) * (h // 2 - 2))
-            bx = int(x + i * bw)
-            col = QtGui.QColor(155, 89, 182) if val >= 0 else QtGui.QColor(231, 76, 60)
+            bh = int(abs(val) * (chart_h // 2 - 4))
+            bx = int(x + 4 + i * bw)
+            col = QtGui.QColor(155, 89, 182, 220) if val >= 0 else QtGui.QColor(231, 76, 60, 220)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             if val >= 0:
                 p.fillRect(bx + 1, mid - bh, max(int(bw) - 2, 1), bh, col)
@@ -3796,7 +4000,7 @@ class CandidateScoreView(_BaseCanvas):
     def _best_score_spark(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
         """v7: best-score-over-cycles sparkline (wires up the previously-dead
         score_hist). Stable ScaleState-free mini (bounded 0..1-ish)."""
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(x, y, w, h, 4, 4)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(x + 4, y + 10, "best score")
@@ -3820,20 +4024,26 @@ class CandidateScoreView(_BaseCanvas):
         if not self.eps_hist:
             return
         n = len(self.eps_hist)
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y, "ε-decay (blue) · explore(red)/exploit(green)")
-        base_y = y + h - 6
+        p.drawText(x + 4, y + 10, "ε-decay (blue) · explore(red)/exploit(green)")
+        base_y = y + h - 8
+        chart_top = y + 14
+        for gy in range(chart_top, base_y, 6):
+            p.setPen(QtGui.QPen(QtGui.QColor(50, 50, 60), 1))
+            p.drawLine(x + 4, gy, x + w - 4, gy)
         p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 2))
         for i in range(1, n):
             x0 = x + (i - 1) * w / max(n - 1, 1)
             x1 = x + i * w / max(n - 1, 1)
-            p.drawLine(int(x0), int(base_y - self.eps_hist[i - 1] * (h - 14)),
-                       int(x1), int(base_y - self.eps_hist[i] * (h - 14)))
+            p.drawLine(int(x0), int(base_y - self.eps_hist[i - 1] * (h - 20)),
+                       int(x1), int(base_y - self.eps_hist[i] * (h - 20)))
         for i, e in enumerate(self.ee_hist):
-            xx = int(x + i * w / max(n - 1, 1))
+            xx = int(x + 4 + i * (w - 8) / max(n - 1, 1))
             c = QtGui.QColor(231, 76, 60) if e else QtGui.QColor(46, 204, 113)
-            p.setBrush(c); p.setPen(QtGui.QPen(c, 1))
-            p.drawEllipse(xx - 2, base_y + 1, 4, 4)
+            p.setBrush(c); p.setPen(QtGui.QPen(c.darker(120), 1))
+            p.drawEllipse(xx - 3, base_y + 2, 6, 6)
 
 
 # ----- Phase Space tab -------------------------------------------------------
