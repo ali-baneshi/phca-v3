@@ -13,8 +13,11 @@ from PyQt5 import QtCore, QtGui
 
 from .observability import _normalize_rgb_frame
 
-# Legacy tau-bar purple — detect glitched frames/pixmaps, not used for drawing.
+# Legacy tau-bar purple — detect glitched frames, not used for drawing.
 _LEGACY_TAU_PURPLE = (155, 89, 182)
+
+# Minimum per-channel variation for a plausible MuJoCo camera frame.
+_MIN_CAMERA_STD = 8.0
 
 
 def _glitch_fraction_rgb(arr: np.ndarray, *, tol: int = 35) -> float:
@@ -34,8 +37,55 @@ def _glitch_fraction_rgb(arr: np.ndarray, *, tol: int = 35) -> float:
     return float((magenta | purple).sum()) / total
 
 
+def _green_dominance_frac(arr: np.ndarray) -> float:
+    r = arr[:, :, 0].astype(np.int16)
+    g = arr[:, :, 1].astype(np.int16)
+    b = arr[:, :, 2].astype(np.int16)
+    green = (g > 100) & (g > r + 25) & (g > b + 25)
+    n = max(int(r.size), 1)
+    return float(green.sum()) / n
+
+
+def is_uniform_rgb_frame(frame: Any, *, min_spatial_std: float = _MIN_CAMERA_STD,
+                         same_pixel_frac: float = 0.92) -> bool:
+    """True when the frame is a solid GL clear colour (green/red/orange slab)."""
+    arr = _normalize_rgb_frame(frame)
+    if arr is None:
+        return True
+    flat = arr.reshape(-1, 3)
+    if flat.shape[0] == 0:
+        return True
+    # Solid GL failure: almost every pixel is the exact same RGB triple.
+    ref = flat[0]
+    if float(np.all(flat == ref, axis=1).mean()) >= same_pixel_frac:
+        return True
+    # Real camera: mean luminance varies across the image.
+    gray = arr.astype(np.float32).mean(axis=2)
+    if float(gray.std()) < min_spatial_std:
+        return True
+    return _is_gl_clear_slab(arr)
+
+
+def _is_gl_clear_slab(arr: np.ndarray) -> bool:
+    """Detect dominant green/red GL clear screens (may have slight noise)."""
+    r = arr[:, :, 0].astype(np.int16)
+    g = arr[:, :, 1].astype(np.int16)
+    b = arr[:, :, 2].astype(np.int16)
+    green = (g > 120) & (g > r + 30) & (g > b + 30)
+    red = (r > 120) & (r > g + 30) & (r > b + 30)
+    blue = (b > 120) & (b > r + 30) & (b > g + 30)
+    n = max(int(r.size), 1)
+    if float(green.sum()) / n > 0.70:
+        return True
+    if float(red.sum()) / n > 0.70:
+        return True
+    if float(blue.sum()) / n > 0.70:
+        return True
+    return False
+
+
 def is_glitchy_rgb_frame(frame: Any, *, min_glitch_frac: float = 0.15) -> bool:
-    """True when the frame looks like a Qt decode failure or tau-purple slab."""
+    """True when the frame is unusable (purple/magenta placeholder or uniform GL)."""
     arr = _normalize_rgb_frame(frame)
     if arr is None:
         return True
@@ -44,6 +94,13 @@ def is_glitchy_rgb_frame(frame: Any, *, min_glitch_frac: float = 0.15) -> bool:
         return True
     if float(arr.std()) < 2.0 and glitch_frac > 0.05:
         return True
+    if is_uniform_rgb_frame(arr):
+        return True
+    # EGL failure: mostly-green slab that still has channel variance.
+    if _green_dominance_frac(arr) > 0.45:
+        mean = arr.mean(axis=(0, 1))
+        if float(mean[1]) > float(mean[0]) + 35 and float(mean[1]) > float(mean[2]) + 35:
+            return True
     return False
 
 
@@ -96,13 +153,13 @@ def _ppm_qimage_from_array(arr: np.ndarray) -> QtGui.QImage:
 
 
 def rgb_frame_to_qimage(frame: Any) -> QtGui.QImage:
-    """Coerce frame to QImage via owned RGB32 (PPM fallback)."""
+    """Coerce frame to QImage via owned RGB32 (PPM + RGB888 fallbacks)."""
     arr = _normalize_rgb_frame(frame)
     if arr is None:
         return QtGui.QImage()
     try:
         qimg = _rgb32_qimage_from_array(arr)
-        if not qimg.isNull() and not is_glitchy_pixmap(QtGui.QPixmap.fromImage(qimg)):
+        if not qimg.isNull():
             return qimg
     except Exception:
         pass
@@ -116,13 +173,13 @@ def rgb_frame_to_qimage(frame: Any) -> QtGui.QImage:
 
 
 def rgb_frame_to_pixmap(frame: Any) -> QtGui.QPixmap:
+    """Convert a numpy RGB frame to QPixmap (glitch check on numpy only)."""
+    if is_glitchy_rgb_frame(frame):
+        return QtGui.QPixmap()
     qimg = rgb_frame_to_qimage(frame)
     if qimg.isNull():
         return QtGui.QPixmap()
-    pm = QtGui.QPixmap.fromImage(qimg)
-    if is_glitchy_pixmap(pm):
-        return QtGui.QPixmap()
-    return pm
+    return QtGui.QPixmap.fromImage(qimg)
 
 
 def fit_pixmap_to_box(

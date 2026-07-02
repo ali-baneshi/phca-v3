@@ -1209,6 +1209,7 @@ class CognitiveCycle:
         use_mlp: bool = True,
         use_continuous: bool = True,
         render_mode: Optional[str] = None,
+        enable_camera: bool = False,
         metrics_store: Optional["MetricsStore"] = None,
         observability_store: Optional["ObservabilityStore"] = None,
     ) -> CognitiveCycle:
@@ -1224,9 +1225,9 @@ class CognitiveCycle:
             seed: Random seed.
             use_mlp: If True, use the pure-NumPy MLP world model.
             use_continuous: If True (and use_mlp=False), use Gaussian CPDs.
-            render_mode: Gymnasium render mode. The observability launcher
-                passes ``"rgb_array"`` so the dashboard can embed the live
-                camera frame; None for headless.
+            render_mode: Legacy gym render mode (human only). Live dashboard
+                camera uses ``enable_camera`` / ``mujoco.Renderer``.
+            enable_camera: Use offscreen ``mujoco.Renderer`` for dashboard RGB.
             metrics_store: Optional MetricsStore for live monitoring.
 
         Returns:
@@ -1237,8 +1238,11 @@ class CognitiveCycle:
         """
         from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
+        use_camera = bool(enable_camera or observability_store is not None
+                          or render_mode == "rgb_array")
         env = MuJoCoSimpleEnv(env_name=env_name, seed=seed,
-                              render_mode=render_mode)
+                              render_mode=render_mode,
+                              enable_camera=use_camera)
 
         if not use_mlp and not use_continuous:
             import warnings

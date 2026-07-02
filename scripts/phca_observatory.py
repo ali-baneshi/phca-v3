@@ -63,7 +63,7 @@ def _build_cycle(args, store: ObservabilityStore) -> CognitiveCycle:
     return CognitiveCycle.build_for_mujoco(
         args.env, seed=args.seed, use_mlp=args.mlp,
         observability_store=store,
-        render_mode="rgb_array",
+        enable_camera=True,
     )
 
 
@@ -150,6 +150,11 @@ def main() -> None:
     parser.add_argument("--video-cycle-ms", type=int, default=1500,
                         help="when recording video, auto-cycle tabs every N ms so the "
                              "mp4 captures all 7 tabs (0 = off, stay on clicked tab)")
+    parser.add_argument("--camera-debug", action="store_true",
+                        help="log one-line camera stats on stderr each capture (main thread)")
+    parser.add_argument("--camera", default="auto", choices=["auto", "live", "schematic"],
+                        help="camera mode: auto (GL with 2D fallback), live (GL only), "
+                             "schematic (2D arm, no GPU — use if screen stays green)")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -168,6 +173,12 @@ def main() -> None:
                                   "renderer": "qt"})
     if session_dir:
         print(f"Recording session -> {session_dir}")
+
+    gl_backend = os.environ.get("MUJOCO_GL", "(default)")
+    if args.env != "gridworld":
+        print(f"MuJoCo GL: {gl_backend} (camera via mujoco.Renderer, not gym viewer)")
+        print("If camera is blank, try unsetting MUJOCO_GL or:")
+        print("  MUJOCO_GL=egl PYTHONPATH=python python scripts/phca_observatory.py ...")
 
     # Cognitive cycle (incl. M3 SQLite) MUST be built+run in ONE thread.
     stop_flag = threading.Event()
@@ -209,6 +220,35 @@ def main() -> None:
     app = make_app()
     win = ObservatoryWindow()
     ctrl = win.controller
+    camera_wired = False
+    if args.camera == "schematic":
+        win.set_camera_provider(None, mode="schematic")
+        camera_wired = True
+
+    def _wire_camera_if_ready() -> None:
+        nonlocal camera_wired
+        if camera_wired:
+            return
+        cycle = cycle_holder.get("cycle")
+        if cycle is None:
+            return
+        env = getattr(cycle, "env", None)
+        render_rgb = getattr(env, "render_rgb", None)
+        if not callable(render_rgb):
+            return
+        win.set_camera_provider(render_rgb, debug=args.camera_debug, mode=args.camera)
+        camera_wired = True
+        win.overview.mark_dirty()
+        win.overview.update()
+        app.processEvents()
+
+    def _wait_cycle_and_wire() -> None:
+        if camera_wired:
+            return
+        if "cycle" not in cycle_holder:
+            QtCore.QTimer.singleShot(30, _wait_cycle_and_wire)
+            return
+        _wire_camera_if_ready()
 
     # v6 transport: PlaybackClock drives the dashboard at the heartbeat rate;
     # _TransportBar gives pause / speed / step / scrub / cycle-throttle.
@@ -229,6 +269,7 @@ def main() -> None:
     hb_sync.timeout.connect(_sync_transport)
 
     win.show()
+    _wait_cycle_and_wire()
     # v8: start the calm-render pacer (repaints the visible tab's dirty canvases
     # at --render-hz; paused/no-new-data → 0 repaints).
     win.start_render(args.render_hz)
@@ -259,6 +300,7 @@ def main() -> None:
     def _tick():
         nonlocal last_recorded_cycle, last_grab, last_tab_switch
         try:
+            _wire_camera_if_ready()
             # Drain new frames: JSONL every cycle (always); push into the
             # playback buffer so the heartbeat clock + scrubber can reach them.
             new = [f for f in store.latest_n(256) if f.cycle_id > last_recorded_cycle]

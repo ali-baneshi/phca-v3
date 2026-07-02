@@ -12,7 +12,8 @@ Cross-ref: docs/mujoco_integration_plan.md
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+import threading
+from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -78,6 +79,7 @@ class MuJoCoSimpleEnv:
         env_name: str = "InvertedPendulum-v5",
         seed: int = 42,
         render_mode: Optional[str] = None,
+        enable_camera: bool = False,
     ):
         """Initialise the MuJoCo environment wrapper.
 
@@ -85,10 +87,22 @@ class MuJoCoSimpleEnv:
             env_name: gymnasium MuJoCo environment ID.
             seed: Random seed for reproducibility.
             render_mode: Gymnasium render mode (None for headless,
-                "human" for visualisation, "rgb_array" for recording).
+                "human" for visualisation). ``rgb_array`` is accepted for
+                backward compatibility but the live camera uses
+                ``mujoco.Renderer`` instead of gymnasium's OffScreenViewer.
+            enable_camera: When True, capture RGB via ``mujoco.Renderer``
+                (observatory dashboard). Avoids gymnasium EGL/OSMesa conflicts
+                with Qt on the main thread.
         """
         self.env_name = env_name
-        self._env = gym.make(env_name, render_mode=render_mode)
+        self._enable_camera = bool(enable_camera or render_mode == "rgb_array")
+        gym_mode = render_mode
+        if self._enable_camera:
+            gym_mode = None
+        self._env = gym.make(env_name, render_mode=gym_mode)
+        self._offscreen_renderer: Any = None
+        self._renderer_tid: Optional[int] = None
+        self._sim_lock = threading.RLock()
         self._rng = np.random.RandomState(seed)
         self._seed = seed
 
@@ -202,7 +216,8 @@ class MuJoCoSimpleEnv:
             continuous_action = np.asarray(action, dtype=np.float32)
         else:
             continuous_action = self._action_map[action]
-        obs, reward, terminated, truncated, info = self._env.step(continuous_action)
+        with self._sim_lock:
+            obs, reward, terminated, truncated, info = self._env.step(continuous_action)
         terminal = terminated or truncated
 
         # MuJoCo uses np.float64 internally; cast to float32 for PHCA
@@ -226,7 +241,8 @@ class MuJoCoSimpleEnv:
         Returns:
             Initial observation vector (cached for _get_observation()).
         """
-        obs, info = self._env.reset(seed=seed or self._seed)
+        with self._sim_lock:
+            obs, info = self._env.reset(seed=seed or self._seed)
         obs = obs.astype(np.float32)
         self._last_obs = obs
         return obs
@@ -237,24 +253,80 @@ class MuJoCoSimpleEnv:
 
     def close(self) -> None:
         """Release MuJoCo simulation resources."""
-        self._env.close()
+        with self._sim_lock:
+            if self._offscreen_renderer is not None:
+                try:
+                    self._offscreen_renderer.close()
+                except Exception:
+                    pass
+                self._offscreen_renderer = None
+                self._renderer_tid = None
+            self._env.close()
+
+    def _reset_renderer_if_wrong_thread(self) -> None:
+        tid = threading.get_ident()
+        if self._offscreen_renderer is not None and self._renderer_tid != tid:
+            try:
+                self._offscreen_renderer.close()
+            except Exception:
+                pass
+            self._offscreen_renderer = None
+            self._renderer_tid = None
+
+    def _render_offscreen(self) -> Optional[np.ndarray]:
+        """Capture RGB via mujoco.Renderer (main-thread safe; sim lock held)."""
+        try:
+            import mujoco
+            unwrapped = getattr(self._env, "unwrapped", self._env)
+            model = getattr(unwrapped, "model", None)
+            data = getattr(unwrapped, "data", None)
+            if model is None or data is None:
+                return None
+            self._reset_renderer_if_wrong_thread()
+            if self._offscreen_renderer is None:
+                self._offscreen_renderer = mujoco.Renderer(model, height=480, width=480)
+                self._renderer_tid = threading.get_ident()
+            mujoco.mj_forward(model, data)
+            self._offscreen_renderer.update_scene(data)
+            img = self._offscreen_renderer.render()
+            return np.asarray(img, dtype=np.uint8).copy()
+        except Exception:
+            return None
 
     def render_rgb(self) -> Optional[np.ndarray]:
         """Return the current MuJoCo camera frame as an (H,W,3) uint8 array.
 
-        Observability v4: requires the env to be built with
-        ``render_mode='rgb_array'`` (the launcher requests this only when
-        observability is attached, so headless runs pay nothing). Returns
-        None if rendering is unavailable so the dashboard can fall back to
-        the dimension-agnostic state-space projection.
+        Uses ``mujoco.Renderer`` when ``enable_camera`` is set (observatory).
+        Gymnasium's ``rgb_array`` OffScreenViewer is intentionally avoided —
+        it often returns solid green/red on EGL+Qt setups.
+
+        Thread-safe: holds ``_sim_lock`` so render never races ``step()``.
         """
-        try:
-            frame = self._env.render()
-            if frame is None:
-                return None
-            return np.asarray(frame, dtype=np.uint8)
-        except Exception:
+        if not self._enable_camera:
             return None
+
+        def _ok(arr: Optional[np.ndarray]) -> bool:
+            if arr is None or arr.size == 0:
+                return False
+            from phca.monitoring.camera_render import is_glitchy_rgb_frame
+            return not is_glitchy_rgb_frame(arr)
+
+        with self._sim_lock:
+            for attempt in range(2):
+                arr = self._render_offscreen()
+                if _ok(arr):
+                    return arr
+                if attempt == 0:
+                    try:
+                        import mujoco
+                        unwrapped = getattr(self._env, "unwrapped", self._env)
+                        model = getattr(unwrapped, "model", None)
+                        data = getattr(unwrapped, "data", None)
+                        if model is not None and data is not None:
+                            mujoco.mj_forward(model, data)
+                    except Exception:
+                        pass
+        return None
 
     # ── Internal methods called by CognitiveCycle ────────────
 

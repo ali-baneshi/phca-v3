@@ -59,12 +59,11 @@ _PROC = psutil.Process() if _HAVE_PSUTIL else None
 _RSS_CACHE: Dict[int, Tuple[float, int]] = {}
 _RSS_TTL_S = 0.25
 
-# Live-only RGB camera frame (MuJoCo). Rendering is ~5-10ms so we throttle to
-# ~2.5 Hz; the dashboard reuses the cached frame between refreshes. The frame
-# is NEVER serialised to JSONL (image firehose) — it reaches mp4 via the
-# dashboard's own QPixmap.grab during --record-video.
+# Live-only RGB camera frame (MuJoCo). Refresh every observability frame build
+# (TTL=0) so the dashboard always gets the latest capture; deep-copied so MuJoCo
+# cannot overwrite the buffer before Qt paints it.
 _ENV_FRAME_CACHE: Dict[int, Tuple[float, Optional[np.ndarray]]] = {}
-_ENV_FRAME_TTL_S = 0.4
+_ENV_FRAME_TTL_S = 0.0
 
 # Heavy memory samples (M3 episodes + M4 facts) are read off the cycle thread
 # at most every 0.5s so the per-cycle frame build stays cheap. These too are
@@ -110,7 +109,7 @@ def _normalize_rgb_frame(frame: Any) -> Optional[np.ndarray]:
 
 
 def _cached_env_frame(env: Any) -> Optional[np.ndarray]:
-    """Throttled live RGB camera frame (MuJoCo rgb_array). None if unavailable."""
+    """Live RGB camera frame (MuJoCo rgb_array). None if unavailable or rejected."""
     getter = getattr(env, "render_rgb", None)
     if not callable(getter):
         return None
@@ -122,11 +121,24 @@ def _cached_env_frame(env: Any) -> Optional[np.ndarray]:
             frame = getter()
             if frame is not None:
                 val = _normalize_rgb_frame(frame)
+                if val is not None:
+                    val = val.copy()
+                    from phca.monitoring.camera_render import is_glitchy_rgb_frame
+                    if is_glitchy_rgb_frame(val):
+                        import sys
+                        print("[observability] env_frame rejected (glitch/uniform)",
+                              file=sys.stderr)
+                        val = None
             else:
                 val = None
+                import sys
+                print("[observability] env_frame unavailable (render returned None)",
+                      file=sys.stderr)
             _ENV_FRAME_CACHE[pid] = (now, val)
-        except Exception:
+        except Exception as exc:
             val = None
+            import sys
+            print(f"[observability] env_frame capture failed: {exc}", file=sys.stderr)
     return val
 
 
@@ -413,8 +425,8 @@ class ObservabilityFrame:
         except Exception:
             action_names = []
 
-        # Live RGB camera frame (throttled, live-only).
-        env_frame = _cached_env_frame(env)
+        # RGB camera is captured on the Qt main thread (ObservatoryWindow camera_provider).
+        env_frame = None
 
         # Sanitized state + precision (live-only; obs_vector already serialised).
         sanitized_state = None
