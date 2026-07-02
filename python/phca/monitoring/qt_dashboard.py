@@ -40,6 +40,7 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from .observability import ObservabilityFrame
+from .playback import _Smoother
 from .render import _grid_base, _prediction_heatmap
 
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -390,12 +391,15 @@ class _BaseCanvas(QtWidgets.QWidget):
         pal.setColor(QtGui.QPalette.Window, PANEL_BG)
         self.setPalette(pal)
         self.frame: Optional[ObservabilityFrame] = None
+        # v6: repaint counter for the flicker-free acceptance gate.
+        self.repaint_count: int = 0
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
         self.update()
 
     def paintEvent(self, _ev: QtGui.QPaintEvent) -> None:
+        self.repaint_count += 1
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.fillRect(self.rect(), PANEL_BG)
@@ -546,6 +550,235 @@ class _ChartCanvas(_BaseCanvas):
 
 # ----- Overview tab canvases -------------------------------------------------
 
+class AgentPortraitView(_BaseCanvas):
+    """v6 focal 'picture of the cognitive agent' — a single composite organism
+    whose morphology encodes internal state, surrounded by semantic gauges and
+    one convergence trend. Dimension-agnostic (scalars only) → works for any
+    future 2D / n-D environment. Additive; does not replace any existing view.
+
+    Glyph encoding:
+      - body halo : 6 drive segments (radius = level, alpha = level, gap = deficit)
+      - core disc : colour = prediction confidence (green→red), brightness = empowerment
+      - breath    : slow ~0.4 Hz wall-clock ring (calm, not a strobe)
+      - head      : marker on the active-drive segment
+      - limbs     : 2 limbs encoding the action vector direction/magnitude
+    Gauges (radial): PEU/free-energy, confidence, empowerment, meta-stability,
+      mean attention precision, RBTA time-headroom.
+    Trend: composite free-energy (prediction_error) sparkline + ↘/↗ health arrow.
+    """
+
+    GAUGES = ("free-energy", "confidence", "empowerment",
+              "meta-stable", "attn-prec", "RBTA-room")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frame: Optional[ObservabilityFrame] = None
+        self._sm = {k: _Smoother(alpha=0.25) for k in self.GAUGES}
+        self._fe_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._t0 = time.monotonic()
+
+    def set_frame(self, f: ObservabilityFrame) -> None:
+        self.frame = f
+        # feed smoothers + free-energy history
+        fe = float(getattr(f, "prediction_error", 0.0) or 0.0)
+        self._fe_hist.append(fe)
+        self._sm["free-energy"].value(fe)
+        self._sm["confidence"].value(float(getattr(f, "prediction_confidence", 0.0) or 0.0))
+        self._sm["empowerment"].value(float(getattr(f, "empowerment", 0.0) or 0.0))
+        ms = getattr(f, "meta_stable", None) or {}
+        stable = 1.0 if bool(ms.get("is_meta_stable", ms.get("stable", False))) else 0.0
+        self._sm["meta-stable"].value(stable)
+        ap = getattr(f, "attention_precisions", None) or []
+        self._sm["attn-prec"].value(float(np.mean(ap)) if len(ap) else 0.0)
+        # RBTA time-headroom = 1 - max(measured/bound) over modules
+        room = self._rbta_room(f)
+        self._sm["RBTA-room"].value(room)
+        self.update()
+
+    @staticmethod
+    def _rbta_room(f: ObservabilityFrame) -> float:
+        bounds = getattr(f, "rbta_bounds", None) or {}
+        timings = getattr(f, "module_timings", None) or {}
+        worst = 0.0
+        for k, v in bounds.items():
+            if not isinstance(v, dict):
+                continue
+            t = v.get("time")
+            if not t or t <= 0:
+                continue
+            m = 0.0
+            for mod in (k,):
+                mv = timings.get(mod)
+                if mv is None:
+                    # rbta keys may be module ids; try matching via flow map
+                    mv = timings.get(RBTA_TO_FLOW.get(mod, mod))
+                if mv is not None:
+                    m = max(m, float(mv))
+            if m > 0:
+                worst = max(worst, m / float(t))
+        return max(0.0, 1.0 - worst)
+
+    def _draw(self, p: QtGui.QPainter) -> None:
+        f = self.frame
+        w, h = self.width(), self.height()
+        if f is None:
+            self._empty(p, "Agent portrait (collecting…)"); return
+        self._title(p, "Cognitive agent — portrait")
+        self._caption(p, "halo=drives · core colour=confidence · brightness=empowerment · "
+                         "head=active drive · limbs=action · gauges=scalar vitals")
+        # layout: glyph on the left, gauges grid on the right, trend at bottom
+        glyph_cx = w // 4
+        glyph_cy = h // 2 + 6
+        R = min(w // 5, h // 3)
+        self._draw_glyph(p, f, glyph_cx, glyph_cy, R)
+        # gauges grid (3 cols x 2 rows) on the right half
+        gx0 = w // 2
+        gw = (w - gx0 - 8) // 3
+        gh = (h // 2 - 30) // 2
+        for i, name in enumerate(self.GAUGES):
+            col = i % 3; row = i // 3
+            x = gx0 + col * gw; y = 36 + row * gh
+            self._draw_gauge(p, name, self._sm[name]._v, x + 4, y + 4, gw - 8, gh - 8)
+        # free-energy convergence trend at the bottom-right
+        self._draw_trend(p, gx0, h // 2 + 14, w - gx0 - 8, h // 2 - 28)
+
+    def _draw_glyph(self, p, f, cx, cy, R):
+        import math
+        levels = list(getattr(f, "drive_levels", []) or [0.0] * 6)
+        deficits = list(getattr(f, "drive_deficits", []) or [0.0] * 6)
+        active = int(getattr(f, "active_drive_id", 0) or 0)
+        conf = self._sm["confidence"]._v
+        emp = self._sm["empowerment"]._v
+        # breath ring (slow ~0.4 Hz, wall-clock) — calm, not a strobe
+        breath = 0.5 + 0.5 * math.sin(2 * math.pi * (time.monotonic() - self._t0) * 0.4)
+        br = int(R * (1.18 + 0.06 * breath))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, int(40 + 60 * breath)), 2))
+        p.drawEllipse(cx - br, cy - br, br * 2, br * 2)
+        # drive halo: 6 segments
+        for i in range(6):
+            did = i + 1
+            lvl = float(levels[i]) if i < len(levels) else 0.0
+            dfc = float(deficits[i]) if i < len(deficits) else 0.0
+            lvl = max(0.0, min(1.0, lvl))
+            a0 = -math.pi / 2 + i * math.pi / 3
+            a1 = a0 + math.pi / 3 - 0.18 * (dfc)  # gap widens with deficit
+            r_out = int(R * (0.55 + 0.45 * lvl))
+            col = _to_qcolor(DRIVE_COLORS[did]); col.setAlpha(int(80 + 160 * lvl))
+            p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
+            from PyQt5 import QtGui as _QtGui
+            path = _QtGui.QPainterPath()
+            path.moveTo(cx + R * 0.45 * math.cos(a0), cy + R * 0.45 * math.sin(a0))
+            path.arcTo(cx - r_out, cy - r_out, r_out * 2, r_out * 2,
+                       math.degrees(a0), math.degrees(a1 - a0))
+            path.lineTo(cx + R * 0.45 * math.cos(a1), cy + R * 0.45 * math.sin(a1))
+            p.drawPath(path)
+        # core: colour by confidence (green→amber→red), brightness by empowerment
+        cval = max(0.0, min(1.0, conf))
+        if cval > 0.66:
+            core = QtGui.QColor(46, 204, 113)
+        elif cval > 0.33:
+            core = QtGui.QColor(241, 196, 15)
+        else:
+            core = QtGui.QColor(231, 76, 60)
+        b = int(120 + 110 * max(0.0, min(1.0, emp)))
+        core.setAlpha(min(255, b))
+        cr = int(R * 0.4)
+        p.setBrush(core); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 180), 2))
+        p.drawEllipse(cx - cr, cy - cr, cr * 2, cr * 2)
+        # active-drive head marker
+        if 1 <= active <= 6:
+            i = active - 1
+            a = -math.pi / 2 + i * math.pi / 3 + math.pi / 6
+            hx = cx + (R * 1.02) * math.cos(a); hy = cy + (R * 1.02) * math.sin(a)
+            p.setBrush(_to_qcolor(DRIVE_COLORS[active]))
+            p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
+            p.drawEllipse(int(hx) - 5, int(hy) - 5, 10, 10)
+        # limbs: action vector (continuous) or chosen index (discrete)
+        self._draw_limbs(p, f, cx, cy, cr, R)
+        # core label
+        p.setPen(QtGui.QColor(20, 20, 24)); p.setFont(_F_LABEL_B)
+        p.drawText(cx - cr, cy - cr, cr * 2, cr * 2, 0x84,
+                   f"conf\n{conf:.2f}")
+
+    def _draw_limbs(self, p, f, cx, cy, cr, R):
+        import math
+        ca = getattr(f, "continuous_action", None)
+        if ca is not None:
+            vec = np.asarray(ca, dtype=np.float32).reshape(-1)
+            if vec.size >= 2:
+                vx = float(np.clip(vec[0], -1, 1)); vy = float(np.clip(vec[1], -1, 1))
+                mag = float(min(1.0, math.hypot(vx, vy)))
+                ang = math.atan2(vy, vx)
+                for off in (0.0, math.pi):
+                    a = ang + off
+                    ex = cx + (cr + R * 0.5 * mag) * math.cos(a)
+                    ey = cy + (cr + R * 0.5 * mag) * math.sin(a)
+                    p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
+                    p.drawLine(cx, cy, int(ex), int(ey))
+                    p.setBrush(QtGui.QColor(155, 89, 182)); p.setPen(QtCore.Qt.white)
+                    p.drawEllipse(int(ex) - 4, int(ey) - 4, 8, 8)
+                return
+        # discrete: highlight chosen action as N limbs
+        r = getattr(f, "action_rationale", None) or {}
+        chosen = int(np.argmax(list(getattr(f, "candidate_scores", []) or [0])))
+        n = max(1, min(4, chosen + 1))
+        for i in range(n):
+            a = -math.pi / 2 + i * 2 * math.pi / n
+            ex = cx + (cr + R * 0.4) * math.cos(a); ey = cy + (cr + R * 0.4) * math.sin(a)
+            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 200), 3))
+            p.drawLine(cx, cy, int(ex), int(ey))
+
+    def _draw_gauge(self, p, name, v, x, y, w, h):
+        import math
+        v = max(0.0, min(1.0, float(v)))
+        cx = x + w // 2; cy = y + h - 6; R = min(w // 2 - 4, h - 16)
+        # track arc (270° sweep)
+        p.setPen(QtGui.QPen(GRID_COL, 4)); p.setBrush(QtCore.Qt.NoBrush)
+        p.drawArc(cx - R, cy - R, R * 2, R * 2, 225 * 16, -270 * 16)
+        # value arc
+        col = QtGui.QColor(46, 204, 113) if v > 0.66 else (
+            QtGui.QColor(241, 196, 15) if v > 0.33 else QtGui.QColor(231, 76, 60))
+        p.setPen(QtGui.QPen(col, 4)); p.drawArc(cx - R, cy - R, R * 2, R * 2,
+                                               225 * 16, int(-270 * 16 * v))
+        # needle
+        ang = math.radians(225 + 270 * v)
+        nx = cx + (R - 2) * math.cos(ang); ny = cy - (R - 2) * math.sin(ang)
+        p.setPen(QtGui.QPen(QtCore.Qt.white, 2)); p.drawLine(cx, cy, int(nx), int(ny))
+        p.setBrush(col); p.setPen(QtCore.Qt.white); p.drawEllipse(cx - 3, cy - 3, 6, 6)
+        # label + value
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(x, y + 10, name)
+        p.setPen(DIM_COL)
+        p.drawText(x, y + h - 2, f"{v:.2f}")
+
+    def _draw_trend(self, p, x, y, w, h):
+        self._title(p, "free-energy convergence (↘ healthy)", x=x, y=y + 12)
+        vals = list(self._fe_hist)
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x, y + h - 4, x + w, y + h - 4)
+        if len(vals) < 2:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x + 4, y + 30, "collecting…"); return
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9: hi = lo + 1
+        n = len(vals)
+        # health arrow: compare last quarter mean to first quarter
+        q = max(1, n // 4)
+        early = float(np.mean(vals[:q])); late = float(np.mean(vals[-q:]))
+        arrow = "↘ healthy" if late <= early else "↗ rising"
+        col = QtGui.QColor(46, 204, 113) if late <= early else QtGui.QColor(231, 76, 60)
+        p.setPen(col); p.setFont(_F_LABEL_B)
+        p.drawText(x + w - 110, y + 12, arrow)
+        # sparkline
+        p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
+        path = QtGui.QPainterPath()
+        for i, v in enumerate(vals):
+            px = x + i * w / max(n - 1, 1)
+            py = (y + h - 4) - (v - lo) / (hi - lo) * (h - 22)
+            (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.drawPath(path)
+
+
 class WorldCanvas(_BaseCanvas):
     """Env-adaptive world view: grid / MuJoCo RGB camera + overlay / PCA
     projection. The single spatial widget that scales grid→2D→3D→n-D."""
@@ -555,6 +788,10 @@ class WorldCanvas(_BaseCanvas):
         self.frame: Optional[ObservabilityFrame] = None
         self.trail: Deque[Any] = deque(maxlen=160)
         self.proj: Optional[BeliefProjection] = None
+        # v6: 2D arena path for low-dim continuous envs (future 2D phases).
+        self.arena_trail: Deque[Tuple[float, float]] = deque(maxlen=256)
+        self._ax = ScaleState(contract=0.04, head=0.08)
+        self._ay = ScaleState(contract=0.04, head=0.08)
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
@@ -565,6 +802,15 @@ class WorldCanvas(_BaseCanvas):
             ap = tuple(f.agent_pos)
             if not self.trail or self.trail[-1] != ap:
                 self.trail.append(ap)
+        # v6: 2D arena trail for low-dim continuous envs (x,y from first 2 dims).
+        kind = (getattr(f, "env_kind", "") or "").lower()
+        sd = int(getattr(f, "state_dim", 0) or 0)
+        if kind == "continuous" and 2 <= sd <= 4 and f.obs_vector is not None:
+            v = np.asarray(f.obs_vector, dtype=np.float32).reshape(-1)
+            if v.size >= 2:
+                pt = (float(v[0]), float(v[1]))
+                if not self.arena_trail or self.arena_trail[-1] != pt:
+                    self.arena_trail.append(pt)
         # projection history is pushed once by the controller (single source)
         self.update()
 
@@ -574,12 +820,58 @@ class WorldCanvas(_BaseCanvas):
             self._empty(p, "Awaiting cycle…"); return
         w, h = self.width(), self.height()
         kind = (getattr(f, "env_kind", "") or "").lower()
+        sd = int(getattr(f, "state_dim", 0) or 0)
         if f.grid is not None:
             self._draw_grid(p, f, w, h)
         elif kind == "mujoco_rgb":
             self._draw_rgb(p, f, w, h)
+        elif kind == "continuous" and 2 <= sd <= 4:
+            self._draw_arena(p, f, w, h)
         else:
             self._draw_projection(p, f, w, h)
+
+    def _draw_arena(self, p, f, w, h):
+        """2D arena: agent dot + goal + trail in the x-y plane (low-dim
+        continuous). Stable bounds (no jitter). Forward-looking for 2D phases."""
+        margin = 24
+        left, right, top, bot = margin, w - margin, 30, h - 24
+        self._title(p, f"2D arena (x,y)  dim={f.state_dim}  ●agent ◆goal · trail")
+        self._caption(p, "low-dim continuous env → planar view (higher-dim → PCA projection)")
+        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+        p.drawRect(left, top, right - left, bot - top)
+        trail = list(self.arena_trail)
+        if not trail:
+            self._empty(p, "2D arena (collecting…)"); return
+        xs = [pt[0] for pt in trail]; ys = [pt[1] for pt in trail]
+        xlo, xhi = self._ax.update(float(min(xs)), float(max(xs)))
+        ylo, yhi = self._ay.update(float(min(ys)), float(max(ys)))
+        if xhi - xlo < 1e-9: xhi = xlo + 1
+        if yhi - ylo < 1e-9: yhi = ylo + 1
+
+        def _m(x, y):
+            px = left + (x - xlo) / (xhi - xlo) * (right - left)
+            py = bot - (y - ylo) / (yhi - ylo) * (bot - top)
+            return int(px), int(py)
+        # trail
+        n = len(trail)
+        for i in range(1, n):
+            a = int(40 + 180 * i / n)
+            x0, y0 = _m(*trail[i - 1]); x1, y1 = _m(*trail[i])
+            p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, a), 2))
+            p.drawLine(x0, y0, x1, y1)
+        # goal
+        gref = getattr(f, "goal_ref", None)
+        if gref is not None:
+            gv = np.asarray(gref, dtype=np.float32).reshape(-1)
+            if gv.size >= 2:
+                gx, gy = _m(float(gv[0]), float(gv[1]))
+                p.setBrush(QtGui.QColor(46, 204, 113, 180))
+                p.setPen(QtGui.QPen(QtGui.QColor(46, 204, 113), 1))
+                p.drawEllipse(gx - 6, gy - 6, 12, 12)
+        # agent
+        ax, ay = _m(*trail[-1])
+        p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
+        p.drawEllipse(ax - 5, ay - 5, 10, 10)
 
     def _draw_grid(self, p, f, w, h):
         g = f.grid
@@ -931,6 +1223,9 @@ class CognitiveFlowView(_BaseCanvas):
         self.viol_mods: set = set()
         self.last_viol: Dict[str, str] = {}
         self.cycle_id: int = 0
+        # v6: per-module EMA smoothers so the measured-vs-bound bars glide
+        # instead of jumping each heartbeat (flicker-free).
+        self._ms_smooth: Dict[str, _Smoother] = {}
         # slow wall-clock animation (decoupled from cycle rate → no strobe)
         self._anim_t: float = 0.0
         self._last_wall: float = time.monotonic()
@@ -1027,7 +1322,10 @@ class CognitiveFlowView(_BaseCanvas):
         # nodes
         for mod in PIPELINE + SIDE_MODULES:
             x, y = pos[mod]
-            ms = float(f.module_timings.get(mod, 0.0))
+            raw_ms = float(f.module_timings.get(mod, 0.0))
+            # v6: EMA-smooth the measured timing so the bar glides (no flicker).
+            sm = self._ms_smooth.setdefault(mod, _Smoother(alpha=0.25))
+            ms = sm.value(raw_ms)
             viol = mod in self.viol_mods
             col = QtGui.QColor(231, 76, 60) if viol else _to_qcolor(_cost_color(ms))
             # radius scales with cost (clamped)
@@ -2485,11 +2783,110 @@ class GoalsMotivationView(_BaseCanvas):
 
 # ----- Controller + main window ---------------------------------------------
 
+class _TransportBar(QtWidgets.QFrame):
+    """v6 transport: pause / speed dial / step / scrub / cycle-throttle.
+
+    Governs a ``PlaybackClock`` (view pause + slow-mo + scrub) and, when
+    "throttle cycles" is checked, a ``CyclePacer`` (slow/stop the real cycle
+    thread). Additive — only shown when installed on a window.
+    """
+
+    SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
+
+    def __init__(self, clock, pacer=None, parent=None):
+        super().__init__(parent)
+        self.clock = clock
+        self.pacer = pacer
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(8)
+        self.play_btn = QtWidgets.QToolButton()
+        self.play_btn.setText("⏸ Pause"); self.play_btn.setCheckable(True)
+        self.step_btn = QtWidgets.QToolButton(); self.step_btn.setText("⏭ Step")
+        self.follow_btn = QtWidgets.QToolButton(); self.follow_btn.setText("⤓ Live")
+        self.speed = QtWidgets.QComboBox()
+        for s in self.SPEEDS:
+            self.speed.addItem(f"{s:g}×")
+        self.speed.setCurrentIndex(2)  # 1×
+        self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.slider.setMinimum(0); self.slider.setMaximum(0); self.slider.setValue(0)
+        self.label = QtWidgets.QLabel("0 / 0")
+        self.label.setMinimumWidth(90)
+        self.throttle = QtWidgets.QCheckBox("throttle cycles")
+        self.throttle.setToolTip("When on, the speed dial + pause also slow/stop the "
+                                 "actual cognitive cycle thread (not just the view).")
+        for w in (self.play_btn, self.step_btn, self.follow_btn, self.speed,
+                  self.slider, self.label):
+            lay.addWidget(w)
+        lay.addWidget(self.throttle, 0)
+        # wire
+        self.play_btn.toggled.connect(self._on_play)
+        self.step_btn.clicked.connect(self._on_step)
+        self.follow_btn.clicked.connect(self._on_follow)
+        self.speed.currentIndexChanged.connect(self._on_speed)
+        self.slider.valueChanged.connect(self._on_seek)
+        if pacer is None:
+            self.throttle.hide()
+        else:
+            self.throttle.toggled.connect(self._on_throttle)
+
+    def set_range(self, n: int) -> None:
+        self.slider.setMaximum(max(0, n - 1))
+
+    def _on_play(self, checked: bool) -> None:
+        # checked == paused
+        self.play_btn.setText("▶ Play" if checked else "⏸ Pause")
+        self.clock.set_paused(checked)
+        if self.pacer is not None and self.throttle.isChecked():
+            self.pacer.set_paused(checked)
+
+    def _on_step(self) -> None:
+        self.clock.step()
+        self._sync_slider()
+
+    def _on_follow(self) -> None:
+        self.clock.follow_live()
+        self._sync_slider()
+
+    def _on_speed(self, _idx: int) -> None:
+        s = self.SPEEDS[self.speed.currentIndex()]
+        self.clock.set_speed(s)
+        if self.pacer is not None and self.throttle.isChecked():
+            from .playback import throttle_period
+            self.pacer.set_period(throttle_period(s))
+
+    def _on_seek(self, val: int) -> None:
+        self.clock.seek(val)
+        self.label.setText(f"{val} / {max(0, self.clock.n - 1)}")
+
+    def _on_throttle(self, on: bool) -> None:
+        if self.pacer is None:
+            return
+        if on:
+            from .playback import throttle_period
+            s = self.SPEEDS[self.speed.currentIndex()]
+            self.pacer.set_period(throttle_period(s))
+            self.pacer.set_paused(self.play_btn.isChecked())
+        else:
+            self.pacer.set_period(0.0)
+            self.pacer.set_paused(False)
+
+    def _sync_slider(self) -> None:
+        i = self.clock.cursor_int
+        self.slider.blockSignals(True)
+        self.slider.setValue(i)
+        self.slider.blockSignals(False)
+        self.label.setText(f"{i} / {max(0, self.clock.n - 1)}")
+
+
 class DashboardController:
     """Mutates persistent widget state from frames (no widget rebuild)."""
 
     def __init__(self, window: "ObservatoryWindow"):
         self.w = window
+        # v6 flicker-free: skip the whole widget update when the frame is the
+        # same cycle as the last one we rendered (idle/no-new-data → 0 repaints).
+        self._last_cycle: int = -1
 
     def update(self, frame: Optional[ObservabilityFrame],
                rolling: Optional[List[ObservabilityFrame]] = None,
@@ -2498,11 +2895,18 @@ class DashboardController:
             return
         f = frame
         if f is not None:
+            # v6 flicker-free: drop redundant updates for an unchanged cycle
+            # (heartbeat emitting the same cursor frame while production stalls).
+            cid = int(getattr(f, "cycle_id", -1))
+            if cycle_error is None and cid == self._last_cycle:
+                return
+            self._last_cycle = cid
             # single source of truth for the shared belief projection + history
             self.w.proj.update(f)
             v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
             self.w.proj.push_history(self.w.proj.project(v))
             self.w.world.set_frame(f)
+            self.w.portrait.set_frame(f)
             self.w.drives.set_frame(f)
             self.w.trend.push(f)
             self.w.attention.set_frame(f)
@@ -2532,7 +2936,17 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self.resize(1320, 840)
         self.setStyleSheet(_qss())
         tabs = QtWidgets.QTabWidget()
-        self.setCentralWidget(tabs)
+        # v6: top transport slot (hidden until install_transport is called).
+        central = QtWidgets.QWidget()
+        cv = QtWidgets.QVBoxLayout(central)
+        cv.setContentsMargins(0, 0, 0, 0); cv.setSpacing(0)
+        self._top_frame = QtWidgets.QFrame()
+        self._top_frame.hide()
+        self._top_layout = QtWidgets.QHBoxLayout(self._top_frame)
+        self._top_layout.setContentsMargins(0, 0, 0, 0)
+        cv.addWidget(self._top_frame)
+        cv.addWidget(tabs, 1)
+        self.setCentralWidget(central)
         self._tabs = tabs
 
         # shared dimension-agnostic projection (World / Phase-Space / Action)
@@ -2542,14 +2956,18 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ov = QtWidgets.QWidget(); ov_lay = QtWidgets.QGridLayout(ov)
         ov_lay.setContentsMargins(6, 6, 6, 6); ov_lay.setSpacing(6)
         self.world = WorldCanvas(); self.world.set_projection(self.proj)
+        self.portrait = AgentPortraitView()   # v6 focal cognitive portrait
         self.drives = DrivesCanvas()
         self.trend = TrendCanvas(); self.attention = AttentionCanvas()
         self.status = StatusPanel()
-        ov_lay.addWidget(self.world, 0, 0, 2, 2)
-        ov_lay.addWidget(self.drives, 0, 2)
-        ov_lay.addWidget(self.trend, 1, 2)
-        ov_lay.addWidget(self.attention, 2, 0)
-        ov_lay.addWidget(self.status, 2, 1, 1, 2)
+        # v6: portrait is the focal top-left, world top-right; bars demoted to
+        # a compact bottom strip (additive — none removed).
+        ov_lay.addWidget(self.portrait, 0, 0, 2, 2)
+        ov_lay.addWidget(self.world, 0, 2, 2, 2)
+        ov_lay.addWidget(self.drives, 2, 0)
+        ov_lay.addWidget(self.trend, 2, 1)
+        ov_lay.addWidget(self.attention, 2, 2)
+        ov_lay.addWidget(self.status, 2, 3)
         tabs.addTab(ov, "Overview")
 
         # Cognitive Flow
@@ -2596,6 +3014,11 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.goals, "Goals & Motivation")
 
         self.controller = DashboardController(self)
+
+    def install_transport(self, bar: QtWidgets.QWidget) -> None:
+        """Dock a transport bar at the top of the window (additive)."""
+        self._top_layout.addWidget(bar, 1)
+        self._top_frame.show()
 
 
 def make_app() -> "QtWidgets.QApplication":

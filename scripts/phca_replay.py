@@ -190,14 +190,15 @@ def _play_jsonl(session_dir: str, fps: float) -> int:
 
 
 def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
-    """Replay a session in the PyQt5 Cognitive Observatory dashboard with a
-    scrubber (QSlider) + Play/Pause control."""
+    """Replay a session in the PyQt5 Cognitive Observatory dashboard with the
+    unified v6 transport (pause / speed / step / scrub)."""
     _pkg = Path(__file__).resolve().parent.parent / "python"
     if str(_pkg) not in sys.path:
         sys.path.insert(0, str(_pkg))
-    from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app
+    from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
+    from phca.monitoring.playback import PlaybackClock
     from phca.monitoring.render import frame_from_json
-    from PyQt5 import QtWidgets, QtCore
+    from PyQt5 import QtCore
     meta, lines, video = _load_session(session_dir)
     if meta is None:
         return 1
@@ -210,76 +211,47 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
     app = make_app()
     win = ObservatoryWindow(title=f"PHCA Observatory — replay {Path(session_dir).name}")
     ctrl = win.controller
-    # Wrap the tab widget so we can dock a scrubber bar at the bottom.
-    tabs = win.centralWidget()
-    tabs.setParent(None)
-    container = QtWidgets.QWidget()
-    cl = QtWidgets.QVBoxLayout(container)
-    cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
-    cl.addWidget(tabs, 1)
-    bar = QtWidgets.QWidget()
-    bl = QtWidgets.QHBoxLayout(bar); bl.setContentsMargins(8, 4, 8, 4)
-    play_btn = QtWidgets.QToolButton(); play_btn.setText("Pause"); play_btn.setCheckable(True)
-    slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-    slider.setMinimum(0); slider.setMaximum(n - 1); slider.setValue(0)
-    label = QtWidgets.QLabel(f"0 / {n - 1}")
-    bl.addWidget(play_btn); bl.addWidget(slider, 1); bl.addWidget(label)
-    cl.addWidget(bar)
-    win.setCentralWidget(container)
+    # v6: unified transport. heartbeat = fps; speed dial multiplies it.
+    clock = PlaybackClock(heartbeat_hz=max(fps, 0.5), mode="replay")
+    clock.set_frames(frames)
+    ended = {"v": False}
+
+    def _on_update(f, rolling, err):
+        ctrl.update(f, rolling, err)
+
+    def _on_end():
+        ended["v"] = True
+        if close_at_end:
+            win.close()
+
+    clock.on_update = _on_update
+    clock.on_end = _on_end
+    transport = _TransportBar(clock, pacer=None)
+    transport.set_range(n)
+    transport.play_btn.setText("▶ Play")  # start paused so user can scrub/step
+    transport.play_btn.setChecked(True)
+    win.install_transport(transport)
     win.show()
 
-    interval = int(1000 / max(fps, 0.1))
-    state = {"i": 0, "playing": True}
+    hb = QtCore.QTimer(win)
+    hb.setInterval(int(1000.0 / max(fps, 0.5)))
+    hb.timeout.connect(clock.tick)
 
-    def _render(i: int) -> None:
-        f = frames[i]
-        lo = max(0, i - 200)
-        ctrl.update(f, frames[lo:i + 1], None)
-        slider.blockSignals(True); slider.setValue(i); slider.blockSignals(False)
-        label.setText(f"{i} / {n - 1}")
+    def _sync():
+        transport._sync_slider()
 
-    def _advance():
-        try:
-            i = state["i"]
-            if i >= n:
-                timer.stop(); state["playing"] = False
-                play_btn.blockSignals(True); play_btn.setChecked(True)
-                play_btn.setText("Play"); play_btn.blockSignals(False)
-                if close_at_end:
-                    win.close()
-                return
-            _render(i)
-            state["i"] = i + 1
-        except Exception as e:
-            import traceback
-            print(f"[replay] exception: {e}", file=sys.stderr)
-            traceback.print_exc()
-            timer.stop(); win.close()
+    sync = QtCore.QTimer(win)
+    sync.setInterval(200)
+    sync.timeout.connect(_sync)
 
-    def _on_play(state_checked: bool):
-        # button is checkable: checked == paused
-        if state_checked:
-            timer.stop(); state["playing"] = False; play_btn.setText("Play")
-        else:
-            if state["i"] >= n:
-                state["i"] = 0  # restart from beginning
-            state["playing"] = True; play_btn.setText("Pause"); timer.start(interval)
-
-    def _on_seek(val: int):
-        state["i"] = val
-        _render(val)
-
-    play_btn.toggled.connect(_on_play)
-    slider.valueChanged.connect(_on_seek)
-
-    timer = QtCore.QTimer(win)
-    timer.timeout.connect(_advance)
-    timer.start(interval)
-    print(f"Replaying {n} frames in Qt dashboard at {fps} fps. Scrubber + Play/Pause enabled. Close to exit.")
+    # start at first frame
+    clock.seek(0)
+    hb.start(); sync.start()
+    print(f"Replaying {n} frames in Qt dashboard (transport: pause / speed / step / scrub). Close to exit.")
     try:
         rc = app.exec_()
     except KeyboardInterrupt:
-        timer.stop(); rc = 0
+        hb.stop(); rc = 0
     return int(rc) if rc else 0
 
 

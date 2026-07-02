@@ -42,7 +42,8 @@ import numpy as np
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
 from phca.monitoring.observability import ObservabilityStore, SessionRecorder
-from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app
+from phca.monitoring.playback import CyclePacer, PlaybackClock
+from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
 from PyQt5 import QtCore
 
 
@@ -91,8 +92,18 @@ class _VideoPipe:
             fmt_rgb888 = getattr(QImage, "Format_RGB888", None)
             if fmt_rgb888 is not None:
                 img = img.convertToFormat(fmt_rgb888)
-            ptr = img.bits(); ptr.setsize(img.byteCount())
-            arr = np.frombuffer(ptr, dtype=np.uint8).reshape(img.height(), img.width(), 3)
+            w, h = img.width(), img.height()
+            bpl = img.bytesPerLine()
+            ptr = img.constBits(); ptr.setsize(img.byteCount())
+            raw = np.frombuffer(ptr, dtype=np.uint8)
+            # v6: respect the per-scanline stride (Format_RGB888 may be padded
+            # to 4 bytes on some platforms — a naive (h,w,3) reshape drops every
+            # grab silently). Copy the 3-byte RGB window of each scanline.
+            if bpl == w * 3:
+                arr = raw.reshape(h, w, 3)
+            else:
+                arr = np.zeros((h, w, 3), dtype=np.uint8)
+                arr[:] = raw.reshape(h, bpl)[:, :w * 3].reshape(h, w, 3)
             self.proc.stdin.write(arr.tobytes())
             self.frames += 1
         except Exception:
@@ -121,9 +132,13 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--mlp", action="store_true", help="use MLP world model")
     parser.add_argument("--poll-ms", type=int, default=30, help="Qt poll interval (ms)")
+    parser.add_argument("--heartbeat-hz", type=float, default=10.0,
+                        help="dashboard heartbeat rate (Hz) — the only rate at which "
+                             "canvases are fed new data. Low = calm/no-flicker. JSONL "
+                             "still records every cycle.")
     parser.add_argument("--render-fps", type=float, default=30.0,
-                        help="max dashboard render rate (decoupled from poll/cycle; "
-                             "JSONL still records every cycle). 0 = render every poll.")
+                        help="hard repaint cap (kept from v5; heartbeat is the effective "
+                             "rate). 0 = no cap.")
     parser.add_argument("--no-record", action="store_true", help="live view only, no JSONL/video")
     parser.add_argument("--record-video", action="store_true",
                         help="capture an mp4 from the widget (requires ffmpeg)")
@@ -154,6 +169,7 @@ def main() -> None:
     # Cognitive cycle (incl. M3 SQLite) MUST be built+run in ONE thread.
     stop_flag = threading.Event()
     cycle_holder: dict = {}
+    pacer = CyclePacer()  # v6: optional cycle throttle/pause (no-op at full speed)
 
     def _run_cycle():
         try:
@@ -162,6 +178,7 @@ def main() -> None:
             for _ in range(args.cycles):
                 if stop_flag.is_set():
                     break
+                pacer.wait()       # v6: additive; no-op unless throttling/paused
                 cycle.step()
         except Exception as e:
             cycle_holder["error"] = str(e)
@@ -188,8 +205,27 @@ def main() -> None:
 
     app = make_app()
     win = ObservatoryWindow()
-    win.show()
     ctrl = win.controller
+
+    # v6 transport: PlaybackClock drives the dashboard at the heartbeat rate;
+    # _TransportBar gives pause / speed / step / scrub / cycle-throttle.
+    clock = PlaybackClock(heartbeat_hz=args.heartbeat_hz, mode="live")
+    clock.on_update = lambda f, rolling, err: ctrl.update(f, rolling, err)
+    transport = _TransportBar(clock, pacer=pacer)
+    win.install_transport(transport)
+    # heartbeat timer — the only thing that feeds canvases new data.
+    hb_timer = QtCore.QTimer(win)
+    hb_timer.setInterval(int(1000.0 / max(args.heartbeat_hz, 0.5)))
+    hb_timer.timeout.connect(clock.tick)
+    # keep the transport scrubber in sync with the live cursor
+    def _sync_transport():
+        transport.set_range(clock.n)
+        transport._sync_slider()
+    hb_sync = QtCore.QTimer(win)
+    hb_sync.setInterval(250)
+    hb_sync.timeout.connect(_sync_transport)
+
+    win.show()
 
     # Optional video pipe.
     video: "_VideoPipe | None" = None
@@ -201,15 +237,12 @@ def main() -> None:
         print(f"Video -> {video.path}")
 
     last_recorded_cycle = -1
-    last_rendered_cycle = -1
     record_interval = 1.0 / max(args.record_fps, 0.1)
     last_grab = -record_interval
     target = args.cycles
-    # Render throttle: decouple dashboard repaint from poll/cycle rate so the
-    # visible tab is repainted at most --render-fps times/sec (stable, no
-    # flicker). JSONL still records every cycle (above). 0 => render every poll.
-    render_interval = (1.0 / args.render_fps) if args.render_fps > 0 else 0.0
-    last_render = -render_interval
+    # v6: the heartbeat clock drives rendering; the poll timer only drains +
+    # records JSONL + pushes frames into the clock buffer (so JSONL stays
+    # 1 line/cycle and the scrubber can reach any past cycle).
     # Auto-cycle tabs during video recording so one mp4 captures all 7 tabs.
     tabs = win._tabs
     n_tabs = tabs.count()
@@ -218,25 +251,19 @@ def main() -> None:
     user_tab = {"i": tabs.currentIndex()}  # remember user's tab when not auto-cycling
 
     def _tick():
-        nonlocal last_recorded_cycle, last_rendered_cycle, last_grab, last_tab_switch
-        nonlocal last_render
+        nonlocal last_recorded_cycle, last_grab, last_tab_switch
         try:
-            now = time.monotonic()
-            # Drain new frames: JSONL every cycle (always), render only the latest
-            # and only when the render throttle allows.
+            # Drain new frames: JSONL every cycle (always); push into the
+            # playback buffer so the heartbeat clock + scrubber can reach them.
             new = [f for f in store.latest_n(256) if f.cycle_id > last_recorded_cycle]
             if new:
                 for f in new:
                     recorder.record(f)
+                    clock.push(f)
                 last_recorded_cycle = new[-1].cycle_id
-                latest = new[-1]
-                if (latest.cycle_id > last_rendered_cycle
-                        and (render_interval <= 0 or now - last_render >= render_interval)):
-                    ctrl.update(latest, new, cycle_holder.get("error"))
-                    last_rendered_cycle = latest.cycle_id
-                    last_render = now
             err = cycle_holder.get("error")
             if err:
+                clock.error = err
                 ctrl.update(store.latest(), None, err)
                 _finish(); return
             done = stop_flag.is_set() and len(store) >= target
@@ -249,7 +276,7 @@ def main() -> None:
                     cur = tabs.currentIndex()
                     tabs.setCurrentIndex((cur + 1) % n_tabs)
                     last_tab_switch = now
-                if now - last_grab >= record_interval and last_rendered_cycle >= 0:
+                if now - last_grab >= record_interval and last_recorded_cycle >= 0:
                     video.grab(win)
                     last_grab = now
         except Exception as e:
@@ -261,9 +288,14 @@ def main() -> None:
 
     def _finish():
         nonlocal last_recorded_cycle
-        # Stop the timer, flush recording, close the video pipe.
+        # Stop the timers, flush recording, close the video pipe.
+        for t in (timer, hb_timer, hb_sync):
+            try:
+                t.stop()
+            except Exception:
+                pass
         try:
-            timer.stop()
+            pacer.stop()
         except Exception:
             pass
         snap = store.latest_n(64)
@@ -287,14 +319,18 @@ def main() -> None:
     timer = QtCore.QTimer(win)
     timer.timeout.connect(_tick)
     timer.start(max(args.poll_ms, 5))
+    hb_timer.start()
+    hb_sync.start()
 
     # Clean exit when the window is closed by the user.
     def _on_close(_ev):
         stop_flag.set()
-        try:
-            timer.stop()
-        except Exception:
-            pass
+        pacer.stop()
+        for t in (timer, hb_timer, hb_sync):
+            try:
+                t.stop()
+            except Exception:
+                pass
         # In case _finish() hasn't run (user closed mid-run): flush recorder.
         try:
             recorder.flush(); recorder.close()
