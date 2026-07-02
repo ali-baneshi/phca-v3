@@ -157,8 +157,10 @@ class PlaybackClock:
     end. All Qt-less so it is cheap to drive from a QTimer in the caller.
     """
 
-    def __init__(self, heartbeat_hz: float = 10.0, mode: str = "live"):
+    def __init__(self, heartbeat_hz: float = 10.0, mode: str = "live",
+                 maxlen: Optional[int] = None):
         self.mode = mode
+        self._maxlen = int(maxlen) if maxlen is not None and maxlen > 0 else None
         self._frames: List = []
         self._cursor: float = 0.0
         self.speed: float = 1.0
@@ -174,6 +176,10 @@ class PlaybackClock:
     def push(self, f) -> None:
         """Append a newly produced frame (live mode)."""
         self._frames.append(f)
+        if self._maxlen is not None and len(self._frames) > self._maxlen:
+            drop = len(self._frames) - self._maxlen
+            self._frames = self._frames[drop:]
+            self._cursor = max(0.0, self._cursor - drop)
 
     def set_frames(self, frames: List) -> None:
         """Load a fixed frame list (replay mode)."""

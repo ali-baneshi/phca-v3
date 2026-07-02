@@ -1,5 +1,6 @@
 """v8 Overview 1.5 — unified agent card offscreen smoke."""
 
+from collections import deque
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -16,12 +17,27 @@ from phca.monitoring.camera_render import (
     rgb_frame_to_qimage,
 )
 from phca.monitoring.observability import ObservabilityFrame
+from phca.monitoring.playback import PlaybackClock
 from phca.monitoring.qt_dashboard import (
+    BeliefProjection,
     ObservatoryWindow,
     OverviewAgentView,
+    _OVERVIEW_SEMANTIC_MAP,
     _OVERVIEW_HEADER_H,
+    _OVERVIEW_PHASE_H,
+    _OVERVIEW_NARRATIVE_H,
+    _OVERVIEW_EVENT_LOG_H,
     _OVERVIEW_RIBBON_H,
     _OVERVIEW_MARGIN,
+    _OVERVIEW_LEARN_MS_MIN,
+    _OVERVIEW_EVENT_HOLD,
+    _draw_agent_limbs,
+    _limb_line_start,
+    _overview_dominant_phase,
+    _overview_moment_flags,
+    _overview_plain_story,
+    _overview_goal_id,
+    _reacher_kinematics_from_obs,
     _rgb_frame_to_qimage,
     make_app,
     set_autoscale_frozen,
@@ -111,9 +127,11 @@ def test_overview_body_area_layout(qt_app):
     ov.set_frame(_reacher_frame())
     qt_app.processEvents()
     body = ov.main_body_rect()
-    main_h = 840 - _OVERVIEW_HEADER_H - _OVERVIEW_RIBBON_H - _OVERVIEW_MARGIN * 3
+    top_h = (_OVERVIEW_HEADER_H + _OVERVIEW_PHASE_H + _OVERVIEW_NARRATIVE_H
+             + _OVERVIEW_EVENT_LOG_H)
+    main_h = 840 - top_h - _OVERVIEW_RIBBON_H - _OVERVIEW_MARGIN * 2
     assert body.height() >= int(main_h * 0.95)
-    assert body.height() >= int(840 * 0.40)
+    assert body.height() >= int(840 * 0.35)
 
 
 def test_overview_breath_frozen_on_pause(qt_app):
@@ -543,3 +561,233 @@ def test_camera_provider_called_on_set_frame(qt_app):
     assert calls["n"] == 0
     ov._sync_camera_from_provider()
     assert calls["n"] >= 1
+
+
+def test_reacher_kinematics_from_obs():
+    """Schematic fingertip/goal math matches direct kinematics."""
+    import math
+    obs = np.array([1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.1, -0.2], dtype=np.float32)
+    kin = _reacher_kinematics_from_obs(obs)
+    assert kin is not None
+    a0 = math.atan2(0.0, 1.0)
+    a1 = math.atan2(0.0, 1.0)
+    fx = 0.42 * math.cos(a0) + 0.38 * math.cos(a0 + a1)
+    fy = 0.42 * math.sin(a0) + 0.38 * math.sin(a0 + a1)
+    assert abs(kin["fx"] - fx) < 1e-5
+    assert abs(kin["fy"] - fy) < 1e-5
+    assert abs(kin["tx"] - (fx - 0.1)) < 1e-5
+    assert abs(kin["ty"] - (fy + 0.2)) < 1e-5
+    assert abs(kin["dist"] - math.hypot(0.1, -0.2)) < 1e-5
+
+
+def test_overview_rebuild_histories(qt_app):
+    """Rolling window rebuilds err/conf sparklines (scrub-safe)."""
+    ov = OverviewAgentView()
+    frames = []
+    for i in range(5):
+        f = _reacher_frame(cycle_id=i + 1)
+        f.prediction_error = float(i + 1)
+        f.prediction_confidence = 0.1 * (i + 1)
+        # Distinct joint angles → distinct fingertip trail points
+        ang = 0.15 * i
+        f.obs_vector = np.array(
+            [np.cos(ang), np.sin(ang), np.cos(ang * 0.5), np.sin(ang * 0.5),
+             0.0, 0.0, 0.1, -0.2, 0.0, 0.0, 0.0],
+            dtype=np.float32,
+        )
+        frames.append(f)
+    ov.rebuild_histories(frames)
+    assert list(ov._err_hist) == [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert list(ov._conf_hist) == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5])
+    assert len(ov._reacher_trail) == 5
+    ov.set_frame(_reacher_frame(cycle_id=99), histories_done=True)
+    assert list(ov._err_hist) == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+def test_camera_provider_cycle_id(qt_app):
+    """Provider may return frame + cycle_id dict for sync badge."""
+    good = np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
+
+    def _provider():
+        return {"frame": good.copy(), "cycle_id": 42}
+
+    ov = OverviewAgentView()
+    ov.resize(400, 300)
+    ov.set_camera_provider(_provider, mode="live")
+    ov.set_frame(_reacher_frame(cycle_id=42))
+    ov._sync_camera_from_provider()
+    assert ov._camera_cycle_id == 42
+    assert ov._camera_badge(schematic=False) == "LIVE"
+    ov.set_frame(_reacher_frame(cycle_id=7))
+    assert ov._camera_badge(schematic=False) == "SYNC?"
+
+
+def test_limbs_start_outside_core():
+    """Action limbs must not originate inside the confidence core disc."""
+    import math
+    cx, cy, cr = 100, 100, 40
+    for ang in (0.0, 0.7, 2.1, -1.2):
+        sx, sy, _, _ = _limb_line_start(cx, cy, cr, ang)
+        dist = math.hypot(sx - cx, sy - cy)
+        assert dist >= cr - 0.5, f"limb starts inside core (dist={dist}, cr={cr})"
+
+
+def test_overview_goal_id_consistent():
+    f = _reacher_frame()
+    f.action_rationale = {"goal_id": 4, "explored": False}
+    f.active_drive_id = 2
+    assert _overview_goal_id(f) == 4
+    f.action_rationale = {"goal_id": None, "explored": False, "continuous": True}
+    assert _overview_goal_id(f) == 2
+
+
+def test_proj_rebuild_from_rolling():
+    proj = BeliefProjection(window=64)
+    frames = []
+    for i in range(8):
+        f = _reacher_frame(cycle_id=i + 1)
+        f.obs_vector = np.linspace(-0.5, 0.5, 11, dtype=np.float32) + 0.01 * i
+        frames.append(f)
+    proj.rebuild_from_frames(frames)
+    assert len(proj.history) == 8
+    proj.rebuild_from_frames(frames[:3])
+    assert len(proj.history) == 3
+
+
+def test_drive_change_chip(qt_app):
+    ov = OverviewAgentView()
+    f1 = _reacher_frame(cycle_id=1)
+    f1.active_drive_id = 2
+    f1.action_rationale = {"goal_id": None, "explored": False, "continuous": True}
+    ov.set_frame(f1)
+    assert ov._drive_change is None
+    f2 = _reacher_frame(cycle_id=2)
+    f2.active_drive_id = 4
+    f2.action_rationale = {"goal_id": None, "explored": False, "continuous": True}
+    ov.set_frame(f2)
+    assert ov._drive_change == (2, 4)
+    f3 = _reacher_frame(cycle_id=3)
+    f3.active_drive_id = 4
+    f3.action_rationale = {"goal_id": None, "explored": False, "continuous": True}
+    ov.set_frame(f3)
+    assert ov._drive_change is None
+
+
+def test_reacher_limbs_use_tau_bars_not_diametric():
+    """For Reacher tau2, limbs renderer should avoid diametric crossing lines."""
+    from PyQt5 import QtGui
+    pm = QtGui.QPixmap(220, 220)
+    pm.fill(QtGui.QColor(0, 0, 0))
+    p = QtGui.QPainter(pm)
+    f = _reacher_frame()
+    _draw_agent_limbs(p, f, cx=110, cy=110, cr=34, R=70)
+    p.end()
+    img = pm.toImage()
+    # Center should stay dark: tau bars live below the core area.
+    c = img.pixelColor(110, 110)
+    assert c.red() < 80 and c.green() < 80 and c.blue() < 80
+
+
+def test_overview_moment_flags_spike():
+    f = _reacher_frame()
+    f.prediction_error = 40.0
+    f.module_timings = {"gprime_learn": 2.3}
+    flags = _overview_moment_flags(f, deque([2.0, 10.0]))
+    assert flags["spike"] is True
+    assert flags["learn_ms"] == pytest.approx(2.3)
+
+
+def test_narrative_includes_learn_score():
+    f = _reacher_frame()
+    f.prediction_error = 12.0
+    f.module_timings = {"gprime_learn": 1.7}
+    f.action_rationale = {"explored": False, "best_score": 0.44}
+    flags = _overview_moment_flags(f, deque([8.0, 9.0, 12.0]))
+    assert flags["score"] == pytest.approx(0.44)
+    assert flags["learn_ms"] == pytest.approx(1.7)
+
+
+def test_semantic_map_covers_overview_channels():
+    assert "glyph.limbs" in _OVERVIEW_SEMANTIC_MAP
+    assert "narrative.learning" in _OVERVIEW_SEMANTIC_MAP
+    assert "world.schematic" in _OVERVIEW_SEMANTIC_MAP
+
+
+def test_decision_shift_flag_on_score_jump(qt_app):
+    ov = OverviewAgentView()
+    f1 = _reacher_frame(cycle_id=1)
+    f1.action_rationale = {"explored": False, "best_score": 0.20}
+    ov.set_frame(f1)
+    assert not bool(f1.action_rationale.get("decision_shift", False))
+    f2 = _reacher_frame(cycle_id=2)
+    f2.action_rationale = {"explored": False, "best_score": 0.55}
+    ov.set_frame(f2)
+    assert bool(f2.action_rationale.get("decision_shift", False))
+
+
+def test_playback_clock_maxlen_trim():
+    clock = PlaybackClock(maxlen=3)
+    for i in range(5):
+        f = ObservabilityFrame()
+        f.cycle_id = i
+        clock.push(f)
+    assert len(clock) == 3
+    assert clock._frames[0].cycle_id == 2
+    assert clock._frames[-1].cycle_id == 4
+
+
+def test_plain_story_spike_and_learn():
+    f = _reacher_frame()
+    f.prediction_error = 40.0
+    f.module_timings = {"gprime_learn": _OVERVIEW_LEARN_MS_MIN + 1.0}
+    flags = _overview_moment_flags(f, deque([2.0, 10.0]))
+    story = _overview_plain_story(f, flags, deque([2.0, 10.0, 40.0]))
+    assert "spiked" in story
+    assert "world model updated" in story
+    assert flags["learn_burst"] is True
+
+
+def test_reacher_spike_requires_higher_ratio():
+    f = _reacher_frame()
+    f.prediction_error = 14.0
+    flags = _overview_moment_flags(f, deque([10.0, 14.0]))
+    assert flags["spike"] is False
+    f.prediction_error = 35.0
+    flags = _overview_moment_flags(f, deque([10.0, 35.0]))
+    assert flags["spike"] is True
+
+
+def test_phase_strip_dominant_module():
+    f = _reacher_frame()
+    f.module_timings = {
+        "prediction": 1.0,
+        "action_selection": 2.0,
+        "peu": 0.5,
+        "gprime_learn": 12.0,
+        "mdim": 0.2,
+        "rbta": 0.1,
+    }
+    assert _overview_dominant_phase(f) == "Learn"
+
+
+def test_event_log_hold(qt_app):
+    ov = OverviewAgentView()
+    f0 = _reacher_frame(cycle_id=0)
+    f0.prediction_error = 10.0
+    ov.set_frame(f0)
+    f = _reacher_frame()
+    f.prediction_error = 50.0
+    f.module_timings = {"gprime_learn": 8.0}
+    ov.set_frame(f)
+    assert any("SPIKE" in line for line in ov.visible_event_lines())
+    assert any("LEARN" in line for line in ov.visible_event_lines())
+    f2 = _reacher_frame(cycle_id=2)
+    f2.prediction_error = 12.0
+    f2.module_timings = {}
+    ov.set_frame(f2)
+    assert any("SPIKE" in line for line in ov.visible_event_lines())
+    for _ in range(_OVERVIEW_EVENT_HOLD):
+        f3 = _reacher_frame(cycle_id=3 + _)
+        f3.prediction_error = 12.0
+        ov.set_frame(f3)
+    assert not any("SPIKE" in line for line in ov.visible_event_lines())

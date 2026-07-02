@@ -62,7 +62,7 @@ def _camera_self_test(env: Any) -> bool:
     return frame is not None and not is_glitchy_rgb_frame(frame)
 
 
-def _build_cycle(args, store: ObservabilityStore) -> CognitiveCycle:
+def _build_cycle(args, store: ObservabilityStore, *, enable_camera: bool = False) -> CognitiveCycle:
     if args.env == "gridworld":
         rng = np.random.RandomState(args.seed + 2)
         obstacles = []
@@ -78,7 +78,7 @@ def _build_cycle(args, store: ObservabilityStore) -> CognitiveCycle:
     return CognitiveCycle.build_for_mujoco(
         args.env, seed=args.seed, use_mlp=args.mlp,
         observability_store=store,
-        enable_camera=True,
+        enable_camera=enable_camera,
     )
 
 
@@ -182,7 +182,8 @@ def main() -> None:
     if args.camera is None:
         args.camera = "schematic" if args.env == "Reacher-v5" else "auto"
 
-    store = ObservabilityStore(maxlen=max(1000, args.cycles))
+    store_maxlen = max(1000, args.cycles)
+    store = ObservabilityStore(maxlen=store_maxlen)
     recorder = SessionRecorder(root=args.record_dir, fps=args.record_fps,
                                record=not args.no_record)
     session_dir = recorder.start({"env": args.env, "seed": args.seed,
@@ -214,17 +215,22 @@ def main() -> None:
     pacer = CyclePacer()  # v6: optional cycle throttle/pause (no-op at full speed)
 
     def _camera_provider_from_holder() -> Any:
-        """Return latest RGB captured on the cycle thread (never touches GL on Qt)."""
+        """Return latest RGB + cycle id captured on the cycle thread."""
         lock = cycle_holder.get("camera_lock")
         if lock is None:
             return None
         with lock:
             frame = cycle_holder.get("camera_frame")
-            return frame.copy() if frame is not None else None
+            if frame is None:
+                return None
+            return {
+                "frame": np.asarray(frame, dtype=np.uint8).copy(),
+                "cycle_id": cycle_holder.get("camera_cycle_id"),
+            }
 
     def _run_cycle():
         try:
-            cycle = _build_cycle(args, store)
+            cycle = _build_cycle(args, store, enable_camera=want_live_camera)
             cycle_holder["cycle"] = cycle
             if want_live_camera:
                 ok = _camera_self_test(cycle.env)
@@ -239,6 +245,7 @@ def main() -> None:
             for _ in range(args.cycles):
                 if stop_flag.is_set():
                     break
+                cycle_id_for_step = cycle.cycle_count
                 pacer.wait()       # v6: additive; no-op unless throttling/paused
                 cycle.step()
                 if want_live_camera and cycle_holder.get("camera_ok"):
@@ -250,6 +257,7 @@ def main() -> None:
                         with cycle_holder["camera_lock"]:
                             cycle_holder["camera_frame"] = np.asarray(
                                 frame, dtype=np.uint8).copy()
+                            cycle_holder["camera_cycle_id"] = cycle_id_for_step
         except Exception as e:
             cycle_holder["error"] = str(e)
             print(f"[cycle thread] error: {e}", file=sys.stderr)
@@ -339,7 +347,7 @@ def main() -> None:
 
     # v6 transport: PlaybackClock drives the dashboard at the heartbeat rate;
     # _TransportBar gives pause / speed / step / scrub / cycle-throttle.
-    clock = PlaybackClock(heartbeat_hz=args.heartbeat_hz, mode="live")
+    clock = PlaybackClock(heartbeat_hz=args.heartbeat_hz, mode="live", maxlen=store_maxlen)
     clock.on_update = lambda f, rolling, err: ctrl.update(f, rolling, err)
     transport = _TransportBar(clock, pacer=pacer)
     win.install_transport(transport)
@@ -421,9 +429,22 @@ def main() -> None:
             cycle_holder["error"] = f"tick: {e}"
             ctrl.update(store.latest(), None, f"tick: {e}")
 
+    def _stop_ui_timers() -> None:
+        try:
+            win.render_pacer.stop()
+        except Exception:
+            pass
+        cam_timer = getattr(win.overview, "_capture_timer", None)
+        if cam_timer is not None:
+            try:
+                cam_timer.stop()
+            except Exception:
+                pass
+
     def _finish():
         nonlocal last_recorded_cycle
         # Stop the timers, flush recording, close the video pipe.
+        _stop_ui_timers()
         for t in (timer, hb_timer, hb_sync):
             try:
                 t.stop()
@@ -461,6 +482,7 @@ def main() -> None:
     def _on_close(_ev):
         stop_flag.set()
         pacer.stop()
+        _stop_ui_timers()
         for t in (timer, hb_timer, hb_sync):
             try:
                 t.stop()

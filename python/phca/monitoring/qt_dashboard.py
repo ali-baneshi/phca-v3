@@ -33,6 +33,7 @@ All polling-side: read-only on the frame; the cycle thread never touches Qt.
 """
 from __future__ import annotations
 
+import copy
 import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
@@ -141,6 +142,30 @@ def _drive_short(did: int) -> str:
 
 def _drive_name(did: int) -> str:
     return DRIVE_NAMES.get(did, f"Drive {did}")
+
+
+def _overview_goal_id(f: ObservabilityFrame) -> Optional[int]:
+    """Single goal source for Overview header + glyph head."""
+    r = f.action_rationale or {}
+    gid = r.get("goal_id")
+    if gid is not None:
+        try:
+            return int(gid)
+        except (TypeError, ValueError):
+            pass
+    active = int(getattr(f, "active_drive_id", 0) or 0)
+    return active if active > 0 else None
+
+
+def _limb_line_start(cx: int, cy: int, cr: int, ang: float
+                     ) -> Tuple[int, int, int, int]:
+    """Limb segment from core edge outward (never through the conf disc)."""
+    import math
+    pad = 2
+    r0 = cr + pad
+    sx = int(cx + r0 * math.cos(ang))
+    sy = int(cy + r0 * math.sin(ang))
+    return sx, sy, cx, cy
 
 
 def _vec_pca2(v: np.ndarray) -> Tuple[float, float, List[int]]:
@@ -456,6 +481,41 @@ class BeliefProjection:
         if pt is not None:
             self._hist.append(pt)
 
+    def rebuild_from_frames(self, frames: List[ObservabilityFrame]) -> None:
+        """Rebuild PCA buffer + trajectory from a rolling window (scrub-safe)."""
+        self._buf.clear()
+        self._hist.clear()
+        self._mean = None
+        self._comp = None
+        self._top_dims = None
+        self._raw2d = False
+        self._sing = None
+        self._basis_changed = False
+        self._bx = ScaleState(contract=0.04, head=0.08)
+        self._by = ScaleState(contract=0.04, head=0.08)
+        for f in frames:
+            v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+            if v is None:
+                continue
+            try:
+                v = np.asarray(v, dtype=np.float32).reshape(-1)
+            except Exception:
+                continue
+            if v.size == 0 or not np.all(np.isfinite(v)):
+                continue
+            self._buf.append(v)
+        if len(self._buf) >= 4:
+            self._recompute()
+        elif self._buf:
+            M = np.array(list(self._buf), dtype=np.float64)
+            self._mean = M.mean(axis=0)
+            if M.shape[1] <= 3:
+                self._raw2d = True
+                self._comp = None
+        for f in frames:
+            v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+            self.push_history(self.project(v))
+
     @property
     def history(self) -> List[Tuple[float, float]]:
         return list(self._hist)
@@ -601,23 +661,54 @@ def _draw_agent_limbs(p: QtGui.QPainter, f: ObservabilityFrame,
     if ca is not None:
         vec = np.asarray(ca, dtype=np.float32).reshape(-1)
         if vec.size >= 1:
+            # Reacher (2-torque) is better read as two independent channels.
+            # Converting (tau0,tau1) to a single angle causes fast 180° flips.
+            kind = (getattr(f, "env_kind", "") or "").lower()
+            if vec.size == 2 and kind == "mujoco_rgb":
+                box_w = max(40, int(R * 0.72))
+                box_h = max(18, int(R * 0.26))
+                bx = int(cx - box_w // 2)
+                by = int(cy + cr + 8)
+                p.setPen(QtGui.QPen(GRID_COL, 1))
+                p.setBrush(QtGui.QColor(20, 20, 28, 200))
+                p.drawRoundedRect(bx, by, box_w, box_h, 4, 4)
+                mid = by + box_h // 2
+                p.setPen(QtGui.QPen(GRID_COL, 1))
+                p.drawLine(bx + 4, mid, bx + box_w - 4, mid)
+                half = (box_w - 8) // 2
+                for i in range(2):
+                    val = float(np.clip(vec[i], -1.0, 1.0))
+                    ch_x = bx + 4 + i * half
+                    ch_w = max(10, half - 2)
+                    bar_h = int(abs(val) * max(box_h // 2 - 3, 2))
+                    col = _TAU_POS if val >= 0 else _TAU_NEG
+                    p.setPen(QtCore.Qt.NoPen)
+                    p.setBrush(col)
+                    if val >= 0:
+                        p.fillRect(ch_x, mid - bar_h, ch_w, bar_h, col)
+                    else:
+                        p.fillRect(ch_x, mid, ch_w, bar_h, col)
+                    lbl = dim_names[i] if i < len(dim_names) and dim_names[i] else f"τ{i}"
+                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                    p.drawText(ch_x, by + box_h - 1, f"{lbl[:6]}={val:+.2f}")
+                return
             vx, vy, dims = _vec_pca2(vec)
             mag = float(min(1.0, math.hypot(vx, vy)))
             ang = math.atan2(vy, vx)
-            for off in (0.0, math.pi):
-                a = ang + off
-                ex = cx + (cr + R * 0.5 * mag) * math.cos(a)
-                ey = cy + (cr + R * 0.5 * mag) * math.sin(a)
-                p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
-                p.drawLine(cx, cy, int(ex), int(ey))
-                p.setBrush(QtGui.QColor(155, 89, 182)); p.setPen(QtCore.Qt.white)
-                p.drawEllipse(int(ex) - 4, int(ey) - 4, 8, 8)
-            p.setPen(ACCENT); p.setFont(_F_AXIS)
+            reach = cr + int(R * 0.5 * mag)
+            sx, sy, _cx, _cy = _limb_line_start(cx, cy, cr, ang)
+            ex = int(cx + reach * math.cos(ang))
+            ey = int(cy + reach * math.sin(ang))
+            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
+            p.drawLine(sx, sy, ex, ey)
+            p.setBrush(QtGui.QColor(155, 89, 182)); p.setPen(QtCore.Qt.white)
+            p.drawEllipse(ex - 4, ey - 4, 8, 8)
+            p.setPen(QtGui.QColor(155, 89, 182)); p.setFont(_F_AXIS)
             if vec.size == 2:
                 n0 = dim_names[0] if dim_names else "τ₀"
                 n1 = dim_names[1] if len(dim_names) > 1 else "τ₁"
                 p.drawText(cx - R, cy + cr + 16,
-                           f"{n0}={float(vec[0]):+.2f}  {n1}={float(vec[1]):+.2f}")
+                           f"τ {n0}={float(vec[0]):+.2f}  {n1}={float(vec[1]):+.2f}")
             else:
                 lbl = _dim_arrow_label(dims, dim_names) if dims else "τ"
                 p.drawText(cx - R, cy + cr + 16, f"τ({lbl}) ‖·‖={mag:.2f}")
@@ -630,9 +721,11 @@ def _draw_agent_limbs(p: QtGui.QPainter, f: ObservabilityFrame,
     scores = list(getattr(f, "candidate_scores", []) or [0])
     chosen = int(np.argmax(scores)) if scores else 0
     a = -math.pi / 2
-    ex = cx + (cr + R * 0.4) * math.cos(a); ey = cy + (cr + R * 0.4) * math.sin(a)
+    sx, sy, _cx, _cy = _limb_line_start(cx, cy, cr, a)
+    ex = int(cx + (cr + R * 0.4) * math.cos(a))
+    ey = int(cy + (cr + R * 0.4) * math.sin(a))
     p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
-    p.drawLine(cx, cy, int(ex), int(ey))
+    p.drawLine(sx, sy, ex, ey)
     lbl = names[chosen] if chosen < len(names) else f"a{chosen}"
     p.setPen(ACCENT); p.setFont(_F_LABEL_B)
     p.drawText(cx - R, cy + cr + 16, f"act: {lbl}")
@@ -641,8 +734,10 @@ def _draw_agent_limbs(p: QtGui.QPainter, f: ObservabilityFrame,
 def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
                       cx: int, cy: int, R: int,
                       glyph_hist: Deque[Tuple[List[float], float, int]],
-                      t0: float, emp_value: float) -> None:
-    """Mind glyph: drive halo + core + limbs (shared by portrait + overview)."""
+                      t0: float, emp_value: float,
+                      *, active_pulse: float = 0.5,
+                      show_head_label: bool = False) -> None:
+    """Mind glyph: drive halo + limbs + core + head (shared by portrait + overview)."""
     import math
     levels = list(getattr(f, "drive_levels", []) or [])
     deficits = list(getattr(f, "drive_deficits", []) or [])
@@ -651,7 +746,7 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
         levels.append(0.0)
     while len(deficits) < n:
         deficits.append(0.0)
-    active = int(getattr(f, "active_drive_id", 0) or 0)
+    active = int(_overview_goal_id(f) or 0)
     conf = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
     ms = getattr(f, "meta_stable", None) or {}
     stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
@@ -696,13 +791,19 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
         a1 = a0 + 2 * math.pi / n - 0.18 * dfc
         r_out = int(R * (0.55 + 0.45 * lvl))
         col = _drive_color(did); col.setAlpha(int(80 + 160 * lvl))
-        p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), 1))
+        pen_w = 1
+        if did == active:
+            pen_w = int(2 + active_pulse)
+            col.setAlpha(min(255, int(120 + 135 * lvl + 40 * active_pulse)))
+        p.setBrush(col); p.setPen(QtGui.QPen(col.darker(140), pen_w))
         path = QtGui.QPainterPath()
         path.moveTo(cx + R * 0.45 * math.cos(a0), cy + R * 0.45 * math.sin(a0))
         path.arcTo(cx - r_out, cy - r_out, r_out * 2, r_out * 2,
                    math.degrees(a0), math.degrees(a1 - a0))
         path.lineTo(cx + R * 0.45 * math.cos(a1), cy + R * 0.45 * math.sin(a1))
         p.drawPath(path)
+    cr = int(R * 0.4)
+    _draw_agent_limbs(p, f, cx, cy, cr, R)
     cval = max(0.0, min(1.0, conf))
     if cval > 0.66:
         core = QtGui.QColor(46, 204, 113)
@@ -718,7 +819,6 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
             int(0.6 * core.blue() + 0.4 * dom.blue()))
     b = int(120 + 110 * max(0.0, min(1.0, emp_value)))
     core.setAlpha(min(255, b))
-    cr = int(R * 0.4)
     p.setBrush(core); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 180), 2))
     p.drawEllipse(cx - cr, cy - cr, cr * 2, cr * 2)
     if stable:
@@ -729,9 +829,12 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
         a = -math.pi / 2 + i * 2 * math.pi / n + math.pi / n
         hx = cx + (R * 1.02) * math.cos(a); hy = cy + (R * 1.02) * math.sin(a)
         p.setBrush(_drive_color(active))
-        p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
+        p.setPen(QtGui.QPen(QtCore.Qt.white, 2))
         p.drawEllipse(int(hx) - 5, int(hy) - 5, 10, 10)
-    _draw_agent_limbs(p, f, cx, cy, cr, R)
+        if show_head_label:
+            p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
+            lbl = _drive_short(active)
+            p.drawText(int(hx) + 8, int(hy) + 4, lbl)
     p.setPen(DIM_COL); p.setFont(_F_AXIS)
     order = sorted(range(n), key=lambda i: -deficits[i])[:3]
     dy = cy + br + 12
@@ -808,25 +911,48 @@ def _draw_overview_pca_fallback(p: QtGui.QPainter, f: ObservabilityFrame,
     p.drawText(rect, 0x84, "no camera frame\n(PCA projection fallback)")
 
 
+_REACHER_L1 = 0.42
+_REACHER_L2 = 0.38
+_REACHER_TRAIL_MAX = 80
+
+
+def _reacher_kinematics_from_obs(obs: Any) -> Optional[dict]:
+    """Fingertip/goal workspace coords from Reacher-v5 cos/sin observation."""
+    import math
+    if obs is None:
+        return None
+    arr = np.asarray(obs, dtype=np.float32).reshape(-1)
+    if arr.size < 4 or not np.all(np.isfinite(arr)):
+        return None
+    a0 = math.atan2(float(arr[1]), float(arr[0]))
+    a1 = math.atan2(float(arr[3]), float(arr[2]))
+    ex = _REACHER_L1 * math.cos(a0)
+    ey = _REACHER_L1 * math.sin(a0)
+    fx = ex + _REACHER_L2 * math.cos(a0 + a1)
+    fy = ey + _REACHER_L2 * math.sin(a0 + a1)
+    rel_x = float(arr[-2]) if arr.size >= 2 else 0.0
+    rel_y = float(arr[-1]) if arr.size >= 1 else 0.0
+    tx = fx - rel_x
+    ty = fy - rel_y
+    return {
+        "ex": ex, "ey": ey, "fx": fx, "fy": fy, "tx": tx, "ty": ty,
+        "dist": math.hypot(rel_x, rel_y),
+    }
+
+
 def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
-                            rect: QtCore.QRect) -> bool:
+                            rect: QtCore.QRect,
+                            trail: Optional[Deque[Tuple[float, float]]] = None) -> bool:
     """2D arm schematic from obs cos/sin joints (no GPU). Returns True if drawn."""
     import math
     v = f.obs_vector if f.obs_vector is not None else f.sanitized_state
-    if v is None:
+    kin = _reacher_kinematics_from_obs(v)
+    if kin is None:
         return False
-    obs = np.asarray(v, dtype=np.float32).reshape(-1)
-    if obs.size < 4 or not np.all(np.isfinite(obs)):
-        return False
-    a0 = math.atan2(float(obs[1]), float(obs[0]))
-    a1 = math.atan2(float(obs[3]), float(obs[2]))
-    L1, L2 = 0.42, 0.38
-    ex = L1 * math.cos(a0)
-    ey = L1 * math.sin(a0)
-    fx = ex + L2 * math.cos(a0 + a1)
-    fy = ey + L2 * math.sin(a0 + a1)
-    tx = fx - float(obs[-2]) if obs.size >= 2 else fx
-    ty = fy - float(obs[-1]) if obs.size >= 1 else fy
+    ex, ey = kin["ex"], kin["ey"]
+    fx, fy = kin["fx"], kin["fy"]
+    tx, ty = kin["tx"], kin["ty"]
+    dist = kin["dist"]
     pts = [(0.0, 0.0), (ex, ey), (fx, fy), (tx, ty)]
     xs = [pt[0] for pt in pts]
     ys = [pt[1] for pt in pts]
@@ -849,10 +975,19 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
         return int(px), int(py)
 
     # Dark panel — never leave default/green GL clear visible.
+    spike = False
+    try:
+        spike = float(getattr(f, "prediction_error", 0.0) or 0.0) > 25.0
+    except Exception:
+        spike = False
     p.fillRect(rect, QtGui.QColor(10, 10, 14))
     p.fillRect(px0, py0, plot_w, plot_h, QtGui.QColor(18, 20, 28))
     p.setPen(QtGui.QPen(GRID_COL, 1))
     p.drawRect(px0, py0, plot_w, plot_h)
+    if spike:
+        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60, 200), 2))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawRect(px0 + 1, py0 + 1, max(plot_w - 2, 1), max(plot_h - 2, 1))
     # Crosshair at base
     o = _map(0.0, 0.0)
     p.setPen(QtGui.QPen(QtGui.QColor(50, 55, 70), 1, QtCore.Qt.DashLine))
@@ -861,6 +996,31 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     e = _map(ex, ey)
     tip = _map(fx, fy)
     goal = _map(tx, ty)
+    # Fingertip trail (motion history)
+    trail_pts = list(trail or [])
+    if len(trail_pts) >= 2:
+        n = len(trail_pts)
+        for i in range(1, n):
+            a = int(20 + 80 * i / n)
+            p0 = _map(trail_pts[i - 1][0], trail_pts[i - 1][1])
+            p1 = _map(trail_pts[i][0], trail_pts[i][1])
+            p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, a), 2))
+            p.drawLine(p0[0], p0[1], p1[0], p1[1])
+    # Ghost arm from G′ predicted next state (amber, translucent)
+    pred = getattr(f, "predicted_state", None)
+    pred_kin = _reacher_kinematics_from_obs(pred)
+    if pred_kin is not None:
+        pe = _map(pred_kin["ex"], pred_kin["ey"])
+        pt = _map(pred_kin["fx"], pred_kin["fy"])
+        p.setBrush(QtCore.Qt.NoBrush)
+        ghost_col = QtGui.QColor(241, 196, 15, 140)
+        if spike:
+            ghost_col = QtGui.QColor(231, 76, 60, 170)
+        p.setPen(QtGui.QPen(ghost_col, 2, QtCore.Qt.DashLine))
+        p.drawLine(o[0], o[1], pe[0], pe[1])
+        p.drawLine(pe[0], pe[1], pt[0], pt[1])
+        p.setBrush(QtGui.QColor(ghost_col.red(), ghost_col.green(), ghost_col.blue(), 110))
+        p.drawEllipse(pt[0] - 4, pt[1] - 4, 8, 8)
     # Links: blue shoulder, amber elbow
     p.setBrush(QtCore.Qt.NoBrush)
     p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 3))
@@ -870,9 +1030,13 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     # Fingertip → target vector
     p.setPen(QtGui.QPen(QtGui.QColor(210, 210, 220), 1, QtCore.Qt.DashLine))
     p.drawLine(tip[0], tip[1], goal[0], goal[1])
-    # Goal: yellow ring (not solid green slab)
-    p.setBrush(QtCore.Qt.NoBrush)
-    p.setPen(QtGui.QPen(ACCENT, 2))
+    # Goal: yellow ring; fill when reached
+    goal_pen = QtGui.QPen(ACCENT, 2)
+    if getattr(f, "violations_count", 0) > 0:
+        goal_pen = QtGui.QPen(QtGui.QColor(231, 76, 60), 3)
+    p.setBrush(QtGui.QColor(241, 196, 15, 120) if getattr(f, "goal_reached", False)
+               else QtCore.Qt.NoBrush)
+    p.setPen(goal_pen)
     p.drawEllipse(goal[0] - 8, goal[1] - 8, 16, 16)
     # Fingertip
     p.setBrush(ACCENT)
@@ -884,24 +1048,70 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     # Labels
     p.setPen(TEXT_COL)
     p.setFont(_F_LABEL_B)
-    p.drawText(rect.x() + 8, rect.y() + 16, "Reacher 2D schematic")
+    title = f"Reacher 2D  dist={dist:.3f}" + ("  SPIKE" if spike else "")
+    p.drawText(rect.x() + 8, rect.y() + 16, title)
     p.setFont(_F_AXIS)
     p.setPen(DIM_COL)
-    p.drawText(px0 + 6, py0 + plot_h - 6, "● base   ● fingertip   ○ goal")
+    p.drawText(px0 + 6, py0 + plot_h - 6, "● base   ● fingertip   ○ goal   ghost=G′")
     p.setPen(QtGui.QColor(52, 152, 219))
     p.setFont(_F_AXIS)
     p.drawText(rect.right() - 28, rect.y() + 16, "2D")
     return True
 
 
-def _render_reacher_schematic_pixmap(f: ObservabilityFrame, w: int, h: int) -> QtGui.QPixmap:
+def _render_reacher_schematic_pixmap(
+        f: ObservabilityFrame, w: int, h: int,
+        trail: Optional[Deque[Tuple[float, float]]] = None) -> QtGui.QPixmap:
     """Offscreen 2D arm schematic (no GPU / no paintEvent camera blit)."""
     pm = QtGui.QPixmap(max(w, 2), max(h, 2))
     pm.fill(QtGui.QColor(12, 12, 16))
     p = QtGui.QPainter(pm)
-    _draw_reacher_schematic(p, f, QtCore.QRect(0, 0, w, h))
+    _draw_reacher_schematic(p, f, QtCore.QRect(0, 0, w, h), trail=trail)
     p.end()
     return pm
+
+
+def _apply_overview_camera_overlay(
+        pm: QtGui.QPixmap, f: Optional[ObservabilityFrame], *,
+        badge: str, camera_cycle_id: Optional[int] = None,
+        stale: bool = False, schematic: bool = False) -> QtGui.QPixmap:
+    """Draw cycle/err/conf badge on camera pixmap (offscreen, not in paintEvent)."""
+    if pm.isNull():
+        return pm
+    out = pm.copy()
+    p = QtGui.QPainter(out)
+    p.setRenderHint(QtGui.QPainter.Antialiasing)
+    w, h = out.width(), out.height()
+    # Mode badge (top-right)
+    badge_col = QtGui.QColor(52, 152, 219) if schematic else QtGui.QColor(46, 204, 113)
+    if stale:
+        badge_col = QtGui.QColor(241, 196, 15)
+    if badge == "SYNC?":
+        badge_col = QtGui.QColor(231, 76, 60)
+    p.setFont(_F_LABEL_B)
+    fm = p.fontMetrics()
+    bw = fm.horizontalAdvance(badge) + 12
+    bx, by = w - bw - 6, 4
+    p.fillRect(bx, by, bw, 18, QtGui.QColor(0, 0, 0, 160))
+    p.setPen(badge_col)
+    p.drawText(bx + 6, by + 14, badge)
+    # Status line (bottom-left)
+    if f is not None:
+        kin = _reacher_kinematics_from_obs(
+            f.obs_vector if f.obs_vector is not None else f.sanitized_state)
+        dist_s = f"{kin['dist']:.3f}" if kin else "—"
+        line = (f"cycle={f.cycle_id}  err={f.prediction_error:.2f}  "
+                f"conf={f.prediction_confidence:.3f}  dist={dist_s}")
+        if camera_cycle_id is not None and int(camera_cycle_id) != int(f.cycle_id):
+            line += f"  cam@{camera_cycle_id}"
+        p.setFont(_F_AXIS)
+        fm2 = p.fontMetrics()
+        p.setPen(QtGui.QColor(230, 230, 235))
+        p.fillRect(4, h - 22, min(w - 8, fm2.horizontalAdvance(line) + 10), 18,
+                   QtGui.QColor(0, 0, 0, 140))
+        p.drawText(8, h - 8, line)
+    p.end()
+    return out
 
 
 def _draw_overview_tau_bar(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect) -> None:
@@ -917,6 +1127,9 @@ def _draw_overview_tau_bar(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCor
     p.fillRect(tau_rect, QtGui.QColor(12, 12, 16))
     _draw_tau_bar(p, act, dim_names, tau_rect.x(), tau_rect.y(),
                   tau_rect.width(), tau_rect.height())
+    p.setPen(DIM_COL)
+    p.setFont(_F_AXIS)
+    p.drawText(x + 8, tau_rect.y() + 12, "Flow → timings  |  Candidates → scores")
     p.restore()
 
 
@@ -1065,15 +1278,22 @@ def _overview_chip(p: QtGui.QPainter, x: int, y: int, text: str,
     return w + 6
 
 
-def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect) -> None:
+def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
+                          drive_change: Optional[Tuple[int, int]] = None,
+                          flags: Optional[Dict[str, Any]] = None) -> None:
     r = f.action_rationale or {}
-    gid = r.get("goal_id", getattr(f, "active_drive_id", None))
+    gid = _overview_goal_id(f)
     goal_lbl = DRIVE_NAMES.get(gid, _drive_short(gid)) if gid is not None else "—"
     tag = "EXPLORE" if r.get("explored") else "EXPLOIT"
     p.setPen(TEXT_COL); p.setFont(_F_TITLE)
     p.drawText(rect.x() + 8, rect.y() + 20, f"AGENT · cycle {f.cycle_id} · {goal_lbl} · {tag}")
     cx = rect.x() + 8
     cy = rect.y() + 4
+    if drive_change is not None:
+        old_d, new_d = drive_change
+        cx += _overview_chip(
+            p, cx, cy, f"{_drive_short(old_d)}→{_drive_short(new_d)}",
+            QtGui.QColor(52, 152, 219))
     rbta_ok = f.violations_count == 0
     cx += _overview_chip(p, cx, cy,
                          "RBTA " + ("OK" if rbta_ok else f"{f.violations_count}V"),
@@ -1083,6 +1303,216 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
     ms = getattr(f, "meta_stable", None) or {}
     if ms.get("is_meta_stable", ms.get("stable", False)):
         _overview_chip(p, cx, cy, "META", QtGui.QColor(52, 152, 219))
+    flags = flags or _overview_moment_flags(f, deque())
+    if flags["spike"]:
+        cx += _overview_chip(p, cx, cy, "SPIKE", QtGui.QColor(231, 76, 60))
+    if flags.get("learn_burst", False):
+        cx += _overview_chip(p, cx, cy, "G′lrn", QtGui.QColor(52, 152, 219))
+    if flags.get("decision_shift", False):
+        _overview_chip(p, cx, cy, "DECISION", QtGui.QColor(155, 89, 182))
+
+
+def _overview_spike(err_hist: Deque[float], cur_err: float,
+                    env_kind: str = "") -> bool:
+    errs = list(err_hist)
+    prev_err = float(errs[-2]) if len(errs) >= 2 else None
+    if prev_err is None or prev_err <= 1e-6:
+        return False
+    kind = (env_kind or "").lower()
+    if kind == "mujoco_rgb":
+        if cur_err > 3.0 * prev_err:
+            return True
+        return abs(cur_err - prev_err) > 5.0
+    return cur_err > 2.0 * prev_err
+
+
+def _overview_moment_flags(f: ObservabilityFrame, err_hist: Deque[float]) -> Dict[str, Any]:
+    """Compact live diagnostics for the overview narrative/chips."""
+    cur_err = float(getattr(f, "prediction_error", 0.0) or 0.0)
+    env_kind = (getattr(f, "env_kind", "") or "").lower()
+    spike = _overview_spike(err_hist, cur_err, env_kind)
+    timings = dict(getattr(f, "module_timings", {}) or {})
+    learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
+    learn_burst = learn_ms >= _OVERVIEW_LEARN_MS_MIN
+    r = f.action_rationale or {}
+    score = r.get("best_score")
+    score_v = float(score) if isinstance(score, (int, float)) else None
+    decision_shift = bool(r.get("decision_shift", False))
+    peu = getattr(f, "per_dim_peu", None)
+    peu_mean = None
+    if peu is not None:
+        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
+        if arr.size:
+            peu_mean = float(np.mean(arr))
+    return {
+        "spike": spike,
+        "learn_ms": learn_ms,
+        "learn_burst": learn_burst,
+        "score": score_v,
+        "explored": bool(r.get("explored", False)),
+        "peu_mean": peu_mean,
+        "decision_shift": decision_shift,
+    }
+
+
+def _overview_phase_ms(timings: Dict[str, Any], key) -> float:
+    if isinstance(key, tuple):
+        return sum(float(timings.get(k, 0.0) or 0.0) for k in key)
+    return float(timings.get(key, 0.0) or 0.0)
+
+
+def _overview_phase_segments(f: ObservabilityFrame) -> List[Tuple[str, float]]:
+    timings = dict(getattr(f, "module_timings", {}) or {})
+    return [(label, _overview_phase_ms(timings, key))
+            for key, label in _OVERVIEW_PHASE_STEPS]
+
+
+def _overview_dominant_phase(f: ObservabilityFrame) -> str:
+    segs = _overview_phase_segments(f)
+    if not segs:
+        return ""
+    return max(segs, key=lambda s: s[1])[0]
+
+
+def _draw_overview_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
+                               rect: QtCore.QRect) -> None:
+    segs = _overview_phase_segments(f)
+    if not segs:
+        return
+    total = sum(ms for _, ms in segs) or 1.0
+    dominant = _overview_dominant_phase(f)
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    bar_y = y + 2
+    bar_h = max(h - 14, 6)
+    cx = x + 4
+    for label, ms in segs:
+        share = max(ms / total, 0.02)
+        seg_w = max(int((w - 8) * share), 4)
+        col = QtGui.QColor(52, 73, 94)
+        if label == dominant and ms > 0.0:
+            col = QtGui.QColor(52, 152, 219)
+        p.setPen(QtGui.QPen(col.darker(130), 1))
+        p.setBrush(col)
+        p.drawRect(cx, bar_y, seg_w, bar_h)
+        cx += seg_w + 1
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    p.drawText(x + 4, y + h - 2, " → ".join(s[0] for s in segs))
+
+
+def _overview_plain_story(f: ObservabilityFrame, flags: Dict[str, Any],
+                          err_hist: Deque[float],
+                          dist_hist: Optional[Deque[float]] = None) -> str:
+    r = f.action_rationale or {}
+    mode = "exploring candidates" if r.get("explored") else "exploiting best action"
+    errs = list(err_hist)
+    if flags.get("spike"):
+        err_part = "error spiked (surprise)"
+    elif len(errs) >= 2:
+        err_part = "error rose" if errs[-1] > errs[-2] else (
+            "error fell" if errs[-1] < errs[-2] else "error stable")
+    else:
+        err_part = "error stable"
+    parts = [f"Cycle {f.cycle_id}", mode, err_part]
+    if flags.get("learn_burst"):
+        parts.append("world model updated")
+    if dist_hist is not None and len(dist_hist) >= 2:
+        if dist_hist[-1] < dist_hist[-2]:
+            parts.append("moving toward target")
+        elif dist_hist[-1] > dist_hist[-2]:
+            parts.append("drifting from target")
+    if flags.get("decision_shift"):
+        parts.append("decision shifted")
+    if getattr(f, "goal_reached", False):
+        parts.append("goal reached")
+    return " · ".join(parts)
+
+
+def _overview_metrics_line(f: ObservabilityFrame, flags: Dict[str, Any],
+                           err_hist: Deque[float],
+                           dist_hist: Optional[Deque[float]] = None) -> str:
+    """Compact numeric metrics (secondary line under plain story)."""
+    r = f.action_rationale or {}
+    tag = "EXPLORE" if r.get("explored") else "EXPLOIT"
+    errs = list(err_hist)
+    err_arrow = ""
+    if len(errs) >= 2:
+        err_arrow = "↘" if errs[-1] <= errs[-2] else "↗"
+    kin = _reacher_kinematics_from_obs(
+        f.obs_vector if f.obs_vector is not None else f.sanitized_state)
+    dist_s = f"{kin['dist']:.3f}" if kin else "—"
+    dist_arrow = ""
+    if dist_hist is not None and len(dist_hist) >= 2:
+        dist_arrow = "↘" if dist_hist[-1] <= dist_hist[-2] else "↗"
+    score_s = f"{flags['score']:.2f}" if flags["score"] is not None else "—"
+    learn_s = f"{flags['learn_ms']:.1f}ms" if flags["learn_ms"] > 0.0 else "—"
+    peu_s = f" · PEŪ={flags['peu_mean']:.2f}" if flags["peu_mean"] is not None else ""
+    gid = _overview_goal_id(f)
+    drive_s = _drive_short(gid) if gid else "—"
+    return (f"{tag} · err={f.prediction_error:.2f}{err_arrow}"
+            f" · dist={dist_s}{dist_arrow} · score={score_s}"
+            f" · G′lrn={learn_s}{peu_s} · MDIM:{drive_s}")
+
+
+def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
+                         drive_change: Optional[Tuple[int, int]]) -> List[str]:
+    events: List[str] = []
+    if flags.get("spike"):
+        events.append("SPIKE: prediction error jumped")
+    if flags.get("learn_burst"):
+        events.append(f"LEARN: G′ updated ({flags['learn_ms']:.1f}ms)")
+    if getattr(f, "goal_reached", False):
+        events.append("GOAL: target reached")
+    if drive_change is not None:
+        old_d, new_d = drive_change
+        events.append(f"DRIVE: {_drive_short(old_d)}→{_drive_short(new_d)}")
+    if flags.get("decision_shift"):
+        events.append("DECISION: best action changed")
+    if flags.get("explored"):
+        events.append("EXPLORE: sampling candidates")
+    return events
+
+
+def _draw_overview_event_log(p: QtGui.QPainter, events: List[str],
+                             rect: QtCore.QRect) -> None:
+    if not events:
+        return
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    y = rect.y() + 10
+    for line in events[-5:]:
+        p.drawText(rect.x() + 8, y, line)
+        y += 12
+
+
+def _draw_overview_narrative(p: QtGui.QPainter, f: ObservabilityFrame,
+                             rect: QtCore.QRect,
+                             err_hist: Deque[float],
+                             dist_hist: Optional[Deque[float]] = None) -> None:
+    """Plain-language story + compact metrics (two lines)."""
+    flags = _overview_moment_flags(f, err_hist)
+    story = _overview_plain_story(f, flags, err_hist, dist_hist)
+    metrics = _overview_metrics_line(f, flags, err_hist, dist_hist)
+    p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+    p.drawText(rect.x() + 8, rect.y() + 11, story)
+    p.setPen(DIM_COL)
+    p.drawText(rect.x() + 8, rect.y() + 24, metrics)
+
+
+# Semantic map for Overview observability: used as a single audit reference.
+_OVERVIEW_SEMANTIC_MAP = {
+    "header.goal": "action_rationale.goal_id -> fallback active_drive_id",
+    "header.mode": "action_rationale.explored",
+    "header.safety": "violations_count / goal_reached / meta_stable",
+    "narrative.error": "prediction_error + err trend from _err_hist",
+    "narrative.learning": "module_timings.gprime_learn (burst >= 5ms)",
+    "narrative.decision": "action_rationale.best_score/explored/decision_shift",
+    "narrative.plain": "_overview_plain_story",
+    "narrative.phase": "_draw_overview_phase_strip",
+    "narrative.events": "_overview_new_events + hold",
+    "narrative.distance": "reacher dist from obs_vector[-2:]",
+    "glyph.core": "prediction_confidence blended with active drive color",
+    "glyph.limbs": "continuous_action (UI-smoothed for mujoco_rgb 2-DoF)",
+    "world.schematic": "obs_vector -> reacher kinematics + predicted_state ghost",
+}
 
 
 def _draw_mini_drive_ring(p: QtGui.QPainter, f: ObservabilityFrame,
@@ -1171,7 +1601,9 @@ def _draw_vitals_ribbon(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
     p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
     p.drawText(cx4 + 6, y + 14, "system")
     p.setFont(_F_AXIS)
-    p.drawText(cx4 + 6, y + 28, f"RSS {f.rss_bytes / 1e6:.0f}MB  lat {f.latency_ms:.1f}ms")
+    learn_ms = float((getattr(f, "module_timings", {}) or {}).get("gprime_learn", 0.0) or 0.0)
+    p.drawText(cx4 + 6, y + 28,
+               f"RSS {f.rss_bytes / 1e6:.0f}MB  lat {f.latency_ms:.1f}ms  lrn={learn_ms:.1f}ms")
     r = f.action_rationale or {}
     gid = r.get("goal_id")
     goal_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
@@ -1393,9 +1825,22 @@ class _ChartCanvas(_BaseCanvas):
 # ----- Overview tab canvases -------------------------------------------------
 
 _OVERVIEW_HEADER_H = 32
+_OVERVIEW_PHASE_H = 16
+_OVERVIEW_NARRATIVE_H = 28
+_OVERVIEW_EVENT_LOG_H = 28
 _OVERVIEW_RIBBON_H = 56
 _OVERVIEW_MARGIN = 8
 _OVERVIEW_HZ = 4.0
+_OVERVIEW_LEARN_MS_MIN = 5.0
+_OVERVIEW_EVENT_HOLD = 5
+_OVERVIEW_PHASE_STEPS = (
+    ("prediction", "Predict"),
+    ("action_selection", "Act"),
+    ("peu", "Error"),
+    ("gprime_learn", "Learn"),
+    (("mdim", "tspl"), "Decide"),
+    ("rbta", "Safe"),
+)
 
 
 class CameraCaptureTimer(QtCore.QObject):
@@ -1449,7 +1894,8 @@ class OverviewAgentView(_BaseCanvas):
         self.cycle_error: Optional[str] = None
         self.proj: Optional["BeliefProjection"] = None
         self.trail: Deque[Any] = deque(maxlen=160)
-        self.arena_trail: Deque[Tuple[float, float]] = deque(maxlen=256)
+        self.arena_trail: Deque[Tuple[float, float]] = deque(maxlen=80)
+        self._reacher_trail: Deque[Tuple[float, float]] = deque(maxlen=_REACHER_TRAIL_MAX)
         self._ax = ScaleState(contract=0.04, head=0.08)
         self._ay = ScaleState(contract=0.04, head=0.08)
         self._err_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
@@ -1458,16 +1904,55 @@ class OverviewAgentView(_BaseCanvas):
         self._glyph_sig: tuple = ()
         self._t0 = time.monotonic()
         self._emp_sm = _Smoother(alpha=0.25)
+        self._tau_sms: List[_Smoother] = [_Smoother(alpha=0.35), _Smoother(alpha=0.35)]
+        self._dist_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._prev_best_score: Optional[float] = None
         self._last_paint_t: float = 0.0
         self._camera_pixmap: Optional[QtGui.QPixmap] = None
         self._camera_numpy: Optional[np.ndarray] = None
         self._camera_stale: bool = False
+        self._camera_cycle_id: Optional[int] = None
         self._camera_fail_count: int = 0
         self._camera_provider: Optional[Callable[[], Any]] = None
         self._camera_debug: bool = False
         self._camera_mode: str = "auto"  # auto | live | schematic
         self._camera_gl_disabled: bool = False
         self._capture_timer = CameraCaptureTimer(self)
+        self._last_active_drive: Optional[int] = None
+        self._drive_change: Optional[Tuple[int, int]] = None
+        self._event_lines: List[Tuple[str, int]] = []
+
+    def _update_event_log(self, f: ObservabilityFrame) -> None:
+        """Hold recent overview events for several heartbeats."""
+        self._event_lines = [(t, h - 1) for t, h in self._event_lines if h > 1]
+        flags = _overview_moment_flags(f, self._err_hist)
+        for text in _overview_new_events(f, flags, self._drive_change):
+            self._event_lines.append((text, _OVERVIEW_EVENT_HOLD))
+
+    def visible_event_lines(self) -> List[str]:
+        return [t for t, _ in self._event_lines]
+
+    def _track_drive_change(self, f: ObservabilityFrame) -> None:
+        """Record MDIM goal switch for header chip (live frames only)."""
+        act = _overview_goal_id(f)
+        self._drive_change = None
+        if act and self._last_active_drive is not None and act != self._last_active_drive:
+            self._drive_change = (self._last_active_drive, act)
+        if act:
+            self._last_active_drive = act
+
+    def _track_decision_shift(self, f: ObservabilityFrame) -> None:
+        """Tag sudden best-score changes so narrative can mark decision shifts."""
+        r = dict(getattr(f, "action_rationale", {}) or {})
+        bs = r.get("best_score")
+        cur = float(bs) if isinstance(bs, (int, float)) else None
+        shifted = False
+        if cur is not None and self._prev_best_score is not None:
+            shifted = abs(cur - self._prev_best_score) > 0.20
+        if cur is not None:
+            self._prev_best_score = cur
+        r["decision_shift"] = shifted
+        f.action_rationale = r
 
     def bind_camera_tabs(self, tabs: QtWidgets.QTabWidget,
                          overview_tab_index: int = 0) -> None:
@@ -1508,17 +1993,8 @@ class OverviewAgentView(_BaseCanvas):
     def set_projection(self, proj: "BeliefProjection") -> None:
         self.proj = proj
 
-    def set_state(self, f: Optional[ObservabilityFrame],
-                  err: Optional[str] = None) -> None:
-        self.frame = f
-        self.cycle_error = err
-        self._dirty = True
-
-    def set_frame(self, f: ObservabilityFrame) -> None:
-        self.set_state(f, None)
-        self._err_hist.append(float(f.prediction_error))
-        self._conf_hist.append(float(f.prediction_confidence))
-        self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
+    def _append_trails_from_frame(self, f: ObservabilityFrame) -> None:
+        """Update motion trails and glyph history from one frame."""
         if f.grid is not None and f.agent_pos is not None:
             ap = tuple(f.agent_pos)
             if not self.trail or self.trail[-1] != ap:
@@ -1531,15 +2007,107 @@ class OverviewAgentView(_BaseCanvas):
                 pt = (float(v[0]), float(v[1]))
                 if not self.arena_trail or self.arena_trail[-1] != pt:
                     self.arena_trail.append(pt)
+        if self._reacher_obs_ok(f):
+            v = f.obs_vector if f.obs_vector is not None else f.sanitized_state
+            kin = _reacher_kinematics_from_obs(v)
+            if kin is not None:
+                pt = (kin["fx"], kin["fy"])
+                if not self._reacher_trail or self._reacher_trail[-1] != pt:
+                    self._reacher_trail.append(pt)
+                self._dist_hist.append(float(kin["dist"]))
         levels = list(getattr(f, "drive_levels", []) or [])
-        active = int(getattr(f, "active_drive_id", 0) or 0)
+        active = int(_overview_goal_id(f) or 0)
         sig = freeze_sig((f.cycle_id, tuple(round(x, 3) for x in levels), active))
         if sig != self._glyph_sig and levels:
             self._glyph_sig = sig
             self._glyph_hist.append(([float(x) for x in levels],
                                      float(getattr(f, "prediction_confidence", 0.0) or 0.0),
                                      active))
+
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        """Rebuild sparklines/trails from a rolling window (scrub/live sync)."""
+        self._err_hist = deque(
+            (float(f.prediction_error) for f in frames), maxlen=TREND_WINDOW)
+        self._conf_hist = deque(
+            (float(f.prediction_confidence) for f in frames), maxlen=TREND_WINDOW)
+        self.trail.clear()
+        self.arena_trail.clear()
+        self._reacher_trail.clear()
+        self._glyph_hist.clear()
+        self._glyph_sig = ()
+        self._emp_sm.reset()
+        self._dist_hist.clear()
+        self._prev_best_score = None
+        for f in frames:
+            self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
+            self._append_trails_from_frame(f)
+            self._track_decision_shift(f)
+        if frames:
+            last_act = _overview_goal_id(frames[-1])
+            if last_act:
+                self._last_active_drive = last_act
+        self._drive_change = None
+
+    def set_state(self, f: Optional[ObservabilityFrame],
+                  err: Optional[str] = None) -> None:
+        self.frame = f
+        self.cycle_error = err
+        self._dirty = True
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+        self.set_state(f, None)
+        if not histories_done:
+            self._err_hist.append(float(f.prediction_error))
+            self._conf_hist.append(float(f.prediction_confidence))
+            self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
+            self._append_trails_from_frame(f)
+            self._track_drive_change(f)
+            self._track_decision_shift(f)
+            self._update_event_log(f)
         self._update_camera_label()
+
+    def _glyph_display_frame(self, f: ObservabilityFrame) -> ObservabilityFrame:
+        """Apply UI-only smoothing for continuous action rendering."""
+        ca = getattr(f, "continuous_action", None)
+        kind = (getattr(f, "env_kind", "") or "").lower()
+        if ca is None or kind != "mujoco_rgb":
+            return f
+        vec = np.asarray(ca, dtype=np.float32).reshape(-1)
+        if vec.size != 2:
+            return f
+        sm = np.array([
+            self._tau_sms[0].value(float(vec[0])),
+            self._tau_sms[1].value(float(vec[1])),
+        ], dtype=np.float32)
+        out = copy.copy(f)
+        out.continuous_action = sm
+        return out
+
+    def _camera_badge(self, schematic: bool) -> str:
+        f = self.frame
+        if schematic:
+            if self._camera_gl_disabled and self._camera_mode == "live":
+                return "2D fallback"
+            return "2D"
+        if self._camera_stale:
+            return "STALE"
+        if (
+            f is not None
+            and self._camera_cycle_id is not None
+            and int(self._camera_cycle_id) != int(f.cycle_id)
+        ):
+            return "SYNC?"
+        return "LIVE"
+
+    def _parse_camera_provider_result(
+            self, raw: Any) -> Tuple[Optional[np.ndarray], Optional[int]]:
+        if raw is None:
+            return None, None
+        if isinstance(raw, dict):
+            return _normalize_rgb_frame(raw.get("frame")), raw.get("cycle_id")
+        if isinstance(raw, (tuple, list)) and len(raw) == 2:
+            return _normalize_rgb_frame(raw[0]), raw[1]
+        return _normalize_rgb_frame(raw), None
 
     def camera_label_rect(self) -> QtCore.QRect:
         """Camera QLabel geometry within the overview body panel."""
@@ -1567,7 +2135,12 @@ class OverviewAgentView(_BaseCanvas):
             or (f is not None and self._use_reacher_schematic(f))
         )
         if use_schematic and f is not None and self._reacher_obs_ok(f):
-            self._camera_label.setPixmap(_render_reacher_schematic_pixmap(f, w, h))
+            pm = _render_reacher_schematic_pixmap(f, w, h, trail=self._reacher_trail)
+            badge = self._camera_badge(schematic=True)
+            pm = _apply_overview_camera_overlay(
+                pm, f, badge=badge, camera_cycle_id=self._camera_cycle_id,
+                stale=self._camera_stale, schematic=True)
+            self._camera_label.setPixmap(pm)
             self._camera_label.show()
             return
         if (
@@ -1577,7 +2150,12 @@ class OverviewAgentView(_BaseCanvas):
             and not is_glitchy_rgb_frame(self._camera_numpy)
         ):
             scaled, sw, sh = fit_pixmap_to_box(self._camera_pixmap, w, h)
-            self._camera_label.setPixmap(scaled if sw >= 1 and sh >= 1 else self._camera_pixmap)
+            base = scaled if sw >= 1 and sh >= 1 else self._camera_pixmap
+            badge = self._camera_badge(schematic=False)
+            pm = _apply_overview_camera_overlay(
+                base, f, badge=badge, camera_cycle_id=self._camera_cycle_id,
+                stale=self._camera_stale, schematic=False)
+            self._camera_label.setPixmap(pm)
             self._camera_label.show()
             return
         pm = QtGui.QPixmap(w, h)
@@ -1596,12 +2174,11 @@ class OverviewAgentView(_BaseCanvas):
         if self._camera_provider is None:
             return None
         try:
-            frame = self._camera_provider()
+            raw = self._camera_provider()
         except Exception:
             return None
-        if frame is None:
-            return None
-        arr = _normalize_rgb_frame(frame)
+        arr, cid = self._parse_camera_provider_result(raw)
+        self._camera_cycle_id = int(cid) if cid is not None else None
         if arr is None:
             return None
         if self._camera_debug:
@@ -1701,14 +2278,18 @@ class OverviewAgentView(_BaseCanvas):
         self._last_paint_t = now
         self.update()
 
+    def _overview_top_h(self) -> int:
+        return (_OVERVIEW_HEADER_H + _OVERVIEW_PHASE_H + _OVERVIEW_NARRATIVE_H
+                + _OVERVIEW_EVENT_LOG_H)
+
     def main_body_rect(self) -> QtCore.QRect:
         """Expose main body rect for layout regression tests."""
         w, h = self.width(), self.height()
         m = _OVERVIEW_MARGIN
-        main_h = h - _OVERVIEW_HEADER_H - _OVERVIEW_RIBBON_H - m * 3
+        top = m + self._overview_top_h()
+        main_h = h - top - _OVERVIEW_RIBBON_H - m * 2
         mind_w = int((w - m * 3) * 0.38)
-        return QtCore.QRect(m * 2 + mind_w, m + _OVERVIEW_HEADER_H,
-                            w - mind_w - m * 3, main_h)
+        return QtCore.QRect(m * 2 + mind_w, top, w - mind_w - m * 3, main_h)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         w, h = self.width(), self.height()
@@ -1720,27 +2301,49 @@ class OverviewAgentView(_BaseCanvas):
             return
         f = self.frame
         m = _OVERVIEW_MARGIN
+        top_h = self._overview_top_h()
         p.setPen(QtGui.QPen(GRID_COL, 1))
         p.setBrush(QtGui.QColor(22, 22, 28))
         p.drawRoundedRect(2, 2, w - 4, h - 4, 6, 6)
-        main_h = h - _OVERVIEW_HEADER_H - _OVERVIEW_RIBBON_H - m * 3
+        top = m + top_h
+        main_h = h - top - _OVERVIEW_RIBBON_H - m * 2
         mind_w = int((w - m * 3) * 0.38)
         body_w = w - mind_w - m * 3
         header_rect = QtCore.QRect(m, m, w - 2 * m, _OVERVIEW_HEADER_H)
-        mind_rect = QtCore.QRect(m, m + _OVERVIEW_HEADER_H, mind_w, main_h)
-        body_rect = QtCore.QRect(m * 2 + mind_w, m + _OVERVIEW_HEADER_H, body_w, main_h)
+        phase_rect = QtCore.QRect(m, m + _OVERVIEW_HEADER_H, w - 2 * m, _OVERVIEW_PHASE_H)
+        narrative_rect = QtCore.QRect(
+            m, m + _OVERVIEW_HEADER_H + _OVERVIEW_PHASE_H, w - 2 * m,
+            _OVERVIEW_NARRATIVE_H)
+        event_rect = QtCore.QRect(
+            m, m + _OVERVIEW_HEADER_H + _OVERVIEW_PHASE_H + _OVERVIEW_NARRATIVE_H,
+            w - 2 * m, _OVERVIEW_EVENT_LOG_H)
+        mind_rect = QtCore.QRect(m, top, mind_w, main_h)
+        body_rect = QtCore.QRect(m * 2 + mind_w, top, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
         if f is not None:
-            _draw_overview_header(p, f, header_rect)
+            flags = _overview_moment_flags(f, self._err_hist)
+            _draw_overview_header(p, f, header_rect, self._drive_change, flags)
+            _draw_overview_phase_strip(p, f, phase_rect)
+            _draw_overview_narrative(p, f, narrative_rect, self._err_hist, self._dist_hist)
+            _draw_overview_event_log(p, self.visible_event_lines(), event_rect)
             p.setPen(QtGui.QPen(GRID_COL, 1))
             p.drawLine(mind_rect.right(), mind_rect.y(), mind_rect.right(), mind_rect.bottom())
             cx = mind_rect.x() + mind_rect.width() // 2
-            cy = mind_rect.y() + mind_rect.height() // 2 - 8
-            R = min(mind_rect.width() * 0.35, mind_rect.height() * 0.42)
+            cy = mind_rect.y() + mind_rect.height() // 2 - 16
+            R = min(mind_rect.width() * 0.35, mind_rect.height() * 0.40)
+            import math as _m
+            pulse = 0.5
+            if not _AUTOSCALE_FROZEN:
+                pulse = 0.5 + 0.5 * _m.sin(2 * _m.pi * (time.monotonic() - self._t0) * 0.8)
             p.save()
             p.setClipRect(mind_rect)
-            _draw_agent_glyph(p, f, cx, cy, int(R), self._glyph_hist, self._t0,
-                              self._emp_sm._v)
+            gf = self._glyph_display_frame(f)
+            _draw_agent_glyph(p, gf, cx, cy, int(R), self._glyph_hist, self._t0,
+                              self._emp_sm._v, active_pulse=pulse,
+                              show_head_label=True)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(mind_rect.x() + 4, mind_rect.bottom() - 4,
+                       "core=conf · head=MDIM · purple=τ · green arc=D3")
             p.restore()
             _draw_overview_body(p, f, body_rect, self.proj, self.trail,
                                 self.arena_trail, self._ax, self._ay)
@@ -4625,11 +5228,16 @@ class DashboardController:
             if cycle_error is None and cid == self._last_cycle:
                 return
             self._last_cycle = cid
-            # single source of truth for the shared belief projection + history
-            self.w.proj.update(f)
-            v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
-            self.w.proj.push_history(self.w.proj.project(v))
-            self.w.overview.set_frame(f)
+            if rolling:
+                self.w.proj.rebuild_from_frames(rolling)
+            else:
+                self.w.proj.update(f)
+                v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+                self.w.proj.push_history(self.w.proj.project(v))
+            histories_done = bool(rolling)
+            if rolling:
+                self.w.overview.rebuild_histories(rolling)
+            self.w.overview.set_frame(f, histories_done=histories_done)
             self.w.flow.set_frame(f)
             self.w.cand.set_frame(f)
             self.w.traj.set_frame(f)
