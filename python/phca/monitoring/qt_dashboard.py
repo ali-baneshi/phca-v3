@@ -597,32 +597,42 @@ class AgentPortraitView(_BaseCanvas):
     Trend: composite free-energy (prediction_error) sparkline + ↘/↗ health arrow.
     """
 
-    GAUGES = ("free-energy", "confidence", "empowerment",
-              "meta-stable", "attn-prec", "RBTA-room")
+    GAUGES = ("free-energy", "mutual-info", "cr-temp",
+              "mean-PEU", "RBTA-room", "goal-pri")
+    # v7: gauge units + human meaning (for the legend/tooltip under each arc).
+    GAUGE_META = {
+        "free-energy": ("", "prediction error (free energy)"),
+        "mutual-info": ("bit", "G′ mutual information"),
+        "cr-temp": ("", "CR cooling temperature"),
+        "mean-PEU": ("", "mean predictive empowerment"),
+        "RBTA-room": ("%", "RBTA time headroom"),
+        "goal-pri": ("", "active goal priority"),
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.frame: Optional[ObservabilityFrame] = None
         self._sm = {k: _Smoother(alpha=0.25) for k in self.GAUGES}
+        self._raw: Dict[str, float] = {k: 0.0 for k in self.GAUGES}
         self._fe_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         self._t0 = time.monotonic()
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.frame = f
-        # feed smoothers + free-energy history
+        # feed smoothers + free-energy history + v7 unclamped raw values
         fe = float(getattr(f, "prediction_error", 0.0) or 0.0)
         self._fe_hist.append(fe)
-        self._sm["free-energy"].value(fe)
-        self._sm["confidence"].value(float(getattr(f, "prediction_confidence", 0.0) or 0.0))
-        self._sm["empowerment"].value(float(getattr(f, "empowerment", 0.0) or 0.0))
-        ms = getattr(f, "meta_stable", None) or {}
-        stable = 1.0 if bool(ms.get("is_meta_stable", ms.get("stable", False))) else 0.0
-        self._sm["meta-stable"].value(stable)
-        ap = getattr(f, "attention_precisions", None) or []
-        self._sm["attn-prec"].value(float(np.mean(ap)) if len(ap) else 0.0)
-        # RBTA time-headroom = 1 - max(measured/bound) over modules
+        self._sm["free-energy"].value(fe); self._raw["free-energy"] = fe
+        mi = float(getattr(f, "gprime_mutual_info", 0.0) or 0.0)
+        self._sm["mutual-info"].value(mi); self._raw["mutual-info"] = mi
+        ct = float(getattr(f, "cr_temperature", 0.0) or 0.0)
+        self._sm["cr-temp"].value(ct); self._raw["cr-temp"] = ct
+        emp = float(getattr(f, "empowerment", 0.0) or 0.0)
+        self._sm["mean-PEU"].value(emp); self._raw["mean-PEU"] = emp
         room = self._rbta_room(f)
-        self._sm["RBTA-room"].value(room)
+        self._sm["RBTA-room"].value(room); self._raw["RBTA-room"] = room * 100.0
+        gp = float(getattr(f, "goal_priority", 0.0) or 0.0)
+        self._sm["goal-pri"].value(gp); self._raw["goal-pri"] = gp
         self.update()
 
     @staticmethod
@@ -655,7 +665,8 @@ class AgentPortraitView(_BaseCanvas):
             self._empty(p, "Agent portrait (collecting…)"); return
         self._title(p, "Cognitive agent — portrait")
         self._caption(p, "halo=drives · core colour=confidence · brightness=empowerment · "
-                         "head=active drive · limbs=action · gauges=scalar vitals")
+                         "head=active drive · core dot=meta-stable · limbs=action · "
+                         "gauges=vitals (raw+units) · under-halo=Δ deficits")
         # layout: glyph on the left, gauges grid on the right, trend at bottom
         glyph_cx = w // 4
         glyph_cy = h // 2 + 6
@@ -677,13 +688,15 @@ class AgentPortraitView(_BaseCanvas):
         levels = list(getattr(f, "drive_levels", []) or [0.0] * 6)
         deficits = list(getattr(f, "drive_deficits", []) or [0.0] * 6)
         active = int(getattr(f, "active_drive_id", 0) or 0)
-        conf = self._sm["confidence"]._v
-        emp = self._sm["empowerment"]._v
-        # breath ring (slow ~0.4 Hz, wall-clock) — calm, not a strobe
+        conf = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
+        emp = self._sm["mean-PEU"]._v
+        ms = getattr(f, "meta_stable", None) or {}
+        stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
+        # v7: calm breath ring — fixed radius, narrow alpha band 60→90 (no pulse)
         breath = 0.5 + 0.5 * math.sin(2 * math.pi * (time.monotonic() - self._t0) * 0.4)
-        br = int(R * (1.18 + 0.06 * breath))
+        br = int(R * 1.20)
         p.setBrush(QtCore.Qt.NoBrush)
-        p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, int(40 + 60 * breath)), 2))
+        p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, int(60 + 30 * breath)), 2))
         p.drawEllipse(cx - br, cy - br, br * 2, br * 2)
         # drive halo: 6 segments
         for i in range(6):
@@ -716,6 +729,10 @@ class AgentPortraitView(_BaseCanvas):
         cr = int(R * 0.4)
         p.setBrush(core); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 180), 2))
         p.drawEllipse(cx - cr, cy - cr, cr * 2, cr * 2)
+        # v7: meta-stable as a binary dot inside the core (not a 270° arc)
+        if stable:
+            p.setBrush(QtGui.QColor(241, 196, 15)); p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
+            p.drawEllipse(cx + cr - 12, cy - cr + 4, 8, 8)
         # active-drive head marker
         if 1 <= active <= 6:
             i = active - 1
@@ -724,8 +741,17 @@ class AgentPortraitView(_BaseCanvas):
             p.setBrush(_to_qcolor(DRIVE_COLORS[active]))
             p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
             p.drawEllipse(int(hx) - 5, int(hy) - 5, 10, 10)
-        # limbs: action vector (continuous) or chosen index (discrete)
+        # limbs: action vector (continuous) or chosen action_names label (discrete)
         self._draw_limbs(p, f, cx, cy, cr, R)
+        # v7: deficits under the halo (top-3 Δ D#=…)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        order = sorted(range(6), key=lambda i: -(deficits[i] if i < len(deficits) else 0.0))[:3]
+        dy = cy + br + 12
+        for i in order:
+            if i < len(deficits) and deficits[i] > 0.02:
+                p.setPen(_to_qcolor(DRIVE_COLORS[i + 1]))
+                p.drawText(cx - br, dy, f"Δ D{i+1}={deficits[i]:.2f}")
+                dy += 11
         # core label
         p.setPen(QtGui.QColor(20, 20, 24)); p.setFont(_F_LABEL_B)
         p.drawText(cx - cr, cy - cr, cr * 2, cr * 2, 0x84,
@@ -734,6 +760,7 @@ class AgentPortraitView(_BaseCanvas):
     def _draw_limbs(self, p, f, cx, cy, cr, R):
         import math
         ca = getattr(f, "continuous_action", None)
+        names = list(getattr(f, "action_names", []) or [])
         if ca is not None:
             vec = np.asarray(ca, dtype=np.float32).reshape(-1)
             if vec.size >= 2:
@@ -748,16 +775,24 @@ class AgentPortraitView(_BaseCanvas):
                     p.drawLine(cx, cy, int(ex), int(ey))
                     p.setBrush(QtGui.QColor(155, 89, 182)); p.setPen(QtCore.Qt.white)
                     p.drawEllipse(int(ex) - 4, int(ey) - 4, 8, 8)
+                p.setPen(ACCENT); p.setFont(_F_AXIS)
+                p.drawText(cx - R, cy + cr + 16, f"τ‖·‖={mag:.2f}")
                 return
-        # discrete: highlight chosen action as N limbs
-        r = getattr(f, "action_rationale", None) or {}
-        chosen = int(np.argmax(list(getattr(f, "candidate_scores", []) or [0])))
-        n = max(1, min(4, chosen + 1))
-        for i in range(n):
-            a = -math.pi / 2 + i * 2 * math.pi / n
-            ex = cx + (cr + R * 0.4) * math.cos(a); ey = cy + (cr + R * 0.4) * math.sin(a)
-            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 200), 3))
-            p.drawLine(cx, cy, int(ex), int(ey))
+            # continuous but 1-D → magnitude arc
+            mag = float(min(1.0, abs(float(vec[0]))))
+            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
+            p.drawArc(cx - cr - 6, cy - cr - 6, (cr + 6) * 2, (cr + 6) * 2, 90 * 16, int(-mag * 360 * 16))
+            return
+        # v7 discrete: one limb in the chosen action's direction + action_names label
+        scores = list(getattr(f, "candidate_scores", []) or [0])
+        chosen = int(np.argmax(scores)) if scores else 0
+        a = -math.pi / 2
+        ex = cx + (cr + R * 0.4) * math.cos(a); ey = cy + (cr + R * 0.4) * math.sin(a)
+        p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182, 220), 3))
+        p.drawLine(cx, cy, int(ex), int(ey))
+        lbl = names[chosen] if chosen < len(names) else f"a{chosen}"
+        p.setPen(ACCENT); p.setFont(_F_LABEL_B)
+        p.drawText(cx - R, cy + cr + 16, f"act: {lbl}")
 
     def _draw_gauge(self, p, name, v, x, y, w, h):
         import math
@@ -776,11 +811,17 @@ class AgentPortraitView(_BaseCanvas):
         nx = cx + (R - 2) * math.cos(ang); ny = cy - (R - 2) * math.sin(ang)
         p.setPen(QtGui.QPen(QtCore.Qt.white, 2)); p.drawLine(cx, cy, int(nx), int(ny))
         p.setBrush(col); p.setPen(QtCore.Qt.white); p.drawEllipse(cx - 3, cy - 3, 6, 6)
-        # label + value
+        # v7: label + UNCLAMPED raw value + units (arc is 0..1 normalised; the
+        # number beneath shows the true magnitude so free-energy/MI saturating
+        # the arc still reads).
+        unit, meaning = self.GAUGE_META.get(name, ("", ""))
+        raw = self._raw.get(name, v)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x, y + 10, name)
         p.setPen(DIM_COL)
-        p.drawText(x, y + h - 2, f"{v:.2f}")
+        p.drawText(x, y + h - 2, f"{raw:.2f}{unit}")
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x, y + 22, meaning[:22])
 
     def _draw_trend(self, p, x, y, w, h):
         self._title(p, "free-energy convergence (↘ healthy)", x=x, y=y + 12)
@@ -1178,8 +1219,9 @@ class StatusPanel(_BaseCanvas):
         self.frame = f; self.cycle_error = err; self.update()
 
     def _gauge(self, p: QtGui.QPainter, x: int, y: int, label: str,
-               val: float, vmax: float, unit: str, col: QtGui.QColor) -> int:
-        gw = 150; gh = 8
+               val: float, vmax: float, unit: str, col: QtGui.QColor,
+               gw: int = 150) -> int:
+        gh = 8
         p.setPen(TEXT_COL); p.setFont(QtGui.QFont("Monospace", 9))
         p.drawText(x, y, f"{label} {val:.1f}{unit}")
         frac = float(np.clip(val / vmax, 0, 1)) if vmax > 0 else 0.0
@@ -1190,6 +1232,15 @@ class StatusPanel(_BaseCanvas):
         p.fillRect(x, y + 4, int(gw * frac), gh, col)
         return gw + 12
 
+    def _chip(self, p, x, y, text, col):
+        p.setFont(QtGui.QFont("Monospace", 8, QtGui.QFont.Bold))
+        fm = p.fontMetrics()
+        w = fm.horizontalAdvance(text) + 10; h = 14
+        p.setPen(QtGui.QPen(col, 1)); p.setBrush(col.darker(160))
+        p.drawRoundedRect(x, y, w, h, 4, 4)
+        p.setPen(col); p.drawText(x + 5, y + 10, text)
+        return w + 6
+
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
         if f is None and self.cycle_error is None:
@@ -1198,13 +1249,22 @@ class StatusPanel(_BaseCanvas):
             p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(QtGui.QFont("Monospace", 10, QtGui.QFont.Bold))
             p.drawText(self.rect(), 0x84, f"CYCLE ERROR:\n{self.cycle_error}")
             return
+        W = self.width()
         p.setFont(QtGui.QFont("Monospace", 9))
         y = 20
+        # v7: status chips (RBTA, goal_reached, meta_stable)
         rbta_ok = (f.violations_count == 0)
-        p.setPen(QtGui.QColor(46, 204, 113) if rbta_ok else QtGui.QColor(231, 76, 60))
-        p.drawText(10, y, f"Cycle {f.cycle_id}   RBTA: {'OK' if rbta_ok else str(f.violations_count)+' VIOLATIONS'}")
-        y += 15
+        cx = 10
+        cx += self._chip(p, cx, y - 10, "RBTA " + ("OK" if rbta_ok else f"{f.violations_count}V"),
+                         QtGui.QColor(46, 204, 113) if rbta_ok else QtGui.QColor(231, 76, 60))
+        if getattr(f, "goal_reached", False):
+            cx += self._chip(p, cx, y - 10, "GOAL", QtGui.QColor(241, 196, 15))
+        ms = getattr(f, "meta_stable", None) or {}
+        if ms.get("is_meta_stable", ms.get("stable", False)):
+            cx += self._chip(p, cx, y - 10, "META-STABLE", QtGui.QColor(52, 152, 219))
         p.setPen(TEXT_COL)
+        p.drawText(cx + 4, y, f"Cycle {f.cycle_id}")
+        y += 15
         for v in f.rbta_violations[:3]:
             mid = v.get("module_id", v.get("module", "?"))
             p.drawText(20, y, f"↳ {mid}/{v.get('bound_type','?')}: "
@@ -1216,27 +1276,49 @@ class StatusPanel(_BaseCanvas):
         p.drawText(10, y, f"M3 {f.episode_count}/{f.m3_cap} ({m3e*100:.0f}%)   "
                           f"M4 {f.fact_count}/{f.m4_cap} ({m4e*100:.0f}%)  prune→{f.m4_prune_target}")
         y += 16
-        # gauges
-        x = self._gauge(p, 10, y, "RSS", f.rss_bytes / 1e6, 1024.0, "MB", QtGui.QColor(230, 126, 34))
-        self._gauge(p, x, y, "lat", f.latency_ms, 50.0, "ms", QtGui.QColor(46, 204, 113))
+        # v7: proportional-width gauges (fit the panel)
+        gw = max(80, (W - 40) // 2)
+        x = self._gauge(p, 10, y, "RSS", f.rss_bytes / 1e6, 1024.0, "MB",
+                        QtGui.QColor(230, 126, 34), gw=gw)
+        self._gauge(p, x, y, "lat", f.latency_ms, 50.0, "ms",
+                    QtGui.QColor(46, 204, 113), gw=gw)
         y += 24
-        # drives: MDIM goal vs action goal (can differ — display honestly)
-        ad = f.active_drive_id
-        p.setPen(ACCENT)
-        p.drawText(10, y, f"MDIM goal: {DRIVE_NAMES.get(ad, ad)}")
-        y += 14
+        # v7: 6-segment drive-deficit micro-strip (replaces the MDIM-goal text line)
+        deficits = list(getattr(f, "drive_deficits", []) or [0.0] * 6)
+        active = int(getattr(f, "active_drive_id", 0) or 0)
+        p.setPen(DIM_COL); p.setFont(QtGui.QFont("Monospace", 8))
+        p.drawText(10, y, "Δ drives:")
+        sx = 70; sw = (W - sx - 10) // 6
+        for i in range(6):
+            d = float(deficits[i]) if i < len(deficits) else 0.0
+            col = _to_qcolor(DRIVE_COLORS[i + 1])
+            col.setAlpha(int(60 + 180 * min(1.0, d)))
+            p.setBrush(col)
+            p.setPen(QtGui.QPen(QtCore.Qt.white, 2 if (i + 1) == active else 1))
+            p.drawRect(sx + i * sw, y - 8, sw - 2, 12)
+            p.setPen(TEXT_COL)
+            p.drawText(sx + i * sw + 2, y + 2, f"D{i+1}:{d:.2f}")
+        y += 16
         r = f.action_rationale or {}
         gid = r.get("goal_id")
         goal_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
-        p.setPen(TEXT_COL)
         tag = "EXPLORE" if r.get("explored") else "EXPLOIT"
         note = r.get("note", "")
         score = r.get("best_score")
         score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "—"
         k = r.get("k_candidates")
         k_s = str(k) if k is not None else "—"
-        p.drawText(10, y, f"Action goal: {goal_lbl}   {tag}  ε={r.get('eps',0):.3f}  K={k_s}  score={score_s}"
-                          + (f"   [{note}]" if note else ""))
+        head = f"Action goal: {goal_lbl}   {tag}  ε={r.get('eps',0):.3f}  K={k_s}  score={score_s}"
+        p.setPen(TEXT_COL)
+        p.drawText(10, y, head)
+        y += 13
+        # v7: wrap the rationale note inside the panel (was clipped on one line)
+        if note:
+            p.setPen(DIM_COL)
+            p.setFont(QtGui.QFont("Monospace", 8))
+            fm = p.fontMetrics()
+            rect = QtCore.QRect(10, y, W - 20, 60)
+            p.drawText(rect, 0x81, f"note: {note}")
 
 
 # ----- Cognitive Flow tab ----------------------------------------------------
@@ -3333,14 +3415,18 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self.drives = DrivesCanvas()
         self.trend = TrendCanvas(); self.attention = AttentionCanvas()
         self.status = StatusPanel()
-        # v6: portrait is the focal top-left, world top-right; bars demoted to
-        # a compact bottom strip (additive — none removed).
-        ov_lay.addWidget(self.portrait, 0, 0, 2, 2)
-        ov_lay.addWidget(self.world, 0, 2, 2, 2)
-        ov_lay.addWidget(self.drives, 2, 0)
-        ov_lay.addWidget(self.trend, 2, 1)
-        ov_lay.addWidget(self.attention, 2, 2)
-        ov_lay.addWidget(self.status, 2, 3)
+        # v7: portrait owns the full top row (focal); world is demoted to a
+        # compact inset in the bottom vitals strip (it's focal on Phase Space).
+        ov_lay.addWidget(self.portrait, 0, 0, 1, 4)
+        ov_lay.addWidget(self.world, 1, 0)
+        ov_lay.addWidget(self.drives, 1, 1)
+        ov_lay.addWidget(self.trend, 1, 2)
+        ov_lay.addWidget(self.attention, 1, 3)
+        ov_lay.addWidget(self.status, 1, 4)
+        ov_lay.setRowStretch(0, 3)
+        ov_lay.setRowStretch(1, 1)
+        for c in range(5):
+            ov_lay.setColumnStretch(c, 1)
         tabs.addTab(ov, "Overview")
 
         # Cognitive Flow
