@@ -52,6 +52,29 @@ class _Smoother:
         self._v = 0.0
 
 
+def freeze_sig(values) -> str:
+    """Stable content signature for discrete visuals (lists/tables/badges/dim
+    labels) so they repaint only when contents actually change — killing the
+    per-frame flicker on M3/M4 lists etc. Tolerates dicts/ndarrays/scalars."""
+    import hashlib
+    import json
+    try:
+        import numpy as _np
+        def _def(o):
+            if isinstance(o, _np.ndarray):
+                return o.tolist()
+            return str(o)
+    except Exception:
+        def _def(o):
+            return str(o)
+    try:
+        return hashlib.md5(
+            json.dumps(values, default=_def, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+    except Exception:
+        return repr(values)
+
+
 class CyclePacer:
     """Throttle / pause the cognitive cycle thread.
 
