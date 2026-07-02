@@ -37,6 +37,10 @@ from phca.monitoring.qt_dashboard import (
     _overview_moment_flags,
     _overview_plain_story,
     _overview_goal_id,
+    _overview_goal_intent_line,
+    _overview_evidence_line,
+    _overview_outcome_line,
+    _overview_new_events,
     _reacher_kinematics_from_obs,
     _rgb_frame_to_qimage,
     make_app,
@@ -494,6 +498,42 @@ def test_camera_self_test_rejects_green():
     assert not mod._camera_self_test(_Env())
 
 
+def test_camera_capture_gate_cadence_and_cooldown():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[4] / "scripts" / "phca_observatory.py"
+    spec = importlib.util.spec_from_file_location("phca_observatory", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    period = mod._camera_capture_period(5.0)
+    assert period == pytest.approx(0.2)
+    assert mod._can_capture_live_camera(1.00, next_capture_t=1.00, cooldown_until_t=0.0)
+    assert not mod._can_capture_live_camera(1.05, next_capture_t=1.20, cooldown_until_t=0.0)
+    assert not mod._can_capture_live_camera(1.25, next_capture_t=1.20, cooldown_until_t=1.30)
+
+
+def test_read_latest_camera_packet_returns_latest_reference():
+    import importlib.util
+    from pathlib import Path
+    import threading
+
+    script = Path(__file__).resolve().parents[4] / "scripts" / "phca_observatory.py"
+    spec = importlib.util.spec_from_file_location("phca_observatory", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    frame = np.random.randint(20, 200, (8, 8, 3), dtype=np.uint8)
+    holder = {"camera_lock": threading.Lock(), "camera_frame": frame, "camera_cycle_id": 7}
+    pkt = mod._read_latest_camera_packet(holder)
+    assert pkt is not None
+    assert pkt["cycle_id"] == 7
+    assert pkt["frame"] is frame
+
+
 def test_draw_never_shows_green_when_implausible(qt_app):
     """Implausible green cache must fall back to 2D schematic in live mode."""
     ov = OverviewAgentView()
@@ -791,3 +831,77 @@ def test_event_log_hold(qt_app):
         f3.prediction_error = 12.0
         ov.set_frame(f3)
     assert not any("SPIKE" in line for line in ov.visible_event_lines())
+
+
+def test_golden_intent_line_eps_and_k():
+    f = _reacher_frame()
+    f.action_rationale = {
+        "explored": True,
+        "best_score": None,
+        "goal_id": 2,
+        "eps": 0.15,
+        "k_candidates": 8,
+    }
+    flags = _overview_moment_flags(f, deque([10.0, 12.0]))
+    line = _overview_goal_intent_line(f, flags)
+    assert "EXPLORE" in line
+    assert "eps=0.15" in line
+    assert "k=8" in line
+
+
+def test_golden_evidence_line_peu_mean():
+    f = _reacher_frame()
+    f.per_dim_peu = np.array([0.2, 0.4, 0.6], dtype=np.float32)
+    f.module_timings = {"gprime_learn": 1.0, "prediction": 2.0}
+    flags = _overview_moment_flags(f, deque([8.0, 9.0, 12.0]))
+    line = _overview_evidence_line(f, flags, deque([8.0, 9.0, 12.0]))
+    assert "PEU" in line
+    assert "0.40" in line
+    assert "Evidence:" in line
+
+
+def test_golden_outcome_physical_only():
+    f = _reacher_frame()
+    f.prediction_error = 99.0
+    f.continuous_action = np.array([0.42, -0.31], dtype=np.float32)
+    f.goal_reached = True
+    f.violations_count = 0
+    f.rbta_action = "CONTINUE"
+    flags = _overview_moment_flags(f, deque([10.0, 12.0]))
+    dist_hist = deque([0.5, 0.4])
+    line = _overview_outcome_line(f, flags, deque([10.0, 12.0]), dist_hist)
+    assert line.startswith("Outcome:")
+    assert "dist=" in line
+    assert "action=τ=" in line
+    assert "goal=yes" in line
+    assert "rbta=OK" in line
+    assert "error" not in line.lower()
+    assert "EXPLORE" not in line
+    assert "EXPLOIT" not in line
+
+
+def test_explore_event_only_on_transition(qt_app):
+    ov = OverviewAgentView()
+    f0 = _reacher_frame(cycle_id=0)
+    f0.action_rationale = {"explored": False, "best_score": 0.5, "goal_id": 2}
+    ov.set_frame(f0)
+    assert not any("EXPLORE" in line for line in ov.visible_event_lines())
+
+    f1 = _reacher_frame(cycle_id=1)
+    f1.action_rationale = {"explored": True, "best_score": None, "goal_id": 2}
+    ov.set_frame(f1)
+    assert sum("EXPLORE" in line for line in ov.visible_event_lines()) == 1
+
+    f2 = _reacher_frame(cycle_id=2)
+    f2.action_rationale = {"explored": True, "best_score": None, "goal_id": 2}
+    ov.set_frame(f2)
+    assert sum("EXPLORE" in line for line in ov.visible_event_lines()) == 1
+
+
+def test_overview_new_events_explore_entered_param():
+    f = _reacher_frame()
+    f.action_rationale = {"explored": True, "best_score": None}
+    flags = _overview_moment_flags(f, deque([10.0]))
+    assert not _overview_new_events(f, flags, None, explore_entered=False)
+    events = _overview_new_events(f, flags, None, explore_entered=True)
+    assert any("EXPLORE" in e for e in events)

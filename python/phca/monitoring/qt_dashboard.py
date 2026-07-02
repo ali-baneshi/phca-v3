@@ -1312,6 +1312,17 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
         _overview_chip(p, cx, cy, "DECISION", QtGui.QColor(155, 89, 182))
 
 
+_DECISION_SHIFT_THRESHOLD = 0.20
+
+
+def _apply_decision_shift(prev_score: Optional[float],
+                          cur_score: Optional[float]) -> bool:
+    """True when best_score jumps more than the Overview decision threshold."""
+    if prev_score is None or cur_score is None:
+        return False
+    return abs(cur_score - prev_score) > _DECISION_SHIFT_THRESHOLD
+
+
 def _overview_spike(err_hist: Deque[float], cur_err: float,
                     env_kind: str = "") -> bool:
     errs = list(err_hist)
@@ -1427,6 +1438,87 @@ def _overview_plain_story(f: ObservabilityFrame, flags: Dict[str, Any],
     return " · ".join(parts)
 
 
+def _overview_goal_intent_line(f: ObservabilityFrame, flags: Dict[str, Any]) -> str:
+    """Intent line: what the agent is trying to do now."""
+    r = f.action_rationale or {}
+    mode = "EXPLORE" if flags.get("explored") else "EXPLOIT"
+    gid = _overview_goal_id(f)
+    goal_s = _drive_short(gid) if gid else "—"
+    score_s = f"{flags['score']:.2f}" if flags["score"] is not None else "—"
+    why = "sampling alternatives" if flags.get("explored") else "best-score selection"
+    if r.get("note"):
+        why = str(r.get("note"))
+    extras: List[str] = []
+    eps = r.get("eps")
+    if isinstance(eps, (int, float)):
+        extras.append(f"eps={float(eps):.2f}")
+    k_cand = r.get("k_candidates")
+    if isinstance(k_cand, (int, float)):
+        extras.append(f"k={int(k_cand)}")
+    extra_s = (" · " + " · ".join(extras)) if extras else ""
+    return f"Intent: {mode} · goal={goal_s} · score={score_s}{extra_s} · why={why}"
+
+
+def _overview_evidence_line(f: ObservabilityFrame, flags: Dict[str, Any],
+                            err_hist: Deque[float],
+                            dist_hist: Optional[Deque[float]] = None) -> str:
+    """Evidence line: key cognitive evidence supporting current intent."""
+    errs = list(err_hist)
+    err_arrow = ""
+    if len(errs) >= 2:
+        err_arrow = "↘" if errs[-1] <= errs[-2] else "↗"
+    dominant = _overview_dominant_phase(f) or "—"
+    learn_s = f"{flags['learn_ms']:.1f}ms" if flags["learn_ms"] > 0.0 else "—"
+    spike_s = "yes" if flags.get("spike") else "no"
+    decision_s = "yes" if flags.get("decision_shift") else "no"
+    dist_s = "—"
+    if dist_hist is not None and len(dist_hist) >= 2:
+        dist_s = "toward" if dist_hist[-1] <= dist_hist[-2] else "away"
+    peu_s = f" · PEŪ={flags['peu_mean']:.2f}" if flags.get("peu_mean") is not None else ""
+    return (f"Evidence: phase={dominant} · err={f.prediction_error:.2f}{err_arrow}"
+            f" · learn={learn_s} · spike={spike_s} · decision_shift={decision_s}"
+            f" · motion={dist_s}{peu_s}")
+
+
+def _overview_outcome_line(f: ObservabilityFrame, flags: Dict[str, Any],
+                           err_hist: Deque[float],
+                           dist_hist: Optional[Deque[float]] = None) -> str:
+    """Outcome line: physical/behavioral delta this cycle (not cognitive narrative)."""
+    parts: List[str] = []
+    kin = _reacher_kinematics_from_obs(
+        f.obs_vector if f.obs_vector is not None else f.sanitized_state)
+    if kin is not None:
+        dist_s = f"{kin['dist']:.3f}"
+        if dist_hist is not None and len(dist_hist) >= 2:
+            dist_s += "↘" if dist_hist[-1] <= dist_hist[-2] else "↗"
+        parts.append(f"dist={dist_s}")
+    elif dist_hist is not None and len(dist_hist) >= 1:
+        dist_s = f"{dist_hist[-1]:.3f}"
+        if len(dist_hist) >= 2:
+            dist_s += "↘" if dist_hist[-1] <= dist_hist[-2] else "↗"
+        parts.append(f"dist={dist_s}")
+    ca = getattr(f, "continuous_action", None)
+    if ca is not None:
+        vec = np.asarray(ca, dtype=np.float32).reshape(-1)
+        if vec.size == 2:
+            parts.append(f"action=τ=[{vec[0]:.2f},{vec[1]:.2f}]")
+        elif vec.size:
+            parts.append(f"action|τ|={float(np.linalg.norm(vec)):.2f}")
+    elif getattr(f, "action_name", None):
+        parts.append(f"action={f.action_name}")
+    parts.append("goal=yes" if getattr(f, "goal_reached", False) else "goal=no")
+    rbta = getattr(f, "rbta_action", None) or "CONTINUE"
+    vcount = int(getattr(f, "violations_count", 0) or 0)
+    if rbta != "CONTINUE" or vcount > 0:
+        rbta_s = f"rbta={rbta}"
+        if vcount:
+            rbta_s += f"({vcount}V)"
+        parts.append(rbta_s)
+    else:
+        parts.append("rbta=OK")
+    return "Outcome: " + " · ".join(parts) if parts else "Outcome: —"
+
+
 def _overview_metrics_line(f: ObservabilityFrame, flags: Dict[str, Any],
                            err_hist: Deque[float],
                            dist_hist: Optional[Deque[float]] = None) -> str:
@@ -1454,7 +1546,8 @@ def _overview_metrics_line(f: ObservabilityFrame, flags: Dict[str, Any],
 
 
 def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
-                         drive_change: Optional[Tuple[int, int]]) -> List[str]:
+                         drive_change: Optional[Tuple[int, int]],
+                         *, explore_entered: bool = False) -> List[str]:
     events: List[str] = []
     if flags.get("spike"):
         events.append("SPIKE: prediction error jumped")
@@ -1467,7 +1560,7 @@ def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
         events.append(f"DRIVE: {_drive_short(old_d)}→{_drive_short(new_d)}")
     if flags.get("decision_shift"):
         events.append("DECISION: best action changed")
-    if flags.get("explored"):
+    if explore_entered:
         events.append("EXPLORE: sampling candidates")
     return events
 
@@ -1487,14 +1580,16 @@ def _draw_overview_narrative(p: QtGui.QPainter, f: ObservabilityFrame,
                              rect: QtCore.QRect,
                              err_hist: Deque[float],
                              dist_hist: Optional[Deque[float]] = None) -> None:
-    """Plain-language story + compact metrics (two lines)."""
+    """Goal → evidence → outcome narrative (three lines)."""
     flags = _overview_moment_flags(f, err_hist)
-    story = _overview_plain_story(f, flags, err_hist, dist_hist)
-    metrics = _overview_metrics_line(f, flags, err_hist, dist_hist)
+    intent = _overview_goal_intent_line(f, flags)
+    evidence = _overview_evidence_line(f, flags, err_hist, dist_hist)
+    outcome = _overview_outcome_line(f, flags, err_hist, dist_hist)
     p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-    p.drawText(rect.x() + 8, rect.y() + 11, story)
+    p.drawText(rect.x() + 8, rect.y() + 11, intent)
     p.setPen(DIM_COL)
-    p.drawText(rect.x() + 8, rect.y() + 24, metrics)
+    p.drawText(rect.x() + 8, rect.y() + 24, evidence)
+    p.drawText(rect.x() + 8, rect.y() + 37, outcome)
 
 
 # Semantic map for Overview observability: used as a single audit reference.
@@ -1504,8 +1599,11 @@ _OVERVIEW_SEMANTIC_MAP = {
     "header.safety": "violations_count / goal_reached / meta_stable",
     "narrative.error": "prediction_error + err trend from _err_hist",
     "narrative.learning": "module_timings.gprime_learn (burst >= 5ms)",
-    "narrative.decision": "action_rationale.best_score/explored/decision_shift",
-    "narrative.plain": "_overview_plain_story",
+    "narrative.decision": "action_rationale.best_score/decision_shift (0.20 threshold)",
+    "narrative.plain": "_overview_plain_story (legacy; outcome uses physical deltas)",
+    "narrative.intent": "_overview_goal_intent_line (+ eps, k_candidates)",
+    "narrative.evidence": "_overview_evidence_line (+ peu_mean)",
+    "narrative.outcome": "_overview_outcome_line (dist, action, goal, rbta)",
     "narrative.phase": "_draw_overview_phase_strip",
     "narrative.events": "_overview_new_events + hold",
     "narrative.distance": "reacher dist from obs_vector[-2:]",
@@ -1826,7 +1924,7 @@ class _ChartCanvas(_BaseCanvas):
 
 _OVERVIEW_HEADER_H = 32
 _OVERVIEW_PHASE_H = 16
-_OVERVIEW_NARRATIVE_H = 28
+_OVERVIEW_NARRATIVE_H = 42
 _OVERVIEW_EVENT_LOG_H = 28
 _OVERVIEW_RIBBON_H = 56
 _OVERVIEW_MARGIN = 8
@@ -1874,8 +1972,21 @@ class CameraCaptureTimer(QtCore.QObject):
             return
         if self._tabs is not None and self._tabs.currentIndex() != self._overview_tab_index:
             return
-        v._sync_camera_from_provider()
-        v.mark_dirty()
+        before = (
+            id(v._camera_pixmap),
+            bool(v._camera_stale),
+            v._camera_cycle_id,
+            int(v._camera_fail_count),
+        )
+        frame = v._sync_camera_from_provider()
+        after = (
+            id(v._camera_pixmap),
+            bool(v._camera_stale),
+            v._camera_cycle_id,
+            int(v._camera_fail_count),
+        )
+        if frame is not None or after != before:
+            v.mark_dirty()
 
 
 class OverviewAgentView(_BaseCanvas):
@@ -1920,13 +2031,18 @@ class OverviewAgentView(_BaseCanvas):
         self._capture_timer = CameraCaptureTimer(self)
         self._last_active_drive: Optional[int] = None
         self._drive_change: Optional[Tuple[int, int]] = None
+        self._prev_explored: Optional[bool] = None
         self._event_lines: List[Tuple[str, int]] = []
 
     def _update_event_log(self, f: ObservabilityFrame) -> None:
         """Hold recent overview events for several heartbeats."""
         self._event_lines = [(t, h - 1) for t, h in self._event_lines if h > 1]
         flags = _overview_moment_flags(f, self._err_hist)
-        for text in _overview_new_events(f, flags, self._drive_change):
+        explored = bool(flags.get("explored", False))
+        explore_entered = explored and not bool(self._prev_explored)
+        self._prev_explored = explored
+        for text in _overview_new_events(
+                f, flags, self._drive_change, explore_entered=explore_entered):
             self._event_lines.append((text, _OVERVIEW_EVENT_HOLD))
 
     def visible_event_lines(self) -> List[str]:
@@ -1946,9 +2062,7 @@ class OverviewAgentView(_BaseCanvas):
         r = dict(getattr(f, "action_rationale", {}) or {})
         bs = r.get("best_score")
         cur = float(bs) if isinstance(bs, (int, float)) else None
-        shifted = False
-        if cur is not None and self._prev_best_score is not None:
-            shifted = abs(cur - self._prev_best_score) > 0.20
+        shifted = _apply_decision_shift(self._prev_best_score, cur)
         if cur is not None:
             self._prev_best_score = cur
         r["decision_shift"] = shifted
@@ -2038,6 +2152,7 @@ class OverviewAgentView(_BaseCanvas):
         self._emp_sm.reset()
         self._dist_hist.clear()
         self._prev_best_score = None
+        self._prev_explored = None
         for f in frames:
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)

@@ -62,6 +62,35 @@ def _camera_self_test(env: Any) -> bool:
     return frame is not None and not is_glitchy_rgb_frame(frame)
 
 
+def _camera_capture_period(camera_hz: float) -> float:
+    """Seconds between live camera captures."""
+    hz = max(float(camera_hz), 0.1)
+    return 1.0 / hz
+
+
+def _can_capture_live_camera(now_t: float, *, next_capture_t: float,
+                             cooldown_until_t: float) -> bool:
+    """Gate live capture by cadence + temporary cooldown window."""
+    if now_t < cooldown_until_t:
+        return False
+    return now_t >= next_capture_t
+
+
+def _read_latest_camera_packet(cycle_holder: dict) -> Any:
+    """Return latest captured frame packet without extra copying."""
+    lock = cycle_holder.get("camera_lock")
+    if lock is None:
+        return None
+    with lock:
+        frame = cycle_holder.get("camera_frame")
+        if frame is None:
+            return None
+        return {
+            "frame": frame,
+            "cycle_id": cycle_holder.get("camera_cycle_id"),
+        }
+
+
 def _build_cycle(args, store: ObservabilityStore, *, enable_camera: bool = False) -> CognitiveCycle:
     if args.env == "gridworld":
         rng = np.random.RandomState(args.seed + 2)
@@ -170,6 +199,13 @@ def main() -> None:
     parser.add_argument("--camera", default=None, choices=["auto", "live", "schematic"],
                         help="camera: auto (GL+2D fallback), live (MuJoCo GL), "
                              "schematic (2D arm). Reacher default: schematic")
+    parser.add_argument("--profile", default="custom",
+                        choices=["custom", "near_real", "readable"],
+                        help="runtime profile: custom | near_real | readable")
+    parser.add_argument("--camera-hz", type=float, default=5.0,
+                        help="live camera capture rate on cycle thread (Hz)")
+    parser.add_argument("--camera-fail-cooldown-ms", type=int, default=250,
+                        help="cooldown after burst camera capture failures (ms)")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -182,20 +218,37 @@ def main() -> None:
     if args.camera is None:
         args.camera = "schematic" if args.env == "Reacher-v5" else "auto"
 
+    if args.profile == "near_real":
+        args.camera_hz = 5.0
+        args.heartbeat_hz = 6.0
+        args.render_hz = 4.0
+    elif args.profile == "readable":
+        args.camera_hz = 4.0
+        args.heartbeat_hz = 4.0
+        args.render_hz = 3.0
+
     store_maxlen = max(1000, args.cycles)
     store = ObservabilityStore(maxlen=store_maxlen)
     recorder = SessionRecorder(root=args.record_dir, fps=args.record_fps,
                                record=not args.no_record)
-    session_dir = recorder.start({"env": args.env, "seed": args.seed,
-                                  "cycles": args.cycles, "grid_size": args.grid_size,
-                                  "mlp": args.mlp, "record_fps": args.record_fps,
-                                  "renderer": "qt"})
+    session_dir = recorder.start({
+        "env": args.env, "seed": args.seed,
+        "cycles": args.cycles, "grid_size": args.grid_size,
+        "mlp": args.mlp, "record_fps": args.record_fps,
+        "renderer": "qt",
+        "profile": args.profile,
+        "camera": args.camera,
+        "heartbeat_hz": args.heartbeat_hz,
+        "render_hz": args.render_hz,
+        "camera_hz": args.camera_hz,
+    })
     if session_dir:
         print(f"Recording session -> {session_dir}")
 
     gl_backend = os.environ.get("MUJOCO_GL", "(default)")
     if args.env != "gridworld":
         print(f"MuJoCo GL: {gl_backend} (camera via mujoco.Renderer, not gym viewer)")
+        print(f"Runtime profile: {args.profile}")
         if args.env == "Reacher-v5" and args.camera == "schematic":
             print("Reacher default: 2D schematic (no green screen)")
             print("Real MuJoCo camera: add --camera live")
@@ -216,22 +269,17 @@ def main() -> None:
 
     def _camera_provider_from_holder() -> Any:
         """Return latest RGB + cycle id captured on the cycle thread."""
-        lock = cycle_holder.get("camera_lock")
-        if lock is None:
-            return None
-        with lock:
-            frame = cycle_holder.get("camera_frame")
-            if frame is None:
-                return None
-            return {
-                "frame": np.asarray(frame, dtype=np.uint8).copy(),
-                "cycle_id": cycle_holder.get("camera_cycle_id"),
-            }
+        return _read_latest_camera_packet(cycle_holder)
 
     def _run_cycle():
         try:
             cycle = _build_cycle(args, store, enable_camera=want_live_camera)
             cycle_holder["cycle"] = cycle
+            next_capture_t = time.monotonic()
+            cooldown_until_t = 0.0
+            fail_streak = 0
+            cap_period = _camera_capture_period(args.camera_hz)
+            fail_cooldown = max(float(args.camera_fail_cooldown_ms), 0.0) / 1000.0
             if want_live_camera:
                 ok = _camera_self_test(cycle.env)
                 cycle_holder["camera_ok"] = ok
@@ -249,15 +297,30 @@ def main() -> None:
                 pacer.wait()       # v6: additive; no-op unless throttling/paused
                 cycle.step()
                 if want_live_camera and cycle_holder.get("camera_ok"):
+                    now_t = time.monotonic()
+                    if not _can_capture_live_camera(
+                        now_t,
+                        next_capture_t=next_capture_t,
+                        cooldown_until_t=cooldown_until_t,
+                    ):
+                        continue
                     try:
                         frame = cycle.env.render_rgb()
                     except Exception:
                         frame = None
                     if frame is not None:
+                        fail_streak = 0
+                        next_capture_t = now_t + cap_period
                         with cycle_holder["camera_lock"]:
                             cycle_holder["camera_frame"] = np.asarray(
                                 frame, dtype=np.uint8).copy()
                             cycle_holder["camera_cycle_id"] = cycle_id_for_step
+                    else:
+                        fail_streak += 1
+                        next_capture_t = now_t + cap_period
+                        if fail_streak >= 3:
+                            cooldown_until_t = now_t + fail_cooldown
+                            fail_streak = 0
         except Exception as e:
             cycle_holder["error"] = str(e)
             print(f"[cycle thread] error: {e}", file=sys.stderr)

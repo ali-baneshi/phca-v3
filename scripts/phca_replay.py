@@ -256,11 +256,28 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
     return int(rc) if rc else 0
 
 
+def _report(session_dir: str) -> int:
+    _pkg = Path(__file__).resolve().parent.parent / "python"
+    if str(_pkg) not in sys.path:
+        sys.path.insert(0, str(_pkg))
+    from phca.monitoring.session_report import print_report_summary, write_session_report
+    try:
+        report = write_session_report(session_dir)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(f"Wrote {Path(session_dir) / 'session_report.json'}")
+    print_report_summary(report)
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA session replay tool")
     parser.add_argument("session", help="session dir (logs/sessions/<ts>/)")
     parser.add_argument("--check", action="store_true",
                         help="consistency check only (exit 0/1), no playback")
+    parser.add_argument("--report", action="store_true",
+                        help="build session_report.json from JSONL and print summary")
     parser.add_argument("--from-jsonl", action="store_true",
                         help="reconstruct the matplotlib dashboard from JSONL")
     parser.add_argument("--qt", action="store_true",
@@ -272,6 +289,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.check:
         sys.exit(_check(args.session))
+    if args.report:
+        sys.exit(_report(args.session))
     if args.qt:
         sys.exit(_play_qt(args.session, args.fps, close_at_end=args.qt_close_at_end))
     if args.from_jsonl:
