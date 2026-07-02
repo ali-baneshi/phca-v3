@@ -152,9 +152,9 @@ def main() -> None:
                              "mp4 captures all 7 tabs (0 = off, stay on clicked tab)")
     parser.add_argument("--camera-debug", action="store_true",
                         help="log one-line camera stats on stderr each capture (main thread)")
-    parser.add_argument("--camera", default="auto", choices=["auto", "live", "schematic"],
-                        help="camera mode: auto (GL with 2D fallback), live (GL only), "
-                             "schematic (2D arm, no GPU — use if screen stays green)")
+    parser.add_argument("--camera", default=None, choices=["auto", "live", "schematic"],
+                        help="camera: auto (GL+2D fallback), live (MuJoCo GL), "
+                             "schematic (2D arm). Reacher default: schematic")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -163,6 +163,9 @@ def main() -> None:
         args.env = "Pendulum-v1"
     elif args.env == "reacher":
         args.env = "Reacher-v5"
+
+    if args.camera is None:
+        args.camera = "schematic" if args.env == "Reacher-v5" else "auto"
 
     store = ObservabilityStore(maxlen=max(1000, args.cycles))
     recorder = SessionRecorder(root=args.record_dir, fps=args.record_fps,
@@ -177,8 +180,16 @@ def main() -> None:
     gl_backend = os.environ.get("MUJOCO_GL", "(default)")
     if args.env != "gridworld":
         print(f"MuJoCo GL: {gl_backend} (camera via mujoco.Renderer, not gym viewer)")
-        print("If camera is blank, try unsetting MUJOCO_GL or:")
-        print("  MUJOCO_GL=egl PYTHONPATH=python python scripts/phca_observatory.py ...")
+        if args.env == "Reacher-v5" and args.camera == "schematic":
+            print("Reacher default: 2D schematic (no green screen)")
+            print("Real MuJoCo camera: add --camera live")
+        elif args.camera == "schematic":
+            print("Camera mode: schematic (2D arm, no GPU)")
+        elif args.camera == "live":
+            print("Camera mode: live (MuJoCo GL camera)")
+        else:
+            print("Camera mode: auto (live GL, fallback to 2D schematic if GL fails)")
+        print("Debug: add --camera-debug  |  probe: scripts/camera_probe_qt.py")
 
     # Cognitive cycle (incl. M3 SQLite) MUST be built+run in ONE thread.
     stop_flag = threading.Event()
@@ -224,6 +235,8 @@ def main() -> None:
     if args.camera == "schematic":
         win.set_camera_provider(None, mode="schematic")
         camera_wired = True
+    else:
+        win.overview.bind_camera_tabs(win._tabs, overview_tab_index=0)
 
     def _wire_camera_if_ready() -> None:
         nonlocal camera_wired

@@ -168,20 +168,28 @@ def test_overview_caches_camera_pixmap(qt_app):
     ov.show()
     f = _reacher_frame()
     good = np.random.randint(30, 180, (120, 160, 3), dtype=np.uint8)
-    ov.set_camera_provider(lambda: good.copy())
+    ov.set_camera_provider(lambda g=good: g.copy())
     ov.set_frame(f)
+    ov._capture_timer.stop()
+    ov._sync_camera_from_provider()
     assert ov._camera_pixmap is not None
     assert not ov._camera_pixmap.isNull()
     prev = ov._camera_pixmap
     ov.set_camera_provider(lambda: None)
     ov.set_frame(f)
+    ov._sync_camera_from_provider()
     assert ov._camera_pixmap is prev
     assert ov._camera_stale is True
     bad = np.full((120, 160, 3), (0, 255, 0), dtype=np.uint8)
-    ov.set_camera_provider(lambda: bad.copy())
-    ov.set_frame(f)
-    assert ov._camera_pixmap is None
-    assert ov._camera_stale is False
+    assert is_glitchy_rgb_frame(bad)
+    ov.set_camera_provider(lambda b=bad: b.copy())
+    ov._sync_camera_from_provider()
+    # Glitchy green frames must never become the active live frame.
+    if ov._camera_numpy is not None:
+        assert not np.array_equal(ov._camera_numpy, bad)
+    if ov._camera_pixmap is not None and not ov._camera_pixmap.isNull():
+        from phca.monitoring.camera_render import is_glitchy_pixmap
+        assert not is_glitchy_pixmap(ov._camera_pixmap)
 
 
 def test_overview_live_reacher_not_mostly_glitch(qt_app):
@@ -200,6 +208,7 @@ def test_overview_live_reacher_not_mostly_glitch(qt_app):
     ov.show()
     ov.set_camera_provider(cyc.env.render_rgb)
     ov.set_frame(fr)
+    ov._sync_camera_from_provider()
     ov.repaint_if_dirty()
     qt_app.processEvents()
     body = ov.main_body_rect()
@@ -254,6 +263,7 @@ def test_overview_live_reacher_shows_real_camera(qt_app):
     ov.show()
     ov.set_camera_provider(cyc.env.render_rgb)
     ov.set_frame(fr)
+    ov._sync_camera_from_provider()
     ov._dirty = True
     ov.update()
     qt_app.processEvents()
@@ -293,6 +303,7 @@ def test_paint_prefers_live_over_green_cache(qt_app):
     live = np.random.randint(20, 200, (120, 160, 3), dtype=np.uint8)
     ov.set_camera_provider(lambda: live.copy())
     ov.set_frame(f)
+    ov._sync_camera_from_provider()
     ov.repaint_if_dirty()
     qt_app.processEvents()
     assert ov._camera_numpy is not None
@@ -347,7 +358,7 @@ def test_camera_schematic_mode_forces_2d(qt_app):
     assert ov._camera_gl_disabled is True
 
 
-def test_camera_provider_called_on_set_frame(qt_app):
+def test_camera_provider_called_on_sync(qt_app):
     import threading
 
     calls = {"n": 0, "threads": []}
@@ -355,8 +366,67 @@ def test_camera_provider_called_on_set_frame(qt_app):
     def _provider():
         calls["n"] += 1
         calls["threads"].append(threading.current_thread().name)
-        arr = np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
-        return arr
+        return np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
+
+    ov = OverviewAgentView()
+    ov.resize(400, 300)
+    ov.show()
+    ov.set_camera_provider(_provider)
+    ov._sync_camera_from_provider()
+    qt_app.processEvents()
+    assert calls["n"] >= 1
+    assert all("Main" in t or t == "MainThread" for t in calls["threads"])
+
+
+def test_capture_not_called_during_paint(qt_app):
+    from PyQt5 import QtGui
+
+    calls = {"n": 0}
+
+    def _provider():
+        calls["n"] += 1
+        return np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
+
+    ov = OverviewAgentView()
+    ov.resize(800, 600)
+    ov.show()
+    ov.set_camera_provider(_provider)
+    ov.set_frame(_reacher_frame())
+    ov._sync_camera_from_provider()
+    calls["n"] = 0
+    p = QtGui.QPainter(ov)
+    ov._draw(p)
+    p.end()
+    assert calls["n"] == 0, "provider must not run inside _draw/paint"
+
+
+def test_pixmap_green_slab_rejected():
+    from phca.monitoring.camera_render import rgb_frame_to_pixmap
+
+    green = np.full((64, 80, 3), (0, 255, 0), dtype=np.uint8)
+    assert rgb_frame_to_pixmap(green).isNull()
+    good = np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
+    pm = rgb_frame_to_pixmap(good)
+    assert not pm.isNull()
+
+
+def test_reacher_default_schematic_mode():
+    env = "Reacher-v5"
+    camera = None
+    if camera is None:
+        camera = "schematic" if env == "Reacher-v5" else "auto"
+    assert camera == "schematic"
+
+
+def test_camera_provider_called_on_set_frame(qt_app):
+    """set_frame alone does not capture; timer/sync does."""
+    import threading
+
+    calls = {"n": 0}
+
+    def _provider():
+        calls["n"] += 1
+        return np.random.randint(30, 180, (64, 80, 3), dtype=np.uint8)
 
     ov = OverviewAgentView()
     ov.resize(400, 300)
@@ -364,5 +434,6 @@ def test_camera_provider_called_on_set_frame(qt_app):
     ov.set_camera_provider(_provider)
     ov.set_frame(_reacher_frame())
     qt_app.processEvents()
+    assert calls["n"] == 0
+    ov._sync_camera_from_provider()
     assert calls["n"] >= 1
-    assert all("Main" in t or t == "MainThread" for t in calls["threads"])

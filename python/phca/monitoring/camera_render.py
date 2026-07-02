@@ -108,6 +108,8 @@ def is_glitchy_pixmap(pixmap: QtGui.QPixmap, *, min_glitch_frac: float = 0.15) -
     """True when a converted pixmap still looks like a Qt placeholder slab."""
     if pixmap is None or pixmap.isNull():
         return True
+    if pixmap_looks_like_green_slab(pixmap):
+        return True
     img = pixmap.toImage()
     if img.isNull() or img.width() < 2 or img.height() < 2:
         return True
@@ -132,6 +134,39 @@ def is_glitchy_pixmap(pixmap: QtGui.QPixmap, *, min_glitch_frac: float = 0.15) -
     return (glitch / total) >= min_glitch_frac
 
 
+def pixmap_looks_like_green_slab(pixmap: QtGui.QPixmap, *, green_frac: float = 0.45) -> bool:
+    """Fast sample: True when pixmap pixels are mostly dominant green (EGL clear)."""
+    if pixmap is None or pixmap.isNull():
+        return False
+    img = pixmap.toImage()
+    if img.isNull() or img.width() < 2 or img.height() < 2:
+        return False
+    w, h = img.width(), img.height()
+    step_x = max(1, w // 12)
+    step_y = max(1, h // 12)
+    green = 0
+    total = 0
+    sum_g = sum_r = sum_b = 0.0
+    for y in range(0, h, step_y):
+        for x in range(0, w, step_x):
+            c = img.pixelColor(x, y)
+            r, g, b = c.red(), c.green(), c.blue()
+            total += 1
+            sum_r += r
+            sum_g += g
+            sum_b += b
+            if g > 100 and g > r + 25 and g > b + 25:
+                green += 1
+    if total == 0:
+        return False
+    if green / total > green_frac:
+        return True
+    mean_r = sum_r / total
+    mean_g = sum_g / total
+    mean_b = sum_b / total
+    return mean_g > mean_r + 35 and mean_g > mean_b + 35 and green / total > 0.35
+
+
 def _rgb32_qimage_from_array(arr: np.ndarray) -> QtGui.QImage:
     """Pack uint8 RGB into Format_RGB32 with a Qt-owned buffer."""
     h, w, _ = arr.shape
@@ -153,10 +188,19 @@ def _ppm_qimage_from_array(arr: np.ndarray) -> QtGui.QImage:
 
 
 def rgb_frame_to_qimage(frame: Any) -> QtGui.QImage:
-    """Coerce frame to QImage via owned RGB32 (PPM + RGB888 fallbacks)."""
+    """Coerce frame to QImage (PPM first on Linux, then RGB32 + RGB888 fallbacks)."""
+    import sys
+
     arr = _normalize_rgb_frame(frame)
     if arr is None:
         return QtGui.QImage()
+    if sys.platform.startswith("linux"):
+        try:
+            qimg = _ppm_qimage_from_array(arr)
+            if not qimg.isNull():
+                return qimg
+        except Exception:
+            pass
     try:
         qimg = _rgb32_qimage_from_array(arr)
         if not qimg.isNull():
@@ -173,13 +217,16 @@ def rgb_frame_to_qimage(frame: Any) -> QtGui.QImage:
 
 
 def rgb_frame_to_pixmap(frame: Any) -> QtGui.QPixmap:
-    """Convert a numpy RGB frame to QPixmap (glitch check on numpy only)."""
+    """Convert a numpy RGB frame to QPixmap (glitch check on numpy + pixmap)."""
     if is_glitchy_rgb_frame(frame):
         return QtGui.QPixmap()
     qimg = rgb_frame_to_qimage(frame)
     if qimg.isNull():
         return QtGui.QPixmap()
-    return QtGui.QPixmap.fromImage(qimg)
+    pm = QtGui.QPixmap.fromImage(qimg)
+    if pm.isNull() or is_glitchy_pixmap(pm) or pixmap_looks_like_green_slab(pm):
+        return QtGui.QPixmap()
+    return pm
 
 
 def fit_pixmap_to_box(

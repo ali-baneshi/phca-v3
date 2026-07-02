@@ -41,6 +41,7 @@ import numpy as np
 
 from .camera_render import (
     fit_pixmap_to_box,
+    is_glitchy_pixmap,
     is_glitchy_rgb_frame,
     rgb_frame_to_pixmap,
     rgb_frame_to_qimage as _rgb_frame_to_qimage,
@@ -815,7 +816,7 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     if v is None:
         return False
     obs = np.asarray(v, dtype=np.float32).reshape(-1)
-    if obs.size < 4:
+    if obs.size < 4 or not np.all(np.isfinite(obs)):
         return False
     a0 = math.atan2(float(obs[1]), float(obs[0]))
     a1 = math.atan2(float(obs[3]), float(obs[2]))
@@ -824,50 +825,72 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
     ey = L1 * math.sin(a0)
     fx = ex + L2 * math.cos(a0 + a1)
     fy = ey + L2 * math.sin(a0 + a1)
-    tx, ty = fx, fy
-    if obs.size >= 2:
-        tx = fx - float(obs[-2])
-        ty = fy - float(obs[-1])
+    tx = fx - float(obs[-2]) if obs.size >= 2 else fx
+    ty = fy - float(obs[-1]) if obs.size >= 1 else fy
     pts = [(0.0, 0.0), (ex, ey), (fx, fy), (tx, ty)]
     xs = [pt[0] for pt in pts]
     ys = [pt[1] for pt in pts]
-    xlo, xhi = min(xs) - 0.08, max(xs) + 0.08
-    ylo, yhi = min(ys) - 0.08, max(ys) + 0.08
-    if xhi - xlo < 1e-6:
-        xhi = xlo + 1.0
-    if yhi - ylo < 1e-6:
-        yhi = ylo + 1.0
-    margin = 14
+    # Stable workspace for Reacher-v5 (avoid collapsed bounds).
+    xlo = min(min(xs) - 0.12, -0.28)
+    xhi = max(max(xs) + 0.12, 0.28)
+    ylo = min(min(ys) - 0.12, -0.28)
+    yhi = max(max(ys) + 0.12, 0.28)
+    margin = 16
     px0 = rect.x() + margin
-    py0 = rect.y() + margin + 10
+    py0 = rect.y() + margin + 22
     px1 = rect.right() - margin
     py1 = rect.bottom() - margin
+    plot_w = max(px1 - px0, 40)
+    plot_h = max(py1 - py0, 40)
 
     def _map(xv: float, yv: float) -> Tuple[int, int]:
-        px = px0 + (xv - xlo) / (xhi - xlo) * (px1 - px0)
-        py = py1 - (yv - ylo) / (yhi - ylo) * (py1 - py0)
+        px = px0 + (xv - xlo) / (xhi - xlo) * plot_w
+        py = py1 - (yv - ylo) / (yhi - ylo) * plot_h
         return int(px), int(py)
 
-    p.fillRect(rect, QtGui.QColor(12, 12, 16))
+    # Dark panel — never leave default/green GL clear visible.
+    p.fillRect(rect, QtGui.QColor(10, 10, 14))
+    p.fillRect(px0, py0, plot_w, plot_h, QtGui.QColor(18, 20, 28))
     p.setPen(QtGui.QPen(GRID_COL, 1))
-    p.drawRect(px0, py0, px1 - px0, py1 - py0)
+    p.drawRect(px0, py0, plot_w, plot_h)
+    # Crosshair at base
     o = _map(0.0, 0.0)
+    p.setPen(QtGui.QPen(QtGui.QColor(50, 55, 70), 1, QtCore.Qt.DashLine))
+    p.drawLine(px0, o[1], px0 + plot_w, o[1])
+    p.drawLine(o[0], py0, o[0], py0 + plot_h)
     e = _map(ex, ey)
     tip = _map(fx, fy)
     goal = _map(tx, ty)
-    p.setPen(QtGui.QPen(QtGui.QColor(200, 200, 210), 2))
+    # Links: blue shoulder, amber elbow
+    p.setBrush(QtCore.Qt.NoBrush)
+    p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 3))
     p.drawLine(o[0], o[1], e[0], e[1])
+    p.setPen(QtGui.QPen(ACCENT, 3))
     p.drawLine(e[0], e[1], tip[0], tip[1])
-    p.setBrush(QtGui.QColor(46, 204, 113))
-    p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
-    p.drawEllipse(goal[0] - 6, goal[1] - 6, 12, 12)
+    # Fingertip → target vector
+    p.setPen(QtGui.QPen(QtGui.QColor(210, 210, 220), 1, QtCore.Qt.DashLine))
+    p.drawLine(tip[0], tip[1], goal[0], goal[1])
+    # Goal: yellow ring (not solid green slab)
+    p.setBrush(QtCore.Qt.NoBrush)
+    p.setPen(QtGui.QPen(ACCENT, 2))
+    p.drawEllipse(goal[0] - 8, goal[1] - 8, 16, 16)
+    # Fingertip
     p.setBrush(ACCENT)
+    p.setPen(QtGui.QPen(QtCore.Qt.white, 1))
     p.drawEllipse(tip[0] - 5, tip[1] - 5, 10, 10)
+    # Base joint
     p.setBrush(QtGui.QColor(52, 152, 219))
     p.drawEllipse(o[0] - 4, o[1] - 4, 8, 8)
+    # Labels
+    p.setPen(TEXT_COL)
+    p.setFont(_F_LABEL_B)
+    p.drawText(rect.x() + 8, rect.y() + 16, "Reacher 2D schematic")
+    p.setFont(_F_AXIS)
     p.setPen(DIM_COL)
-    p.setFont(_F_LABEL)
-    p.drawText(rect.x() + 8, rect.y() + 14, "2D schematic (GL camera unavailable)")
+    p.drawText(px0 + 6, py0 + plot_h - 6, "● base   ● fingertip   ○ goal")
+    p.setPen(QtGui.QColor(52, 152, 219))
+    p.setFont(_F_AXIS)
+    p.drawText(rect.right() - 28, rect.y() + 16, "2D")
     return True
 
 
@@ -928,6 +951,10 @@ def _draw_overview_camera(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
             p.setPen(QtGui.QColor(46, 204, 113))
             p.setFont(_F_AXIS)
             p.drawText(dx + 6, dy + 14, "LIVE")
+        elif badge == "2D":
+            p.setPen(QtGui.QColor(52, 152, 219))
+            p.setFont(_F_AXIS)
+            p.drawText(cam_rect.x() + 8, cam_rect.y() + 14, "2D schematic")
         if badge in ("LIVE", "STALE"):
             p.setPen(QtGui.QColor(0, 0, 0, 160))
             p.setBrush(QtGui.QColor(0, 0, 0, 140))
@@ -1432,6 +1459,41 @@ _OVERVIEW_MARGIN = 8
 _OVERVIEW_HZ = 4.0
 
 
+class CameraCaptureTimer(QtCore.QObject):
+    """Capture MuJoCo RGB on the main thread outside paintEvent (~4 Hz)."""
+
+    def __init__(self, view: "OverviewAgentView", capture_hz: float = _OVERVIEW_HZ,
+                 parent: Optional[QtCore.QObject] = None):
+        super().__init__(parent or view)
+        self._view = view
+        self._tabs: Optional[QtWidgets.QTabWidget] = None
+        self._overview_tab_index: int = 0
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(int(1000.0 / max(capture_hz, 0.5)))
+        self._timer.timeout.connect(self._on_tick)
+
+    def bind_tabs(self, tabs: QtWidgets.QTabWidget, overview_tab_index: int = 0) -> None:
+        self._tabs = tabs
+        self._overview_tab_index = overview_tab_index
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+    def _on_tick(self) -> None:
+        v = self._view
+        if v._camera_mode == "schematic":
+            return
+        if v._camera_provider is None:
+            return
+        if self._tabs is not None and self._tabs.currentIndex() != self._overview_tab_index:
+            return
+        v._sync_camera_from_provider()
+        v.mark_dirty()
+
+
 class OverviewAgentView(_BaseCanvas):
     """v8.1 Overview: one unified agent card — mind glyph | body camera + vitals ribbon."""
 
@@ -1459,6 +1521,18 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_debug: bool = False
         self._camera_mode: str = "auto"  # auto | live | schematic
         self._camera_gl_disabled: bool = False
+        self._capture_timer = CameraCaptureTimer(self)
+
+    def bind_camera_tabs(self, tabs: QtWidgets.QTabWidget,
+                         overview_tab_index: int = 0) -> None:
+        self._capture_timer.bind_tabs(tabs, overview_tab_index)
+
+    def start_camera_capture(self) -> None:
+        if self._camera_mode != "schematic":
+            self._capture_timer.start()
+
+    def stop_camera_capture(self) -> None:
+        self._capture_timer.stop()
 
     def set_camera_provider(self, provider: Optional[Callable[[], Any]],
                             *, debug: bool = False,
@@ -1468,8 +1542,21 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_mode = (mode or "auto").lower()
         if self._camera_mode == "schematic":
             self._camera_gl_disabled = True
+            self._capture_timer.stop()
         self._dirty = True
         self.update()
+
+    def _fail_threshold(self) -> int:
+        return 1 if self._camera_mode == "auto" else 3
+
+    def _maybe_disable_gl(self) -> None:
+        if self._camera_fail_count >= self._fail_threshold():
+            self._camera_gl_disabled = True
+            self._capture_timer.stop()
+            if self._camera_debug:
+                import sys
+                print("[camera] GL disabled; using 2D schematic fallback",
+                      file=sys.stderr)
 
     def set_projection(self, proj: "BeliefProjection") -> None:
         self.proj = proj
@@ -1482,7 +1569,6 @@ class OverviewAgentView(_BaseCanvas):
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         self.set_state(f, None)
-        self._sync_camera_from_provider()
         self._err_hist.append(float(f.prediction_error))
         self._conf_hist.append(float(f.prediction_confidence))
         self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
@@ -1535,27 +1621,49 @@ class OverviewAgentView(_BaseCanvas):
             )
         return arr
 
+    def _save_camera_debug(self, frame: np.ndarray, pm: QtGui.QPixmap) -> None:
+        try:
+            from PIL import Image
+            Image.fromarray(frame).save("/tmp/phca_obs_numpy.png")
+        except Exception:
+            pass
+        try:
+            pm.toImage().save("/tmp/phca_obs_pixmap.png")
+        except Exception:
+            pass
+
     def _sync_camera_from_provider(self) -> Optional[np.ndarray]:
         frame = self._live_camera_frame()
-        if frame is not None and not is_glitchy_rgb_frame(frame):
-            self._camera_fail_count = 0
-            self._camera_numpy = frame
-            pm = rgb_frame_to_pixmap(frame)
-            if not pm.isNull():
-                self._camera_pixmap = pm
-                self._camera_stale = False
-            return frame
         if frame is not None and is_glitchy_rgb_frame(frame):
             self._camera_fail_count += 1
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
-            if self._camera_fail_count >= 3:
-                self._camera_gl_disabled = True
+            self._maybe_disable_gl()
+            return None
+        frame_ok = frame is not None and not is_glitchy_rgb_frame(frame)
+        if frame_ok:
+            pm = rgb_frame_to_pixmap(frame)
+            pm_ok = (
+                not pm.isNull()
+                and not is_glitchy_pixmap(pm)
+            )
+            if pm_ok:
+                self._camera_fail_count = 0
+                self._camera_numpy = frame
+                self._camera_pixmap = pm
+                self._camera_stale = False
+                if self._camera_debug:
+                    self._save_camera_debug(frame, pm)
+                return frame
+            self._camera_fail_count += 1
+            self._camera_stale = False
+            self._camera_pixmap = None
+            self._camera_numpy = None
+            self._maybe_disable_gl()
             return None
         self._camera_fail_count += 1
-        if self._camera_fail_count >= 3:
-            self._camera_gl_disabled = True
+        self._maybe_disable_gl()
         if self._camera_pixmap is not None and self._camera_numpy is not None:
             self._camera_stale = True
         else:
@@ -1619,7 +1727,6 @@ class OverviewAgentView(_BaseCanvas):
         body_rect = QtCore.QRect(m * 2 + mind_w, m + _OVERVIEW_HEADER_H, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
         if f is not None:
-            self._sync_camera_from_provider()
             _draw_overview_header(p, f, header_rect)
             p.setPen(QtGui.QPen(GRID_COL, 1))
             p.drawLine(mind_rect.right(), mind_rect.y(), mind_rect.right(), mind_rect.bottom())
@@ -4608,6 +4715,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self.overview = OverviewAgentView()
         self.overview.set_projection(self.proj)
         self.overview.setMinimumHeight(480)
+        self.overview.bind_camera_tabs(tabs, overview_tab_index=0)
         ov_lay.addWidget(self.overview, 1)
         tabs.addTab(ov, "Overview")
 
@@ -4672,6 +4780,14 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._camera_provider = provider
         self._camera_debug = bool(debug)
         self.overview.set_camera_provider(provider, debug=debug, mode=mode)
+        if mode != "schematic":
+            self.overview.start_camera_capture()
+
+    def start_camera_capture(self) -> None:
+        self.overview.start_camera_capture()
+
+    def stop_camera_capture(self) -> None:
+        self.overview.stop_camera_capture()
 
     def start_render(self, render_hz: Optional[float] = None) -> None:
         """Start the calm-render pacer (call after show())."""
