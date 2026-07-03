@@ -200,7 +200,7 @@ def test_session_report_anchor_goals_zero():
 
 def test_build_moment_series_near_bound_preserved():
     f = _frame(
-        rbta_bounds={"G'": {"time": 1.0}},
+        rbta_bounds={"G'": {"time": 0.001}},
         module_timings={"prediction": 0.95, "gprime_learn": 0.1},
     )
     series = build_moment_series([f])
@@ -361,7 +361,7 @@ def test_session_report_envelope_over_count():
 def test_overview_moment_series_near_bound_chip_path(qt_app):
     ov = OverviewAgentView()
     f = _frame(
-        rbta_bounds={"G'": {"time": 1.0}},
+        rbta_bounds={"G'": {"time": 0.001}},
         module_timings={"prediction": 0.95},
     )
     ov.set_frame(f)

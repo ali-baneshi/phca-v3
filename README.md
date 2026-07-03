@@ -404,12 +404,28 @@ make nightly NIGHTLY_CYCLES=1000
 │   ├── longrun_probe.py         # 1000-cycle stability probe (latency creep + RSS)
 │   ├── phca-monitor.py          # Live terminal dashboard
 │   ├── phca-logs.py             # Structured log viewer
+│   ├── phca_observatory.py      # PyQt Cognitive Observatory (live + JSONL)
+│   ├── phca_replay.py           # Session replay + --check integrity gate
 │   └── profile_cycle.py         # Per-cycle profiling (Gaussian path)
 ├── docs/                        # Architecture, decisions, completion reports
+│   └── observability.md         # Observatory JSONL schema, replay, --check rules
 ├── logs/                        # Benchmark reports + phca.log + CI baseline
 ├── STATUS.md                    # Audit progress and issue registry
 ├── Makefile                     # setup, test-all, bench-* targets
 └── README.md
+```
+
+---
+
+## Cognitive Observatory
+
+Live PyQt dashboard, per-cycle JSONL recording, replay, and offline session reports.
+See **[docs/observability.md](docs/observability.md)** for the JSONL schema, live-only fields, RBTA unit rules, `--check` integrity behavior, and manual smoke checklist.
+
+```bash
+PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
+PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
 ```
 
 ---

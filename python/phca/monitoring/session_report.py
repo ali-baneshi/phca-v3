@@ -11,14 +11,13 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.cognitive_panels import build_moment_series, count_moments, goal_id_from_frame
+from phca.monitoring.cognitive_panels import build_moment_series, count_moments, flow_timing_ratio, goal_id_from_frame
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
     _OVERVIEW_PHASE_STEPS,
     _action_score_margin,
     _action_status_line,
-    _flow_bound_for,
     _flow_bottleneck_key,
     _flow_status_line,
     _FLOW_ALL_MODULES,
@@ -252,9 +251,8 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         bounds = dict(getattr(f, "rbta_bounds", {}) or {})
         near_bound = False
         for mod in _FLOW_ALL_MODULES:
-            measured = float(timings.get(mod, 0.0) or 0.0)
-            bound = _flow_bound_for(mod, bounds)
-            if bound and measured / bound > 0.8:
+            ratio = flow_timing_ratio(mod, timings, bounds)
+            if ratio is not None and ratio > 0.8:
                 near_bound = True
                 break
         if near_bound:

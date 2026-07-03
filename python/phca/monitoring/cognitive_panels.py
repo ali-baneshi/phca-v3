@@ -216,6 +216,50 @@ def goal_id_from_frame(f: ObservabilityFrame) -> Optional[int]:
     return _goal_id(f)
 
 
+def rbta_bound_for_module(mod: str, bounds: Dict[str, Any]) -> Optional[float]:
+    """RBTA time bound for a flow module in **seconds** (canonical storage)."""
+    for k, v in (bounds or {}).items():
+        if RBTA_TO_FLOW.get(k, "") == mod and isinstance(v, dict):
+            t = v.get("time")
+            if t is not None and float(t) > 0:
+                return float(t)
+    return None
+
+
+def rbta_time_bound_ms(mod: str, bounds: Dict[str, Any]) -> Optional[float]:
+    """RBTA time bound converted to milliseconds for module_timings comparison."""
+    b = rbta_bound_for_module(mod, bounds)
+    return b * 1000.0 if b is not None else None
+
+
+def flow_timing_ratio(
+    mod: str,
+    timings: Dict[str, Any],
+    bounds: Dict[str, Any],
+) -> Optional[float]:
+    """Measured module time (ms) / RBTA time bound (ms), or None if unavailable."""
+    measured = float(timings.get(mod, 0.0) or 0.0)
+    if measured <= 0:
+        return None
+    bound_ms = rbta_time_bound_ms(mod, bounds)
+    if bound_ms is None or bound_ms <= 0:
+        return None
+    return measured / bound_ms
+
+
+def pipeline_time_budget_ms(
+    bounds: Dict[str, Any],
+    modules: List[str],
+) -> float:
+    """Sum of RBTA time bounds (ms) for modules present in bounds."""
+    total = 0.0
+    for mod in modules:
+        bms = rbta_time_bound_ms(mod, bounds)
+        if bms is not None:
+            total += bms
+    return total
+
+
 def flow_near_bound_module(f: ObservabilityFrame) -> str:
     mods = flow_near_bound_modules(f, top_k=1)
     return mods[0][0] if mods else ""
@@ -231,20 +275,9 @@ def flow_near_bound_modules(
     bounds = dict(getattr(f, "rbta_bounds", {}) or {})
     ranked: List[Tuple[str, float]] = []
     for mod in FLOW_ALL_MODULES:
-        measured = float(timings.get(mod, 0.0) or 0.0)
-        if measured <= 0:
-            continue
-        bound = None
-        for k, v in bounds.items():
-            if RBTA_TO_FLOW.get(k, "") == mod and isinstance(v, dict):
-                t = v.get("time")
-                if t is not None and float(t) > 0:
-                    bound = float(t)
-                    break
-        if bound and bound > 0:
-            ratio = measured / bound
-            if ratio > 0.5:
-                ranked.append((mod, ratio))
+        ratio = flow_timing_ratio(mod, timings, bounds)
+        if ratio is not None and ratio > 0.5:
+            ranked.append((mod, ratio))
     ranked.sort(key=lambda x: -x[1])
     return ranked[:top_k]
 

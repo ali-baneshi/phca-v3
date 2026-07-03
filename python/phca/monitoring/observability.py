@@ -229,12 +229,18 @@ _SNAP_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 def _cached_snap(key: str, obj: Any, method: str, ttl: float) -> Dict[str, Any]:
     now = time.monotonic()
-    ent = _SNAP_CACHE.get(key)
+    cache_key = f"{key}:{id(obj)}"
+    ent = _SNAP_CACHE.get(cache_key)
     if ent is not None and now - ent[0] < ttl:
         return dict(ent[1])  # shallow copy so callers can't mutate the cache
     val = _snap(obj, method)
-    _SNAP_CACHE[key] = (now, val)
+    _SNAP_CACHE[cache_key] = (now, val)
     return dict(val)
+
+
+def clear_snap_cache() -> None:
+    """Clear the TTL snapshot cache (tests / session boundaries)."""
+    _SNAP_CACHE.clear()
 
 
 @dataclass
@@ -542,7 +548,8 @@ class ObservabilityFrame:
         # every cycle). Belief entropies similarly.
         def _cached_log(key: str, obj: Any, attr: str, ttl: float = 0.30):
             now = time.monotonic()
-            ent = _SNAP_CACHE.get(key)
+            cache_key = f"{key}:{id(obj)}"
+            ent = _SNAP_CACHE.get(cache_key)
             if ent is not None and now - ent[0] < ttl:
                 return dict(ent[1])
             try:
@@ -550,7 +557,7 @@ class ObservabilityFrame:
                      dict(getattr(obj, attr, {}) or {}).items()}
             except Exception:
                 d = {}
-            _SNAP_CACHE[key] = (now, d)
+            _SNAP_CACHE[cache_key] = (now, d)
             return dict(d)
         runtime_log = _cached_log("runtime_log", cycle, "runtime_log")
         memory_log = _cached_log("memory_log", cycle, "memory_log")
@@ -851,6 +858,15 @@ class SessionRecorder:
             except Exception:
                 pass
             self._jsonl = None
+        if self.session_dir is not None and self.enabled:
+            meta_p = self.session_dir / "meta.json"
+            try:
+                if meta_p.exists():
+                    meta = json.loads(meta_p.read_text())
+                    meta["recorded_cycles"] = self._count
+                    meta_p.write_text(json.dumps(meta, indent=2))
+            except Exception:
+                pass
 
 
 class VideoRecorder:

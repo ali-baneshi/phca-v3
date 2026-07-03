@@ -83,8 +83,9 @@ def test_rbta_aliases_cover_recorded_bound_keys():
     assert RBTA_TO_FLOW["TSPL-P"] == "tspl"
     assert RBTA_TO_FLOW["CONSOL"] == "consolidation"
     assert RBTA_TO_FLOW["PE"] == "peu"
+    assert RBTA_TO_FLOW["ASI"] == "sanitize"
     f = _frame(
-        module_timings={"tspl": 0.03, "consolidation": 0.06, "peu": 0.21},
+        module_timings={"tspl": 15.0, "consolidation": 60.0, "peu": 210.0},
         rbta_bounds={
             "TSPL-P": {"time": 0.02},
             "CONSOL": {"time": 0.05},
@@ -164,7 +165,7 @@ def test_flow_status_extras_phase_and_learn():
 
 
 def test_flow_near_bound_module():
-    f = _frame(rbta_bounds={"G'": {"time": 1.0}},
+    f = _frame(rbta_bounds={"G'": {"time": 0.001}},
                module_timings={"prediction": 0.9, "gprime_learn": 1.0})
     assert flow_near_bound_module(f) == "prediction"
 

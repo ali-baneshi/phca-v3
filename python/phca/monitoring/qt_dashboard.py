@@ -62,6 +62,10 @@ from .cognitive_panels import (
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
+    flow_timing_ratio,
+    pipeline_time_budget_ms,
+    rbta_bound_for_module,
+    rbta_time_bound_ms,
 )
 
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -99,12 +103,8 @@ EXECUTION_PHASE_STEPS = (
 
 
 def _flow_bound_for(mod: str, bounds: dict) -> Optional[float]:
-    for k, v in (bounds or {}).items():
-        if RBTA_TO_FLOW.get(k, "") == mod and isinstance(v, dict):
-            t = v.get("time")
-            if t is not None and t > 0:
-                return float(t)
-    return None
+    """RBTA time bound in seconds (legacy alias)."""
+    return rbta_bound_for_module(mod, bounds)
 
 
 def _flow_pipe_ms(f: ObservabilityFrame) -> float:
@@ -699,7 +699,8 @@ class ScaleState:
     bounds so the eye doesn't re-anchor while inspecting a frozen moment.
     """
 
-    __slots__ = ("lo", "hi", "_ema_lo", "_ema_hi", "contract", "head", "_have")
+    __slots__ = ("lo", "hi", "_ema_lo", "_ema_hi", "contract", "head", "_have",
+                 "_last_rlo", "_last_rhi")
 
     def __init__(self, contract: float = 0.05, head: float = 0.05):
         self.lo: float = 0.0
@@ -709,23 +710,42 @@ class ScaleState:
         self.contract = contract
         self.head = head
         self._have: bool = False
+        self._last_rlo: Optional[float] = None
+        self._last_rhi: Optional[float] = None
+
+    def reset(self) -> None:
+        """Clear autoscale state (e.g. after replay seek rebuild)."""
+        self.lo = 0.0
+        self.hi = 1.0
+        self._ema_lo = 0.0
+        self._ema_hi = 1.0
+        self._have = False
+        self._last_rlo = None
+        self._last_rhi = None
 
     def update(self, rlo: float, rhi: float) -> Tuple[float, float]:
         if _AUTOSCALE_FROZEN:
             # v8: hold bounds while paused/scrubbing — return current without
             # recomputing so axes don't twitch during inspection.
             return self.lo, self.hi
+        rlo_f, rhi_f = float(rlo), float(rhi)
+        if (self._have and self._last_rlo is not None and self._last_rhi is not None
+                and abs(rlo_f - self._last_rlo) < 1e-12
+                and abs(rhi_f - self._last_rhi) < 1e-12):
+            return self.lo, self.hi
+        self._last_rlo = rlo_f
+        self._last_rhi = rhi_f
         if not self._have:
-            self._ema_lo = float(rlo); self._ema_hi = float(rhi)
-            self.lo = float(rlo); self.hi = float(rhi)
+            self._ema_lo = rlo_f; self._ema_hi = rhi_f
+            self.lo = rlo_f; self.hi = rhi_f
             self._have = True
         else:
             # EMA of the rolling extremes (smoothed target).
-            self._ema_lo += (float(rlo) - self._ema_lo) * 0.2
-            self._ema_hi += (float(rhi) - self._ema_hi) * 0.2
+            self._ema_lo += (rlo_f - self._ema_lo) * 0.2
+            self._ema_hi += (rhi_f - self._ema_hi) * 0.2
             # Expand immediately to real extremes; contract slowly toward EMA.
-            self.lo = min(float(rlo), self.lo + (self._ema_lo - self.lo) * self.contract)
-            self.hi = max(float(rhi), self.hi + (self._ema_hi - self.hi) * self.contract)
+            self.lo = min(rlo_f, self.lo + (self._ema_lo - self.lo) * self.contract)
+            self.hi = max(rhi_f, self.hi + (self._ema_hi - self.hi) * self.contract)
         span = (self.hi - self.lo) or 1.0
         self.lo -= span * self.head
         self.hi += span * self.head
@@ -2720,6 +2740,9 @@ class OverviewAgentView(_BaseCanvas):
         self._prev_explored = None
         self._event_lines = []
         self._moment_series = build_moment_series(frames)
+        self._tau_sms = [_Smoother(alpha=0.35), _Smoother(alpha=0.35)]
+        self._ax.reset()
+        self._ay.reset()
         for f in frames:
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)
@@ -3166,7 +3189,8 @@ class AgentPortraitView(_BaseCanvas):
                 if mv is not None:
                     m = max(m, float(mv))
             if m > 0:
-                worst = max(worst, m / float(t))
+                bound_ms = float(t) * 1000.0
+                worst = max(worst, m / bound_ms)
         return max(0.0, 1.0 - worst)
 
     def _draw(self, p: QtGui.QPainter) -> None:
@@ -3858,6 +3882,7 @@ class CognitiveFlowView(_BaseCanvas):
         self._prev_drive_id = None
         self._prev_best_score = None
         self._moment_series = build_moment_series(frames)
+        self._anim_t = 0.0
         for f in frames:
             self.heat.append(dict(getattr(f, "module_timings", {}) or {}))
             self._heat_cycle_ids.append(int(getattr(f, "cycle_id", 0) or 0))
@@ -3935,7 +3960,7 @@ class CognitiveFlowView(_BaseCanvas):
         p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(12, y + 11,
-                   "REPLAY — rbta_bounds detail / live-only timings may differ in JSONL")
+                   "REPLAY — per_dim_peu / sanitized_state / camera are live-only in JSONL")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -4040,31 +4065,26 @@ class CognitiveFlowView(_BaseCanvas):
         self._heatmap(p, lay)
 
     def _bound_for(self, mod: str, bounds: dict) -> Optional[float]:
-        for k, v in bounds.items():
-            if RBTA_TO_FLOW.get(k, "") == mod and isinstance(v, dict):
-                t = v.get("time")
-                if t is not None and t > 0:
-                    return float(t)
-        return None
+        return rbta_time_bound_ms(mod, bounds)
 
     def _mb_bar(self, p: QtGui.QPainter, mod: str, measured: float,
                 x: int, y: int, w: int) -> None:
         """Measured-vs-bound bar (v7: sparkline dropped — the bottom heatmap
         already carries timing history, so one bar per node is enough)."""
         bounds = getattr(self.frame, "rbta_bounds", None) or {}
-        b = self._bound_for(mod, bounds)
+        b_ms = self._bound_for(mod, bounds)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, w, 7)
-        scale = b if b else 25.0
+        scale = b_ms if b_ms else 25.0
         ratio = max(0.0, min(measured / scale, 1.5))
         fw = int(min(ratio, 1.0) * w)
         col = QtGui.QColor(231, 76, 60) if ratio > 1.0 else _to_qcolor(_cost_color(measured))
         p.fillRect(x, y, fw, 7, col)
-        if b:
+        if b_ms:
             bx = x + w
             p.setPen(QtGui.QPen(ACCENT, 2)); p.drawLine(bx, y - 2, bx, y + 9)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 16, f"{measured:.1f}/{b:.0f}ms")
+            p.drawText(x, y + 16, f"{measured:.1f}/{b_ms:.1f}ms")
         else:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x, y + 16, f"{measured:.1f}ms")
@@ -4118,8 +4138,8 @@ class CognitiveFlowView(_BaseCanvas):
             return
         viol = mod in self.viol_mods
         bounds = getattr(self.frame, "rbta_bounds", None) or {}
-        b = self._bound_for(mod, bounds)
-        scale = b if b else 25.0
+        b_ms = self._bound_for(mod, bounds)
+        scale = b_ms if b_ms else 25.0
         ratio = measured / scale if scale else 0.0
         if viol or ratio > 1.0:
             txt, c = "VIOLATION", QtGui.QColor(231, 76, 60)
@@ -4220,7 +4240,7 @@ class CognitiveFlowView(_BaseCanvas):
         bounds = getattr(f, "rbta_bounds", None) or {} if f else {}
         pipe_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in PIPELINE]
         side_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in SIDE_MODULES]
-        pb = sum(float(bounds[k].get("time", 0.0)) for k in pipe_ids if isinstance(bounds[k], dict))
+        pb = pipeline_time_budget_ms(bounds, PIPELINE)
         lat = float(getattr(f, "latency_ms", 0.0) or 0.0) if f else 0.0
         p.setPen(ACCENT); p.setFont(_F_AXIS)
         lat_s = f"  lat={lat:.0f}ms" if lat > 0 else ""
@@ -4418,6 +4438,8 @@ class CandidateScoreView(_BaseCanvas):
             if gid:
                 self._prev_drive_id = gid
             self._prev_best_score = _best_score(last)
+
+        self._score_scale.reset()
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
                   replay: bool = False) -> None:
@@ -5390,6 +5412,9 @@ class _PhasePortraitView(_BaseCanvas):
         self._offender_errs = None
         self._offender_t = 0.0
         self._moment_series = build_moment_series(frames)
+        self._scale.reset()
+        self._mi_scale.reset()
+        self._be_scale.reset()
         for f in frames:
             self._append_trends(f)
         if frames:
@@ -5455,7 +5480,11 @@ class _PhasePortraitView(_BaseCanvas):
         hi_i = min(d, lo_i + self.page_size)
         idx = np.arange(lo_i, hi_i)
         errs_s = errs[idx]
-        std_s = std[idx] if std is not None else None
+        std_s = None
+        if std is not None:
+            std_idx = [int(i) for i in idx if int(i) < len(std)]
+            if len(std_idx) == len(idx):
+                std_s = std[idx]
         n = len(idx)
         bw = (w - 40) / max(n, 1)
         top, bot = 44, max(h // 2, h - 72)
@@ -5490,7 +5519,8 @@ class _PhasePortraitView(_BaseCanvas):
             cap += " · PEU layer active"
         self._caption(p, cap, y=40)
         if (self._replay
-                and (f.gprime_uncertainty is None or len(f.gprime_uncertainty) == 0)):
+                and (f.gprime_uncertainty is None
+                     or len(np.asarray(f.gprime_uncertainty).reshape(-1)) == 0)):
             p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_AXIS)
             p.drawText(w - 148, 16, "σ unavailable (replay)")
         chart_x, chart_w = 16, w - 32
@@ -5510,7 +5540,7 @@ class _PhasePortraitView(_BaseCanvas):
             # v7: σ whisker brackets the error bar (error-σ .. error+σ), drawn as
             # a thin vertical band centred on the error height — semantically
             # "the model's error is this, ± this much uncertainty".
-            if std_s is not None:
+            if std_s is not None and i < len(std_s):
                 y_e = bot - eh
                 s_pix = float(std_s[i]) / mx * (bot - top)
                 p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 140), 1))
@@ -5518,7 +5548,7 @@ class _PhasePortraitView(_BaseCanvas):
                 p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
                 p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
             p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
-            if peu_a is not None and i < len(peu_a):
+            if peu_a is not None and int(idx[i]) < len(peu_a):
                 pe = float(peu_a[int(idx[i])])
                 ph = int(pe / mx * (bot - top) * 0.5)
                 p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
@@ -5641,6 +5671,7 @@ class RetentionView(_BaseCanvas):
         # cache so the focal gauge / prune reasons can read RBTA action state.
         self._leak_smooth = _Smoother(0.08)
         self.frame: Optional[ObservabilityFrame] = None
+        self._replay: bool = False
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.m3.clear()
@@ -5653,12 +5684,15 @@ class RetentionView(_BaseCanvas):
         self.m4_reasons.clear()
         self.cycle_base = 0
         self._leak_smooth.reset()
+        self._panel_scales.clear()
         for f in frames:
             self.set_frame(f, histories_done=False)
         self._dirty = True
 
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
         self.frame = f
+        self._replay = replay
         if histories_done:
             self._dirty = True
             return
@@ -5701,16 +5735,23 @@ class RetentionView(_BaseCanvas):
         w, h = self.width(), self.height()
         if not self.m3:
             self._empty(p, "Retention…"); return
+        y0 = 16 if self._replay else 0
+        if self._replay:
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+            p.setBrush(QtGui.QColor(52, 152, 219, 40))
+            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(12, 11, "REPLAY — M3/M4 bulk lists are live-only; caps/RSS/lat from JSONL")
         leak = self._leak_smooth.value(self._leak_rate())
         # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
-        self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15)
-        self._envelope_gauge(p, 10, 24, w - 20, 46, env_seg, env_ok)
-        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=76)
+        self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15 + y0)
+        self._envelope_gauge(p, 10, 24 + y0, w - 20, 46, env_seg, env_ok)
+        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=76 + y0)
         # v8: demoted the triplicate M3/M4/resources panels to ONE RSS+lat
         # sparkline (the envelope gauge already shows M3/M4 engagement; prune
         # events are covered by the violation table + envelope segments).
-        self._resources_panel(p, 86, h - 8)
+        self._resources_panel(p, 86 + y0, h - 8)
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -5724,9 +5765,10 @@ class RetentionView(_BaseCanvas):
         # RSS / latency bounds: largest mem / time bound across modules (RBTA).
         bounds = getattr(self.frame, "rbta_bounds", {}) or {} if self.frame else {}
         mem_b = max((float(b.get("mem", 0.0)) for b in bounds.values() if isinstance(b, dict) and b.get("mem")), default=0.0)
-        time_b = max((float(b.get("time", 0.0)) for b in bounds.values() if isinstance(b, dict) and b.get("time")), default=0.0)
+        time_s = max((float(b.get("time", 0.0)) for b in bounds.values() if isinstance(b, dict) and b.get("time")), default=0.0)
+        time_b_ms = time_s * 1000.0 if time_s > 0 else 0.0
         rss_b = mem_b if mem_b > 0 else (max(self.rss) * 1.25 if self.rss else 1.0)
-        lat_b = time_b if time_b > 0 else (max(self.lat) * 1.25 if self.lat else 1.0)
+        lat_b = time_b_ms if time_b_ms > 0 else (max(self.lat) * 1.25 if self.lat else 1.0)
         for lbl, val, cap in (("M3", m3, c3), ("M4", m4, c4), ("RSS", rss, rss_b), ("lat", lat, lat_b)):
             r = val / cap if cap > 0 else 0.0
             segs.append((lbl, min(r, 1.5), r > 1.0))
@@ -5945,6 +5987,7 @@ class RBTABoundsView(_BaseCanvas):
         super().__init__(parent)
         self._hist: Dict[str, Deque[float]] = {}
         self._smooth: Dict[str, _Smoother] = {}
+        self._replay: bool = False
 
     def _measured(self, f: ObservabilityFrame, flow: str, btype: str) -> float:
         if btype == "time":
@@ -5980,8 +6023,10 @@ class RBTABoundsView(_BaseCanvas):
             self.frame = frames[-1]
         self._dirty = True
 
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
         self.frame = f
+        self._replay = replay
         if not histories_done:
             self._append_bounds_sample(f)
         self._dirty = True
@@ -5991,6 +6036,13 @@ class RBTABoundsView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "RBTA bounds…"); return
+        y0 = 16 if self._replay else 0
+        if self._replay:
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+            p.setBrush(QtGui.QColor(52, 152, 219, 40))
+            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(12, 11, "REPLAY — rbta_bounds + module_timings recorded in JSONL")
         bounds = getattr(f, "rbta_bounds", None) or {}
         btypes = [("time", "B_time (ms)", QtGui.QColor(52, 152, 219)),
                   ("mem", "B_mem (B)", QtGui.QColor(155, 89, 182)),
@@ -6000,10 +6052,12 @@ class RBTABoundsView(_BaseCanvas):
                        and any(b.get(t) for t, _, _ in btypes)})
         if not mods:
             self._empty(p, "RBTA bound envelope (no bounds)"); return
-        self._title(p, f"RBTA bound envelope — retention score R=e^{{-t/S}}  ({len(mods)} mods)")
-        self._caption(p, "sparkline = retention decay · ▮ measured vs │ bound · red = violation")
+        self._title(p, f"RBTA bound envelope — retention score R=e^{{-t/S}}  ({len(mods)} mods)",
+                    y=12 + y0)
+        self._caption(p, "sparkline = retention decay · ▮ measured vs │ bound · red = violation",
+                      y=26 + y0)
         col_w = w // max(len(btypes), 1)
-        top, bot = 40, h - 8
+        top, bot = 40 + y0, h - 8
         for ci, (bt, blbl, bcol) in enumerate(btypes):
             cx = ci * col_w + 8
             p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
@@ -6034,10 +6088,11 @@ class RBTABoundsView(_BaseCanvas):
                 y = top + int(i * rowh)
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 p.drawText(cx, y + 12, f"{mid[:10]:>10}")
-                ratio = meas / b
+                bound_scale = b * 1000.0 if bt == "time" else b
+                ratio = meas / bound_scale if bound_scale > 0 else 0.0
                 col = QtGui.QColor(231, 76, 60) if ratio > 1.0 else bcol
                 # v8 B5: retention-score sparkline R=e^{-t/S} (S from bound scale)
-                S = max(b / max(meas, 1e-6), 2.0) * 4.0
+                S = max(bound_scale / max(meas, 1e-6), 2.0) * 4.0
                 spark_x, spark_w, spark_h = cx + 100, bw_max - 8, 10
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
                 p.drawRect(spark_x, y + 4, spark_w, spark_h)
@@ -6045,7 +6100,7 @@ class RBTABoundsView(_BaseCanvas):
                 _draw_measured_sparkline(
                     p, spark_x + 2, y + 5, spark_w - 4, spark_h - 2,
                     hist if hist is not None else deque(), col,
-                    fallback_S=max(b / max(meas, 1e-6), 2.0) * 4.0)
+                    fallback_S=max(bound_scale / max(meas, 1e-6), 2.0) * 4.0)
                 # measured bar + bound tick (compact)
                 bar_y = y + 16
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
@@ -6365,6 +6420,7 @@ class GoalsMotivationView(_BaseCanvas):
         self._def_smooth: List[_Smoother] = []
         self._temp_scale = ScaleState(contract=0.05, head=0.06)
         self._emp_scale = ScaleState(contract=0.05, head=0.06)
+        self._replay: bool = False
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.drive_hist.clear()
@@ -6372,6 +6428,8 @@ class GoalsMotivationView(_BaseCanvas):
         self.temp_hist.clear()
         self.emp_hist.clear()
         self._def_smooth = []
+        self._temp_scale.reset()
+        self._emp_scale.reset()
         for f in frames:
             self.set_frame(f, histories_done=False)
         self._dirty = True
@@ -6380,7 +6438,9 @@ class GoalsMotivationView(_BaseCanvas):
         while len(self._def_smooth) < n:
             self._def_smooth.append(_Smoother(0.2))
 
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
+        self._replay = replay
         if not histories_done:
             if f.drive_deficits is not None:
                 defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
@@ -6405,6 +6465,13 @@ class GoalsMotivationView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Goals & motivation…"); return
+        y0 = 16 if self._replay else 0
+        if self._replay:
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+            p.setBrush(QtGui.QColor(52, 152, 219, 40))
+            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(12, 11, "REPLAY — drive_goals radial inset is live-only in JSONL")
         levels = f.drive_levels or []
         targets = f.drive_targets or []
         nd = _n_drives(f, list(levels))
@@ -6415,8 +6482,10 @@ class GoalsMotivationView(_BaseCanvas):
         active = int(getattr(f, "active_drive_id", 0) or 0)
         # ---- v7 focal: homeostasis tanks (top, full width) ----
         tank_h = h // 3
-        self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active", x=8, y=14)
-        self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint", x=8, y=26)
+        self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active",
+                    x=8, y=14 + y0)
+        self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint",
+                      x=8, y=26 + y0)
         self._tanks(p, levels, targets, defs, pareto, active, 8, 32, w - 16, tank_h)
         # ---- bottom-left: goal stack tree + goal_history step-strip ----
         by = tank_h + 40
@@ -6823,13 +6892,13 @@ class DashboardController:
             self.w.radar.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.dim_selector.refresh()
-            self.w.retention.set_frame(f, histories_done=histories_done)
-            self.w.rbta_bounds.set_frame(f, histories_done=histories_done)
+            self.w.retention.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.rbta_bounds.set_frame(f, histories_done=histories_done, replay=replay)
             if not histories_done:
                 self.w.viol.add_frame(f)
             self.w._viol_summary.setText(self.w.viol.summary())
             self.w.memory.set_frame(f, replay=replay)
-            self.w.goals.set_frame(f, histories_done=histories_done)
+            self.w.goals.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
         else:
             self.w.overview.set_state(None, cycle_error)

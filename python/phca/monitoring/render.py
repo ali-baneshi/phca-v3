@@ -21,6 +21,7 @@ drive adaptation trends), A1 (RBTA reasons + retention caps visible), G5
 """
 from __future__ import annotations
 
+import copy
 from collections import deque
 from typing import Any, Dict, Optional
 
@@ -401,6 +402,8 @@ def frame_from_json(obj: Dict[str, Any]) -> ObservabilityFrame:
             setattr(f, k, np.asarray(v, dtype=np.int32))
         elif k in array_fields and v is not None:
             setattr(f, k, np.asarray(v, dtype=np.float32))
+        elif isinstance(v, (dict, list)):
+            setattr(f, k, copy.deepcopy(v))
         else:
             setattr(f, k, v)
     return f

@@ -48,30 +48,80 @@ def _load_session(session_dir: str):
     return meta, lines, video
 
 
-def _check(session_dir: str) -> int:
+def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
     meta, lines, video = _load_session(session_dir)
     if meta is None:
         return 1
     ok = True
     print(f"Session: {session_dir}")
     print(f"  meta       : env={meta.get('env')} cycles={meta.get('cycles')} "
+          f"recorded={meta.get('recorded_cycles', '?')} "
           f"record_fps={meta.get('record_fps')} mlp={meta.get('mlp')}")
     print(f"  jsonl      : {len(lines)} lines")
-    parse_fail = 0
-    for ln in lines:
-        try:
-            json.loads(ln)
-        except Exception:
-            parse_fail += 1
-    if parse_fail:
-        print(f"  [FAIL] {parse_fail} unparseable JSONL lines")
+    if not lines:
+        print("  [FAIL] timeseries.jsonl is empty")
         ok = False
-    else:
-        print(f"  [PASS] all JSONL lines parse")
+    expected = int(meta.get("cycles", -1))
+    if not allow_incomplete and expected >= 0 and len(lines) != expected:
+        print(f"  [FAIL] JSONL line count {len(lines)} != meta.cycles {expected}")
+        ok = False
+    elif expected >= 0 and len(lines) == expected:
+        print(f"  [PASS] JSONL line count matches meta.cycles ({expected})")
+    parse_fail_lines: list[int] = []
+    parsed: list[dict] = []
+    for i, ln in enumerate(lines, start=1):
+        try:
+            parsed.append(json.loads(ln))
+        except Exception as e:
+            parse_fail_lines.append(i)
+            if len(parse_fail_lines) <= 5:
+                print(f"  [FAIL] line {i}: JSON parse error: {e}")
+    if parse_fail_lines:
+        extra = len(parse_fail_lines) - 5
+        if extra > 0:
+            print(f"  [FAIL] ... and {extra} more unparseable lines")
+        ok = False
+    elif lines:
+        print(f"  [PASS] all {len(lines)} JSONL lines parse")
+    if parsed and not allow_incomplete:
+        for i, obj in enumerate(parsed):
+            cid = obj.get("cycle_id", i)
+            if int(cid) != i:
+                print(f"  [FAIL] line {i + 1}: cycle_id={cid} expected {i}")
+                ok = False
+                break
+        else:
+            print(f"  [PASS] cycle_id contiguous 0..{len(parsed) - 1}")
+    if parsed:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+            from phca.monitoring.render import frame_from_json
+            for idx in {0, len(parsed) // 2, len(parsed) - 1}:
+                frame_from_json(parsed[idx])
+            print("  [PASS] frame_from_json smoke (first/mid/last)")
+        except Exception as e:
+            print(f"  [FAIL] frame_from_json smoke: {e}")
+            ok = False
     if video is not None:
         sz = video.stat().st_size
         if sz > 0:
             print(f"  [PASS] video {video.name} ({sz} B)")
+            import shutil
+            if shutil.which("ffprobe"):
+                import subprocess
+                try:
+                    r = subprocess.run(
+                        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                         "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                         str(video)],
+                        capture_output=True, text=True, timeout=10, check=False)
+                    if r.returncode != 0 or "video" not in (r.stdout or ""):
+                        print(f"  [FAIL] ffprobe could not verify video stream in {video.name}")
+                        ok = False
+                    else:
+                        print(f"  [PASS] ffprobe video stream OK")
+                except Exception as e:
+                    print(f"  [WARN] ffprobe check skipped: {e}")
         else:
             print(f"  [FAIL] video {video.name} is empty")
             ok = False
@@ -276,6 +326,8 @@ def main() -> None:
     parser.add_argument("session", help="session dir (logs/sessions/<ts>/)")
     parser.add_argument("--check", action="store_true",
                         help="consistency check only (exit 0/1), no playback")
+    parser.add_argument("--allow-incomplete", action="store_true",
+                        help="with --check, do not fail on empty/mismatched JSONL")
     parser.add_argument("--report", action="store_true",
                         help="build session_report.json from JSONL and print summary")
     parser.add_argument("--from-jsonl", action="store_true",
@@ -288,7 +340,7 @@ def main() -> None:
     parser.add_argument("--fps", type=float, default=10.0, help="playback fps")
     args = parser.parse_args()
     if args.check:
-        sys.exit(_check(args.session))
+        sys.exit(_check(args.session, allow_incomplete=args.allow_incomplete))
     if args.report:
         sys.exit(_report(args.session))
     if args.qt:
