@@ -217,7 +217,7 @@ Dynamic mode is experimental and measured separately from the canonical static b
 - **Nightly hardening** (Phase 6 / D-102–D-104): `scripts/nightly_stress.py` (RSS leak detector +
   latency p95/p99 + Φ-IQ at 1k/5k/10k); `check_benchmark_gate.py --mujoco`/`--neg-test`;
   `make nightly` orchestrates the full suite (script+gate, not a cron job). The nightly stress
-  test caught a pre-existing M3/M4 retention-growth finding (Phase 7 target, D-102).
+  test caught a pre-existing M3/M4 retention-growth finding (Phase 7 workstream, D-102).
 - **Monitoring system** (`ObservabilityFrame`, `ObservabilityStore`, PyQt Observatory) is
   optional, zero-overhead when unused. See `scripts/phca_observatory.py`, `scripts/phca_replay.py`,
   and `docs/observability.md`.

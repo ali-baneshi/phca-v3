@@ -144,7 +144,7 @@ flowchart TD
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC). |
 | **ActionSpace** | `phca/config.py` | `DiscreteSpace(n)` / `ContinuousSpace(low, high, dim)` union + helpers (Phase 6). |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
-| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole/Reacher discrete, Pendulum continuous). |
+| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole discrete; Pendulum + Reacher continuous). |
 
 ### Verified Invariants (A1–A5)
 
@@ -288,7 +288,7 @@ they were bad tests, not masked failures.
 `make nightly` runs the full suite (override length with `NIGHTLY_CYCLES`):
 
 1. Static Φ-IQ gate (200-cyc MLP, ≥ 5%-floor).
-2. MuJoCo benchmark gate (Pendulum continuous + Cartpole/Reacher discrete) + `--neg-test`.
+2. MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete) + `--neg-test`.
 3. Assumption validation `--ci`.
 4. OOD calibration (monotonic check).
 5. Nightly stress (`scripts/nightly_stress.py` — RSS leak detector, latency
