@@ -492,12 +492,10 @@ class BenchmarkRunner:
             total_violations / max(total_cycles, 1) < 0.1
         )
 
-        # C3: Goal autonomy (Level 3 metrics)
+        # C3: Goal autonomy (Level 3 only — N/A for --quick / L0-only runs)
         level3 = [r for r in all_results if r.level == 3]
         if level3:
             criteria["goal_autonomy_achieved"] = level3[0].goal_complexity > 0.1
-        else:
-            criteria["goal_autonomy_achieved"] = False
 
         # C4: Overall Φ-IQ > 0.5
         criteria["phi_iq_above_0_5"] = self.report.overall_phi_iq > 0.5
