@@ -45,13 +45,29 @@ make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency
 ```
 
-**Headless Observatory tests** (PyQt offscreen):
+**Headless Observatory tests** (PyQt offscreen, 225 tests):
 
 ```bash
 mkdir -p .tmp
 TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
+
+## Cognitive Observatory (Phase 8)
+
+```bash
+# Live run
+QT_QPA_PLATFORM=offscreen PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
+
+# Replay with scrub (canonical Phase 8 path)
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
+
+# Session integrity + offline report
+PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
+```
+
+See [docs/observability.md](docs/observability.md) for playback/scrub semantics and transport controls.
 
 ## Benchmarks
 
@@ -84,4 +100,5 @@ phca-v3/
 
 - [README.md](README.md) — overview and quick start
 - [CONTRIBUTING.md](CONTRIBUTING.md) — PR workflow and standards
+- [docs/observability.md](docs/observability.md) — Cognitive Observatory setup and replay
 - [docs/limitations.md](docs/limitations.md) — what PHCA cannot do

@@ -7,14 +7,14 @@ through a pipeline of specialised modules, governed by a Resource-Bounded
 Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
-**Phase 7 in progress** (observability + retention; Phase 6 hardened baseline).
+**Phase 8 largely complete** (Cognitive Observatory replay/scrub hardening; Phase 6 cognitive baseline).
 **560 tests** passing (`make test-python` 524 + `make test-mujoco` 36), 0 errors.
 Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-03).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
 prediction-driven action selector; Cartpole stays discrete. OOD confidence and
-invariants A1/A3/A4/A5 are **measured** (Phase 6). `make nightly` runs the full
-hardening suite; the tightened retention gate (late RSS slope ≤ 500 B/cyc) is a
-Phase 7 open item — see [docs/limitations.md](docs/limitations.md).
+invariants A1/A3/A4/A5 are **measured** (Phase 6). Observatory: PyQt live dashboard,
+JSONL recording, seek/scrub replay, and offline session reports — see
+[docs/observability.md](docs/observability.md).
 
 ---
 
@@ -305,9 +305,11 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 
-- **Long-run memory growth (Phase 7).** `make nightly` uses a tightened late-half
-  RSS slope gate (500 B/cyc). On this machine the soak still reports ~4–5 KB/cyc,
-  so the retention stage fails even when latency, violations, and Φ-IQ pass.
+- **Long-run memory growth (Phase 7 retention).** `make nightly` uses a tightened
+  late-half RSS slope gate (500 B/cyc). On this machine late slope is still ~4.8 KB/cyc,
+  so the retention stage fails while latency, violations, and Φ-IQ pass.
+- **Observatory Phase 8 done:** seek/scrub replay, panel history rebuild, transport
+  controls, and honest replay banners — see [docs/observability.md](docs/observability.md).
 - **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
   **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
 - **No NLP, vision, multi-agent, or M5 procedural memory.**
@@ -352,7 +354,8 @@ make nightly NIGHTLY_CYCLES=1000
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
 | [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-107+). |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open Phase 7 items. |
-| [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay, integrity checks. |
+| [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay/scrub, integrity checks. |
+| [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md) | Full Observatory architecture and 20-phase roadmap. |
 | [docs/phase3.3_full_completion_report.md](docs/phase3.3_full_completion_report.md) | Phase 3.3 gap-closure completion report. |
 | [docs/architectural_audit_report.md](docs/architectural_audit_report.md) | Full audit of 28 issues with resolution status. |
 | [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1–A5, RBTA, MDIM, failure modes). |
@@ -406,13 +409,25 @@ make nightly NIGHTLY_CYCLES=1000
 
 ## Cognitive Observatory
 
-Live PyQt dashboard, per-cycle JSONL recording, replay, and offline session reports.
-See **[docs/observability.md](docs/observability.md)** for the JSONL schema, live-only fields, RBTA unit rules, `--check` integrity behavior, and manual smoke checklist.
+Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phase 8), and
+offline session reports. PyQt `--qt` replay is the canonical path; matplotlib
+`--from-jsonl` is legacy.
+
+See **[docs/observability.md](docs/observability.md)** for JSONL schema, playback/scrub
+semantics, transport controls, replay banners, and `--check` integrity rules.
+See **[docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md)**
+for the full Observatory architecture and roadmap.
 
 ```bash
-PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
+# Live run
+QT_QPA_PLATFORM=offscreen PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
+
+# Replay with scrub (canonical Phase 8 path)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
+
+# Session integrity + offline report
 PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
 ```
 
 ---

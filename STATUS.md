@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-03  
-**Phase:** 7 IN PROGRESS — observability hardening + retention soak (Phase 6 complete; see docs/phase6_completion_report.md)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-107+)
+**Phase:** 8 LARGELY COMPLETE — Observatory replay/scrub hardening (Phase 7 observability stabilization complete; see docs/observability.md)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-107+; D-108+ referenced in code but not yet logged)
 
 ---
 
@@ -16,7 +16,8 @@
 | 4 | Test coverage & resilience | Complete |
 | 5 | Documentation & onboarding | Complete |
 | 6 | Strategic v2.0 zero-trust re-audit | Complete (P0/P1/P2 closed; L2 bottleneck closed) |
-| 7 | Phase 7 observability + retention | In progress |
+| 7 | Phase 7 observability stabilization | Complete |
+| 8 | Phase 8 replay/scrub hardening | Largely complete |
 
 ---
 
@@ -44,14 +45,38 @@
 | AD-2 | README path drift | ✅ Fixed | D-076 |
 | SC-1 | Grounding adapter missing | Deferred | limitations.md |
 
-### P1 — Phase 7 (in progress)
+### Phase 7 — Complete
 
-| ID | Issue | Status | Target |
-|----|-------|--------|--------|
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
 | P7-1 | Reacher-v5 continuous control | ✅ Done | D-107 — 2D `ContinuousSpace`, Gate A PASS |
-| P7-2 | M3/M4 retention soak (late RSS ≤ 500 B/cyc) | 🔴 Open | `make nightly` fails retention gate on this machine (~4650 B/cyc late slope) |
-| P7-3 | Operational docs sync | ✅ Done | 2026-07-03 — README, STATUS, architecture, limitations, observability, SETUP, CONTRIBUTING |
-| P7-4 | Observatory JSONL/replay/report parity | In progress | `cognitive_panels.py` shared near-bound helpers; integrity tests |
+| P7-3 | Operational docs sync (round 1) | ✅ Done | 2026-07-03 |
+| P7-4 | Observatory JSONL/replay/report parity | ✅ Done | `cognitive_panels.py`, `session_report.py`, integrity tests |
+
+### Phase 7 — Open
+
+| ID | Issue | Status | Notes |
+|----|-------|--------|-------|
+| P7-2 | M3/M4 retention soak (late RSS ≤ 500 B/cyc) | 🔴 Open | D-108/D-109 in code; nightly late slope ~4817 B/cyc (2026-07-03) |
+
+### Phase 8 — Largely Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P8-1 | Seek/scrub without panel desync | ✅ Done | `PlaybackClock` + `rebuild_histories()` on 11 views |
+| P8-2 | Accurate replay banners | ✅ Done | Action, Flow, Phase Space, Memory panels |
+| P8-3 | Transport + keyboard controls | ✅ Done | `_TransportBar`, Space/Arrows/Home/End/Esc |
+| P8-4 | Frame/JSON immutability on scrub | ✅ Done | `test_dashboard_controller_scrub_500_jsonl_frames_no_mutation` |
+| P8-5 | Phase 8 operational docs sync | ✅ Done | 2026-07-03 |
+
+### Phase 9+ — Backlog
+
+| ID | Issue | Target |
+|----|-------|--------|
+| P9-1 | `schema_version` + migration policy | Phase 9 |
+| P10-1 | Full offline report parity with dashboard | Phase 10 |
+| P11-1 | 3000+ cycle scrub without severe lag | Phase 11 |
+| DO-6 | Log D-108+ in DECISIONS.md | Process debt |
 
 ### P2 — Backlog (scheduled)
 
@@ -65,9 +90,9 @@
 | SC-4 | True H(WM) disruption detection | 4.2 | — |
 | PS-3 | MC Dropout + empowerment FLOP cap | 4.1 | (partially addressed by D-077 cap) |
 | PS-4 | Mid-cycle RBTA preemption | 4.2 | — |
-| TC-4 | 10K-cycle nightly stress job | ✅ Done (Phase 6) | D-102 — `scripts/nightly_stress.py` + `make nightly` |
-| TC-5 | Assumption validation experiments | ✅ Done (Phase 6) | D-101 — `scripts/assumption_validation.py --ci` (A1/A3/A4/A5) |
-| TC-6 | `pytest-mock` undeclared | ✅ Fixed | D-088 — `pytest-mock>=3.12` in `requirements-dev.txt` |
+| TC-4 | 10K-cycle nightly stress job | ✅ Done (Phase 6) | D-102 |
+| TC-5 | Assumption validation experiments | ✅ Done (Phase 6) | D-101 |
+| TC-6 | `pytest-mock` undeclared | ✅ Fixed | D-088 |
 
 ---
 
@@ -75,19 +100,13 @@
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-03 | **524 passed**, 0 errors (core + monitoring; MuJoCo files ignored) |
+| Python (`make test-python`) | 2026-07-03 | **524 passed**, 0 errors |
 | MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-03 | **36 passed**, 0 errors |
 | Monitoring only | 2026-07-03 | **225 passed** (`pytest python/phca/monitoring/tests/`) |
 | **Total (both suites)** | 2026-07-03 | **560 passed**, 0 errors |
-| Rust | N/A (workspace removed D-084) | — |
 | CI Φ-IQ gate | 2026-07-03 | PASS (Overall 0.7403 ≥ floor 0.5486) |
 | Assumption validation `--ci` | 2026-07-03 | 4/4 PASS |
-| `make nightly NIGHTLY_CYCLES=1000` | 2026-07-03 | **FAIL** — retention gate (late RSS slope ~4650 B/cyc > 500 B/cyc); other stages pass |
-
-**Notes:**
-- Phase 7 / D-107: Reacher-v5 continuous (+3 net MuJoCo tests vs Phase 6 baseline).
-- Monitoring suite (225 tests) is included in `make test-python` but reported separately for clarity.
-- Nightly stress now gates on **late-half** RSS slope (`LEAK_SLOPE_LATE = 500 B/cyc` in `scripts/nightly_stress.py`).
+| `make nightly NIGHTLY_CYCLES=1000` | 2026-07-03 | **FAIL** — retention gate only (late RSS ~4817 B/cyc > 500); latency/violations/Φ-IQ pass |
 
 **Failing tests:** None (unit/integration). Nightly orchestration fails on retention soak only.
 
@@ -97,15 +116,11 @@
 
 | Metric | Value | Baseline / target | Source |
 |--------|-------|-------------------|--------|
-| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7403** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` (2026-07-03) |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7403** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` |
 | L0 / L1 / L2 / L3 Φ-IQ | 0.7032 / 0.7125 / 0.7773 / 0.7683 | L2 ≥ 0.5 — PASS | same |
-| Pendulum continuous 100-cyc | PASS | D-106: 7.1 ms, 0 violations | `logs/phase7_a0_pendulum.json` |
-| Reacher continuous 100-cyc | PASS | D-107: 4.4 ms, 0 violations, error 105.7→8.4 | `logs/phase7_a1_reacher.json` |
-| Cartpole 100-cyc (discrete) | PASS | 5.9 ms, 0 violations | `logs/phase7_a1_cartpole.json` |
-| Dynamic every-75 L2 | 0.6444 | ≥ 0.50 — PASS (validated cadence) | `logs/phase6_baseline_dyn75.json` |
-| OOD calibration | monotonic, drop 0.71 | drop > 0 — PASS | `logs/nightly_ood.json` |
+| Nightly stress 1000-cyc | **FAIL** retention | late slope ~4817 B/cyc (threshold 500) | `logs/nightly_stress.json` |
+| OOD calibration | monotonic, drop 0.71 | PASS | `logs/nightly_ood.json` |
 | Assumption validation | A1/A3/A4/A5 PASS | `--ci` exit 0 | `logs/assumption_validation.json` |
-| Nightly stress 1000-cyc | **FAIL** retention | late slope ~4650 B/cyc (threshold 500) | `logs/nightly_stress.json` |
 
 ---
 
@@ -113,7 +128,8 @@
 
 | Date | Fix | Outcome |
 |------|-----|---------|
-| 2026-07-03 | Zero-trust re-measurement + operational doc sync | 560 tests; Φ-IQ 0.7403; limitations/README/architecture updated |
-| 2026-07-01 | Phase 7 / D-106: baseline re-measurement | 332 tests; Φ-IQ 0.7416; `make nightly` exit 0 (pre-tightened retention gate) |
-| 2026-07-01 | Phase 7 / D-107: Reacher continuous + Gate A | 335 tests reported; Reacher 2D continuous PASS |
+| 2026-07-03 | Phase 8 operational doc sync | Observatory replay/scrub documented; 560 tests green |
+| 2026-07-03 | phase7-audit-11 … phase-7-15 | Observatory hardening: scrub, banners, session_report, panel tests |
+| 2026-07-03 | Zero-trust re-measurement (round 1) | Φ-IQ 0.7403; limitations/README/architecture updated |
+| 2026-07-01 | Phase 7 / D-107: Reacher continuous | Gate A PASS |
 | 2026-07-01 | Phase 6 complete (D-095–D-105) | Continuous Pendulum; OOD/assumption/nightly hardening |

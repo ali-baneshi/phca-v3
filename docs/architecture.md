@@ -226,6 +226,28 @@ Dynamic mode is experimental and measured separately from the canonical static b
 
 ---
 
+## Cognitive Observatory (Phase 7–8)
+
+The Observatory is a **side-channel** observability layer: it never blocks the cognitive hot path.
+Each cycle produces an `ObservabilityFrame` snapshot, recorded as JSONL, displayed in a 7-tab PyQt
+dashboard, and replayable with seek/scrub (Phase 8).
+
+| Component | Role |
+|-----------|------|
+| `ObservabilityFrame` | Per-cycle snapshot (ground truth for UI + JSONL) |
+| `ObservabilityStore` | Thread-safe ring buffer |
+| `SessionRecorder` | Writes `timeseries.jsonl` |
+| `PlaybackClock` | Live/replay transport cursor with seek/scrub |
+| `DashboardController` | Distributes frames; rebuilds panel histories on jump |
+| `session_report.py` | Offline aggregates from JSONL |
+
+Phase 8 headline: PyQt `--qt` replay with rolling-window `rebuild_histories()` across all panels,
+transport bar + keyboard controls, and honest replay banners for live-only fields.
+
+Full detail: [observability.md](observability.md), [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md).
+
+---
+
 ## Phase 6 — Scientific & CI Hardening (measured)
 
 Phase 6 turned the whitepaper's A1–A5 claims and the OOD-confidence story into measured,
@@ -265,7 +287,7 @@ validation `--ci` → OOD calibration (monotonic) → nightly stress. The nightl
 p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations. 1000-cyc CI run exits 0 in ~43 s; 10k soak ~3 min.
 
 **Honest finding (D-102, updated Phase 7):** nightly stress gates on **late-half** RSS slope
-(`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (~4650 B/cyc), `make nightly` fails the
+(`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (~4817 B/cyc late slope, 2026-07-03), `make nightly` fails the
 retention stage while latency, violations, and Φ-IQ checkpoints pass. M4 has a 1000-fact cap
 with pruning in code; M3/M4 soak target remains open.
 

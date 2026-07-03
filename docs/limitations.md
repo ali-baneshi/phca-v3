@@ -64,7 +64,7 @@ Rust toolchain is **not** required (workspace removed D-084).
 
 ### Long-run memory growth (Phase 7 workstream)
 
-The nightly stress test uses a **late-half RSS slope** gate (`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (2026-07-03), a 1000-cycle run reports late slope **~4650 B/cyc**, so `make nightly` **fails** the retention gate even though latency, violations, and Φ-IQ checkpoints pass. Root cause: M3 episodic fill phase, in-memory SQLite fragmentation, and M4 fact accumulation. M4 now has a 1000-fact cap with pruning (Phase 7 / B2 in code); the soak slope target remains open.
+The nightly stress test uses a **late-half RSS slope** gate (`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (2026-07-03), a 1000-cycle run reports late slope **~4817 B/cyc**, so `make nightly` **fails** the retention gate even though latency, violations, and Φ-IQ checkpoints pass. M4 has a 1000-fact cap with pruning (D-108/D-109 in code); the soak slope target remains open.
 
 ### Discrete GridWorld selector is not purely prediction-driven
 
@@ -82,6 +82,16 @@ The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-
 
 `SemanticFact` in `consolidation/scheduler.py` is pattern matching over episodes, not true semantic memory.
 
+### Observatory limitations (Phase 8 shipped, Phase 9+ open)
+
+Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, and honest replay banners. Remaining Observatory limits:
+
+- **Live-only fields in replay** — camera frames, bulky rollouts, full M3/M4 lists are not in JSONL (by design; banners mark gaps).
+- **No `schema_version`** — JSONL schema changes may silently affect old replays (Phase 9 target).
+- **Large-session scrub** — sessions of 3000+ cycles may lag on history rebuild (Phase 11 target).
+- **Legacy matplotlib replay** — `phca_visualise.py` / `--from-jsonl` is not full-fidelity; use PyQt `--qt`.
+- **Offline report scope** — `session_report.json` summarizes key metrics; it does not replicate every dashboard subview (Phase 10 target).
+
 ---
 
 ## When NOT to Use PHCA
@@ -95,16 +105,21 @@ The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-
 
 ---
 
-## Open Work (Phase 7+)
+## Open Work
 
 | Item | Status |
 |---|---|
-| M3/M4 retention soak (late slope ≤ 500 B/cyc) | In progress — `make nightly` fails today |
-| Cognitive Observatory hardening | In progress — JSONL/replay/report parity |
+| M3/M4 retention soak (late slope ≤ 500 B/cyc) | Open — `make nightly` fails retention gate (~4817 B/cyc late slope) |
+| `schema_version` + JSONL migration | Phase 9 |
+| Full offline report ↔ dashboard parity | Phase 10 |
+| Large-session scrub performance (3000+ cycles) | Phase 11 |
 | Grounding adapter (levels 0/2) | Deferred |
 | M5 procedural memory | Not implemented |
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
+| Log D-108+ in DECISIONS.md | Process debt |
+
+**Phase 7–8 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, 225 monitoring tests.
 
 ---
 
@@ -112,5 +127,6 @@ The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-
 
 - [phi_iq_metric.md](phi_iq_metric.md) — benchmark level definitions
 - [architecture.md](architecture.md) — 12-step cycle and module map
-- [observability.md](observability.md) — Cognitive Observatory contracts
+- [observability.md](observability.md) — Cognitive Observatory contracts (replay/scrub, Phase 8)
+- [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory roadmap
 - [STATUS.md](../STATUS.md) — live issue registry and test status

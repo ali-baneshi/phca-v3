@@ -84,6 +84,10 @@ Early phases are usually for building foundational components:
 
 ### Phase 7
 
+> **Status: Complete (2026-07).** Frame schema, JSONL recording, 7-tab PyQt dashboard,
+> `session_report.py`, shared `cognitive_panels.py` helpers, RBTA unit normalization,
+> and `--check` integrity gate are shipped. 225 monitoring tests.
+
 Phase 7 means the system must show itself. This phase is the transition from “merely running” to “being understandable.”
 
 In Phase 7 we expect:
@@ -737,6 +741,8 @@ Legacy paths are not bad, but if users think they are on par with the new path, 
 
 ### Phase 7: Observability Stabilization
 
+> **Status: Complete (2026-07).** See operational docs: [observability.md](observability.md).
+
 Goal:
 
 - Reliable frame schema.
@@ -752,6 +758,12 @@ Critical work:
 - Document live-only fields.
 
 ### Phase 8: Replay and Scrub Hardening
+
+> **Status: Largely complete (2026-07).** `PlaybackClock` seek/scrub, rolling-window
+> `rebuild_histories()` on all 11 panel views, `_TransportBar` + keyboard transport,
+> autoscale freeze on scrub, replay banners for live-only fields, and 500-frame scrub
+> immutability tests are shipped. **Next:** Phase 9 (`schema_version`), Phase 11
+> (large-session performance).
 
 Goal:
 

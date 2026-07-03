@@ -2,6 +2,8 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
+**Phase 8 (largely complete):** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, and honest replay banners for live-only fields.
+
 ## Thread model
 
 ```
@@ -51,20 +53,67 @@ Scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertaint
 - Near-bound modules: `flow_near_bound_modules(f, top_k=3)` returns modules with ratio **> 0.5**, sorted descending
 - Pipeline time budget: `pipeline_time_budget_ms()` sums RBTA time bounds for pipeline modules
 
+## Playback and scrub (Phase 8)
+
+[`PlaybackClock`](python/phca/monitoring/playback.py) decouples display from cycle production.
+
+| Mode | Buffer | Cursor behavior |
+|------|--------|-----------------|
+| **live** | `push()` appends frames | Cursor catches tail at `speed`; `follow_live()` re-attaches to newest |
+| **replay** | `set_frames()` fixed list | Linear advance at `speed` frames per heartbeat |
+
+**Seek / jump:** `seek(i)` sets `scrubbing=True` and emits with `force_rebuild=True`. The controller passes a rolling prefix `frames[max(0, i-200) : i+1]` (up to 201 frames) to every panel's `rebuild_histories()`.
+
+**Sequential step:** when the cursor advances by exactly one frame, `rebuild=False` — panels append to local history only.
+
+**Pause / scrub freeze:** while `paused` or `scrubbing`, the heartbeat does not advance the cursor. `set_autoscale_frozen(True)` holds axis bounds to prevent jitter during scrub.
+
+## Transport controls
+
+[`_TransportBar`](python/phca/monitoring/qt_dashboard.py) provides:
+
+- Scrub slider (seek to any cycle)
+- Play / pause
+- Speed slider (continuous slow-mo via `throttle_period()`)
+- Step forward (one frame while paused)
+
+**Keyboard** ([`ObservatoryWindow.keyPressEvent`](python/phca/monitoring/qt_dashboard.py)):
+
+| Key | Action |
+|-----|--------|
+| Space | Toggle play / pause |
+| Right | Step forward one frame |
+| Left | Seek back one frame |
+| Home | Seek to cycle 0 |
+| End / Esc | Follow live tail (exit scrub) |
+
+## Panel rebuild contract
+
+All tab views implement `rebuild_histories(frames: List[ObservabilityFrame])`. On seek or jump, `DashboardController` invokes rebuild on all 11 views: Overview, Cognitive Flow, Action Selection, Phase Space (trajectory, radar, per-dim), Retention, RBTA bounds, Goals & Motivation, Memory & Belief.
+
+Live sequential ticks call `update(frame)` only; history grows by append unless a jump is detected.
+
 ## Replay modes
 
 ```bash
-# PyQt dashboard from JSONL (full fidelity)
+# PyQt dashboard from JSONL (canonical Phase 8 path — full fidelity + scrub)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
 
-# Matplotlib legacy reconstruct
+# Offline session report
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
+
+# Matplotlib legacy reconstruct (deprecated for full review)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --from-jsonl
 
 # Play recorded video only
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/
 ```
 
-Replay banners appear when `PlaybackClock.mode == "replay"`. They must only mark genuinely live-only fields unavailable. Recorded fields such as `module_timings`, `rbta_bounds`, `candidate_scores`, `gprime_uncertainty`, `goal_ref`, counts/caps, and `m3_top_error` remain authoritative in replay. Live observatory scrubbing keeps live-only fields in the ring buffer and does **not** show replay banners (intentional).
+### Replay banners
+
+Banners appear when `PlaybackClock.mode == "replay"` and mark genuinely unavailable live-only data. They must **not** appear during live observatory scrubbing (the ring buffer retains live-only fields).
+
+Panels that draw replay banners include Action Selection, Cognitive Flow, Phase Space, and Memory & Belief. Recorded fields (`module_timings`, `rbta_bounds`, `candidate_scores`, `gprime_uncertainty`, `goal_ref`, counts/caps, `m3_top_error`) remain authoritative in replay without banners.
 
 ## Session integrity (`--check`)
 
@@ -75,27 +124,23 @@ PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
 Fails unless:
 
 1. JSONL is non-empty
-2. Line count equals `meta.cycles`
+2. Line count equals `meta.cycles` (unless `--allow-incomplete`)
 3. `cycle_id` is contiguous `0..N-1`
 4. All lines parse; `frame_from_json` smoke on first/mid/last
 5. Video (if present) is non-zero; `ffprobe` validates stream when available
 
-When `recorded_cycles` is present, `--check` also reports whether JSONL line
-count matches it. A mismatch fails unless `--allow-incomplete` is explicitly
-used; empty JSONL always fails.
+When `recorded_cycles` is present, `--check` also reports whether JSONL line count matches it. A mismatch fails unless `--allow-incomplete` is explicitly used; empty JSONL always fails.
 
 Use `--allow-incomplete` to skip count/contiguity checks (still fails on empty JSONL).
 
 ## Dashboard / report parity
 
-Shared helpers in `python/phca/monitoring/cognitive_panels.py`:
+Shared helpers in [`python/phca/monitoring/cognitive_panels.py`](python/phca/monitoring/cognitive_panels.py):
 
 - `rbta_time_bound_ms`, `flow_timing_ratio`, `flow_near_bound_modules`
-- `build_moment_series` for offline moment flags
+- `build_moment_series`, `cognitive_moment`, `append_cognitive_moment`
 
-`session_report.py` and Flow/Retention/RBTA panels use the same normalization via
-`cognitive_panels.py`. Session reports count near-bound cycles using the same
-`flow_near_bound_modules()` threshold as the live Flow panel.
+[`session_report.py`](python/phca/monitoring/session_report.py) and Flow/Retention/RBTA panels use the same normalization. Session reports count near-bound cycles using the same `flow_near_bound_modules()` threshold as the live Flow panel. Reports are built from JSONL only and must not mutate input dicts.
 
 ## Manual smoke checklist
 
@@ -103,7 +148,7 @@ Shared helpers in `python/phca/monitoring/cognitive_panels.py`:
    ```bash
    QT_QPA_PLATFORM=offscreen PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
    ```
-2. **Replay scrub all 7 tabs**
+2. **Replay scrub all 7 tabs** (seek to 0, mid, end; verify histories rebuild)
    ```bash
    PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
    ```
@@ -111,7 +156,7 @@ Shared helpers in `python/phca/monitoring/cognitive_panels.py`:
    ```bash
    PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
    ```
-4. **Large replay** (1500+ / 3000+ cycles) — scrub seek, watch for lag on Retention rebuild
+4. **Large replay** (500+ cycles) — scrub seek; `test_dashboard_controller_scrub_500_jsonl_frames_no_mutation` guards JSON immutability
 5. **Integrity check** — complete session PASS; interrupted session FAIL
 6. **Video export** — `--record-video` with tab cycling if enabled
 
@@ -123,12 +168,29 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-225 tests (2026-07-03). Integrity tests cover `--check`, session report near-bound
-parity, and input JSON immutability (`test_observability_integrity.py`).
+**225 tests** (2026-07-03). Key modules:
 
-## Known gaps
+| Module | Coverage |
+|--------|----------|
+| `test_playback_store.py` | Seek/rebuild semantics, 500-frame scrub immutability |
+| `test_observability_integrity.py` | RBTA units, `--check`, report parity, JSON immutability |
+| `test_*_dashboard.py` | Per-panel smoke, replay banners, scrub rebuild |
+| `test_cognitive_panels.py` | Shared helper contracts |
+| `test_session_report.py` | Offline report from JSONL |
+| `test_r2_extensions.py` | Moment parity, retention/memory/goals anchors |
 
-- `meta.cycles` is requested count; compare with JSONL via `--check` and `recorded_cycles`
-- Legacy matplotlib replay (`render.py`, `phca_visualise.py`) is deprecated for full-fidelity review; PyQt `--qt` replay is the canonical Phase 8 path
-- `RetentionView.rebuild_histories` is O(n) per seek with a low-constant single pass over the rolling replay window
-- GridWorld overview intentionally hides the camera QLabel; the grid body is the camera substitute and must not show "Camera unavailable"
+## Known gaps (Phase 9+)
+
+| Gap | Target phase |
+|-----|--------------|
+| No formal `schema_version` / migration policy | Phase 9 |
+| Offline report does not cover every dashboard subview | Phase 10 |
+| Large sessions (3000+ cycles) may lag on scrub rebuild | Phase 11 |
+| Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated |
+| `meta.cycles` is requested count; compare with `recorded_cycles` via `--check` | Ongoing |
+| GridWorld overview hides camera QLabel; grid body is the camera substitute | By design |
+
+## Related documents
+
+- [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory architecture and 20-phase roadmap
+- [architecture.md](architecture.md) — core PHCA 12-step cycle

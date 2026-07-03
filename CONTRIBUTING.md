@@ -44,6 +44,20 @@ Reviewers must check:
 - [ ] Is the decision logged in `DECISIONS.md` if applicable?
 - [ ] Is there any dead code or commented-out code?
 - [ ] For monitoring changes: do Observatory tests pass with `QT_QPA_PLATFORM=offscreen`?
+- [ ] For dashboard/replay changes: do scrub/rebuild tests pass (`test_playback_store.py`, per-panel `test_*_dashboard.py`)?
+
+## Monitoring / Observatory changes
+
+Dashboard, replay, and session-report PRs must pass the full monitoring suite (225 tests):
+
+```bash
+mkdir -p .tmp
+TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
+  python -m pytest python/phca/monitoring/tests/ -q
+```
+
+Scrub/rebuild behavior is guarded by `test_playback_store.py` (including 500-frame JSON
+immutability). Replay banner changes need coverage in the relevant `test_*_dashboard.py` module.
 
 ## Hardening Changes
 
