@@ -654,11 +654,13 @@ class ObservabilityFrame:
         """Serialise to a JSON-friendly dict for the time-series log.
 
         Live-only fields (the RGB camera frame, sanitized state, per-drive goal
-        vectors, candidate rollouts, and the throttled M3/M4 memory samples)
-        are deliberately EXCLUDED: they are heavy / nested-array payloads that
-        would turn the ~lean JSONL into an image+vector firehose. They reach the
-        recorded mp4 via the dashboard's own QPixmap.grab during --record-video
-        and are reconstructed live from the cycle on the dashboard side.
+        vectors, candidate rollouts, and bulk M3/M4 memory samples) are
+        deliberately EXCLUDED: they are heavy / nested-array payloads that would
+        turn the ~lean JSONL into an image+vector firehose. The compact
+        ``m3_top_error`` sample remains serialized for replay/report anchoring.
+        Camera frames reach the recorded mp4 via the dashboard's own QPixmap.grab
+        during --record-video and are reconstructed live from the cycle on the
+        dashboard side.
         """
         def _s(x):
             if isinstance(x, (np.integer,)):
@@ -770,6 +772,14 @@ class ObservabilityStore:
             for _ in range(n - k):
                 next(it)
             return [next(it) for _ in range(k)]
+
+    def frames_after(self, cycle_id: int) -> List[ObservabilityFrame]:
+        """Return all retained frames newer than ``cycle_id`` in ring order."""
+        with self._lock:
+            return [
+                f for f in self._deque
+                if int(getattr(f, "cycle_id", -1)) > int(cycle_id)
+            ]
 
     def __len__(self) -> int:
         with self._lock:

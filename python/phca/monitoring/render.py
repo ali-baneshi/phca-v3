@@ -391,10 +391,17 @@ def update_dashboard(handle: DashboardHandle, f: ObservabilityFrame) -> None:
 def frame_from_json(obj: Dict[str, Any]) -> ObservabilityFrame:
     """Reconstruct an ObservabilityFrame from a JSONL line (for replay)."""
     f = ObservabilityFrame()
+    array_fields = {
+        "predicted_state", "obs_vector", "goal_ref", "continuous_action",
+        "sanitized_state", "state_precision", "goal_target",
+        "prediction_precision", "gprime_uncertainty", "per_dim_peu",
+        "attention_weights", "last_action_vector",
+    }
     for k, v in obj.items():
-        if k in ("grid", "predicted_state", "obs_vector", "goal_ref",
-                 "continuous_action") and v is not None:
-            setattr(f, k, np.asarray(v, dtype=np.float32 if k != "grid" else np.int32))
+        if k == "grid" and v is not None:
+            setattr(f, k, np.asarray(v, dtype=np.int32))
+        elif k in array_fields and v is not None:
+            setattr(f, k, np.asarray(v, dtype=np.float32))
         else:
             setattr(f, k, v)
     return f

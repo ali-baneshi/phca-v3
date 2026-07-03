@@ -8,6 +8,7 @@ import pytest
 
 from phca.monitoring.cognitive_panels import (
     LEARN_MS_MIN,
+    RBTA_TO_FLOW,
     action_status_extras,
     apply_decision_shift,
     belief_reference,
@@ -17,6 +18,7 @@ from phca.monitoring.cognitive_panels import (
     execution_dominant_phase,
     flow_action_link_line,
     flow_near_bound_module,
+    flow_near_bound_modules,
     flow_status_extras,
     overview_spike,
 )
@@ -76,6 +78,24 @@ def test_flow_action_link_line_helper():
     line = flow_action_link_line(f)
     assert "bottleneck=" in line
     assert "EXPLOIT" in line
+
+
+def test_rbta_aliases_cover_recorded_bound_keys():
+    assert RBTA_TO_FLOW["TSPL-P"] == "tspl"
+    assert RBTA_TO_FLOW["CONSOL"] == "consolidation"
+    assert RBTA_TO_FLOW["PE"] == "peu"
+    f = _frame(
+        module_timings={"tspl": 0.03, "consolidation": 0.06, "peu": 0.21},
+        rbta_bounds={
+            "TSPL-P": {"time": 0.02},
+            "CONSOL": {"time": 0.05},
+            "PE": {"time": 0.30},
+        },
+    )
+    near = dict(flow_near_bound_modules(f, top_k=3))
+    assert "tspl" in near
+    assert "consolidation" in near
+    assert "peu" in near
 
 
 def test_belief_reference_priority():

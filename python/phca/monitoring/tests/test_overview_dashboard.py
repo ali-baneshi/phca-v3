@@ -758,11 +758,12 @@ def test_decision_shift_flag_on_score_jump(qt_app):
     f1 = _reacher_frame(cycle_id=1)
     f1.action_rationale = {"explored": False, "best_score": 0.20}
     ov.set_frame(f1)
-    assert not bool(f1.action_rationale.get("decision_shift", False))
+    assert not ov._moment_series[-1].get("decision_shift")
     f2 = _reacher_frame(cycle_id=2)
     f2.action_rationale = {"explored": False, "best_score": 0.55}
     ov.set_frame(f2)
-    assert bool(f2.action_rationale.get("decision_shift", False))
+    assert ov._moment_series[-1].get("decision_shift")
+    assert not bool(f2.action_rationale.get("decision_shift", False))
 
 
 def test_playback_clock_maxlen_trim():
@@ -926,3 +927,35 @@ def test_overview_goal_id_vitals_uses_active_drive():
     f.active_drive_id = 3
     f.action_rationale = {"goal_id": None, "explored": False, "best_score": 0.5}
     assert _overview_goal_id(f) == 3
+
+
+def test_overview_moment_series_on_live_frames(qt_app):
+    ov = OverviewAgentView()
+    f1 = _reacher_frame(cycle_id=1)
+    f1.prediction_error = 5.0
+    ov.set_frame(f1)
+    f2 = _reacher_frame(cycle_id=2)
+    f2.prediction_error = 25.0
+    ov.set_frame(f2)
+    assert len(ov._moment_series) == 2
+    assert ov._moment_series[-1].get("spike") is True
+
+
+def test_overview_rebuild_builds_moment_series(qt_app):
+    ov = OverviewAgentView()
+    frames = []
+    for i in range(4):
+        f = _reacher_frame(cycle_id=i)
+        f.prediction_error = float(i + 1)
+        f.action_rationale = {"explored": False, "best_score": 0.1 * i}
+        frames.append(f)
+    ov.rebuild_histories(frames)
+    assert len(ov._moment_series) == 4
+    assert ov._prev_best_score == pytest.approx(0.3)
+
+
+def test_overview_replay_flag(qt_app):
+    ov = OverviewAgentView()
+    f = _reacher_frame()
+    ov.set_frame(f, replay=True)
+    assert ov._replay is True

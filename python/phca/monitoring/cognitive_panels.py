@@ -29,10 +29,11 @@ EXECUTION_PHASE_STEPS = (
 
 RBTA_TO_FLOW = {
     "ASI": "sanitize", "WM": "memory_write", "G'": "prediction", "PEU": "peu",
-    "TSPL": "tspl", "ACTION": "action_selection", "RBTA": "rbta",
+    "PE": "peu", "TSPL": "tspl", "TSPL-P": "tspl", "TSPLP": "tspl",
+    "ACTION": "action_selection", "RBTA": "rbta",
     "G'LEARN": "gprime_learn", "GPRIME_LEARN": "gprime_learn", "MDIM": "mdim",
     "ATTN": "attn", "HPM": "hpm", "CR": "cr",
-    "CONSOLID": "consolidation", "CONS": "consolidation",
+    "CONSOL": "consolidation", "CONSOLID": "consolidation", "CONS": "consolidation",
 }
 
 FLOW_ALL_MODULES = [

@@ -53,6 +53,7 @@ from .render import _grid_base, _prediction_heatmap
 from .cognitive_panels import (
     MOMENT_COLORS,
     PIPELINE_LABEL,
+    RBTA_TO_FLOW,
     action_status_extras,
     append_cognitive_moment,
     apply_decision_shift,
@@ -86,14 +87,6 @@ SIDE_MODULES = ["gprime_learn", "mdim", "attn", "hpm", "cr", "consolidation"]
 # Verified via env.get_action_names(): ['MOVE_N','MOVE_S','MOVE_E','MOVE_W','STAY']
 GRID_ACTIONS = ["MOVE_N", "MOVE_S", "MOVE_E", "MOVE_W", "STAY"]
 
-# RBTA module_id codes (e.g. "ACTION", "G'", "WM") -> flow-graph module keys.
-RBTA_TO_FLOW = {
-    "ASI": "sanitize", "WM": "memory_write", "G'": "prediction", "PEU": "peu",
-    "TSPL": "tspl", "ACTION": "action_selection", "RBTA": "rbta",
-    "G'LEARN": "gprime_learn", "GPRIME_LEARN": "gprime_learn", "MDIM": "mdim",
-    "ATTN": "attn", "HPM": "hpm", "CR": "cr",
-    "CONSOLID": "consolidation", "CONS": "consolidation",
-}
 _FLOW_ALL_MODULES = PIPELINE + SIDE_MODULES
 
 # Real execution order (matches cycle.py and Overview phase strip).
@@ -841,6 +834,27 @@ def _draw_decay_sparkline(p: QtGui.QPainter, x: int, y: int, w: int, h: int,
         x1 = x + i * w / max(n - 1, 1)
         y0 = y + h - r0 * h
         y1 = y + h - r1 * h
+        p.drawLine(int(x0), int(y0), int(x1), int(y1))
+
+
+def _draw_measured_sparkline(p: QtGui.QPainter, x: int, y: int, w: int, h: int,
+                             hist: Deque[float], col: QtGui.QColor, *,
+                             fallback_S: float = 8.0) -> None:
+    """Plot measured history; fall back to decay curve when too few samples."""
+    if len(hist) < 2:
+        _draw_decay_sparkline(p, x, y, w, h, fallback_S, col)
+        return
+    vals = list(hist)
+    lo, hi = float(min(vals)), float(max(vals))
+    if hi - lo < 1e-9:
+        hi = lo + 1.0
+    n = len(vals)
+    p.setPen(QtGui.QPen(col, 1))
+    for i in range(1, n):
+        x0 = x + (i - 1) * w / max(n - 1, 1)
+        x1 = x + i * w / max(n - 1, 1)
+        y0 = y + h - (vals[i - 1] - lo) / (hi - lo) * h
+        y1 = y + h - (vals[i] - lo) / (hi - lo) * h
         p.drawLine(int(x0), int(y0), int(x1), int(y1))
 
 
@@ -1831,7 +1845,13 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
     if flags.get("learn_burst", False):
         cx += _overview_chip(p, cx, cy, "G′lrn", QtGui.QColor(52, 152, 219))
     if flags.get("decision_shift", False):
-        _overview_chip(p, cx, cy, "DECISION", QtGui.QColor(155, 89, 182))
+        cx += _overview_chip(p, cx, cy, "DECISION", QtGui.QColor(155, 89, 182))
+    if flags.get("near_bound"):
+        nb = flags["near_bound"]
+        nb_lbl = PIPELINE_LABEL.get(nb, str(nb))[:6]
+        cx += _overview_chip(p, cx, cy, nb_lbl, _to_qcolor(MOMENT_COLORS["near_bound"]))
+    if flags.get("violation"):
+        cx += _overview_chip(p, cx, cy, "VIOL", _to_qcolor(MOMENT_COLORS["spike"]))
 
 
 _DECISION_SHIFT_THRESHOLD = 0.20
@@ -1857,32 +1877,25 @@ def _overview_spike(err_hist: Deque[float], cur_err: float,
     return cur_err > 2.0 * prev_err
 
 
-def _overview_moment_flags(f: ObservabilityFrame, err_hist: Deque[float]) -> Dict[str, Any]:
+def _overview_moment_flags(
+    f: ObservabilityFrame,
+    err_hist: Deque[float],
+    *,
+    moment: Optional[Dict[str, Any]] = None,
+    prev_drive_id: Optional[int] = None,
+    prev_best_score: Optional[float] = None,
+) -> Dict[str, Any]:
     """Compact live diagnostics for the overview narrative/chips."""
-    cur_err = float(getattr(f, "prediction_error", 0.0) or 0.0)
-    env_kind = (getattr(f, "env_kind", "") or "").lower()
-    spike = _overview_spike(err_hist, cur_err, env_kind)
-    timings = dict(getattr(f, "module_timings", {}) or {})
-    learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
-    learn_burst = learn_ms >= _OVERVIEW_LEARN_MS_MIN
+    if moment is None:
+        moment = cognitive_moment(
+            f, err_hist, prev_drive_id=prev_drive_id, prev_best_score=prev_best_score)
     r = f.action_rationale or {}
     score = r.get("best_score")
     score_v = float(score) if isinstance(score, (int, float)) else None
-    decision_shift = bool(r.get("decision_shift", False))
-    peu = getattr(f, "per_dim_peu", None)
-    peu_mean = None
-    if peu is not None:
-        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
-        if arr.size:
-            peu_mean = float(np.mean(arr))
     return {
-        "spike": spike,
-        "learn_ms": learn_ms,
-        "learn_burst": learn_burst,
+        **moment,
         "score": score_v,
         "explored": bool(r.get("explored", False)),
-        "peu_mean": peu_mean,
-        "decision_shift": decision_shift,
     }
 
 
@@ -2107,6 +2120,12 @@ def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
         events.append("DECISION: best action changed")
     if explore_entered:
         events.append("EXPLORE: sampling candidates")
+    if flags.get("near_bound"):
+        nb = flags["near_bound"]
+        lbl = PIPELINE_LABEL.get(nb, str(nb))
+        events.append(f"NEAR-BOUND: {lbl}")
+    if flags.get("violation"):
+        events.append("VIOLATION: RBTA bound exceeded")
     return events
 
 
@@ -2571,16 +2590,33 @@ class OverviewAgentView(_BaseCanvas):
         self._drive_change: Optional[Tuple[int, int]] = None
         self._prev_explored: Optional[bool] = None
         self._event_lines: List[Tuple[str, int]] = []
+        self._moment_series: List[Dict[str, Any]] = []
+        self._prev_drive_id: Optional[int] = None
+        self._replay: bool = False
 
-    def _update_event_log(self, f: ObservabilityFrame) -> None:
+    def _current_moment(self, f: ObservabilityFrame) -> Dict[str, Any]:
+        if self._moment_series:
+            return self._moment_series[-1]
+        return _overview_moment_flags(f, self._err_hist,
+                                      prev_drive_id=self._prev_drive_id,
+                                      prev_best_score=self._prev_best_score)
+
+    def _update_event_log(self, f: ObservabilityFrame,
+                          moment: Optional[Dict[str, Any]] = None) -> None:
         """Hold recent overview events for several heartbeats."""
         self._event_lines = [(t, h - 1) for t, h in self._event_lines if h > 1]
-        flags = _overview_moment_flags(f, self._err_hist)
+        flags = moment if moment is not None else self._current_moment(f)
+        flags = _overview_moment_flags(f, self._err_hist, moment=flags)
         explored = bool(flags.get("explored", False))
         explore_entered = explored and not bool(self._prev_explored)
         self._prev_explored = explored
+        dc = flags.get("drive_change")
+        if isinstance(dc, (list, tuple)) and len(dc) == 2:
+            drive_change: Optional[Tuple[int, int]] = (int(dc[0]), int(dc[1]))
+        else:
+            drive_change = self._drive_change
         for text in _overview_new_events(
-                f, flags, self._drive_change, explore_entered=explore_entered):
+                f, flags, drive_change, explore_entered=explore_entered):
             self._event_lines.append((text, _OVERVIEW_EVENT_HOLD))
 
     def visible_event_lines(self) -> List[str]:
@@ -2595,16 +2631,12 @@ class OverviewAgentView(_BaseCanvas):
         if act:
             self._last_active_drive = act
 
-    def _track_decision_shift(self, f: ObservabilityFrame) -> None:
-        """Tag sudden best-score changes so narrative can mark decision shifts."""
-        r = dict(getattr(f, "action_rationale", {}) or {})
-        bs = r.get("best_score")
-        cur = float(bs) if isinstance(bs, (int, float)) else None
-        shifted = _apply_decision_shift(self._prev_best_score, cur)
-        if cur is not None:
-            self._prev_best_score = cur
-        r["decision_shift"] = shifted
-        f.action_rationale = r
+    def _sync_drive_change_from_moment(self, moment: Dict[str, Any]) -> None:
+        dc = moment.get("drive_change")
+        if isinstance(dc, (list, tuple)) and len(dc) == 2:
+            self._drive_change = (int(dc[0]), int(dc[1]))
+        else:
+            self._drive_change = None
 
     def bind_camera_tabs(self, tabs: QtWidgets.QTabWidget,
                          overview_tab_index: int = 0) -> None:
@@ -2692,14 +2724,17 @@ class OverviewAgentView(_BaseCanvas):
         self._prev_best_score = None
         self._prev_explored = None
         self._event_lines = []
+        self._moment_series = build_moment_series(frames)
         for f in frames:
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)
-            self._track_decision_shift(f)
         if frames:
-            last_act = _overview_goal_id(frames[-1])
-            if last_act:
-                self._last_active_drive = last_act
+            from .cognitive_panels import goal_id_from_frame, _best_score
+            gid = goal_id_from_frame(frames[-1])
+            if gid:
+                self._last_active_drive = gid
+                self._prev_drive_id = gid
+            self._prev_best_score = _best_score(frames[-1])
         self._drive_change = None
 
     def set_state(self, f: Optional[ObservabilityFrame],
@@ -2708,16 +2743,26 @@ class OverviewAgentView(_BaseCanvas):
         self.cycle_error = err
         self._dirty = True
 
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
         self.set_state(f, None)
+        self._replay = replay
         if not histories_done:
-            self._err_hist.append(float(f.prediction_error))
             self._conf_hist.append(float(f.prediction_confidence))
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)
-            self._track_drive_change(f)
-            self._track_decision_shift(f)
-            self._update_event_log(f)
+            self._moment_series, self._prev_drive_id, self._prev_best_score = (
+                append_cognitive_moment(
+                    self._moment_series, f, self._err_hist,
+                    prev_drive_id=self._prev_drive_id,
+                    prev_best_score=self._prev_best_score,
+                    maxlen=TREND_WINDOW))
+            moment = self._moment_series[-1] if self._moment_series else {}
+            self._sync_drive_change_from_moment(moment)
+            gid = _overview_goal_id(f)
+            if gid:
+                self._last_active_drive = gid
+            self._update_event_log(f, moment)
         self._update_camera_label()
 
     def _glyph_display_frame(self, f: ObservabilityFrame) -> ObservabilityFrame:
@@ -2974,13 +3019,31 @@ class OverviewAgentView(_BaseCanvas):
         mind_rect = QtCore.QRect(m, top, mind_w, main_h)
         body_rect = QtCore.QRect(m * 2 + mind_w, top, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
+        y0 = 16 if self._replay else 0
+        if self._replay:
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+            p.setBrush(QtGui.QColor(52, 152, 219, 40))
+            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(12, 11, "REPLAY — camera/M3/M4 live-only fields may differ in JSONL")
         if f is not None:
-            flags = _overview_moment_flags(f, self._err_hist)
-            _draw_overview_header(p, f, header_rect, self._drive_change, flags)
+            flags = self._current_moment(f)
+            flags = _overview_moment_flags(f, self._err_hist, moment=flags)
+            _draw_overview_header(p, f, QtCore.QRect(
+                header_rect.x(), header_rect.y() + y0,
+                header_rect.width(), header_rect.height()), self._drive_change, flags)
             _draw_overview_phase_strip(
-                p, f, phase_rect, learn_burst=bool(flags.get("learn_burst")))
-            _draw_overview_narrative(p, f, narrative_rect, self._err_hist, self._dist_hist)
-            _draw_overview_event_log(p, self.visible_event_lines(), event_rect)
+                p, f, QtCore.QRect(
+                    phase_rect.x(), phase_rect.y() + y0,
+                    phase_rect.width(), phase_rect.height()),
+                learn_burst=bool(flags.get("learn_burst")))
+            _draw_overview_narrative(p, f, QtCore.QRect(
+                narrative_rect.x(), narrative_rect.y() + y0,
+                narrative_rect.width(), narrative_rect.height()),
+                self._err_hist, self._dist_hist)
+            _draw_overview_event_log(p, self.visible_event_lines(), QtCore.QRect(
+                event_rect.x(), event_rect.y() + y0,
+                event_rect.width(), event_rect.height()))
             p.setPen(QtGui.QPen(GRID_COL, 1))
             p.drawLine(mind_rect.right(), mind_rect.y(), mind_rect.right(), mind_rect.bottom())
             cx = mind_rect.x() + mind_rect.width() // 2
@@ -5738,6 +5801,22 @@ class RetentionView(_BaseCanvas):
                 y0 = pt1 - (vals[i - 1] - lo) / (hi - lo) * (pt1 - pt0)
                 y1 = pt1 - (vals[i] - lo) / (hi - lo) * (pt1 - pt0)
                 p.drawLine(int(x0), int(y0), int(x1), int(y1))
+        n_hist = max(len(rss), len(lat), 1)
+        for idx in self.m3_events:
+            if idx < 0 or idx >= n_hist:
+                continue
+            xi = int(left + idx * (right - left) / max(n_hist - 1, 1))
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 2))
+            p.drawLine(xi, pt0, xi, pt1)
+        for idx in self.m4_events:
+            if idx < 0 or idx >= n_hist:
+                continue
+            xi = int(left + idx * (right - left) / max(n_hist - 1, 1))
+            p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
+            p.drawLine(xi, pt0, xi, pt1)
+        if self.m3_events or self.m4_events:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(left, top + 38, "│ prune: M3 blue · M4 purple")
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(left, bot - 1, "shared 0..1 normalised scale · stable bounds")
 
@@ -5885,6 +5964,37 @@ class RBTABoundsView(_BaseCanvas):
             return float((getattr(f, "energy_log", {}) or {}).get(flow, 0.0))
         return 0.0
 
+    def _append_bounds_sample(self, f: ObservabilityFrame) -> None:
+        bounds = getattr(f, "rbta_bounds", None) or {}
+        for mid, bound_set in bounds.items():
+            if not isinstance(bound_set, dict):
+                continue
+            flow = RBTA_TO_FLOW.get(str(mid), str(mid))
+            for btype in ("time", "mem", "energy"):
+                bv = bound_set.get(btype)
+                if bv is None or float(bv) <= 0:
+                    continue
+                meas = self._measured(f, flow, btype)
+                key = f"{mid}:{btype}"
+                sm = self._smooth.setdefault(key, _Smoother(0.25))
+                meas_s = sm.value(meas)
+                self._hist.setdefault(key, deque(maxlen=60)).append(meas_s)
+
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self._hist.clear()
+        self._smooth.clear()
+        for frame in frames:
+            self._append_bounds_sample(frame)
+        if frames:
+            self.frame = frames[-1]
+        self._dirty = True
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+        self.frame = f
+        if not histories_done:
+            self._append_bounds_sample(f)
+        self._dirty = True
+
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
         w, h = self.width(), self.height()
@@ -5916,11 +6026,9 @@ class RBTABoundsView(_BaseCanvas):
                 if bv is None or bv <= 0:
                     continue
                 flow = RBTA_TO_FLOW.get(mid, mid)
-                meas = self._measured(f, flow, bt)
                 key = f"{mid}:{bt}"
-                sm = self._smooth.setdefault(key, _Smoother(0.25))
-                meas_s = sm.value(meas)
-                self._hist.setdefault(key, deque(maxlen=60)).append(meas_s)
+                hist = self._hist.get(key)
+                meas_s = float(hist[-1]) if hist else self._measured(f, flow, bt)
                 items.append((mid, flow, meas_s, float(bv), key))
             if not items:
                 continue
@@ -5942,7 +6050,11 @@ class RBTABoundsView(_BaseCanvas):
                 spark_x, spark_w, spark_h = cx + 100, bw_max - 8, 10
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
                 p.drawRect(spark_x, y + 4, spark_w, spark_h)
-                _draw_decay_sparkline(p, spark_x + 2, y + 5, spark_w - 4, spark_h - 2, S, col)
+                hist = self._hist.get(key)
+                _draw_measured_sparkline(
+                    p, spark_x + 2, y + 5, spark_w - 4, spark_h - 2,
+                    hist if hist is not None else deque(), col,
+                    fallback_S=max(b / max(meas, 1e-6), 2.0) * 4.0)
                 # measured bar + bound tick (compact)
                 bar_y = y + 16
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
@@ -5977,6 +6089,17 @@ class MemoryBeliefView(_BaseCanvas):
         self._m3_cache: List[dict] = []
         self._m4_cache: List[dict] = []
         self._diff_smooth = _Smoother(0.2)
+        self._replay: bool = False
+
+    def set_frame(self, f: ObservabilityFrame, *, replay: bool = False) -> None:
+        self.frame = f
+        self._replay = replay
+        self._dirty = True
+
+    def _memory_live_empty(self, f: ObservabilityFrame) -> bool:
+        return not (
+            getattr(f, "m3_recent", None) or getattr(f, "m3_top_error", None)
+            or getattr(f, "m4_relevant", None) or getattr(f, "m4_top", None))
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self._m3_sig = ""
@@ -5993,25 +6116,36 @@ class MemoryBeliefView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Memory & belief…"); return
+        y0 = 16 if self._replay else 0
+        if self._replay:
+            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+            p.setBrush(QtGui.QColor(52, 152, 219, 40))
+            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(12, 11, "REPLAY — M3/M4 lists and sanitized diff are live-only in JSONL")
         # ---- v7 focal: belief geography map (full width, top) ----
-        self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14)
-        self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26)
-        self._belief_geography(p, f, 10, 32, w - 20, h // 3)
+        self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
+        self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
+        self._belief_geography(p, f, 10, 32 + y0, w - 20, h // 3)
         # ---- left: M3 ranked bars (frozen via content hash) ----
         col_w = w // 2 - 8
-        my = h // 3 + 40
+        my = h // 3 + 40 + y0
         self._title(p, "M3 episodic memory — ranked by retention score", x=10, y=my)
         m3 = list(getattr(f, "m3_recent", None) or []) + list(getattr(f, "m3_top_error", None) or [])
         sig = freeze_sig(m3)
         if sig != self._m3_sig:
             self._m3_cache = m3; self._m3_sig = sig
-        self._ranked_decay_cards(p, self._m3_cache, f,
-                                 label_fn=lambda ep: f"d{ep.get('drive_id','?')} conf={ep.get('confidence','?')}",
-                                 score_fn=lambda ep, fr: _retention_score(
-                                     max(0, int(fr.cycle_id) - int(ep.get('timestamp', fr.cycle_id))),
-                                     max(float(ep.get('confidence', 0.1) or 0.1) * 80.0, 5.0)),
-                                 x=10, y=my + 12, w=col_w, h=h - my - 36,
-                                 col=QtGui.QColor(52, 152, 219))
+        if self._replay and not m3:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(10, my + 24, "(M3 episodic lists not recorded in JSONL replay)")
+        else:
+            self._ranked_decay_cards(p, self._m3_cache, f,
+                                     label_fn=lambda ep: f"d{ep.get('drive_id','?')} conf={ep.get('confidence','?')}",
+                                     score_fn=lambda ep, fr: _retention_score(
+                                         max(0, int(fr.cycle_id) - int(ep.get('timestamp', fr.cycle_id))),
+                                         max(float(ep.get('confidence', 0.1) or 0.1) * 80.0, 5.0)),
+                                     x=10, y=my + 12, w=col_w, h=h - my - 36,
+                                     col=QtGui.QColor(52, 152, 219))
         # v8 B6: episodic timeline mark strip (M3 events coloured by salience/confidence)
         self._episodic_timeline(p, self._m3_cache, f, 10, h - 22, col_w, 14)
         # ---- right: M4 retention cards + retention-cap gauge ----
@@ -6021,11 +6155,17 @@ class MemoryBeliefView(_BaseCanvas):
         sig4 = freeze_sig(m4)
         if sig4 != self._m4_sig:
             self._m4_cache = m4; self._m4_sig = sig4
-        self._ranked_decay_cards(p, self._m4_cache, f,
-                                 label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
-                                 score_fn=lambda fac, fr: float(fac.get('frequency', fac.get('support', 0)) or 0),
-                                 x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
-                                 col=QtGui.QColor(155, 89, 182))
+        if self._replay and not m4:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(rx, my + 24, "(M4 fact lists not recorded in JSONL replay)")
+        else:
+            self._ranked_decay_cards(p, self._m4_cache, f,
+                                     label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
+                                     score_fn=lambda fac, fr: _retention_score(
+                                         max(0, int(fr.cycle_id) - int(fac.get('timestamp', fr.cycle_id))),
+                                         max(float(fac.get('confidence', fac.get('frequency', fac.get('support', 0.1))) or 0.1) * 80.0, 5.0)),
+                                     x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
+                                     col=QtGui.QColor(155, 89, 182))
         # retention-cap gauge (top-right of the M4 column)
         self._cap_gauge(p, rx, my - 14, 120, 16, int(f.fact_count), int(f.m4_cap), "M4 cap")
         # v7: demoted |sanitized−raw| diff as a thin EMA-smoothed inset (bottom strip)
@@ -6117,7 +6257,8 @@ class MemoryBeliefView(_BaseCanvas):
         if tot is None:
             return []
         unc = f.gprime_uncertainty
-        n = int(unc.size) if (unc is not None and unc.size) else 0
+        unc_a = np.asarray(unc, dtype=np.float32).reshape(-1) if unc is not None else None
+        n = int(unc_a.size) if (unc_a is not None and unc_a.size) else 0
         return [float(tot)] * n if n else [float(tot)]
 
     def _ranked_decay_cards(self, p, items: list, f: ObservabilityFrame,
@@ -6143,7 +6284,7 @@ class MemoryBeliefView(_BaseCanvas):
             p.drawRect(spark_x, ry + 6, spark_w, rh - 14)
             _draw_decay_sparkline(p, spark_x + 2, ry + 7, spark_w - 4, rh - 16, S, col)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            val_lbl = f"R={rscore:.2f}" if rscore <= 1.0 else f"sup={rscore:.0f}"
+            val_lbl = f"R={rscore:.2f}"
             p.drawText(x + w - 58, ry + rh - 8, val_lbl)
 
     def _ranked_bars(self, p, items: list, key: str, label_fn, x, y, w, h, col) -> None:
@@ -6655,7 +6796,7 @@ class DashboardController:
             # v6 flicker-free: drop redundant updates for an unchanged cycle
             # (heartbeat emitting the same cursor frame while production stalls).
             cid = int(getattr(f, "cycle_id", -1))
-            if cycle_error is None and cid == self._last_cycle:
+            if cycle_error is None and cid == self._last_cycle and not rolling:
                 return
             self._last_cycle = cid
             if rolling:
@@ -6673,15 +6814,16 @@ class DashboardController:
                 self.w.radar.rebuild_histories(rolling)
                 self.w.perdim.rebuild_histories(rolling)
                 self.w.retention.rebuild_histories(rolling)
+                self.w.rbta_bounds.rebuild_histories(rolling)
                 self.w.viol.rebuild_from_frames(rolling)
                 self.w.goals.rebuild_histories(rolling)
                 self.w.memory.rebuild_histories(rolling)
-            self.w.overview.set_frame(f, histories_done=histories_done)
             replay = bool(
                 getattr(self.w, "_transport", None) is not None
                 and getattr(self.w._transport, "clock", None) is not None
                 and self.w._transport.clock.mode == "replay"
             )
+            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.flow.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.cand.set_frame(f, histories_done=histories_done, replay=replay)
             self.w._last_frame = f
@@ -6691,11 +6833,11 @@ class DashboardController:
             self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.dim_selector.refresh()
             self.w.retention.set_frame(f, histories_done=histories_done)
-            self.w.rbta_bounds.set_frame(f)
+            self.w.rbta_bounds.set_frame(f, histories_done=histories_done)
             if not histories_done:
                 self.w.viol.add_frame(f)
             self.w._viol_summary.setText(self.w.viol.summary())
-            self.w.memory.set_frame(f)
+            self.w.memory.set_frame(f, replay=replay)
             self.w.goals.set_frame(f, histories_done=histories_done)
             self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
         else:

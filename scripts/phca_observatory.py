@@ -461,7 +461,7 @@ def main() -> None:
             _wire_camera_if_ready()
             # Drain new frames: JSONL every cycle (always); push into the
             # playback buffer so the heartbeat clock + scrubber can reach them.
-            new = [f for f in store.latest_n(256) if f.cycle_id > last_recorded_cycle]
+            new = store.frames_after(last_recorded_cycle)
             if new:
                 for f in new:
                     recorder.record(f)
@@ -517,9 +517,11 @@ def main() -> None:
             pacer.stop()
         except Exception:
             pass
-        snap = store.latest_n(64)
-        if snap and snap[-1].cycle_id > last_recorded_cycle:
-            recorder.record(snap[-1])
+        snap = store.frames_after(last_recorded_cycle)
+        if snap:
+            for f in snap:
+                recorder.record(f)
+                clock.push(f)
             last_recorded_cycle = snap[-1].cycle_id
             try:
                 ctrl.update(snap[-1], snap, cycle_holder.get("error"))

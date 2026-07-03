@@ -171,6 +171,7 @@ class PlaybackClock:
         self._heartbeat_dt = 1.0 / max(float(heartbeat_hz), 0.1)
         self.on_update: Optional[Callable] = None
         self.on_end: Optional[Callable] = None
+        self._last_emitted: Optional[int] = None
 
     # --- buffer -------------------------------------------------------------
     def push(self, f) -> None:
@@ -187,6 +188,7 @@ class PlaybackClock:
         self._cursor = 0.0
         self.scrubbing = False
         self.paused = False
+        self._last_emitted = None
 
     def __len__(self) -> int:
         return len(self._frames)
@@ -218,7 +220,7 @@ class PlaybackClock:
             return
         self._cursor = float(max(0, min(i, self.n - 1)))
         self.scrubbing = True
-        self._emit()
+        self._emit(force_rebuild=True)
 
     def step(self) -> None:
         """Advance one frame (used while paused)."""
@@ -232,7 +234,7 @@ class PlaybackClock:
         self.scrubbing = False
         if self._frames:
             self._cursor = float(self.n - 1)
-            self._emit()
+            self._emit(force_rebuild=True)
 
     # --- heartbeat ----------------------------------------------------------
     def tick(self) -> None:
@@ -264,15 +266,24 @@ class PlaybackClock:
                 return
         self._emit()
 
-    def _emit(self) -> None:
+    def _emit(self, *, force_rebuild: bool = False) -> None:
         if self.on_update is None or not self._frames:
             return
         i = self.cursor_int
         f = self._frames[i]
+        if force_rebuild:
+            rebuild = True
+        elif self._last_emitted is None:
+            rebuild = True
+        elif i == self._last_emitted:
+            rebuild = False
+        else:
+            rebuild = i != self._last_emitted + 1
         lo = max(0, i - 200)
-        rolling = self._frames[lo:i + 1]
+        rolling = self._frames[lo:i + 1] if rebuild else None
         try:
             self.on_update(f, rolling, self.error)
+            self._last_emitted = i
         except Exception:
             pass
 

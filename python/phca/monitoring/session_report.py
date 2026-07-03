@@ -11,7 +11,7 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.cognitive_panels import build_moment_series, count_moments, apply_decision_shift
+from phca.monitoring.cognitive_panels import build_moment_series, count_moments, apply_decision_shift, goal_id_from_frame
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
@@ -99,7 +99,11 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     dist_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
     prev_best_score: Optional[float] = None
     last_active_drive: Optional[int] = None
+    prev_drive_id: Optional[int] = None
     prev_explored: Optional[bool] = None
+    prev_m3_count: Optional[int] = None
+    prev_m4_count: Optional[int] = None
+    prev_active_drive: Optional[int] = None
 
     explore_count = 0
     spike_count = 0
@@ -118,7 +122,17 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     anchor_flow_status: Dict[str, Dict[str, Any]] = {}
     anchor_action_status: Dict[str, Dict[str, Any]] = {}
     anchor_phase_status: Dict[str, Dict[str, Any]] = {}
+    anchor_retention: Dict[str, Dict[str, Any]] = {}
+    anchor_memory: Dict[str, Dict[str, Any]] = {}
+    anchor_goals: Dict[str, Dict[str, Any]] = {}
     notable_cycles: List[Dict[str, Any]] = []
+
+    m3_prune_count = 0
+    m4_prune_count = 0
+    envelope_over_count = 0
+    cycles_with_m3 = 0
+    cycles_with_m4 = 0
+    active_drive_switch_count = 0
 
     module_time_totals: Dict[str, float] = {}
     bottleneck_counts: Dict[str, int] = {}
@@ -149,20 +163,21 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         r = dict(getattr(f, "action_rationale", {}) or {})
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
-        shifted = apply_decision_shift(prev_best_score, cur_score)
-        if shifted:
-            decision_shift_count += 1
-        if cur_score is not None:
-            prev_best_score = cur_score
-        r["decision_shift"] = shifted
-        f.action_rationale = r
 
         goal_id = _overview_goal_id(f)
         drive_change, last_active_drive = _track_drive_change(last_active_drive, goal_id)
         if drive_change is not None:
             drive_switch_count += 1
 
-        flags = _overview_moment_flags(f, err_hist)
+        flags = _overview_moment_flags(
+            f, err_hist, prev_drive_id=prev_drive_id, prev_best_score=prev_best_score)
+        if flags.get("decision_shift"):
+            decision_shift_count += 1
+        if cur_score is not None:
+            prev_best_score = cur_score
+        gid = goal_id_from_frame(f)
+        if gid:
+            prev_drive_id = gid
         explored = bool(flags.get("explored", False))
         if explored:
             explore_count += 1
@@ -172,6 +187,28 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             learn_burst_count += 1
         if getattr(f, "goal_reached", False):
             goal_reached_count += 1
+
+        ep_count = int(getattr(f, "episode_count", 0) or 0)
+        fact_count = int(getattr(f, "fact_count", 0) or 0)
+        if prev_m3_count is not None and ep_count < prev_m3_count:
+            m3_prune_count += 1
+        if prev_m4_count is not None and fact_count < prev_m4_count:
+            m4_prune_count += 1
+        prev_m3_count = ep_count
+        prev_m4_count = fact_count
+        m3_cap = int(getattr(f, "m3_cap", 0) or 0)
+        m4_cap = int(getattr(f, "m4_cap", 0) or 0)
+        if (m3_cap and ep_count > m3_cap) or (m4_cap and fact_count > m4_cap):
+            envelope_over_count += 1
+        if getattr(f, "m3_recent", None) or getattr(f, "m3_top_error", None):
+            cycles_with_m3 += 1
+        if getattr(f, "m4_relevant", None) or getattr(f, "m4_top", None):
+            cycles_with_m4 += 1
+        ad = int(getattr(f, "active_drive_id", 0) or 0)
+        if prev_active_drive is not None and ad and ad != prev_active_drive:
+            active_drive_switch_count += 1
+        if ad:
+            prev_active_drive = ad
 
         explore_entered = explored and not bool(prev_explored)
         prev_explored = explored
@@ -261,6 +298,33 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
                 anchor_phase_status[anchor_key] = {
                     "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
                     "phase_status": _phase_status_line(f, replay=True, is_grid=is_grid),
+                }
+            if idx == target_idx and anchor_key not in anchor_retention:
+                anchor_retention[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "episode_count": ep_count,
+                    "fact_count": fact_count,
+                    "m3_cap": m3_cap,
+                    "m4_cap": m4_cap,
+                    "rss_bytes": float(getattr(f, "rss_bytes", 0.0) or 0.0),
+                    "latency_ms": float(getattr(f, "latency_ms", 0.0) or 0.0),
+                }
+            if idx == target_idx and anchor_key not in anchor_memory:
+                anchor_memory[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "m3_items": len(list(getattr(f, "m3_recent", None) or [])
+                                    + list(getattr(f, "m3_top_error", None) or [])),
+                    "m4_items": len(list(getattr(f, "m4_relevant", None) or [])
+                                    + list(getattr(f, "m4_top", None) or [])),
+                    "fact_count": fact_count,
+                }
+            if idx == target_idx and anchor_key not in anchor_goals:
+                pareto = list(getattr(f, "pareto_front", None) or [])
+                anchor_goals[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "active_drive_id": ad,
+                    "pareto_size": len(pareto),
+                    "goal_reached": bool(getattr(f, "goal_reached", False)),
                 }
 
         notable = False
@@ -359,6 +423,21 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "pca_variance_explained_median": _median(pca_variances),
             "max_pred_error_dim_median": _median(max_pred_errors),
             "anchor_phase_status": anchor_phase_status,
+        },
+        "retention_metrics": {
+            "m3_prune_count": m3_prune_count,
+            "m4_prune_count": m4_prune_count,
+            "envelope_over_count": envelope_over_count,
+            "anchor_retention": anchor_retention,
+        },
+        "memory_metrics": {
+            "cycles_with_m3": cycles_with_m3,
+            "cycles_with_m4": cycles_with_m4,
+            "anchor_memory": anchor_memory,
+        },
+        "goals_metrics": {
+            "active_drive_switch_count": active_drive_switch_count,
+            "anchor_goals": anchor_goals,
         },
         "cognitive_panels_metrics": {
             **moment_totals,

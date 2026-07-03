@@ -58,6 +58,22 @@ def test_build_session_report_metrics():
     assert "0" in cpm["anchor_moment_flags"]
     assert report["flow_metrics"].get("anchor_flow_moments")
     assert report["action_metrics"].get("anchor_action_moments")
+    assert "retention_metrics" in report
+    assert "memory_metrics" in report
+    assert "goals_metrics" in report
+    assert "anchor_retention" in report["retention_metrics"]
+    assert "anchor_memory" in report["memory_metrics"]
+    assert "anchor_goals" in report["goals_metrics"]
+
+
+def test_retention_memory_goals_metric_keys():
+    meta = {"env": "Reacher-v5", "cycles": 12}
+    report = build_session_report(meta, _load_fixture_lines())
+    for key in ("m3_prune_count", "m4_prune_count", "envelope_over_count"):
+        assert key in report["retention_metrics"]
+    for key in ("cycles_with_m3", "cycles_with_m4"):
+        assert key in report["memory_metrics"]
+    assert "active_drive_switch_count" in report["goals_metrics"]
 
 
 def test_cognitive_panels_metrics_keys():
