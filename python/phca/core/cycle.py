@@ -619,20 +619,23 @@ class CognitiveCycle:
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         rng = np.random.RandomState(self.cycle_count)
         if rng.random() < eps:
+            pick = int(rng.randint(0, self.env.action_space_size))
             self.last_action_rationale = {"explored": True, "eps": float(eps),
                                           "goal_id": int(goal_id), "continuous": False,
                                           "best_score": None,
-                                          "k_candidates": int(self.env.action_space_size)}
+                                          "k_candidates": int(self.env.action_space_size),
+                                          "chosen_idx": pick}
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
-            return int(rng.randint(0, self.env.action_space_size))
+            return pick
 
         # D5 (Energy Efficiency): prefer STAY
         if goal_id == 5:
             self.last_action_rationale = {"explored": False, "eps": float(eps),
                                           "goal_id": 5, "continuous": False,
                                           "best_score": None, "k_candidates": None,
-                                          "note": "D5 energy: STAY"}
+                                          "note": "D5 energy: STAY",
+                                          "chosen_idx": int(self.env.stay_action)}
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return self.env.stay_action
@@ -723,7 +726,8 @@ class CognitiveCycle:
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": int(goal_id), "continuous": False,
                                       "best_score": float(best_score),
-                                      "k_candidates": int(self.env.action_space_size)}
+                                      "k_candidates": int(self.env.action_space_size),
+                                      "chosen_idx": int(best_action)}
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:
@@ -757,7 +761,7 @@ class CognitiveCycle:
         ref = getattr(self.env, "get_goal_reference", lambda: None)()
         ref = np.asarray(ref, dtype=np.float32) if ref is not None else None
 
-        best_a, best_score = None, -float("inf")
+        best_a, best_score, best_idx = None, -float("inf"), -1
         cand_scores = []
         _obs = self.observability_store is not None
         _rollouts: list = []
@@ -779,6 +783,7 @@ class CognitiveCycle:
                 ref_align = 0.5
             score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
             cand_scores.append(float(score))
+            ci = len(cand_scores) - 1
             if _obs:
                 _rollouts.append({
                     "action": a.copy(),
@@ -788,7 +793,7 @@ class CognitiveCycle:
                     "chosen": False,
                 })
             if score > best_score:
-                best_score, best_a = score, a
+                best_score, best_a, best_idx = score, a, ci
         self.last_candidate_scores = cand_scores
         if _obs:
             for r in _rollouts:
@@ -800,7 +805,8 @@ class CognitiveCycle:
         self.last_action_rationale = {"explored": False, "eps": float(eps),
                                       "goal_id": None, "continuous": True,
                                       "best_score": float(best_score) if best_a is not None else None,
-                                      "k_candidates": int(K)}
+                                      "k_candidates": int(K),
+                                      "chosen_idx": int(best_idx)}
         return best_a if best_a is not None else (
             low + (high - low) * 0.5).astype(np.float32)
 

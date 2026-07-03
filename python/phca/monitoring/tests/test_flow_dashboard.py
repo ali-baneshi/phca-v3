@@ -15,6 +15,8 @@ from phca.monitoring.qt_dashboard import (
     _flow_update_active_idx,
     _heatmap_cell_alpha,
     _heatmap_cell_color,
+    _heatmap_column_percentile,
+    _action_chosen_idx,
     make_app,
 )
 
@@ -48,7 +50,7 @@ def test_flow_status_line_bottleneck_and_pipe():
     assert "bottleneck=G′lrn" in line
     assert "Σpipe=" in line
     assert "violations=OK" in line
-    assert "active=G′" in line
+    assert "Δ=G′" in line
 
 
 def test_flow_status_line_violations():
@@ -81,19 +83,48 @@ def test_flow_layout_reserved_heatmap_band():
 
 
 def test_heatmap_cell_color_uses_cost_semantics():
-    low = _heatmap_cell_color(2.0, 25.0)
-    high = _heatmap_cell_color(22.0, 25.0)
-    assert low.alpha() >= 6
-    assert high.alpha() >= 6
+    col = [0.1, 1.0, 5.0, 22.0]
+    low = _heatmap_cell_color(2.0, col)
+    high = _heatmap_cell_color(22.0, col)
+    assert low.alpha() >= 20
+    assert high.alpha() >= low.alpha()
     assert low.green() > low.red()
     assert high.red() > high.green()
 
 
-def test_scalar_gauge_fallback_best_score(qt_app):
+def test_heatmap_column_percentile_monotonic():
+    col = [0.5, 1.0, 2.0, 4.0, 8.0]
+    a_lo = _heatmap_column_percentile(1.0, col)
+    a_hi = _heatmap_column_percentile(8.0, col)
+    assert a_hi >= a_lo
+
+
+def test_flow_phase_strip_luminance(qt_app):
+    from PyQt5 import QtGui
+
+    ov = CognitiveFlowView()
+    ov.resize(640, 480)
+    f = _flow_frame(module_timings={
+        "prediction": 2.0, "action_selection": 3.0, "peu": 1.0,
+        "gprime_learn": 5.0, "mdim": 0.5, "tspl": 0.5, "rbta": 0.3,
+    })
+    ov.set_frame(f)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    ov._draw(p)
+    p.end()
+    c = pm.toImage().pixelColor(80, 40)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 10
+
+
+def test_scalar_gauge_action_uses_best_score(qt_app):
     ov = CognitiveFlowView()
     f = _flow_frame()
-    f.gprime_mutual_info = 0.0
-    f.action_rationale = {"best_score": 0.42}
+    f.action_rationale = {"best_score": 0.42, "eps": 0.1, "explored": False}
+    f.candidate_scores = [0.2, 0.42]
     v, label, _ = ov._scalar_gauge_value("action_selection", f)
     assert label == "score"
     assert v == pytest.approx(0.42)

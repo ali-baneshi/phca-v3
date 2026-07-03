@@ -9,6 +9,7 @@ from phca.monitoring.qt_dashboard import (
     CandidateScoreView,
     PANEL_BG,
     PANEL_BG_ALT,
+    _action_chosen_idx,
     _action_layout,
     _action_score_margin,
     _action_status_line,
@@ -71,7 +72,54 @@ def test_action_layout_regions():
     lay = _action_layout(640, 480)
     assert lay["left_w"] > 100
     assert lay["right_w"] > 100
+    assert lay["tau_slot_y"] + lay["tau_slot_h"] <= lay["body_top"] + lay["body_h"] + 4
     assert lay["epsilon_y"] + lay["epsilon_h"] <= lay["body_top"] + lay["body_h"] + 8
+
+
+def test_action_chosen_idx_overrides_argmax():
+    f = _action_frame(
+        action_rationale={"chosen_idx": 1, "explored": False, "best_score": 0.35,
+                        "eps": 0.1, "k_candidates": 8, "continuous": True},
+        candidate_scores=[0.2, 0.35, 0.55, 0.4],
+    )
+    assert _action_chosen_idx(f, [0.2, 0.35, 0.55, 0.4]) == 1
+
+
+def test_replay_banner_visible(qt_app):
+    from PyQt5 import QtGui
+
+    view = CandidateScoreView()
+    view.resize(640, 480)
+    view.set_frame(_action_frame(), replay=True)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    c = pm.toImage().pixelColor(40, 8)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 15
+
+
+def test_epsilon_strip_pixels(qt_app):
+    from PyQt5 import QtGui
+
+    view = CandidateScoreView()
+    view.resize(640, 480)
+    for i in range(8):
+        f = _action_frame(cycle_id=i)
+        view.set_frame(f)
+    lay = _action_layout(640, 480)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._epsilon_strip(p, lay["right_x"], lay["epsilon_y"], lay["right_w"], lay["epsilon_h"])
+    p.end()
+    c = pm.toImage().pixelColor(lay["right_x"] + 20, lay["epsilon_y"] + 10)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 8
 
 
 def test_action_chosen_row_luminance(qt_app):
@@ -134,7 +182,7 @@ def test_explore_branch_tau_heatmap_visible(qt_app):
     view._draw(p)
     p.end()
     lay = _action_layout(640, 480)
-    c = pm.toImage().pixelColor(lay["left_x"] + 40, lay["left_y"] + 70)
+    c = pm.toImage().pixelColor(lay["left_x"] + 40, lay["tau_slot_y"] + 20)
     lum = c.red() + c.green() + c.blue()
     bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
     assert lum > bg_lum + 10

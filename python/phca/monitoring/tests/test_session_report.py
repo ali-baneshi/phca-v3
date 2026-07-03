@@ -44,6 +44,11 @@ def test_build_session_report_metrics():
     assert "action_metrics" in report
     assert report["flow_metrics"].get("violation_cycle_count", 0) >= 1
     assert report["action_metrics"].get("cycles_with_scores", 0) >= 8
+    assert "cycles_with_chosen_idx" in report["action_metrics"]
+    assert report.get("phase_space_metrics", {}).get("dominant_env_kind")
+    pm = report.get("phase_space_metrics", {})
+    assert pm.get("pca_variance_explained_median") is not None
+    assert pm.get("max_pred_error_dim_median") is not None
 
 
 def test_decision_shift_parity_with_overview():

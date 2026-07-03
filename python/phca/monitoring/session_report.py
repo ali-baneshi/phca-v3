@@ -13,6 +13,7 @@ import numpy as np
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
+    BeliefProjection,
     _OVERVIEW_PHASE_STEPS,
     _action_score_margin,
     _action_status_line,
@@ -21,6 +22,9 @@ from phca.monitoring.qt_dashboard import (
     _flow_bottleneck_key,
     _flow_status_line,
     _FLOW_ALL_MODULES,
+    _phase_frame_is_grid,
+    _phase_layout,
+    _phase_status_line,
     _overview_evidence_line,
     _overview_goal_id,
     _overview_goal_intent_line,
@@ -113,6 +117,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     anchor_narratives: Dict[str, Dict[str, Any]] = {}
     anchor_flow_status: Dict[str, Dict[str, Any]] = {}
     anchor_action_status: Dict[str, Dict[str, Any]] = {}
+    anchor_phase_status: Dict[str, Dict[str, Any]] = {}
     notable_cycles: List[Dict[str, Any]] = []
 
     module_time_totals: Dict[str, float] = {}
@@ -122,8 +127,14 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
 
     cycles_with_scores = 0
     cycles_explore_empty_scores = 0
+    cycles_with_chosen_idx = 0
     score_margins: List[float] = []
     all_best_scores: List[float] = []
+    env_kind_counts: Dict[str, int] = {}
+    mean_abs_pred_errors: List[float] = []
+    pca_variances: List[float] = []
+    max_pred_errors: List[float] = []
+    pca_proj = BeliefProjection(window=16)
 
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -165,6 +176,30 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         explore_entered = explored and not bool(prev_explored)
         prev_explored = explored
 
+        ek = str(getattr(f, "env_kind", "") or "unknown")
+        env_kind_counts[ek] = env_kind_counts.get(ek, 0) + 1
+        if getattr(f, "predicted_state", None) is not None:
+            ref = f.obs_vector if f.obs_vector is not None else f.goal_ref
+            if ref is not None:
+                pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
+                ref_a = np.asarray(ref, dtype=np.float32).reshape(-1)
+                dlen = min(len(pred), len(ref_a))
+                if dlen > 0:
+                    abs_err = np.abs(pred[:dlen] - ref_a[:dlen])
+                    mean_abs_pred_errors.append(float(np.mean(abs_err)))
+                    max_pred_errors.append(float(np.max(abs_err)))
+        elif getattr(f, "prediction_error", None) is not None:
+            mean_abs_pred_errors.append(float(f.prediction_error))
+            max_pred_errors.append(float(f.prediction_error))
+
+        is_grid = _phase_frame_is_grid(f)
+
+        if not is_grid and f.obs_vector is not None:
+            pca_proj.update(f)
+            ve = pca_proj.variance_explained()
+            if ve is not None:
+                pca_variances.append(float(ve))
+
         timings = dict(getattr(f, "module_timings", {}) or {})
         for key, label in _OVERVIEW_PHASE_STEPS:
             ms = _overview_phase_ms(timings, key)
@@ -200,7 +235,14 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
             all_best_scores.append(float(bs))
-        chosen = int(np.argmax(scores)) if scores else -1
+        chosen = -1
+        ci = r.get("chosen_idx")
+        if isinstance(ci, (int, float)):
+            chosen = int(ci)
+        elif scores:
+            chosen = int(np.argmax(scores))
+        if isinstance(r.get("chosen_idx"), (int, float)):
+            cycles_with_chosen_idx += 1
 
         for anchor_key, target_idx in anchor_targets.items():
             if idx == target_idx and anchor_key not in anchor_narratives:
@@ -214,6 +256,11 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
                 anchor_action_status[anchor_key] = {
                     "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
                     "action_status": _action_status_line(f, scores, chosen),
+                }
+            if idx == target_idx and anchor_key not in anchor_phase_status:
+                anchor_phase_status[anchor_key] = {
+                    "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "phase_status": _phase_status_line(f, replay=True, is_grid=is_grid),
                 }
 
         notable = False
@@ -250,6 +297,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     }
     bottleneck_module = max(bottleneck_counts, key=bottleneck_counts.get) if bottleneck_counts else ""
     bs_early, bs_late = _slice_early_late(all_best_scores)
+    dominant_env = max(env_kind_counts, key=env_kind_counts.get) if env_kind_counts else ""
 
     return {
         "meta": dict(meta),
@@ -283,10 +331,19 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         "action_metrics": {
             "cycles_with_scores": cycles_with_scores,
             "cycles_explore_empty_scores": cycles_explore_empty_scores,
+            "cycles_with_chosen_idx": cycles_with_chosen_idx,
             "score_margin_median": _median(score_margins),
             "best_score_early_median": _median(bs_early),
             "best_score_late_median": _median(bs_late),
             "anchor_action_status": anchor_action_status,
+        },
+        "phase_space_metrics": {
+            "dominant_env_kind": dominant_env,
+            "env_kind_counts": env_kind_counts,
+            "mean_abs_pred_error_median": _median(mean_abs_pred_errors),
+            "pca_variance_explained_median": _median(pca_variances),
+            "max_pred_error_dim_median": _median(max_pred_errors),
+            "anchor_phase_status": anchor_phase_status,
         },
         "anchor_narratives": anchor_narratives,
         "notable_cycles": notable_cycles,

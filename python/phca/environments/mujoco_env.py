@@ -251,6 +251,14 @@ class MuJoCoSimpleEnv:
         """Return the dimensionality of the MuJoCo observation vector."""
         return int(self._env.observation_space.shape[0])
 
+    def get_dim_names(self) -> List[str]:
+        """Human-readable obs dim labels for Reacher (10-d default)."""
+        n = self.get_state_dim()
+        defaults = ["cθ₀", "sθ₀", "cθ₁", "sθ₁", "ẋ₀", "ẋ₁", "ẋ₂", "ẋ₃", "tip_x", "tip_y"]
+        if n <= len(defaults):
+            return defaults[:n]
+        return defaults + [f"d{i}" for i in range(len(defaults), n)]
+
     def close(self) -> None:
         """Release MuJoCo simulation resources."""
         with self._sim_lock:
