@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
-import pytest
 
 from phca.monitoring.cognitive_panels import (
     LEARN_MS_MIN,

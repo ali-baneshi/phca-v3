@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import copy
 import time
-from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import numpy as np
 
@@ -51,6 +50,10 @@ from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
 from phca.environments.protocol import EnvironmentProtocol
+
+if TYPE_CHECKING:
+    from phca.monitoring.metrics_store import MetricsStore
+    from phca.monitoring.observability import ObservabilityStore
 
 # AF-005: Normalisation factor for FLOP-based energy signals.
 # ~30M FLOPs (MLP forward at h=128, bs=32, ts=4) ≈ 0.5 on energy scale.

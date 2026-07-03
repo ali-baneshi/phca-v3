@@ -6,7 +6,7 @@ numpy==1.26.4
 scipy==1.12.0
 
 # Probabilistic programming (for G' Bayesian network)
-pgmpy==0.1.24
+pgmpy==1.1.2
 
 # Graph operations
 networkx==3.2.1

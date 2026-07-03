@@ -9,7 +9,6 @@ degradation and recovery.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from phca.asi.sanitizer import ASISanitizer
 from phca.config import ASIStatus, ResourceBounds

@@ -45,11 +45,10 @@ from .camera_render import (
     is_glitchy_pixmap,
     is_glitchy_rgb_frame,
     rgb_frame_to_pixmap,
-    rgb_frame_to_qimage as _rgb_frame_to_qimage,
 )
 from .observability import ObservabilityFrame, _normalize_rgb_frame
 from .playback import _Smoother, freeze_sig
-from .render import _grid_base, _prediction_heatmap
+from .render import _prediction_heatmap
 from .cognitive_panels import (
     MOMENT_COLORS,
     PIPELINE_LABEL,
@@ -63,7 +62,6 @@ from .cognitive_panels import (
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
-    overview_spike,
 )
 
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -1462,7 +1460,6 @@ def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
                             rect: QtCore.QRect,
                             trail: Optional[Deque[Tuple[float, float]]] = None) -> bool:
     """2D arm schematic from obs cos/sin joints (no GPU). Returns True if drawn."""
-    import math
     v = f.obs_vector if f.obs_vector is not None else f.sanitized_state
     kin = _reacher_kinematics_from_obs(v)
     if kin is None:
@@ -1739,7 +1736,6 @@ def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
         p.fillRect(rect, QtGui.QColor(12, 12, 16))
         _draw_overview_tau_bar(p, f, rect)
     elif kind == "continuous" and 2 <= sd <= 4:
-        import math as _m
         margin = 8
         left, right = rect.x() + margin, rect.right() - margin
         top, bot = rect.y() + margin, rect.bottom() - margin
@@ -2419,7 +2415,6 @@ class _ChartCanvas(_BaseCanvas):
         return ml, mt, self.width() - mr, self.height() - mb
 
     def _draw(self, p: QtGui.QPainter) -> None:
-        w, h = self.width(), self.height()
         px0, py0, px1, py1 = self._plot_rect()
         self._title(p, self.title)
         # axes
@@ -3798,8 +3793,6 @@ class StatusPanel(_BaseCanvas):
         note = r.get("note", "")
         score = r.get("best_score")
         score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "—"
-        k = r.get("k_candidates")
-        k_s = str(k) if k is not None else "—"
         head = f"{goal_lbl} · {tag} · score={score_s}"
         p.setPen(TEXT_COL)
         p.drawText(10, y, head)
@@ -3945,7 +3938,6 @@ class CognitiveFlowView(_BaseCanvas):
                    "REPLAY — rbta_bounds detail / live-only timings may differ in JSONL")
 
     def _draw(self, p: QtGui.QPainter) -> None:
-        import math
         f = self.frame
         w, h = self.width(), self.height()
         if f is None:
@@ -4219,7 +4211,7 @@ class CognitiveFlowView(_BaseCanvas):
                     *, compact: bool = False) -> None:
         """Composite bounds + near-bound list + latency check (top-right)."""
         f = self.frame
-        w, h = self.width(), self.height()
+        w = self.width()
         x, y, tw, th = w - 168, y_offset, 158, 142
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, tw, th)
@@ -4229,7 +4221,6 @@ class CognitiveFlowView(_BaseCanvas):
         pipe_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in PIPELINE]
         side_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in SIDE_MODULES]
         pb = sum(float(bounds[k].get("time", 0.0)) for k in pipe_ids if isinstance(bounds[k], dict))
-        sb = max((float(bounds[k].get("time", 0.0)) for k in side_ids if isinstance(bounds[k], dict)), default=0.0)
         lat = float(getattr(f, "latency_ms", 0.0) or 0.0) if f else 0.0
         p.setPen(ACCENT); p.setFont(_F_AXIS)
         lat_s = f"  lat={lat:.0f}ms" if lat > 0 else ""
@@ -6509,7 +6500,7 @@ class GoalsMotivationView(_BaseCanvas):
         for i, g in enumerate(stack[:8]):
             did = g.get("drive_id", "?")
             tnorm = g.get("target_norm")
-            tol = g.get("tolerance"); pri = g.get("priority")
+            pri = g.get("priority")
             comp = bool(g.get("completed", False))
             depth = int(g.get("depth", 0) or 0)
             prog = float(g.get("progress", 1.0 if comp else 0.0) or 0.0)

@@ -9,7 +9,6 @@ import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.qt_dashboard import (
-    ACCENT,
     PANEL_BG,
     BeliefProjection,
     ObservatoryWindow,

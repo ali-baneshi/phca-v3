@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from phca.asi.sanitizer import ASISanitizer
-from phca.config import ASIStatus, ResourceBounds
+from phca.config import ASIStatus, StateVector
 from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.core.cycle import CognitiveCycle
 from phca.memory.m2_working import M2WorkingMemory, Chunk
@@ -211,7 +211,6 @@ class TestCycleEdgeCases:
 
 def _make_state(dim: int) -> StateVector:
     """Create a simple StateVector for testing."""
-    from phca.config import StateVector
     return StateVector(
         values=np.zeros(dim, dtype=np.float32),
         precision=np.ones(dim, dtype=np.float32),

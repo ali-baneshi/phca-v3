@@ -6,7 +6,7 @@ from typing import List, Optional, Protocol, Tuple
 
 import numpy as np
 
-from phca.config import ActionSpace, DiscreteSpace
+from phca.config import ActionSpace
 
 
 class EnvironmentProtocol(Protocol):

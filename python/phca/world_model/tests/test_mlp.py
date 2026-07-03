@@ -306,7 +306,8 @@ class TestConfidenceCalibration:
         s_train = _SV(values=np.zeros(84, dtype=np.float32),
                       precision=np.ones(84, dtype=np.float32), timestamp=0.0)
         s_train.values[10] = 1.0
-        action = np.zeros(5, dtype=np.float32); action[0] = 1.0
+        action = np.zeros(5, dtype=np.float32)
+        action[0] = 1.0
         s_next = _SV(values=np.zeros(84, dtype=np.float32),
                      precision=np.ones(84, dtype=np.float32), timestamp=1.0)
         s_next.values[11] = 1.0

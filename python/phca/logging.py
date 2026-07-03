@@ -45,7 +45,6 @@ def setup_file_logging(log_dir: str = _LOG_DIR) -> None:
     if _FILE_LOGGING_CONFIGURED:
         return
 
-    import os
     from pathlib import Path
     from logging.handlers import RotatingFileHandler
     import logging

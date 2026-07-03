@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -46,8 +46,20 @@ test-mujoco:
 
 lint:
 	@echo "Linting Python..."
-	@-which ruff > /dev/null 2>&1 && ruff check python/ || echo "⚠️  ruff not installed, skipping Python lint"
+	@command -v ruff >/dev/null 2>&1 || (echo "❌ ruff not installed — run: pip install -r requirements-dev.txt" && exit 1)
+	ruff check python/ --no-cache
 	@-which black > /dev/null 2>&1 && black --check python/ || echo "⚠️  black not installed, skipping Python format check"
+
+ci-local: lint
+	@echo "Running CI-equivalent test suite..."
+	@python -c "import pytest_timeout" 2>/dev/null || (echo "❌ pytest-timeout missing — run: pip install -r requirements.txt" && exit 1)
+	@python -c "import pytest_benchmark.plugin" 2>/dev/null || (echo "❌ pytest-benchmark missing — run: pip install -r requirements.txt" && exit 1)
+	PYTHONPATH=python:$$PYTHONPATH MUJOCO_GL=disabled python -m pytest python/tests/ python/phca/ \
+	    -v --tb=short --timeout=30 -x --benchmark-skip
+	mkdir -p logs
+	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
+	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
+	@echo "✅ ci-local: ALL PASS"
 
 # ── Benchmarks ───────────────────────────────────────────────
 
@@ -162,6 +174,7 @@ help:
 	@echo "  make test-all       Run all Python tests"
 	@echo "  make test-python    Run Python tests only"
 	@echo "  make lint           Run linters (ruff + black)"
+	@echo "  make ci-local       Run the same checks as GitHub Actions CI"
 	@echo "  make bench-level-0  Run Level 0 benchmark"
 	@echo "  make bench-all      Run all benchmarks"
 	@echo "  make profile-cycle  Profile the cognitive cycle"

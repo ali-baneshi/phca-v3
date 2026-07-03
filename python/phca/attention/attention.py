@@ -9,11 +9,11 @@ v3.0 Reference: §3.2 Definition 3.4, Phase 2 Architecture §3.4
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from phca.config import GoalVector, StateVector
+from phca.config import StateVector
 from phca.memory.m2_working import Chunk
 
 

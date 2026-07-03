@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from phca.config import DriveID, GoalVector, StateVector
+from phca.config import GoalVector, StateVector
 from phca.logging import logger, _log
 
 
@@ -454,8 +454,6 @@ class MDIM:
         Returns:
             GoalVector with drive-specific target.
         """
-        drive = self.drives[drive_id]
-
         if drive_id == 1:
             # D1: Explore uncertain regions where confidence is low.
             # When environment provides a goal position, bias target toward it.

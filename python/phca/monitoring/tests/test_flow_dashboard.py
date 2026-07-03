@@ -17,7 +17,6 @@ from phca.monitoring.qt_dashboard import (
     _heatmap_cell_alpha,
     _heatmap_cell_color,
     _heatmap_column_percentile,
-    _action_chosen_idx,
     make_app,
 )
 

@@ -42,7 +42,6 @@ from phca.monitoring.qt_dashboard import (
     _overview_outcome_line,
     _overview_new_events,
     _reacher_kinematics_from_obs,
-    _rgb_frame_to_qimage,
     make_app,
     set_autoscale_frozen,
 )
@@ -164,7 +163,7 @@ def test_ppm_qimage_not_magenta_with_reacher_frame(qt_app):
     c = pm.toImage().pixelColor(160, 120)
     assert not (c.red() > 250 and c.blue() > 250 and c.green() < 10), "magenta placeholder"
     # qt_dashboard re-export should match camera_render
-    assert not _rgb_frame_to_qimage(f.env_frame).isNull()
+    assert not rgb_frame_to_qimage(f.env_frame).isNull()
 
 
 def test_uniform_green_frame_rejected():
@@ -584,7 +583,6 @@ def test_live_green_numpy_shows_schematic_not_slab(qt_app):
 
 def test_camera_provider_called_on_set_frame(qt_app):
     """set_frame alone does not capture; timer/sync does."""
-    import threading
 
     calls = {"n": 0}
 

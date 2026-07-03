@@ -300,7 +300,7 @@ def test_action_sparkline_moment_ticks(qt_app):
     for i in range(8):
         view.set_frame(_action_frame(cycle_id=i))
     view._moment_series = [{"decision_shift": i == 7} for i in range(8)]
-    lay = _action_layout(640, 480)
+    _action_layout(640, 480)
     pm = QtGui.QPixmap(640, 480)
     pm.fill(PANEL_BG)
     p = QtGui.QPainter(pm)

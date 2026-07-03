@@ -22,7 +22,7 @@ drive adaptation trends), A1 (RBTA reasons + retention caps visible), G5
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -57,7 +57,6 @@ def build_dashboard(fig, is_grid: bool) -> DashboardHandle:
     ``fig`` must be a fresh Figure (this clears it). ``is_grid`` selects the
     world-panel mode (GridWorld grid vs MuJoCo prediction/goal-ref bars).
     """
-    import matplotlib.pyplot as plt
 
     fig.clear()
     gs = fig.add_gridspec(3, 3, width_ratios=[1.5, 1, 1], height_ratios=[1, 1, 0.55])

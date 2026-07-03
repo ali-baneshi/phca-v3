@@ -9,11 +9,10 @@ v3.0 Reference: §3.3 Definition 3.5, §3.3 Definition 3.6, v3.0 Patch §2.4
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from phca.motivation.mdim import MDIM, DriveState, GoalStackEntry, MetaStableState
-from phca.config import GoalVector, StateVector
+from phca.config import GoalVector
 
 
 @pytest.fixture

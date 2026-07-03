@@ -51,9 +51,6 @@ class TestAdaptiveParameterControllerInit:
 class TestPIDRegulation:
     """PID control loop tests."""
 
-class TestPIDRegulation:
-    """PID control loop tests."""
-
     def test_regulate_returns_tuple(self, cr):
         """regulate() should return (T, eta, alpha) tuple."""
         result = cr.regulate(0.5)

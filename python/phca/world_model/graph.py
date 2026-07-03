@@ -13,7 +13,7 @@ v3.0 References:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 from pgmpy.models import DiscreteBayesianNetwork
@@ -386,7 +386,13 @@ class WorldModelGPrime:
             Gaussian BN inference engine.
         """
         # Return cached topology if available
-        if self._cached_topology is not None:                return self._cached_topology[0], self._cached_topology[1], self._cached_topology[2], self._cached_topology[3]
+        if self._cached_topology is not None:
+            return (
+                self._cached_topology[0],
+                self._cached_topology[1],
+                self._cached_topology[2],
+                self._cached_topology[3],
+            )
 
         # Get topological ordering from temporal + causal + parent edges
         node_order = list(self.nodes.keys())

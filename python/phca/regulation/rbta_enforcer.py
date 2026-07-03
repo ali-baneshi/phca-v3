@@ -228,8 +228,6 @@ class RBTAEnforcer:
         """
         TAU_COMP = 0.001   # 1ms composition overhead
         TAU_SYNC = 0.002   # 2ms synchronization overhead
-        DELTA_SHARED = 1024.0   # 1KB shared memory
-        DELTA_COMM = 2048.0     # 2KB communication memory
 
         op = tree.get("type", "SEQUENCE")
         children = tree.get("children", [])

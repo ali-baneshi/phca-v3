@@ -280,8 +280,8 @@ def gaussian_mutual_information(
     except np.linalg.LinAlgError:
         return 0.0
 
-    I = 0.5 * (logdet_marginal - logdet_conditional)
-    return float(max(I * gamma, 0.0))
+    mutual_info = 0.5 * (logdet_marginal - logdet_conditional)
+    return float(max(mutual_info * gamma, 0.0))
 
 
 def confidence_from_variance(variance: float) -> float:

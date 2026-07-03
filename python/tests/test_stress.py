@@ -9,7 +9,6 @@ These tests are marked 'slow' — run with: pytest -m slow
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest

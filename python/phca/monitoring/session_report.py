@@ -11,7 +11,7 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.cognitive_panels import build_moment_series, count_moments, apply_decision_shift, goal_id_from_frame
+from phca.monitoring.cognitive_panels import build_moment_series, count_moments, goal_id_from_frame
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
@@ -23,7 +23,6 @@ from phca.monitoring.qt_dashboard import (
     _flow_status_line,
     _FLOW_ALL_MODULES,
     _phase_frame_is_grid,
-    _phase_layout,
     _phase_status_line,
     _overview_evidence_line,
     _overview_goal_id,

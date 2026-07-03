@@ -15,7 +15,6 @@ from __future__ import annotations
 import numpy as np
 
 from phca.config import StateVector
-from phca.logging import logger, _log
 
 
 class PredictionErrorUnit:

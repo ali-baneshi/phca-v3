@@ -21,15 +21,14 @@ v3.0 Reference: v3.0 Patch §2.3, §3.1 Table, Theorem 3.3
 
 from __future__ import annotations
 
-import copy
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from phca.config import StateVector, StreamID
+from phca.config import StateVector
 from phca.memory.m3_episodic import M3EpisodicMemory, EpisodeRecord
 from phca.logging import logger, _log
 
@@ -257,7 +256,6 @@ class ConsolidationScheduler:
             return []
 
         facts: List[SemanticFact] = []
-        rng = np.random.RandomState(42)
 
         # Process episodes in order, merging similar transitions
         for ep in episodes[:self._max_facts_per_cycle]:

@@ -244,7 +244,6 @@ class PlaybackClock:
         if self.paused or self.scrubbing:
             return  # frozen; change-detection in canvases skips repaint anyway
         now = time.monotonic()
-        dt = now - self._last_t
         self._last_t = now
         if self.mode == "live":
             newest = self.n - 1

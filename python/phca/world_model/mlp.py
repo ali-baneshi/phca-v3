@@ -18,12 +18,11 @@ v3.0 References:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from phca.config import StateVector
-from phca.logging import logger, _log
 
 
 _EPS = 1e-8

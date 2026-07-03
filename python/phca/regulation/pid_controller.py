@@ -14,7 +14,7 @@ v3.0 Reference: §3.4 Definition 3.7, v3.0 Patch §2.6 (orthogonality constraint
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 

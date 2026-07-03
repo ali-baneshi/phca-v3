@@ -6,7 +6,6 @@ import pytest
 
 from phca.hpm.parser import (
     HPMValidator,
-    CompositionOp,
     TAU_COMP,
     TAU_SYNC,
     DELTA_SHARED,

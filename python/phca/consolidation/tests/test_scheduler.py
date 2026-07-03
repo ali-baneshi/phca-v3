@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from phca.config import StateVector
 from phca.memory.m3_episodic import M3EpisodicMemory, EpisodeRecord
-from phca.consolidation.scheduler import ConsolidationScheduler, ConsolidationReport, SemanticFact
+from phca.consolidation.scheduler import ConsolidationScheduler, SemanticFact
 
 
 class TestConsolidationSchedulerInit:
