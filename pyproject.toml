@@ -4,3 +4,7 @@ line-length = 100
 
 [tool.ruff.lint.per-file-ignores]
 "python/phca/monitoring/qt_dashboard.py" = ["E701", "E702"]
+"python/phca/monitoring/tests/test_overview_dashboard.py" = ["E402"]
+"python/tests/test_continuous_actions.py" = ["E402"]
+"python/tests/test_cycle_with_mujoco.py" = ["E402"]
+"python/tests/test_mujoco_env.py" = ["E402"]
