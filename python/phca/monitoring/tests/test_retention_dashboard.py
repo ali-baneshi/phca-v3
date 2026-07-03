@@ -83,6 +83,31 @@ def test_retention_prune_events_recorded(qt_app):
     assert view.m4_events == [2]
 
 
+def test_retention_rebuild_records_prune_events_without_set_frame(qt_app, monkeypatch):
+    view = RetentionView()
+    calls = {"n": 0}
+    original = view.set_frame
+
+    def counted(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(view, "set_frame", counted)
+    frames = [
+        _ret_frame(cycle_id=10, episode_count=50, fact_count=20),
+        _ret_frame(cycle_id=11, episode_count=45, fact_count=20),
+        _ret_frame(cycle_id=12, episode_count=45, fact_count=18),
+    ]
+    view.rebuild_histories(frames)
+    assert calls["n"] == 0
+    assert list(view.m3) == [50, 45, 45]
+    assert list(view.m4) == [20, 20, 18]
+    assert view.m3_events == [1]
+    assert view.m4_events == [2]
+    assert view.cycle_base == 10
+    assert view.frame is frames[-1]
+
+
 def test_measured_sparkline_uses_history(qt_app):
     from collections import deque
 

@@ -60,7 +60,7 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --from-jsonl
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/
 ```
 
-Replay banners appear when `PlaybackClock.mode == "replay"`. Live observatory scrubbing keeps live-only fields in the ring buffer and does **not** show replay banners (intentional).
+Replay banners appear when `PlaybackClock.mode == "replay"`. They must only mark genuinely live-only fields unavailable. Recorded fields such as `module_timings`, `rbta_bounds`, `candidate_scores`, `gprime_uncertainty`, `goal_ref`, counts/caps, and `m3_top_error` remain authoritative in replay. Live observatory scrubbing keeps live-only fields in the ring buffer and does **not** show replay banners (intentional).
 
 ## Session integrity (`--check`)
 
@@ -75,6 +75,10 @@ Fails unless:
 3. `cycle_id` is contiguous `0..N-1`
 4. All lines parse; `frame_from_json` smoke on first/mid/last
 5. Video (if present) is non-zero; `ffprobe` validates stream when available
+
+When `recorded_cycles` is present, `--check` also reports whether JSONL line
+count matches it. A mismatch fails unless `--allow-incomplete` is explicitly
+used; empty JSONL always fails.
 
 Use `--allow-incomplete` to skip count/contiguity checks (still fails on empty JSONL).
 
@@ -115,6 +119,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 
 ## Known gaps
 
-- `meta.cycles` is requested count; compare with JSONL via `--check` or `recorded_cycles`
-- Legacy matplotlib replay (`render.py`, `phca_visualise.py`) may diverge from PyQt dashboard
-- `RetentionView.rebuild_histories` is O(n) per seek (noticeable on 3000+ cycles)
+- `meta.cycles` is requested count; compare with JSONL via `--check` and `recorded_cycles`
+- Legacy matplotlib replay (`render.py`, `phca_visualise.py`) is deprecated for full-fidelity review; PyQt `--qt` replay is the canonical Phase 8 path
+- `RetentionView.rebuild_histories` is O(n) per seek with a low-constant single pass over the rolling replay window
+- GridWorld overview intentionally hides the camera QLabel; the grid body is the camera substitute and must not show "Camera unavailable"

@@ -661,6 +661,23 @@ def test_camera_provider_cycle_id(qt_app):
     assert ov._camera_badge(schematic=False) == "SYNC?"
 
 
+def test_grid_overview_hides_camera_label(qt_app):
+    """GridWorld uses the painted grid body, not the camera QLabel fallback."""
+    ov = OverviewAgentView()
+    ov.resize(640, 480)
+    f = ObservabilityFrame()
+    f.cycle_id = 1
+    f.env_kind = "grid"
+    f.grid = np.zeros((5, 5), dtype=np.int32)
+    f.agent_pos = (1, 1)
+    f.goal_pos = (3, 3)
+    ov.set_camera_provider(lambda: None, mode="live")
+    ov.set_frame(f)
+    qt_app.processEvents()
+    assert not ov._camera_label.isVisible()
+    assert ov._camera_label.pixmap() is None or ov._camera_label.pixmap().isNull()
+
+
 def test_limbs_start_outside_core():
     """Action limbs must not originate inside the confidence core disc."""
     import math

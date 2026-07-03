@@ -121,6 +121,21 @@ def test_replay_check_fails_incomplete_count(tmp_path):
     assert mod._check(str(d), allow_incomplete=True) == 0
 
 
+def test_replay_check_fails_recorded_cycles_mismatch(tmp_path):
+    import importlib.util
+
+    d = tmp_path / "sess_recorded_mismatch"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"cycles": 3, "recorded_cycles": 2}))
+    lines = [json.dumps({"cycle_id": i}) for i in range(3)]
+    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_recorded", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._check(str(d)) == 1
+    assert mod._check(str(d), allow_incomplete=True) == 0
+
+
 def test_snap_cache_object_isolation():
     clear_snap_cache()
 

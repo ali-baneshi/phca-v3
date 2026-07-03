@@ -62,6 +62,14 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
         print("  [FAIL] timeseries.jsonl is empty")
         ok = False
     expected = int(meta.get("cycles", -1))
+    recorded_raw = meta.get("recorded_cycles")
+    recorded = int(recorded_raw) if isinstance(recorded_raw, (int, float)) else None
+    if recorded is not None:
+        if len(lines) == recorded:
+            print(f"  [PASS] JSONL line count matches recorded_cycles ({recorded})")
+        elif not allow_incomplete:
+            print(f"  [FAIL] JSONL line count {len(lines)} != recorded_cycles {recorded}")
+            ok = False
     if not allow_incomplete and expected >= 0 and len(lines) != expected:
         print(f"  [FAIL] JSONL line count {len(lines)} != meta.cycles {expected}")
         ok = False

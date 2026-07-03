@@ -2846,6 +2846,10 @@ class OverviewAgentView(_BaseCanvas):
         r = self.camera_label_rect()
         w, h = max(r.width(), 2), max(r.height(), 2)
         f = self.frame
+        if f is not None and f.grid is not None:
+            self._camera_label.clear()
+            self._camera_label.hide()
+            return
         use_schematic = (
             self._camera_mode == "schematic"
             or self._camera_gl_disabled
@@ -3043,7 +3047,7 @@ class OverviewAgentView(_BaseCanvas):
             p.setBrush(QtGui.QColor(52, 152, 219, 40))
             p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — camera/M3/M4 live-only fields may differ in JSONL")
+            p.drawText(12, 11, "REPLAY — grid/state/metrics from JSONL; camera and bulk memory are live-only")
         if f is not None:
             flags = self._current_moment(f)
             flags = _overview_moment_flags(f, self._err_hist, moment=flags)
@@ -3960,7 +3964,7 @@ class CognitiveFlowView(_BaseCanvas):
         p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(12, y + 11,
-                   "REPLAY — per_dim_peu / sanitized_state / camera are live-only in JSONL")
+                   "REPLAY — module_timings + rbta_bounds recorded; PEU details are live-only")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -4600,7 +4604,7 @@ class CandidateScoreView(_BaseCanvas):
         p.drawRoundedRect(8, 2, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(12, 11,
-                   "REPLAY — scores may be present · rollouts=live-only (candidate_rollouts)")
+                   "REPLAY — scores/rationale recorded · rollouts live-only (candidate_rollouts)")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5023,7 +5027,7 @@ class TrajectoryView(_BaseCanvas):
         p.setBrush(QtGui.QColor(52, 152, 219, 40))
         p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, y + 11, "REPLAY — rollouts / goal_target / sanitized_state unavailable in JSONL")
+        p.drawText(12, y + 11, "REPLAY — state/prediction/goal_ref recorded; rollouts/live goal vectors unavailable")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5685,8 +5689,30 @@ class RetentionView(_BaseCanvas):
         self.cycle_base = 0
         self._leak_smooth.reset()
         self._panel_scales.clear()
+        prev_m3 = None
+        prev_m4 = None
         for f in frames:
-            self.set_frame(f, histories_done=False)
+            if not self.m3:
+                self.cycle_base = int(f.cycle_id)
+            ep_count = int(f.episode_count)
+            fact_count = int(f.fact_count)
+            self.m3.append(ep_count)
+            self.m4.append(fact_count)
+            self.rss.append(float(f.rss_bytes))
+            self.lat.append(float(f.latency_ms))
+            self.m3_cap = int(f.m3_cap)
+            self.m4_cap = int(f.m4_cap)
+            reason = self._prune_reason(f)
+            if prev_m3 is not None and ep_count < prev_m3:
+                self.m3_events.append(len(self.m3) - 1)
+                self.m3_reasons[len(self.m3) - 1] = reason
+            if prev_m4 is not None and fact_count < prev_m4:
+                self.m4_events.append(len(self.m4) - 1)
+                self.m4_reasons[len(self.m4) - 1] = reason
+            prev_m3 = ep_count
+            prev_m4 = fact_count
+        if frames:
+            self.frame = frames[-1]
         self._dirty = True
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
@@ -5741,7 +5767,7 @@ class RetentionView(_BaseCanvas):
             p.setBrush(QtGui.QColor(52, 152, 219, 40))
             p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — M3/M4 bulk lists are live-only; caps/RSS/lat from JSONL")
+            p.drawText(12, 11, "REPLAY — counts/caps/RSS/latency recorded; bulk M3/M4 lists live-only")
         leak = self._leak_smooth.value(self._leak_rate())
         # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
@@ -6168,7 +6194,7 @@ class MemoryBeliefView(_BaseCanvas):
             p.setBrush(QtGui.QColor(52, 152, 219, 40))
             p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — M3/M4 lists and sanitized diff are live-only in JSONL")
+            p.drawText(12, 11, "REPLAY — G′ uncertainty + M3 top-error recorded; bulk memory/diff live-only")
         # ---- v7 focal: belief geography map (full width, top) ----
         self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
         self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
