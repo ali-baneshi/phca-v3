@@ -50,6 +50,20 @@ from .camera_render import (
 from .observability import ObservabilityFrame, _normalize_rgb_frame
 from .playback import _Smoother, freeze_sig
 from .render import _grid_base, _prediction_heatmap
+from .cognitive_panels import (
+    MOMENT_COLORS,
+    PIPELINE_LABEL,
+    action_status_extras,
+    append_cognitive_moment,
+    apply_decision_shift,
+    belief_reference,
+    build_moment_series,
+    cognitive_moment,
+    flow_action_link_line,
+    flow_near_bound_modules,
+    flow_status_extras,
+    overview_spike,
+)
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
@@ -68,12 +82,7 @@ TREND_WINDOW = 200
 PIPELINE = ["sanitize", "memory_write", "prediction", "peu", "tspl",
             "action_selection", "rbta"]
 SIDE_MODULES = ["gprime_learn", "mdim", "attn", "hpm", "cr", "consolidation"]
-PIPELINE_LABEL = {
-    "sanitize": "ASI", "memory_write": "M2", "prediction": "G′",
-    "peu": "PEU", "tspl": "TSPL", "action_selection": "Act", "rbta": "RBTA",
-    "gprime_learn": "G′lrn", "mdim": "MDIM", "attn": "Att", "hpm": "HPM",
-    "cr": "CR", "consolidation": "Cons",
-}
+# PIPELINE_LABEL lives in cognitive_panels; re-exported here for legacy imports.
 # Verified via env.get_action_names(): ['MOVE_N','MOVE_S','MOVE_E','MOVE_W','STAY']
 GRID_ACTIONS = ["MOVE_N", "MOVE_S", "MOVE_E", "MOVE_W", "STAY"]
 
@@ -143,8 +152,10 @@ def _flow_status_line(f: ObservabilityFrame, *, active_idx: Optional[int] = None
     viol_s = f"{vcount}V" if vcount else "OK"
     if viol_mods:
         viol_s += f" ({','.join(sorted(viol_mods))})"
-    return (f"Flow: bottleneck={bn_lbl} · Σpipe={pipe_ms:.1f}ms · "
+    base = (f"Flow: bottleneck={bn_lbl} · Σpipe={pipe_ms:.1f}ms · "
             f"violations={viol_s} · Δ={active_lbl}")
+    extras = flow_status_extras(f)
+    return f"{base} · {extras}" if extras else base
 
 
 def _heatmap_cell_alpha(ms: float, rmax: float) -> int:
@@ -176,9 +187,21 @@ def _heatmap_cell_color(ms: float, col_vals: List[float]) -> QtGui.QColor:
     return col
 
 
-def _flow_layout(w: int, h: int, n_mods: int) -> Dict[str, Any]:
+_FLOW_REPLAY_Y0 = 16
+_FLOW_HDR_CAPTION_Y = 74
+_FLOW_HDR_CAPTION_H = 14
+
+_ACTION_REPLAY_Y0 = 16
+_ACTION_STATUS_Y = 28
+_ACTION_CHIPS_Y = 40
+_ACTION_CHIPS_H = 14
+_ACTION_CTX_BAND_H = 28
+
+
+def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[str, Any]:
     """Reserve header, graph, and heatmap bands so they do not overlap."""
-    header_h = 44 if h < 400 else 58
+    y0 = _FLOW_REPLAY_Y0 if replay else 0
+    header_h = _FLOW_HDR_CAPTION_Y + _FLOW_HDR_CAPTION_H + 2 + y0
     margin = 6
     label_w = 36 if w < 520 else 44
     heatmap_h = max(90, min(int(h * 0.18), h - header_h - margin - 120))
@@ -188,6 +211,8 @@ def _flow_layout(w: int, h: int, n_mods: int) -> Dict[str, Any]:
     row_h = max(7.0, heatmap_h / max(n_mods, 1))
     return {
         "header_h": header_h,
+        "y0": y0,
+        "caption_bottom": header_h,
         "heatmap_h": int(heatmap_h),
         "graph_h": int(graph_h),
         "graph_top": graph_top,
@@ -200,12 +225,15 @@ def _flow_layout(w: int, h: int, n_mods: int) -> Dict[str, Any]:
     }
 
 
-def _action_layout(w: int, h: int) -> Dict[str, Any]:
+def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     """Explicit left/right stack geometry for Action Selection."""
-    header_h = 46
+    y0 = _ACTION_REPLAY_Y0 if replay else 0
+    header_h = _ACTION_CHIPS_Y + _ACTION_CHIPS_H + y0
+    ctx_top = header_h + 4
+    ctx_band_h = _ACTION_CTX_BAND_H
+    body_top = ctx_top + ctx_band_h
     margin = 8
     epsilon_h = 32
-    body_top = header_h + 4
     body_h = max(100, h - body_top - margin)
     left_w = max(160, w // 2 - 10)
     right_x = left_w + 16
@@ -216,6 +244,9 @@ def _action_layout(w: int, h: int) -> Dict[str, Any]:
     list_h = body_h - tau_slot_h - 6
     return {
         "header_h": header_h,
+        "y0": y0,
+        "ctx_top": ctx_top,
+        "ctx_band_h": ctx_band_h,
         "body_top": body_top,
         "body_h": body_h,
         "left_x": margin,
@@ -237,14 +268,16 @@ def _phase_frame_is_grid(f: ObservabilityFrame) -> bool:
     return f.grid is not None and f.agent_pos is not None
 
 
-def _phase_layout(w: int, h: int, env_kind: str, is_grid: bool) -> Dict[str, Any]:
+def _phase_layout(w: int, h: int, env_kind: str, is_grid: bool,
+                  *, tab_w: Optional[int] = None) -> Dict[str, Any]:
     """Explicit geometry for Phase Space tab regions."""
     header_h = 40 if not is_grid else 36
     pager_h = 0 if is_grid else 28
     perdim_h = 0 if is_grid else max(120, int(h * 0.38))
     traj_h = max(140, h - perdim_h - pager_h - 8)
     show_perdim = not is_grid
-    show_radar = w >= 700 and not is_grid
+    tw = tab_w if tab_w is not None else w
+    show_radar = (not is_grid) and tw >= 900
     radar_w = 180 if show_radar else 0
     return {
         "header_h": header_h,
@@ -466,6 +499,9 @@ def _action_status_line(
     f: ObservabilityFrame,
     scores: List[float],
     chosen: int,
+    *,
+    replay: bool = False,
+    moment: Optional[Dict[str, Any]] = None,
 ) -> str:
     """One-line Action tab status from action_rationale + candidate fields."""
     r = f.action_rationale or {}
@@ -479,8 +515,76 @@ def _action_status_line(
     margin = _action_score_margin(scores)
     margin_s = f"{margin:+.3f}" if margin is not None else "—"
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
-    return (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
+    base = (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
             f"Δ2nd={margin_s} · rollouts={len(rollouts)}")
+    extras = action_status_extras(f, scores, chosen, replay=replay, moment=moment)
+    return f"{base} · {extras}" if extras else base
+
+
+def _draw_moment_ticks(
+    p: QtGui.QPainter,
+    x0: int,
+    y_top: int,
+    x1: int,
+    y_bot: int,
+    moments: List[Dict[str, Any]],
+) -> None:
+    """Spike / learn / decision-shift ticks along a horizontal history axis."""
+    n = len(moments)
+    if n < 2:
+        return
+    span = x1 - x0
+    for i, m in enumerate(moments):
+        cx = int(x0 + i * span / max(n - 1, 1))
+        ty = y_bot - 2
+        if m.get("spike"):
+            p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["spike"]), 2))
+            p.drawLine(cx, ty - 10, cx, ty)
+        if m.get("learn_burst"):
+            p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["learn_burst"]), 2))
+            p.drawLine(cx, ty - 18, cx, ty - 12)
+        if m.get("decision_shift"):
+            p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["decision_shift"]), 2))
+            p.drawLine(cx, ty - 26, cx, ty - 20)
+        if m.get("violation"):
+            p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["spike"]), 1))
+            p.drawLine(cx, ty - 32, cx, ty - 28)
+
+
+def _draw_moment_chips(
+    p: QtGui.QPainter,
+    x: int,
+    y: int,
+    moment: Optional[Dict[str, Any]],
+) -> int:
+    """Draw compact moment chips; return x after last chip."""
+    if not moment:
+        return x
+    chips: List[Tuple[str, str]] = []
+    if moment.get("spike"):
+        chips.append(("spike", MOMENT_COLORS["spike"]))
+    if moment.get("learn_burst"):
+        chips.append(("learn", MOMENT_COLORS["learn_burst"]))
+    if moment.get("near_bound"):
+        nb = moment["near_bound"]
+        nb_lbl = PIPELINE_LABEL.get(nb, str(nb))[:8]
+        chips.append((nb_lbl, MOMENT_COLORS["near_bound"]))
+    if moment.get("drive_change"):
+        chips.append(("driveΔ", MOMENT_COLORS["drive_change"]))
+    if moment.get("decision_shift"):
+        chips.append(("shift", MOMENT_COLORS["decision_shift"]))
+    cx = x
+    p.setFont(_F_AXIS)
+    for lbl, col_s in chips:
+        col = _to_qcolor(col_s)
+        tw = 8 + len(lbl) * 6
+        p.setPen(QtGui.QPen(col, 1))
+        p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), CHIP_FILL_ALPHA))
+        p.drawRoundedRect(cx, y, tw, 14, 3, 3)
+        p.setPen(col)
+        p.drawText(cx + 4, y + 11, lbl)
+        cx += tw + 4
+    return cx
 
 
 PANEL_BG = QtGui.QColor(18, 18, 24)
@@ -1736,9 +1840,7 @@ _DECISION_SHIFT_THRESHOLD = 0.20
 def _apply_decision_shift(prev_score: Optional[float],
                           cur_score: Optional[float]) -> bool:
     """True when best_score jumps more than the Overview decision threshold."""
-    if prev_score is None or cur_score is None:
-        return False
-    return abs(cur_score - prev_score) > _DECISION_SHIFT_THRESHOLD
+    return apply_decision_shift(prev_score, cur_score)
 
 
 def _overview_spike(err_hist: Deque[float], cur_err: float,
@@ -1815,7 +1917,8 @@ def _overview_dominant_phase(f: ObservabilityFrame) -> str:
 
 
 def _draw_execution_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
-                                rect: QtCore.QRect, *, prefix: str = "exec: ") -> None:
+                                rect: QtCore.QRect, *, prefix: str = "exec: ",
+                                learn_burst: bool = False) -> None:
     segs = _execution_phase_segments(f)
     if not segs:
         return
@@ -1825,6 +1928,7 @@ def _draw_execution_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
     bar_y = y + 2
     bar_h = max(h - 14, 6)
     cx = x + 4
+    learn_x0 = learn_x1 = 0
     for label, ms in segs:
         share = max(ms / total, 0.02)
         seg_w = max(int((w - 8) * share), 4)
@@ -1834,15 +1938,21 @@ def _draw_execution_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
         p.setPen(QtGui.QPen(col.darker(130), 1))
         p.setBrush(col)
         p.drawRect(cx, bar_y, seg_w, bar_h)
+        if learn_burst and label == "Learn" and ms > 0:
+            learn_x0, learn_x1 = cx, cx + seg_w
         cx += seg_w + 1
+    if learn_x1 > learn_x0:
+        p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["learn_burst"]), 2))
+        p.drawRect(learn_x0 - 1, bar_y - 1, learn_x1 - learn_x0 + 2, bar_h + 2)
     p.setPen(DIM_COL); p.setFont(_F_AXIS)
     trail = " → ".join(s[0] for s in segs)
     p.drawText(x + 4, y + h - 2, f"{prefix}{trail}" if prefix else trail)
 
 
 def _draw_overview_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
-                               rect: QtCore.QRect) -> None:
-    _draw_execution_phase_strip(p, f, rect, prefix="")
+                               rect: QtCore.QRect, *,
+                               learn_burst: bool = False) -> None:
+    _draw_execution_phase_strip(p, f, rect, prefix="", learn_burst=learn_burst)
 
 
 def _overview_plain_story(f: ObservabilityFrame, flags: Dict[str, Any],
@@ -2053,7 +2163,7 @@ def _draw_mini_drive_ring(p: QtGui.QPainter, f: ObservabilityFrame,
     import math
     levels = list(getattr(f, "drive_levels", []) or [])
     n = _n_drives(f, levels)
-    active = int(getattr(f, "active_drive_id", 0) or 0)
+    active = int(_overview_goal_id(f) or 0)
     for i in range(n):
         did = i + 1
         lvl = float(levels[i]) if i < len(levels) else 0.0
@@ -2137,9 +2247,9 @@ def _draw_vitals_ribbon(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
     learn_ms = float((getattr(f, "module_timings", {}) or {}).get("gprime_learn", 0.0) or 0.0)
     p.drawText(cx4 + 6, y + 28,
                f"RSS {f.rss_bytes / 1e6:.0f}MB  lat {f.latency_ms:.1f}ms  lrn={learn_ms:.1f}ms")
-    r = f.action_rationale or {}
-    gid = r.get("goal_id")
+    gid = _overview_goal_id(f)
     goal_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
+    r = f.action_rationale or {}
     tag = "EXPLORE" if r.get("explored") else "EXPLOIT"
     score = r.get("best_score")
     score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "—"
@@ -2581,6 +2691,7 @@ class OverviewAgentView(_BaseCanvas):
         self._dist_hist.clear()
         self._prev_best_score = None
         self._prev_explored = None
+        self._event_lines = []
         for f in frames:
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)
@@ -2866,7 +2977,8 @@ class OverviewAgentView(_BaseCanvas):
         if f is not None:
             flags = _overview_moment_flags(f, self._err_hist)
             _draw_overview_header(p, f, header_rect, self._drive_change, flags)
-            _draw_overview_phase_strip(p, f, phase_rect)
+            _draw_overview_phase_strip(
+                p, f, phase_rect, learn_burst=bool(flags.get("learn_burst")))
             _draw_overview_narrative(p, f, narrative_rect, self._err_hist, self._dist_hist)
             _draw_overview_event_log(p, self.visible_event_lines(), event_rect)
             p.setPen(QtGui.QPen(GRID_COL, 1))
@@ -3673,17 +3785,61 @@ class CognitiveFlowView(_BaseCanvas):
         self._link_smooth: Dict[str, _Smoother] = {}
         self._topo_sig: tuple = ()
         self._replay: bool = False
+        self._moment_series: List[Dict[str, Any]] = []
+        self._moment_err_hist: Deque[float] = deque(maxlen=80)
+        self._prev_drive_id: Optional[int] = None
+        self._prev_best_score: Optional[float] = None
+        self._heat_cycle_ids: Deque[int] = deque(maxlen=80)
 
-    def set_frame(self, f: ObservabilityFrame, *, replay: bool = False) -> None:
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self.heat.clear()
+        self._heat_cycle_ids.clear()
+        self._ms_smooth.clear()
+        self._link_smooth.clear()
+        self._heat_pm = None
+        self._heat_key = ()
+        self._moment_err_hist.clear()
+        self._prev_drive_id = None
+        self._prev_best_score = None
+        self._moment_series = build_moment_series(frames)
+        for f in frames:
+            self.heat.append(dict(getattr(f, "module_timings", {}) or {}))
+            self._heat_cycle_ids.append(int(getattr(f, "cycle_id", 0) or 0))
+        if frames:
+            from .cognitive_panels import goal_id_from_frame, _best_score
+            gid = goal_id_from_frame(frames[-1])
+            if gid:
+                self._prev_drive_id = gid
+            self._prev_best_score = _best_score(frames[-1])
+        if len(self.heat) >= 2:
+            prev, cur = self.heat[-2], self.heat[-1]
+            try:
+                self._active_idx, self._active_hold = _flow_update_active_idx(
+                    prev, cur, self._delta_smooth, self._active_idx, self._active_hold)
+            except Exception:
+                pass
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
         self.frame = f
         self._replay = replay
         self.cycle_id = int(f.cycle_id)
-        self.heat.append(dict(f.module_timings))
+        if not histories_done:
+            self.heat.append(dict(f.module_timings))
+            self._heat_cycle_ids.append(int(f.cycle_id))
+            self._moment_series, self._prev_drive_id, self._prev_best_score = (
+                append_cognitive_moment(
+                    self._moment_series, f, self._moment_err_hist,
+                    prev_drive_id=self._prev_drive_id,
+                    prev_best_score=self._prev_best_score,
+                    maxlen=self.heat.maxlen or 80))
+            if len(self._moment_series) > len(self.heat):
+                self._moment_series = self._moment_series[-len(self.heat):]
         now = time.monotonic()
         dt = now - self._last_wall; self._last_wall = now
         self._anim_t = (self._anim_t + dt / 0.5) % len(PIPELINE)
         # active node = most-recently-active by EMA'd timing delta + hysteresis
-        if len(self.heat) >= 2:
+        if not histories_done and len(self.heat) >= 2:
             prev, cur = self.heat[-2], self.heat[-1]
             try:
                 self._active_idx, self._active_hold = _flow_update_active_idx(
@@ -3722,7 +3878,8 @@ class CognitiveFlowView(_BaseCanvas):
         p.setBrush(QtGui.QColor(52, 152, 219, 40))
         p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, y + 11, "REPLAY — rollouts / M3 / M4 unavailable in JSONL")
+        p.drawText(12, y + 11,
+                   "REPLAY — rbta_bounds detail / live-only timings may differ in JSONL")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         import math
@@ -3731,17 +3888,21 @@ class CognitiveFlowView(_BaseCanvas):
         if f is None:
             self._empty(p, "Cognitive flow…"); return
         active_idx = self._active_idx
-        lay = _flow_layout(w, h, len(_FLOW_ALL_MODULES))
-        y0 = 16 if self._replay else 0
+        lay = _flow_layout(w, h, len(_FLOW_ALL_MODULES), replay=self._replay)
+        y0 = lay["y0"]
         self._draw_replay_banner(p)
         self._title(p, "Cognitive flow — timing topology + execution phases", y=12 + y0)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 28 + y0, _flow_status_line(f, active_idx=active_idx))
-        strip_y = 32 + y0
+        moment = self._moment_series[-1] if self._moment_series else None
+        _draw_moment_chips(p, 10, 40 + y0, moment)
+        strip_y = 58 + y0
+        learn_burst = bool(moment and moment.get("learn_burst"))
         _draw_execution_phase_strip(
-            p, f, QtCore.QRect(8, strip_y, w - 16, 14))
+            p, f, QtCore.QRect(8, strip_y, w - 16, 14), learn_burst=learn_burst)
         self._caption(p, "disc = timing cost · red = RBTA violation · "
-                         "link width = adjacent timing share · gold arc = Δ edge", y=48 + y0)
+                         "link width = adjacent timing share · gold arc = Δ edge · "
+                         "POST-CYCLE = inter-cycle housekeeping", y=74 + y0)
         pos, (cx, cy), R = self._node_pos(
             w, lay["graph_h"], lay["graph_top"], scale=lay.get("node_scale", 1.0))
         n = len(PIPELINE)
@@ -3806,11 +3967,20 @@ class CognitiveFlowView(_BaseCanvas):
             self._mb_bar(p, mod, ms, x - 30, lbl_y + 14, 60)
             if mod in ("prediction", "action_selection"):
                 self._scalar_gauge_thumb(p, mod, f, x - 30, y - r - 30, 60, 22)
+            elif mod == "peu":
+                self._peu_gauge_thumb(p, f, x - 30, y - r - 30, 60, 22)
             else:
                 self._status_badge(p, mod, ms, x - 30, y - r - 24, 60)
             if viol and mod in self.last_viol:
                 p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_AXIS)
                 p.drawText(x - 30, lbl_y + 32, 60, 10, 0x84, self.last_viol[mod])
+            sub = self._flow_node_subcaption(mod, f)
+            sub_y = lbl_y + 44
+            if sub:
+                p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                p.drawText(x - 30, sub_y, 60, 10, 0x84, sub[:12])
+            if mod == "attn":
+                self._attn_salience_bars(p, f, x - 30, sub_y + 12, 60)
         self._side_panel(p, lay["graph_top"], compact=lay.get("compact", False))
         self._heatmap(p, lay)
 
@@ -3843,6 +4013,42 @@ class CognitiveFlowView(_BaseCanvas):
         else:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x, y + 16, f"{measured:.1f}ms")
+
+    def _flow_node_subcaption(self, mod: str, f: ObservabilityFrame) -> str:
+        if mod == "prediction":
+            err = float(getattr(f, "prediction_error", 0.0) or 0.0)
+            return f"err={err:.2f}" if err > 0 else ""
+        if mod == "peu":
+            peu = getattr(f, "per_dim_peu", None)
+            if peu is not None:
+                arr = np.asarray(peu, dtype=np.float32).reshape(-1)
+                if arr.size:
+                    return f"PEŪ={float(np.mean(arr)):.2f}"
+            if self._replay:
+                return "PEU replay"
+            return ""
+        if mod in ("tspl", "mdim"):
+            acc = float(getattr(f, "tspl_skill_accuracy", 0.0) or 0.0)
+            if acc > 0:
+                txt = f"skill={acc:.2f}"
+                if getattr(f, "tspl_skill_compiled", False):
+                    txt += " compiled"
+                return txt
+            return ""
+        if mod == "rbta":
+            act = str(getattr(f, "rbta_action", "") or "CONTINUE")
+            vc = int(getattr(f, "violations_count", 0) or 0)
+            return f"{act}" + (f" {vc}V" if vc else "")
+        if mod == "consolidation":
+            ml = dict(getattr(f, "memory_log", {}) or {})
+            el = dict(getattr(f, "energy_log", {}) or {})
+            parts = []
+            if ml:
+                parts.append(f"M:{sum(ml.values()):.0f}ms")
+            if el:
+                parts.append(f"E:{sum(el.values()):.0f}ms")
+            return " ".join(parts)
+        return ""
 
     def _status_badge(self, p: QtGui.QPainter, mod: str, measured: float,
                       x: int, y: int, w: int) -> None:
@@ -3907,37 +4113,95 @@ class CognitiveFlowView(_BaseCanvas):
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x + 3, y + h - 5, f"{label}={v:.2f}{unit}")
 
+    def _peu_gauge_thumb(self, p: QtGui.QPainter, f: ObservabilityFrame,
+                         x: int, y: int, w: int, h: int) -> None:
+        """PEU mean gauge on the PEU node (high = warmer)."""
+        peu = getattr(f, "per_dim_peu", None)
+        if peu is None:
+            self._status_badge(p, "peu", float(f.module_timings.get("peu", 0.0)),
+                               x, y + 6, w)
+            return
+        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
+        if not arr.size:
+            return
+        v = float(np.mean(arr))
+        vc = max(0.0, min(1.0, v))
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
+        col = (QtGui.QColor(46, 204, 113) if vc < 0.33 else
+               QtGui.QColor(241, 196, 15) if vc < 0.66 else QtGui.QColor(231, 76, 60))
+        p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 180))
+        p.drawRoundedRect(x + 2, y + 2, int((w - 4) * vc), h - 4, 3, 3)
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 3, y + h - 5, f"PEŪ={v:.2f}")
+
+    def _attn_salience_bars(self, p: QtGui.QPainter, f: ObservabilityFrame,
+                            x: int, y: int, w: int) -> None:
+        """Mini salience strip under the Attn node."""
+        sal = getattr(f, "attention_saliences", None)
+        if sal is None:
+            return
+        arr = np.asarray(sal, dtype=np.float32).reshape(-1)
+        if arr.size == 0:
+            return
+        head = arr[:4]
+        mx = float(np.max(np.abs(head))) or 1.0
+        bar_w = max(3, (w - 8) // 4)
+        for i, val in enumerate(head):
+            bh = max(1, int(abs(float(val)) / mx * 10))
+            p.fillRect(x + 2 + i * (bar_w + 1), y + (10 - bh), bar_w, bh,
+                       QtGui.QColor(52, 152, 219, 200))
+
     def _side_panel(self, p: QtGui.QPainter, y_offset: int = 12,
                     *, compact: bool = False) -> None:
-        """Consolidated composite-bounds + legend panel (top-right)."""
+        """Composite bounds + near-bound list + latency check (top-right)."""
+        f = self.frame
         w, h = self.width(), self.height()
-        x, y, tw, th = w - 168, y_offset, 158, 118
+        x, y, tw, th = w - 168, y_offset, 158, 142
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, tw, th)
         p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
         p.drawText(x + 4, y + 12, "composite bounds")
-        bounds = getattr(self.frame, "rbta_bounds", None) or {}
+        bounds = getattr(f, "rbta_bounds", None) or {} if f else {}
         pipe_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in PIPELINE]
         side_ids = [k for k in bounds if RBTA_TO_FLOW.get(k, "") in SIDE_MODULES]
         pb = sum(float(bounds[k].get("time", 0.0)) for k in pipe_ids if isinstance(bounds[k], dict))
         sb = max((float(bounds[k].get("time", 0.0)) for k in side_ids if isinstance(bounds[k], dict)), default=0.0)
+        lat = float(getattr(f, "latency_ms", 0.0) or 0.0) if f else 0.0
         p.setPen(ACCENT); p.setFont(_F_AXIS)
-        p.drawText(x + 4, y + 28, f"Σpipe={pb:.0f}ms  maxpar={sb:.0f}ms")
+        lat_s = f"  lat={lat:.0f}ms" if lat > 0 else ""
+        p.drawText(x + 4, y + 28, f"Σpipe={pb:.0f}ms{lat_s}")
+        if f and lat > 0 and pb > 0 and abs(lat - pb) / max(lat, 1e-6) > 0.2:
+            p.setPen(QtGui.QColor(241, 196, 15))
+            p.drawText(x + 4, y + 40, f"⚠ pipe≠latency Δ{lat - pb:+.0f}ms")
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x + 4, y + 42, f"root SEQUENCE(pipe) · reg PARALLEL(sides)")
         p.drawText(x + 4, y + 54, f"({len(pipe_ids)}+{len(side_ids)} bound mods)")
+        if f:
+            ms = getattr(f, "meta_stable", None) or {}
+            stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
+            chip_col = QtGui.QColor(46, 204, 113) if stable else QtGui.QColor(231, 76, 60)
+            chip_lbl = "meta stable" if stable else "meta unstable"
+            p.setFont(_F_AXIS)
+            fm = p.fontMetrics()
+            cw = fm.horizontalAdvance(chip_lbl) + 8
+            p.setPen(QtGui.QPen(chip_col, 1))
+            p.setBrush(QtGui.QColor(chip_col.red(), chip_col.green(), chip_col.blue(), CHIP_FILL_ALPHA))
+            p.drawRoundedRect(x + 4, y + 58, cw, 14, 3, 3)
+            p.setPen(chip_col)
+            p.drawText(x + 8, y + 69, chip_lbl)
+            near = flow_near_bound_modules(f, top_k=3)
+            if near:
+                p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
+                p.drawText(x + 4, y + 82, "near-bound")
+                ly = y + 96
+                for mod, ratio in near:
+                    p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_AXIS)
+                    p.drawText(x + 4, ly, f"{PIPELINE_LABEL.get(mod, mod)[:6]} {ratio:.0%}")
+                    ly += 12
         if compact:
             return
-        # legend
-        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-        p.drawText(x + 4, y + 70, "legend")
-        ly = y + 84
-        for lbl, col in (("gold arc = Δ edge", "#f1c40f"),
-                         ("dashed = side timing", "#9b59b6"),
-                         ("red = RBTA violation", "#e74c3c")):
-            p.setPen(_to_qcolor(col)); p.drawLine(x + 4, ly - 4, x + 18, ly - 4)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 22, ly, lbl); ly += 12
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 4, y + th - 14, "gold=Δ · purple=side")
 
     def _heatmap(self, p: QtGui.QPainter, lay: Dict[str, Any]) -> None:
         if not self.heat:
@@ -3993,6 +4257,40 @@ class CognitiveFlowView(_BaseCanvas):
             rp.end()
             self._heat_pm = pm
         p.drawPixmap(0, top - 4, self._heat_pm)
+        data_x = 10 + label_w
+        band_w = w - data_x - 10
+        learn_row = None
+        for j, mod in enumerate(mods):
+            if mod == "gprime_learn":
+                learn_row = j
+                break
+        if learn_row is not None and any(
+                m.get("learn_burst") for m in self._moment_series[-len(self.heat):]):
+            ry = int(top - 4 + 4 + learn_row * row_h)
+            p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["learn_burst"]), 2))
+            p.drawRect(data_x - 1, ry - 1, int(band_w) + 2, max(int(row_h), 1) + 1)
+        f = self.frame
+        rbta_act = str(getattr(f, "rbta_action", "") or "CONTINUE") if f else "CONTINUE"
+        if rbta_act != "CONTINUE":
+            rbta_row = next((j for j, m in enumerate(mods) if m == "rbta"), None)
+            if rbta_row is not None:
+                ry = int(top - 4 + 4 + rbta_row * row_h)
+                p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15), 2))
+                p.drawRect(data_x - 1, ry - 1, int(band_w) + 2, max(int(row_h), 1) + 1)
+        tick_top = top - 4
+        tick_bot = top - 4 + strip_h
+        _draw_moment_ticks(
+            p, data_x, tick_top, data_x + int(band_w), tick_bot,
+            self._moment_series[-len(self.heat):] if self._moment_series else [])
+        ncols = len(self.heat)
+        if ncols >= 2:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            cids = list(self._heat_cycle_ids)[-ncols:]
+            cw = band_w / max(ncols, 1)
+            for i, cid in enumerate(cids):
+                if i % 5 == 0 or i == ncols - 1:
+                    tx = int(data_x + i * cw + 2)
+                    p.drawText(tx, tick_bot + 10, str(cid))
 
 
 # ----- Action Selection tab --------------------------------------------------
@@ -4019,27 +4317,110 @@ class CandidateScoreView(_BaseCanvas):
         self._replay: bool = False
         self._last_scores_cycle: int = -1
         self._rollout_cache = _RolloutCloudCache()
+        self._moment_series: List[Dict[str, Any]] = []
+        self._pred_err_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._margin_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._prev_drive_id: Optional[int] = None
+        self._prev_best_score: Optional[float] = None
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
 
-    def set_frame(self, f: ObservabilityFrame, *, replay: bool = False) -> None:
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self.eps_hist.clear()
+        self.ee_hist.clear()
+        self.score_hist.clear()
+        self._margin_hist.clear()
+        self._pred_err_hist.clear()
+        self._rollout_cache.clear()
+        self._rank_sig = ()
+        self._prev_drive_id = None
+        self._prev_best_score = None
+        self._moment_series = build_moment_series(frames)
+        for f in frames:
+            r = f.action_rationale or {}
+            if r:
+                self.eps_hist.append(float(r.get("eps", 0.0)))
+                self.ee_hist.append(bool(r.get("explored", False)))
+                bs = r.get("best_score")
+                if isinstance(bs, (int, float)):
+                    self.score_hist.append(float(bs))
+            self._pred_err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
+            sc = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+            m = _action_score_margin(sc)
+            if m is not None:
+                self._margin_hist.append(m)
+        if frames:
+            last = frames[-1]
+            if last.candidate_scores:
+                sc = [float(x) for x in last.candidate_scores]
+                self.last_scores = sc
+                self.last_chosen = _action_chosen_idx(last, sc)
+                self._last_scores_cycle = int(last.cycle_id)
+            if last.continuous_action is not None:
+                self.last_continuous = last.continuous_action
+            from .cognitive_panels import goal_id_from_frame, _best_score
+            gid = goal_id_from_frame(last)
+            if gid:
+                self._prev_drive_id = gid
+            self._prev_best_score = _best_score(last)
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False) -> None:
         self.frame = f
         self._replay = replay
         r = f.action_rationale or {}
-        if r:
-            self.eps_hist.append(float(r.get("eps", 0.0)))
-            self.ee_hist.append(bool(r.get("explored", False)))
-            bs = r.get("best_score")
-            if isinstance(bs, (int, float)):
-                self.score_hist.append(float(bs))
+        if not histories_done:
+            if r:
+                self.eps_hist.append(float(r.get("eps", 0.0)))
+                self.ee_hist.append(bool(r.get("explored", False)))
+                bs = r.get("best_score")
+                if isinstance(bs, (int, float)):
+                    self.score_hist.append(float(bs))
+            sc = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+            m = _action_score_margin(sc)
+            if m is not None:
+                self._margin_hist.append(m)
+            self._moment_series, self._prev_drive_id, self._prev_best_score = (
+                append_cognitive_moment(
+                    self._moment_series, f, self._pred_err_hist,
+                    prev_drive_id=self._prev_drive_id,
+                    prev_best_score=self._prev_best_score,
+                    maxlen=TREND_WINDOW))
         if f.candidate_scores:
             self.last_scores = [float(x) for x in f.candidate_scores]
             self.last_chosen = _action_chosen_idx(f, self.last_scores)
             self._last_scores_cycle = int(f.cycle_id)
+        elif r.get("explored"):
+            self.last_scores = []
+            self.last_chosen = -1
         if f.continuous_action is not None:
             self.last_continuous = f.continuous_action
+        elif getattr(f, "last_action_vector", None) is not None:
+            self.last_continuous = f.last_action_vector
         self._dirty = True
+
+    def _action_context_band(self, p: QtGui.QPainter, f: ObservabilityFrame,
+                             x: int, y: int, w: int) -> None:
+        """Goal/drive/error context + Flow→Action link."""
+        r = f.action_rationale or {}
+        gid = r.get("goal_id") or getattr(f, "active_drive_id", None)
+        lvls = list(getattr(f, "drive_levels", []) or [])
+        err = float(getattr(f, "prediction_error", 0.0) or 0.0)
+        moment = self._moment_series[-1] if self._moment_series else None
+        peu_s = ""
+        if moment and moment.get("peu_mean") is not None:
+            peu_s = f" PEŪ={moment['peu_mean']:.2f}"
+        lvl_s = ""
+        if gid and lvls and 0 < int(gid) <= len(lvls):
+            lvl_s = f" drive_lvl={lvls[int(gid) - 1]:.2f}"
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        fm = p.fontMetrics()
+        line1 = f"ctx: goal={gid}{lvl_s} err={err:.2f}{peu_s}"
+        p.drawText(x, y, fm.elidedText(line1, QtCore.Qt.ElideRight, w))
+        link = flow_action_link_line(f)
+        if link:
+            p.drawText(x, y + 12, fm.elidedText(link, QtCore.Qt.ElideRight, w))
 
     def _rollout_cloud(self, p: QtGui.QPainter, f: ObservabilityFrame,
                        x0: int, top: int, x1: int, bot: int, is_continuous: bool,
@@ -4060,21 +4441,26 @@ class CandidateScoreView(_BaseCanvas):
         varexp = varexp_fn() if callable(varexp_fn) else None
         if varexp:
             label += f"  PCA {varexp:.0f}%"
+        scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+        chosen_idx = _action_chosen_idx(f, scores)
+        if chosen_idx >= 0:
+            label += f" · chosen=#{chosen_idx}"
         self._title(p, label, y=top + 12, x=x0)
         if not rollouts:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             r = f.action_rationale or {}
             if bool(r.get("explored")):
                 p.drawText(x0, top + 30,
-                           "ε-greedy explore · random τ · rollouts not computed")
+                           "ε-greedy — sampling τ · rollouts not computed")
             elif has_scores:
-                msg = ("rollout cloud needs live session (not in JSONL replay)"
-                       if self._replay else
-                       "rollout cloud needs live session (not in JSONL replay)")
+                if self._replay:
+                    msg = "scores=OK · rollouts=REPLAY (live-only: candidate_rollouts)"
+                else:
+                    msg = "scores=OK · rollouts=LIVE (needs projection basis)"
                 p.drawText(x0, top + 30, msg)
             else:
                 p.drawText(x0, top + 30,
-                           "(no rollouts this cycle — explore/D5 branch)")
+                           "scores=MISSING · (explore/D5 branch)")
             return
         if self.proj is not None and self.proj.history:
             px0, py0, px1, py1 = x0, top + 20, x1, bot - 4
@@ -4083,13 +4469,36 @@ class CandidateScoreView(_BaseCanvas):
             _draw_belief_rollout_cloud(
                 p, f, self.proj, px0, py0, px1, py1, self._rollout_cache,
                 replay=self._replay, is_continuous=is_continuous)
+            if getattr(self.proj, "basis_changed", False):
+                p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
+                p.drawText(px0 + 4, py1 - 6, "⟳ PCA re-fit")
+            tau = f.continuous_action if f.continuous_action is not None else self.last_continuous
+            if tau is None and getattr(f, "last_action_vector", None) is not None:
+                tau = f.last_action_vector
+            if is_continuous and tau is not None:
+                cur_v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+                anchor = self.proj.project(cur_v) if cur_v is not None else None
+                if anchor is not None:
+                    bounds = self.proj.bounds()
+                    tcx, tcy = _map_pt(anchor, bounds, px0, py0, px1, py1)
+                else:
+                    tcx, tcy = (px0 + px1) // 2, (py0 + py1) // 2
+                tv = np.asarray(tau, dtype=np.float32).reshape(-1)
+                if tv.size >= 2:
+                    sc = min(px1 - px0, py1 - py0) * 0.15
+                    p.setPen(QtGui.QPen(ACCENT, 2))
+                    p.drawLine(tcx, tcy, int(tcx + float(tv[0]) * sc),
+                               int(tcy - float(tv[1]) * sc))
+                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                    p.drawText(tcx + 4, tcy - 4, "τ")
             return
         # Fallback: per-action predicted-bar mini (no projection basis yet).
         n = len(rollouts)
+        names = list(getattr(f, "action_names", []) or [])
         bw = (x1 - x0 - 20) / max(n, 1)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x0 + 10, bot - 6, x1 - 10, bot - 6)
-        for i, r in enumerate(rollouts):
-            pred = r.get("predicted")
+        for i, ro in enumerate(rollouts):
+            pred = ro.get("predicted")
             if pred is None:
                 continue
             head = np.asarray(pred, dtype=np.float32).reshape(-1)[:12]
@@ -4098,12 +4507,14 @@ class CandidateScoreView(_BaseCanvas):
             for j, val in enumerate(head):
                 bh = int(abs(float(val)) / mx * (bot - top - 30))
                 col = QtGui.QColor(52, 152, 219, 180)
-                if r.get("chosen"):
+                if ro.get("chosen") or i == chosen_idx:
                     col = QtGui.QColor(241, 196, 15, 220)
                 p.fillRect(int(x + j * 2), int(bot - 6 - bh), 2, bh, col)
-            p.setPen(ACCENT if r.get("chosen") else DIM_COL)
+            nm = names[i] if i < len(names) else str(i)
+            p.setPen(ACCENT if (ro.get("chosen") or i == chosen_idx) else DIM_COL)
             p.setFont(QtGui.QFont("Sans", 7))
-            p.drawText(int(x), bot + 0, f"{float(r.get('score',0)):.2f}")
+            p.drawText(int(x), bot - 14, nm[:6])
+            p.drawText(int(x), bot + 0, f"{float(ro.get('score',0)):.2f}")
 
     def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
         if not self._replay:
@@ -4112,14 +4523,15 @@ class CandidateScoreView(_BaseCanvas):
         p.setBrush(QtGui.QColor(52, 152, 219, 40))
         p.drawRoundedRect(8, 2, self.width() - 16, 14, 3, 3)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, 11, "REPLAY — rollouts / M3 / M4 unavailable in JSONL")
+        p.drawText(12, 11,
+                   "REPLAY — scores may be present · rollouts=live-only (candidate_rollouts)")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
         if f is None:
             self._empty(p, "Action selection…"); return
         w, h = self.width(), self.height()
-        lay = _action_layout(w, h)
+        lay = _action_layout(w, h, replay=self._replay)
         r = f.action_rationale or {}
         scores = [float(x) for x in f.candidate_scores]
         chosen = _action_chosen_idx(f, scores)
@@ -4134,7 +4546,7 @@ class CandidateScoreView(_BaseCanvas):
         cr_t = float(getattr(f, "cr_temperature", 0.0) or 0.0)
         pareto = set(int(x) for x in (getattr(f, "pareto_front", []) or []))
         names = list(getattr(f, "action_names", []) or [])
-        y0 = 16 if self._replay else 0
+        y0 = lay["y0"]
         self._draw_replay_banner(p)
         hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         bs = r.get("best_score")
@@ -4142,15 +4554,19 @@ class CandidateScoreView(_BaseCanvas):
             hdr += f"  score={bs:.3f}"
         self._title(p, hdr, y=12 + y0)
         kind = "continuous τ" if is_continuous else "discrete"
-        status = _action_status_line(f, scores, chosen)
+        moment = self._moment_series[-1] if self._moment_series else None
+        status = _action_status_line(f, scores, chosen, replay=self._replay, moment=moment)
         status += f" · {kind} · pareto={len(pareto)}"
         if note:
             status += f" · {note}"
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(10, 28 + y0, status)
-        self._best_score_spark(p, w - 190, 6 + y0, 180, 26)
+        p.drawText(10, _ACTION_STATUS_Y + y0, status)
+        _draw_moment_chips(p, 10, _ACTION_CHIPS_Y + y0, moment)
+        self._best_score_spark(p, w - 190, 6 + y0, 88, 26)
+        self._margin_spark(p, w - 96, 6 + y0, 86, 26)
         list_x, list_y = lay["left_x"], lay["left_y"]
         list_w, list_h = lay["left_w"], lay["left_h"]
+        self._action_context_band(p, f, list_x, lay["ctx_top"] + 10, list_w)
         rx0, right_w = lay["right_x"], lay["right_w"]
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(list_x - 4, list_y - 4, list_w + 8, list_h + lay["tau_slot_h"] + 10, 6, 6)
@@ -4173,11 +4589,11 @@ class CandidateScoreView(_BaseCanvas):
             p.setFont(_F_AXIS); p.setPen(TEXT_COL)
             if explored:
                 p.drawText(list_x, list_y + 42,
-                           "ε-greedy explore · random τ · scores not computed")
+                           "ε-greedy — no score table this cycle")
             else:
                 p.drawText(list_x, list_y + 42, "(candidate scores are not computed for this branch)")
             if (self.last_scores and self._last_scores_cycle == int(f.cycle_id)
-                    and not self._replay):
+                    and not self._replay and not explored):
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 cn = _action_candidate_label(self.last_chosen, names, is_continuous)
                 p.drawText(list_x, list_y + 62, f"last chosen: {cn}")
@@ -4209,7 +4625,13 @@ class CandidateScoreView(_BaseCanvas):
         rng = (hi - lo) or 1.0
         rh = max(14, min(34, h // max(n, 1)))
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y - 4, f"rank · name · score (Δ to 2nd on top row)")
+        n_par = len(pareto)
+        p.drawText(x, y - 4, f"rank · name · score (Δ2nd) · Pareto {n_par}/{n}")
+        moment = self._moment_series[-1] if self._moment_series else None
+        shift = bool(moment and moment.get("decision_shift"))
+        if shift:
+            p.setPen(_to_qcolor(MOMENT_COLORS["decision_shift"])); p.setFont(_F_LABEL_B)
+            p.drawText(x + w - 44, y - 4, "SHIFT")
         for rank, idx in enumerate(order):
             ry = y + 6 + rank * rh
             if ry + rh > y + h:
@@ -4303,6 +4725,29 @@ class CandidateScoreView(_BaseCanvas):
             py = (y + h - 3) - (v - lo) / (hi - lo) * (h - 16)
             (path.moveTo if i == 0 else path.lineTo)(px, py)
         p.drawPath(path)
+        ms = self._moment_series[-n:] if self._moment_series else []
+        _draw_moment_ticks(p, x + 4, y + 10, x + w - 4, y + h - 2, ms)
+
+    def _margin_spark(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
+        """Best−2nd score margin over cycles."""
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 4, y + 10, "Δ2nd margin")
+        vals = list(self._margin_hist)
+        if len(vals) < 2:
+            p.setPen(DIM_COL); p.drawText(x + 4, y + h - 4, "—"); return
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9:
+            hi = lo + 1.0
+        n = len(vals)
+        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 2))
+        path = QtGui.QPainterPath()
+        for i, v in enumerate(vals):
+            px = x + 4 + i * (w - 8) / max(n - 1, 1)
+            py = (y + h - 3) - (v - lo) / (hi - lo) * (h - 16)
+            (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.drawPath(path)
 
     def _epsilon_strip(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
         """v7: reserved ε-decay + explore/exploit strip (moved out of the cloud
@@ -4330,6 +4775,12 @@ class CandidateScoreView(_BaseCanvas):
             c = QtGui.QColor(231, 76, 60) if e else QtGui.QColor(46, 204, 113)
             p.setBrush(c); p.setPen(QtGui.QPen(c.darker(120), 1))
             p.drawEllipse(xx - 3, base_y + 2, 6, 6)
+        ms = self._moment_series[-n:] if self._moment_series else []
+        for i, m in enumerate(ms):
+            if m.get("learn_burst"):
+                xx = int(x + 4 + i * (w - 8) / max(n - 1, 1))
+                p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["learn_burst"]), 2))
+                p.drawLine(xx, chart_top, xx, chart_top + 8)
 
 
 # ----- Phase Space tab -------------------------------------------------------
@@ -4346,6 +4797,11 @@ class TrajectoryView(_BaseCanvas):
         self._replay: bool = False
         self._low_conf: bool = False
         self._rollout_cache = _RolloutCloudCache()
+        self._last_cycle_id: int = -1
+        self._pred_err_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
+        self._moment_series: List[Dict[str, Any]] = []
+        self._prev_drive_id: Optional[int] = None
+        self._prev_best_score: Optional[float] = None
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
@@ -4391,14 +4847,29 @@ class TrajectoryView(_BaseCanvas):
         self.errmap = None
         self._low_conf = False
         self._clear_rollout_cache()
+        self._pred_err_hist.clear()
+        self._moment_series = build_moment_series(frames)
+        self._prev_drive_id = None
+        self._prev_best_score = None
         for f in frames:
+            self._pred_err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
             if f.grid is not None and f.agent_pos is not None:
                 self._apply_grid_frame(f)
             else:
                 self.is_grid = False
+        if frames:
+            from .cognitive_panels import goal_id_from_frame, _best_score
+            gid = goal_id_from_frame(frames[-1])
+            if gid:
+                self._prev_drive_id = gid
+            self._prev_best_score = _best_score(frames[-1])
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
                   replay: bool = False) -> None:
+        cid = int(getattr(f, "cycle_id", -1))
+        if cid != self._last_cycle_id:
+            self._clear_rollout_cache()
+            self._last_cycle_id = cid
         self.frame = f
         self._replay = replay
         if f.grid is not None and f.agent_pos is not None:
@@ -4406,7 +4877,68 @@ class TrajectoryView(_BaseCanvas):
                 self._apply_grid_frame(f)
         else:
             self.is_grid = False
+        if not histories_done:
+            self._pred_err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
+            self._moment_series, self._prev_drive_id, self._prev_best_score = (
+                append_cognitive_moment(
+                    self._moment_series, f, self._pred_err_hist,
+                    prev_drive_id=self._prev_drive_id,
+                    prev_best_score=self._prev_best_score,
+                    maxlen=TREND_WINDOW))
         self._dirty = True
+
+    def _draw_pred_diag_strip(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
+        """Grid-mode prediction diagnostics (unique vs Overview spatial view)."""
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 6, y + 12, "prediction diagnostics — spatial view → Overview tab")
+        vals = list(self._pred_err_hist)
+        if len(vals) >= 2:
+            lo, hi = min(vals), max(vals)
+            if hi - lo < 1e-9:
+                hi = lo + 1.0
+            path = QtGui.QPainterPath()
+            for i, v in enumerate(vals):
+                px = x + 8 + i * (w - 16) / max(len(vals) - 1, 1)
+                py = y + h - 6 - (v - lo) / (hi - lo) * (h - 22)
+                (path.moveTo if i == 0 else path.lineTo)(px, py)
+            p.setPen(QtGui.QPen(QtGui.QColor(230, 126, 34), 2))
+            p.drawPath(path)
+        emax = float(self.errmap.max()) if self.errmap is not None else 0.0
+        p.setPen(DIM_COL)
+        p.drawText(x + 6, y + h - 4, f"err trend · max cell err={emax:.2f} · trail={len(self.trail)}")
+
+    def _draw_phase_drive_goals_inset(self, p: QtGui.QPainter, f: ObservabilityFrame,
+                                      x: int, y: int, w: int, h: int) -> None:
+        import math
+        dgs = getattr(f, "drive_goals", None) or []
+        if not dgs and self._replay:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, y + 10, "drive_goals unavailable (replay)")
+            return
+        if not dgs:
+            return
+        nd = max(len(dgs), _n_drives(f))
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRect(x, y, w, h)
+        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 3, y + 10, "drive pull")
+        cx, cy = x + w // 2, y + h // 2 + 4
+        R = min(w, h) // 2 - 8
+        mags = []
+        for i in range(nd):
+            dg = dgs[i] if i < len(dgs) else None
+            m = float(np.linalg.norm(np.asarray(dg, dtype=np.float32))) if dg is not None else 0.0
+            mags.append(m)
+        mx = max(mags) if mags else 1.0
+        mx = mx if mx > 1e-6 else 1.0
+        for i in range(nd):
+            ang = -math.pi / 2 + i * 2 * math.pi / max(nd, 1)
+            r = (mags[i] / mx) * R
+            ex = int(cx + r * math.cos(ang)); ey = int(cy + r * math.sin(ang))
+            col = _drive_color(i + 1)
+            p.setPen(QtGui.QPen(col, 1)); p.drawLine(cx, cy, ex, ey)
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
         if not self._replay:
@@ -4425,15 +4957,20 @@ class TrajectoryView(_BaseCanvas):
         lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", self.is_grid)
         y0 = 16 if self._replay else 0
         self._draw_replay_banner(p)
-        status = _phase_status_line(f, replay=self._replay, is_grid=self.is_grid, proj=self.proj)
+        status = _phase_status_line(
+            f, replay=self._replay, is_grid=self.is_grid, proj=self.proj,
+            show_radar=lay["show_radar"])
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 26 + y0, status)
         if self.is_grid:
             n = self.grid_n or 5
             chart_top = lay["chart_top"] + y0
+            diag_h = 56
             footer_h = 18
-            chart_h = lay["chart_bot"] - chart_top - footer_h
-            rect = QtCore.QRect(10, chart_top, w - 20, max(int(chart_h), 80))
+            max_grid_h = int((lay["chart_bot"] - chart_top) * 0.4)
+            chart_h = min(lay["chart_bot"] - chart_top - footer_h - diag_h, max_grid_h)
+            chart_h = max(int(chart_h), 60)
+            rect = QtCore.QRect(10, chart_top, w - 20, chart_h)
             p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
             p.drawRoundedRect(rect.x() - 2, rect.y() - 2, rect.width() + 4, rect.height() + 4, 6, 6)
             _draw_phase_grid_base(p, f, rect, self.trail, show_confidence_heat=False)
@@ -4458,7 +4995,10 @@ class TrajectoryView(_BaseCanvas):
             tl = list(self.trail)
             self._title(p, f"GridWorld trajectory + G′ cell error map  trail={len(tl)}  max err={emax:.2f}",
                         y=12 + y0)
-            self._caption(p, _phase_grid_caption(low_conf=self._low_conf), y=38 + y0)
+            self._caption(p, _phase_grid_caption(low_conf=self._low_conf) +
+                          " · spatial view → Overview", y=38 + y0)
+            diag_y = chart_top + chart_h + 6
+            self._draw_pred_diag_strip(p, 10, diag_y, w - 20, diag_h)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(10, lay["chart_bot"] + y0 - 4, _grid_err_summary_line(self.errmap, self.trail))
         else:
@@ -4511,7 +5051,8 @@ class TrajectoryView(_BaseCanvas):
             cur_v = f.sanitized_state if use_san else f.obs_vector
             cur = self.proj.project(cur_v)
             pred = self.proj.project(f.predicted_state)
-            goal = self.proj.project(f.goal_target) if f.goal_target is not None else None
+            goal_pt = f.goal_target if f.goal_target is not None else getattr(f, "goal_ref", None)
+            goal = self.proj.project(goal_pt) if goal_pt is not None else None
             if not use_san and self._replay:
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 p.drawText(px0 + 6, py0 + 28, "anchor: obs_vector")
@@ -4546,7 +5087,10 @@ class TrajectoryView(_BaseCanvas):
             kind = getattr(f, "gprime_kind", None) or "g′"
             ve_txt = f"  PCA {varexp:.0f}%" if varexp else ""
             proj_lbl = "raw-2D" if raw2d else "PCA-2D"
-            self._title(p, f"Belief-space projection ({proj_lbl}, dim={f.state_dim or '?'}) + {kind}{ve_txt}",
+            r = f.action_rationale or {}
+            ci = r.get("chosen_idx")
+            chosen_s = f" · chosen=#{int(ci)}" if isinstance(ci, (int, float)) else ""
+            self._title(p, f"Belief-space projection ({proj_lbl}, dim={f.state_dim or '?'}) + {kind}{ve_txt}{chosen_s}",
                         y=12 + y0)
             cap = "belief trajectory · ellipse = G′ σ · score-colored rollouts"
             if self._replay and not rollouts:
@@ -4558,6 +5102,10 @@ class TrajectoryView(_BaseCanvas):
             if not raw2d and getattr(self.proj, "basis_changed", False):
                 p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
                 p.drawText(px0 + 6, py0 + 28, "⟳ PCA re-fit")
+            self._draw_phase_drive_goals_inset(p, f, px1 - 88, py0 + 4, 80, 52)
+            if self._moment_series:
+                _draw_moment_ticks(p, px0, py0, px1, py1,
+                                   self._moment_series[-len(tl):])
             self._legend(p, [("● current", ACCENT), ("● predicted next", QtGui.QColor(46, 204, 113)),
                              ("○ goal", ACCENT), ("◐ candidates", QtGui.QColor(150, 150, 160)),
                              ("◯ ±σ ellipse", QtGui.QColor(52, 152, 219))],
@@ -4754,6 +5302,20 @@ class _PhasePortraitView(_BaseCanvas):
         self._offender_t: float = 0.0
         self._offender_errs: Optional[np.ndarray] = None
         self._replay: bool = False
+        self._ref_prefer_goal: bool = False
+        self._moment_series: List[Dict[str, Any]] = []
+        self._ref_chip_rect: Optional[QtCore.QRect] = None
+
+    def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+        if (self._ref_chip_rect is not None
+                and self._ref_chip_rect.contains(ev.pos())
+                and getattr(self.frame, "goal_ref", None) is not None):
+            self._ref_prefer_goal = not self._ref_prefer_goal
+            self._dirty = True
+            self.update()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
 
     def _append_trends(self, f: ObservabilityFrame) -> None:
         mi = getattr(f, "gprime_mutual_info", None)
@@ -4773,21 +5335,25 @@ class _PhasePortraitView(_BaseCanvas):
         self._offenders = []
         self._offender_errs = None
         self._offender_t = 0.0
+        self._moment_series = build_moment_series(frames)
         for f in frames:
             self._append_trends(f)
         if frames:
             last = frames[-1]
+            if getattr(last, "goal_ref", None) is not None:
+                self._ref_prefer_goal = False
             if last.predicted_state is not None:
-                pred = np.asarray(last.predicted_state, dtype=np.float32).reshape(-1)
-                ref = last.obs_vector if last.obs_vector is not None else last.goal_ref
-                if ref is not None:
-                    ref_a = np.asarray(ref, dtype=np.float32).reshape(-1)
+                ref_a, _ = belief_reference(last, prefer_goal=self._ref_prefer_goal)
+                if ref_a is not None:
+                    pred = np.asarray(last.predicted_state, dtype=np.float32).reshape(-1)
                     d = int(min(len(pred), len(ref_a)))
                     if d > 0:
                         errs = np.abs(pred[:d] - ref_a[:d])
                         self._offenders = [int(x) for x in np.argsort(-errs)[:5]]
                         self._offender_errs = errs
                         self._offender_t = time.monotonic()
+                        if self._offenders:
+                            self.page = self._offenders[0] // self.page_size
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
                   replay: bool = False) -> None:
@@ -4808,13 +5374,18 @@ class _PhasePortraitView(_BaseCanvas):
         if f is None or f.predicted_state is None:
             self._empty(p, "Phase portrait (collecting…)"); return
         pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
-        ref = f.obs_vector if f.obs_vector is not None else f.goal_ref
-        if ref is None:
+        ref_a, ref_src = belief_reference(f, prefer_goal=self._ref_prefer_goal)
+        if ref_a is None:
             self._empty(p, "Phase portrait (no reference)"); return
-        ref = np.asarray(ref, dtype=np.float32).reshape(-1)
+        ref = ref_a
         d = int(min(len(pred), len(ref)))
         if d == 0:
             self._empty(p, "Phase portrait (empty)"); return
+        peu = getattr(f, "per_dim_peu", None)
+        peu_a = None
+        if peu is not None:
+            pa = np.asarray(peu, dtype=np.float32).reshape(-1)
+            peu_a = pa[:d] if len(pa) >= d else pa
         errs = np.abs(pred[:d] - ref[:d])
         std = None
         if f.gprime_uncertainty is not None and len(f.gprime_uncertainty):
@@ -4833,17 +5404,36 @@ class _PhasePortraitView(_BaseCanvas):
         std_s = std[idx] if std is not None else None
         n = len(idx)
         bw = (w - 40) / max(n, 1)
-        top, bot = 44, h // 2
+        top, bot = 44, max(h // 2, h - 72)
         kind = getattr(f, "gprime_kind", "g′") or "g′"
         mi = getattr(f, "gprime_mutual_info", None)
         mi_txt = f"  mi={float(mi):.3f}" if mi is not None else ""
-        ref_src = "obs_vector" if f.obs_vector is not None else "goal_ref"
         self._title(p, f"Phase portrait  |pred−{ref_src}| ▮ + {kind} ±σ ░  dims {n}/{d}{mi_txt}")
+        if getattr(f, "goal_ref", None) is not None:
+            chip_x, chip_y = w - 118, 6
+            chip_w, chip_h = 108, 16
+            self._ref_chip_rect = QtCore.QRect(chip_x, chip_y, chip_w, chip_h)
+            active = self._ref_prefer_goal
+            p.setPen(QtGui.QPen(ACCENT if active else DIM_COL, 1))
+            p.setBrush(QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 50 if active else 20))
+            p.drawRoundedRect(chip_x, chip_y, chip_w, chip_h, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(chip_x + 4, chip_y + 12, f"ref={'goal_ref' if active else ref_src}")
+        else:
+            self._ref_chip_rect = None
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 28, _phase_status_line(f, replay=self._replay, is_grid=False))
-        cap = "red = prediction error · blue whisker = ±σ · stable order (no re-sort)"
-        if self._replay:
+        defs = list(getattr(f, "drive_deficits", []) or [])
+        if defs:
+            ds = ",".join(f"{v:.2f}" for v in defs[:6])
+            p.drawText(w - 200, 28, f"deficits=[{ds}]")
+        cap = "red = prediction error · blue whisker = ±σ · ▒ = PEU when live"
+        if peu_a is None and not self._replay:
+            cap += " · stable order (no re-sort)"
+        elif peu_a is None and self._replay:
             cap += " · replay"
+        else:
+            cap += " · PEU layer active"
         self._caption(p, cap, y=40)
         if (self._replay
                 and (f.gprime_uncertainty is None or len(f.gprime_uncertainty) == 0)):
@@ -4874,6 +5464,11 @@ class _PhasePortraitView(_BaseCanvas):
                 p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
                 p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
             p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
+            if peu_a is not None and i < len(peu_a):
+                pe = float(peu_a[int(idx[i])])
+                ph = int(pe / mx * (bot - top) * 0.5)
+                p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
+                           QtGui.QColor(150, 150, 160, 140))
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             lbl = _dim_label(int(idx[i]), f)
             p.drawText(int(x), bot + 11, lbl if n <= 24 else str(int(idx[i])))
@@ -4942,7 +5537,8 @@ class _PhasePortraitView(_BaseCanvas):
                 break
             lbl = _dim_label(int(di), f)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 4, ry + 10, f"#{rank + 1} {lbl}")
+            jump = f"↪{lbl}" if rank == 0 else lbl
+            p.drawText(x + 4, ry + 10, f"#{rank + 1} {jump}")
             p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(231, 76, 60, 200))
             p.fillRect(x + 78, ry + 4, int((w - 84) * float(errs[di]) / mx), 6, QtGui.QColor(231, 76, 60, 200))
             ry += 14
@@ -4992,8 +5588,26 @@ class RetentionView(_BaseCanvas):
         self._leak_smooth = _Smoother(0.08)
         self.frame: Optional[ObservabilityFrame] = None
 
-    def set_frame(self, f: ObservabilityFrame) -> None:
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self.m3.clear()
+        self.m4.clear()
+        self.rss.clear()
+        self.lat.clear()
+        self.m3_events.clear()
+        self.m4_events.clear()
+        self.m3_reasons.clear()
+        self.m4_reasons.clear()
+        self.cycle_base = 0
+        self._leak_smooth.reset()
+        for f in frames:
+            self.set_frame(f, histories_done=False)
+        self._dirty = True
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
         self.frame = f
+        if histories_done:
+            self._dirty = True
+            return
         if not self.m3:
             self.cycle_base = int(f.cycle_id)
         prev_m3 = self.m3[-1] if self.m3 else None
@@ -5191,6 +5805,56 @@ class ViolationTable(QtWidgets.QTableWidget):
         if self._seen > 0 and self.rowCount() > 0 and self._at_bottom:
             self.scrollToBottom()
 
+    def rebuild_from_frames(self, frames: List[ObservabilityFrame]) -> None:
+        """Rebuild violation log from a rolling prefix (replay scrub)."""
+        self.setRowCount(0)
+        self._seen = 0
+        self._worst = ""
+        seen_keys: set = set()
+        worst_ratio = 0.0
+        for f in frames:
+            for v in f.rbta_violations:
+                mid = str(v.get("module_id") or v.get("module", ""))
+                btype = str(v.get("bound_type", ""))
+                key = (int(f.cycle_id), mid, btype)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                row = self.rowCount()
+                self.insertRow(row)
+                self.setItem(row, 0, QtWidgets.QTableWidgetItem(str(f.cycle_id)))
+                self.setItem(row, 1, QtWidgets.QTableWidgetItem(mid))
+                self.setItem(row, 2, QtWidgets.QTableWidgetItem(btype))
+                self.setItem(row, 3, QtWidgets.QTableWidgetItem(
+                    f"{v.get('measured',''):.4f}"
+                    if isinstance(v.get("measured"), (int, float))
+                    else str(v.get("measured", ""))))
+                self.setItem(row, 4, QtWidgets.QTableWidgetItem(
+                    f"{v.get('allowed',''):.4f}"
+                    if isinstance(v.get("allowed"), (int, float))
+                    else str(v.get("allowed", ""))))
+                meas = float(v.get("measured", 0.0) or 0.0)
+                allowed = float(v.get("allowed", 0.0) or 0.0)
+                ratio = (meas / allowed) if allowed > 0 else 0.0
+                if ratio >= 2.0:
+                    c = QtGui.QColor(231, 76, 60, 90)
+                elif ratio >= 1.5:
+                    c = QtGui.QColor(231, 76, 60, 55)
+                else:
+                    c = QtGui.QColor(241, 196, 15, 45)
+                for col in range(5):
+                    it = self.item(row, col)
+                    if it:
+                        it.setBackground(c)
+                if ratio > worst_ratio:
+                    worst_ratio = ratio
+                    self._worst = mid
+                self._seen += 1
+        while self.rowCount() > 200:
+            self.removeRow(0)
+        if self.rowCount() > 0:
+            self.resizeColumnsToContents()
+
     def violations_seen(self) -> int:
         return self._seen
 
@@ -5313,6 +5977,16 @@ class MemoryBeliefView(_BaseCanvas):
         self._m3_cache: List[dict] = []
         self._m4_cache: List[dict] = []
         self._diff_smooth = _Smoother(0.2)
+
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self._m3_sig = ""
+        self._m4_sig = ""
+        self._m3_cache = []
+        self._m4_cache = []
+        self._diff_smooth.reset()
+        if frames:
+            self.frame = frames[-1]
+        self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5560,27 +6234,38 @@ class GoalsMotivationView(_BaseCanvas):
         self._temp_scale = ScaleState(contract=0.05, head=0.06)
         self._emp_scale = ScaleState(contract=0.05, head=0.06)
 
+    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
+        self.drive_hist.clear()
+        self.goal_hist.clear()
+        self.temp_hist.clear()
+        self.emp_hist.clear()
+        self._def_smooth = []
+        for f in frames:
+            self.set_frame(f, histories_done=False)
+        self._dirty = True
+
     def _ensure_def_smooth(self, n: int) -> None:
         while len(self._def_smooth) < n:
             self._def_smooth.append(_Smoother(0.2))
 
-    def set_frame(self, f: ObservabilityFrame) -> None:
-        if f.drive_deficits is not None:
-            defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
-            nd = len(defs)
-            self._ensure_def_smooth(nd)
-            self.drive_hist.append([float(x) for x in defs])
-            for i in range(nd):
-                self._def_smooth[i].value(float(defs[i]))
-        gh = getattr(f, "goal_history", None)
-        if gh:
-            self.goal_hist.append(int(gh[-1]))
-        t = getattr(f, "cr_temperature", None)
-        if t is not None:
-            self.temp_hist.append(float(t))
-        e = getattr(f, "empowerment", None)
-        if e is not None:
-            self.emp_hist.append(float(e))
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False) -> None:
+        if not histories_done:
+            if f.drive_deficits is not None:
+                defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
+                nd = len(defs)
+                self._ensure_def_smooth(nd)
+                self.drive_hist.append([float(x) for x in defs])
+                for i in range(nd):
+                    self._def_smooth[i].value(float(defs[i]))
+            gh = getattr(f, "goal_history", None)
+            if gh:
+                self.goal_hist.append(int(gh[-1]))
+            t = getattr(f, "cr_temperature", None)
+            if t is not None:
+                self.temp_hist.append(float(t))
+            e = getattr(f, "empowerment", None)
+            if e is not None:
+                self.emp_hist.append(float(e))
         super().set_frame(f)
 
     def _draw(self, p: QtGui.QPainter) -> None:
@@ -5594,7 +6279,7 @@ class GoalsMotivationView(_BaseCanvas):
         self._ensure_def_smooth(nd)
         defs = [self._def_smooth[i]._v if i < len(self._def_smooth) and self._def_smooth[i]._have else 0.0
                 for i in range(nd)]
-        pareto = set(getattr(f, "pareto_front", None) or [])
+        pareto = {int(x) for x in (getattr(f, "pareto_front", None) or [])}
         active = int(getattr(f, "active_drive_id", 0) or 0)
         # ---- v7 focal: homeostasis tanks (top, full width) ----
         tank_h = h // 3
@@ -5622,6 +6307,9 @@ class GoalsMotivationView(_BaseCanvas):
         """v7 focal: vertical homeostasis tanks (dim-agnostic N drives)."""
         n = _n_drives(self.frame, list(levels))
         tw = w // max(n, 1) - 8
+        lvl_max = max([float(x) for x in levels] + [1.0]) if levels else 1.0
+        tgt_max = max([float(x) for x in targets if x is not None] + [1.0]) if targets else 1.0
+        scale = max(lvl_max, tgt_max, 1.0)
         for i in range(n):
             did = i + 1
             tx = x + i * (w / max(n, 1)) + 4
@@ -5630,21 +6318,22 @@ class GoalsMotivationView(_BaseCanvas):
             tgt = float(targets[i]) if i < len(targets) and targets[i] is not None else None
             dfc = float(defs[i]) if i < len(defs) else 0.0
             is_active = (did == active)
-            is_pareto = i in pareto
+            is_pareto = did in pareto
             # tank frame
             frame_col = col if is_active else GRID_COL
             p.setPen(QtGui.QPen(frame_col, 2 if is_active else 1))
             p.setBrush(PANEL_BG); p.drawRect(int(tx), y, tw, h - 18)
-            # level fill
-            lh = int(np.clip(lvl, 0, 1) * (h - 20))
+            # level fill (normalized when levels exceed 1.0)
+            disp = min(1.0, max(0.0, lvl / scale))
+            lh = int(disp * (h - 20))
             p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 200))
             p.fillRect(int(tx) + 2, y + (h - 18) - lh, tw - 4, lh, col)
             # v8 B7: target setpoint band (lower–upper) + dashed centre line
             if tgt is not None:
-                band = 0.05
-                t_lo = int(np.clip(tgt - band, 0, 1) * (h - 20))
-                t_hi = int(np.clip(tgt + band, 0, 1) * (h - 20))
-                ty = y + (h - 18) - int(np.clip(tgt, 0, 1) * (h - 20))
+                band = 0.05 * scale
+                t_lo = int(min(1.0, max(0.0, (tgt - band) / scale)) * (h - 20))
+                t_hi = int(min(1.0, max(0.0, (tgt + band) / scale)) * (h - 20))
+                ty = y + (h - 18) - int(min(1.0, max(0.0, tgt / scale)) * (h - 20))
                 p.setPen(QtCore.Qt.NoPen)
                 p.setBrush(QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
                 p.fillRect(int(tx) + 2, y + (h - 18) - t_hi, tw - 4, t_hi - t_lo, QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
@@ -5978,29 +6667,36 @@ class DashboardController:
             histories_done = bool(rolling)
             if rolling:
                 self.w.overview.rebuild_histories(rolling)
+                self.w.flow.rebuild_histories(rolling)
+                self.w.cand.rebuild_histories(rolling)
                 self.w.traj.rebuild_histories(rolling)
                 self.w.radar.rebuild_histories(rolling)
                 self.w.perdim.rebuild_histories(rolling)
+                self.w.retention.rebuild_histories(rolling)
+                self.w.viol.rebuild_from_frames(rolling)
+                self.w.goals.rebuild_histories(rolling)
+                self.w.memory.rebuild_histories(rolling)
             self.w.overview.set_frame(f, histories_done=histories_done)
             replay = bool(
                 getattr(self.w, "_transport", None) is not None
                 and getattr(self.w._transport, "clock", None) is not None
                 and self.w._transport.clock.mode == "replay"
             )
-            self.w.flow.set_frame(f, replay=replay)
-            self.w.cand.set_frame(f, replay=replay)
+            self.w.flow.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.cand.set_frame(f, histories_done=histories_done, replay=replay)
             self.w._last_frame = f
             self.w._apply_phase_layout(f)
             self.w.traj.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.radar.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.dim_selector.refresh()
-            self.w.retention.set_frame(f)
+            self.w.retention.set_frame(f, histories_done=histories_done)
             self.w.rbta_bounds.set_frame(f)
-            self.w.viol.add_frame(f)
+            if not histories_done:
+                self.w.viol.add_frame(f)
             self.w._viol_summary.setText(self.w.viol.summary())
             self.w.memory.set_frame(f)
-            self.w.goals.set_frame(f)
+            self.w.goals.set_frame(f, histories_done=histories_done)
             self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
         else:
             self.w.overview.set_state(None, cycle_error)
@@ -6175,7 +6871,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         w = max(self._ps_tab.width(), 1)
         h = max(self._ps_tab.height(), 1)
         is_grid = _phase_frame_is_grid(f)
-        lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", is_grid)
+        lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", is_grid, tab_w=w)
         show_perdim = lay["show_perdim"]
         show_radar = lay["show_radar"]
         self.perdim.setVisible(show_perdim)
@@ -6184,10 +6880,12 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         gl = self._ps_lay
         if is_grid:
             gl.setRowStretch(0, 3)
+            gl.setRowStretch(1, 3)
             gl.setRowStretch(2, 0)
             gl.setRowStretch(3, 0)
         else:
             gl.setRowStretch(0, 2)
+            gl.setRowStretch(1, 2)
             gl.setRowStretch(2, 2)
             gl.setRowStretch(3, 0)
         if show_radar:

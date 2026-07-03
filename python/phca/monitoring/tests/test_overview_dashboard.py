@@ -905,3 +905,24 @@ def test_overview_new_events_explore_entered_param():
     assert not _overview_new_events(f, flags, None, explore_entered=False)
     events = _overview_new_events(f, flags, None, explore_entered=True)
     assert any("EXPLORE" in e for e in events)
+
+
+def test_overview_rebuild_clears_event_log(qt_app):
+    ov = OverviewAgentView()
+    for i in range(3):
+        f = _reacher_frame(cycle_id=i)
+        f.prediction_error = 0.1 if i < 2 else 20.0
+        ov.set_frame(f)
+    assert ov.visible_event_lines()
+    frames = [_reacher_frame(cycle_id=i) for i in range(3)]
+    ov.rebuild_histories(frames)
+    assert ov.visible_event_lines() == []
+
+
+def test_overview_goal_id_vitals_uses_active_drive():
+    from phca.monitoring.qt_dashboard import _overview_goal_id
+
+    f = _reacher_frame()
+    f.active_drive_id = 3
+    f.action_rationale = {"goal_id": None, "explored": False, "best_score": 0.5}
+    assert _overview_goal_id(f) == 3

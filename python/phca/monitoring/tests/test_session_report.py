@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from phca.monitoring.cognitive_panels import apply_decision_shift
 from phca.monitoring.qt_dashboard import _apply_decision_shift
 from phca.monitoring.session_report import build_session_report, write_session_report
 
@@ -20,9 +21,10 @@ def _load_fixture_lines() -> list[str]:
 
 
 def test_apply_decision_shift_threshold():
+    assert apply_decision_shift(0.20, 0.55) is True
+    assert apply_decision_shift(0.20, 0.35) is False
+    assert apply_decision_shift(None, 0.5) is False
     assert _apply_decision_shift(0.20, 0.55) is True
-    assert _apply_decision_shift(0.20, 0.35) is False
-    assert _apply_decision_shift(None, 0.5) is False
 
 
 def test_build_session_report_metrics():
@@ -49,6 +51,22 @@ def test_build_session_report_metrics():
     pm = report.get("phase_space_metrics", {})
     assert pm.get("pca_variance_explained_median") is not None
     assert pm.get("max_pred_error_dim_median") is not None
+    cpm = report.get("cognitive_panels_metrics", {})
+    assert cpm.get("spike_count", 0) >= 1
+    assert cpm.get("learn_burst_count", 0) >= 1
+    assert "anchor_moment_flags" in cpm
+    assert "0" in cpm["anchor_moment_flags"]
+    assert report["flow_metrics"].get("anchor_flow_moments")
+    assert report["action_metrics"].get("anchor_action_moments")
+
+
+def test_cognitive_panels_metrics_keys():
+    meta = {"env": "Reacher-v5", "cycles": 12}
+    report = build_session_report(meta, _load_fixture_lines())
+    cpm = report.get("cognitive_panels_metrics", {})
+    for key in ("spike_count", "learn_burst_count", "decision_shift_count",
+                "drive_change_count", "anchor_moment_flags"):
+        assert key in cpm
 
 
 def test_decision_shift_parity_with_overview():
@@ -65,7 +83,7 @@ def test_decision_shift_parity_with_overview():
         r = dict(getattr(f, "action_rationale", {}) or {})
         bs = r.get("best_score")
         cur = float(bs) if isinstance(bs, (int, float)) else None
-        if _apply_decision_shift(prev_best_score, cur):
+        if apply_decision_shift(prev_best_score, cur):
             offline_count += 1
         if cur is not None:
             prev_best_score = cur

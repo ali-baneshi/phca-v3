@@ -11,13 +11,13 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
+from phca.monitoring.cognitive_panels import build_moment_series, count_moments, apply_decision_shift
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
     _OVERVIEW_PHASE_STEPS,
     _action_score_margin,
     _action_status_line,
-    _apply_decision_shift,
     _flow_bound_for,
     _flow_bottleneck_key,
     _flow_status_line,
@@ -149,7 +149,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         r = dict(getattr(f, "action_rationale", {}) or {})
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
-        shifted = _apply_decision_shift(prev_best_score, cur_score)
+        shifted = apply_decision_shift(prev_best_score, cur_score)
         if shifted:
             decision_shift_count += 1
         if cur_score is not None:
@@ -298,6 +298,19 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     bottleneck_module = max(bottleneck_counts, key=bottleneck_counts.get) if bottleneck_counts else ""
     bs_early, bs_late = _slice_early_late(all_best_scores)
     dominant_env = max(env_kind_counts, key=env_kind_counts.get) if env_kind_counts else ""
+    moment_series = build_moment_series(frames)
+    moment_totals = count_moments(moment_series)
+    anchor_moment_flags: Dict[str, Dict[str, Any]] = {}
+    for anchor_key, target_idx in anchor_targets.items():
+        if 0 <= target_idx < len(moment_series):
+            m = moment_series[target_idx]
+            anchor_moment_flags[anchor_key] = {
+                "cycle_id": int(getattr(frames[target_idx], "cycle_id", target_idx) or target_idx),
+                "spike": bool(m.get("spike")),
+                "learn_burst": bool(m.get("learn_burst")),
+                "decision_shift": bool(m.get("decision_shift")),
+                "dominant_phase": m.get("dominant_phase", ""),
+            }
 
     return {
         "meta": dict(meta),
@@ -327,6 +340,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "near_bound_cycle_count": near_bound_cycle_count,
             "bottleneck_module": bottleneck_module,
             "anchor_flow_status": anchor_flow_status,
+            "anchor_flow_moments": anchor_moment_flags,
         },
         "action_metrics": {
             "cycles_with_scores": cycles_with_scores,
@@ -336,6 +350,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "best_score_early_median": _median(bs_early),
             "best_score_late_median": _median(bs_late),
             "anchor_action_status": anchor_action_status,
+            "anchor_action_moments": anchor_moment_flags,
         },
         "phase_space_metrics": {
             "dominant_env_kind": dominant_env,
@@ -344,6 +359,10 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "pca_variance_explained_median": _median(pca_variances),
             "max_pred_error_dim_median": _median(max_pred_errors),
             "anchor_phase_status": anchor_phase_status,
+        },
+        "cognitive_panels_metrics": {
+            **moment_totals,
+            "anchor_moment_flags": anchor_moment_flags,
         },
         "anchor_narratives": anchor_narratives,
         "notable_cycles": notable_cycles,

@@ -316,6 +316,7 @@ class ObservabilityFrame:
     energy_log: Dict[str, float] = field(default_factory=dict)
     belief_entropies: Dict[str, float] = field(default_factory=dict)
     m3_recent: List[Dict[str, Any]] = field(default_factory=list)
+    m3_top_error: List[Dict[str, Any]] = field(default_factory=list)
     m4_relevant: List[Dict[str, Any]] = field(default_factory=list)
     m4_top: List[Dict[str, Any]] = field(default_factory=list)
     last_action_vector: Optional[np.ndarray] = None
@@ -567,6 +568,7 @@ class ObservabilityFrame:
         # Throttled memory samples (live-only).
         mem = _cached_memory(cycle, m3)
         m3_recent = mem.get("m3_recent", [])
+        m3_top_error = mem.get("m3_top_error", [])
         m4_relevant = mem.get("m4_relevant", [])
         m4_top = mem.get("m4_top", [])
 
@@ -640,6 +642,7 @@ class ObservabilityFrame:
             energy_log=energy_log,
             belief_entropies=belief_entropies,
             m3_recent=m3_recent,
+            m3_top_error=m3_top_error,
             m4_relevant=m4_relevant,
             m4_top=m4_top,
             last_action_vector=last_action_vector,

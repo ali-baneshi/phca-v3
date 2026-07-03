@@ -54,6 +54,7 @@ def test_action_status_line_exploit():
     assert "k=8" in line
     assert "Δ2nd=" in line
     assert "rollouts=0" in line
+    assert "chosen=" in line
 
 
 def test_action_status_line_explore():
@@ -66,6 +67,14 @@ def test_action_status_line_explore():
     assert "EXPLORE" in line
     assert "ε=0.150" in line
     assert "score=—" in line
+
+
+def test_action_layout_no_ctx_overlap():
+    for w, h in ((640, 480), (800, 600)):
+        for replay in (False, True):
+            lay = _action_layout(w, h, replay=replay)
+            assert lay["ctx_top"] >= lay["header_h"]
+            assert lay["left_y"] >= lay["ctx_top"] + lay["ctx_band_h"] - 2
 
 
 def test_action_layout_regions():
@@ -217,3 +226,137 @@ def test_action_metrics_in_session_report():
     assert action_m.get("score_margin_median") is not None
     assert "anchor_action_status" in action_m
     assert "0" in action_m["anchor_action_status"]
+
+
+def test_action_rebuild_histories_eps(qt_app):
+    view = CandidateScoreView()
+    frames = [_action_frame(cycle_id=i) for i in range(5)]
+    view.rebuild_histories(frames)
+    assert len(view.eps_hist) == 5
+    assert len(view.score_hist) == 5
+    view.set_frame(_action_frame(cycle_id=99), histories_done=True)
+    assert len(view.eps_hist) == 5
+
+
+def test_action_rollout_cache_clear_on_scrub(qt_app):
+    view = CandidateScoreView()
+    view._rollout_cache.drawn = [("stale",)]
+    frames = [_action_frame(cycle_id=i) for i in range(3)]
+    view.rebuild_histories(frames)
+    assert view._rollout_cache.drawn == []
+
+
+def test_explore_hides_stale_scores(qt_app):
+    view = CandidateScoreView()
+    view.last_scores = [0.9, 0.1]
+    view._last_scores_cycle = 0
+    f = _action_frame(
+        cycle_id=5,
+        action_rationale={"explored": True, "eps": 0.15, "k_candidates": 8,
+                          "best_score": None, "continuous": True},
+        candidate_scores=[],
+    )
+    view.set_frame(f)
+    assert view.last_scores == [] or view._last_scores_cycle == 5
+
+
+def test_action_chosen_idx_in_rollout_label(qt_app):
+    from PyQt5 import QtGui
+    from phca.monitoring.qt_dashboard import BeliefProjection
+
+    view = CandidateScoreView()
+    view.resize(640, 480)
+    proj = BeliefProjection(window=16)
+    for i in range(6):
+        ff = _action_frame(cycle_id=i)
+        proj.update(ff)
+        proj.push_history(proj.project(ff.continuous_action))
+    view.set_projection(proj)
+    f = _action_frame(
+        action_rationale={"chosen_idx": 1, "explored": False, "best_score": 0.35,
+                          "eps": 0.1, "k_candidates": 8, "continuous": True},
+        candidate_scores=[0.2, 0.35, 0.55, 0.4],
+    )
+    f.candidate_rollouts = [
+        {"predicted": f.continuous_action, "score": 0.35, "chosen": True},
+    ]
+    view.set_frame(f)
+    lay = _action_layout(640, 480)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._rollout_cloud(p, f, lay["right_x"], lay["body_top"],
+                        lay["right_x"] + lay["right_w"], lay["body_top"] + lay["body_h"],
+                        True, has_scores=True)
+    p.end()
+    assert view.last_chosen == 1
+
+
+def test_action_sparkline_moment_ticks(qt_app):
+    from PyQt5 import QtGui
+
+    view = CandidateScoreView()
+    view.resize(640, 480)
+    for i in range(8):
+        view.set_frame(_action_frame(cycle_id=i))
+    view._moment_series = [{"decision_shift": i == 7} for i in range(8)]
+    lay = _action_layout(640, 480)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._best_score_spark(p, 640 - 190, 6, 180, 26)
+    p.end()
+    x = 640 - 12
+    c = pm.toImage().pixelColor(x, 18)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 10
+
+
+def test_action_replay_status_rollouts_caveat():
+    f = _action_frame()
+    scores = [float(x) for x in f.candidate_scores]
+    line = _action_status_line(f, scores, 2, replay=True)
+    assert "rollouts=replay" in line
+
+
+def test_action_pred_err_hist_on_rebuild(qt_app):
+    view = CandidateScoreView()
+    frames = []
+    for i in range(4):
+        f = _action_frame(cycle_id=i)
+        f.prediction_error = 0.1 * i
+        frames.append(f)
+    view.rebuild_histories(frames)
+    assert len(view._pred_err_hist) == 4
+    assert len(view._moment_series) == 4
+
+
+def test_action_rebuild_decision_shift_parity(qt_app):
+    view = CandidateScoreView()
+    frames = []
+    scores = [0.20, 0.55, 0.56, 0.30]
+    for i, bs in enumerate(scores):
+        f = _action_frame(
+            cycle_id=i,
+            action_rationale={
+                "explored": False, "best_score": bs, "goal_id": 2,
+                "eps": 0.1, "k_candidates": 8, "continuous": True,
+            },
+        )
+        frames.append(f)
+    view.rebuild_histories(frames)
+    shifts = [m.get("decision_shift") for m in view._moment_series]
+    assert shifts[0] is False
+    assert shifts[1] is True
+    assert shifts[3] is True
+
+
+def test_flow_action_link_line():
+    from phca.monitoring.cognitive_panels import flow_action_link_line
+
+    f = _action_frame()
+    f.module_timings = {"gprime_learn": 6.0, "action_selection": 2.0}
+    line = flow_action_link_line(f)
+    assert "Flow bottleneck=" in line
+    assert "EXPLOIT" in line

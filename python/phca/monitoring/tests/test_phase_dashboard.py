@@ -45,6 +45,12 @@ def _reacher_frame(**kwargs) -> ObservabilityFrame:
     f.gprime_uncertainty = kwargs.get(
         "gprime_uncertainty", np.ones(10, dtype=np.float32) * 0.1)
     f.dim_names = ["cθ₀", "sθ₀", "cθ₁", "sθ₁", "ẋ₀", "ẋ₁", "ẋ₂", "ẋ₃", "tip_x", "tip_y"]
+    if "goal_ref" in kwargs:
+        f.goal_ref = kwargs["goal_ref"]
+    if "per_dim_peu" in kwargs:
+        f.per_dim_peu = kwargs["per_dim_peu"]
+    if "prediction_error" in kwargs:
+        f.prediction_error = kwargs["prediction_error"]
     return f
 
 
@@ -365,3 +371,130 @@ def test_grid_fixture_session_report():
     report = build_session_report({"env": "GridWorld"}, lines)
     pm = report.get("phase_space_metrics", {})
     assert pm.get("dominant_env_kind") == "grid"
+
+
+def test_portrait_ref_toggle_goal_ref(qt_app):
+    from PyQt5 import QtCore, QtGui
+
+    view = _PhasePortraitView()
+    view.resize(640, 280)
+    gref = np.array([2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.3], dtype=np.float32)
+    f = _reacher_frame(goal_ref=gref)
+    view.set_frame(f)
+    view._ref_chip_rect = QtCore.QRect(520, 6, 108, 16)
+    view.mousePressEvent(QtGui.QMouseEvent(
+        QtCore.QEvent.MouseButtonPress, QtCore.QPoint(560, 12),
+        QtCore.Qt.LeftButton, QtCore.Qt.LeftButton, QtCore.Qt.NoModifier))
+    assert view._ref_prefer_goal is True
+    ref, lbl = __import__("phca.monitoring.cognitive_panels", fromlist=["belief_reference"]).belief_reference(
+        f, prefer_goal=view._ref_prefer_goal)
+    assert lbl == "goal_ref"
+
+
+def test_portrait_peu_layer_pixel(qt_app):
+    from PyQt5 import QtGui
+
+    view = _PhasePortraitView()
+    view.resize(640, 280)
+    f = _reacher_frame(per_dim_peu=np.linspace(0.1, 0.5, 10, dtype=np.float32))
+    view.set_frame(f)
+    pm = QtGui.QPixmap(640, 280)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    found_grey = False
+    for x in range(30, 200, 4):
+        c = pm.toImage().pixelColor(x, 120)
+        if 100 < c.red() < 180 and c.alpha() > 50:
+            found_grey = True
+            break
+    assert found_grey
+
+
+def test_offender_pager_jump_on_scrub(qt_app):
+    view = _PhasePortraitView()
+    view.page_size = 5
+    frames = [_reacher_frame(cycle_id=i) for i in range(3)]
+    bump = np.zeros(10, dtype=np.float32)
+    bump[7] = 3.0
+    frames[-1].predicted_state = frames[-1].obs_vector + bump
+    view.rebuild_histories(frames)
+    assert view.page == 7 // view.page_size
+
+
+def test_pca_chosen_caption(qt_app):
+    from PyQt5 import QtGui
+
+    view = TrajectoryView()
+    view.resize(640, 400)
+    proj = BeliefProjection(window=16)
+    for i in range(8):
+        f = _reacher_frame(cycle_id=i)
+        proj.update(f)
+        proj.push_history(proj.project(f.obs_vector))
+    view.set_projection(proj)
+    f = _reacher_frame(cycle_id=8)
+    f.action_rationale = {"chosen_idx": 2}
+    view.set_frame(f)
+    pm = QtGui.QPixmap(640, 400)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    assert view.frame is f
+
+
+def test_grid_compact_pred_diag_strip(qt_app):
+    from PyQt5 import QtGui
+
+    view = TrajectoryView()
+    view.resize(500, 400)
+    for i in range(6):
+        view.set_frame(_grid_frame(agent_pos=(i % 3, (i + 1) % 4), cycle_id=i))
+    pm = QtGui.QPixmap(500, 400)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    found_diag = False
+    for y in range(200, 360, 4):
+        for x in range(20, 480, 8):
+            c = pm.toImage().pixelColor(x, y)
+            lum = c.red() + c.green() + c.blue()
+            bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+            if lum > bg_lum + 20:
+                found_diag = True
+                break
+        if found_diag:
+            break
+    assert found_diag
+
+
+def test_phase_layout_radar_hidden(qt_app):
+    lay = _phase_layout(800, 480, "mujoco_rgb", is_grid=False)
+    assert lay.get("show_radar") is False
+
+
+def test_trajectory_moment_ticks_on_pca(qt_app):
+    from PyQt5 import QtGui
+
+    view = TrajectoryView()
+    view.resize(640, 400)
+    proj = BeliefProjection(window=16)
+    frames = []
+    for i in range(10):
+        f = _reacher_frame(cycle_id=i, prediction_error=0.1 if i < 8 else 15.0)
+        proj.update(f)
+        proj.push_history(proj.project(f.obs_vector))
+        frames.append(f)
+    view.rebuild_histories(frames)
+    view.set_projection(proj)
+    view.set_frame(frames[-1], histories_done=True)
+    assert any(m.get("spike") for m in view._moment_series)
+    pm = QtGui.QPixmap(640, 400)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    assert len(view._moment_series) >= 8
