@@ -4,9 +4,10 @@
 
 PHCA (Predictive Hierarchical Cognitive Architecture) implements a **12-step cognitive cycle**
 that transforms raw sensor input into goal-directed action through a pipeline of specialized
-modules. The cycle runs at ~95 Hz on consumer hardware (~17 ms mean latency, MLP path,
-this machine, Phase 6). 332 tests pass (299 core + 33 MuJoCo), 0 errors; Overall Φ-IQ **0.7414**.
-Pendulum-v1 emits true continuous torque via a prediction-driven MPC action selector (Phase 6).
+modules. The cycle runs at ~60–95 Hz on consumer hardware (~10–17 ms mean latency, MLP path,
+this machine). **560 tests** pass (`make test-python` 524 + `make test-mujoco` 36), 0 errors;
+Overall Φ-IQ **0.7403** (re-measured 2026-07-03). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
+emit true continuous actions via a prediction-driven MPC selector (Phase 6/7).
 
 Formal specification: v3.0 (PHCA-3.1-011). Resource-bounded via the **Resource Bounded
 Turing Supervisor (RBTA)** which enforces cycle-time, memory, energy, and entropy budgets
@@ -76,7 +77,7 @@ with no Φ-IQ regression.
 | Module | File | Function |
 | :--- | :--- | :--- |
 | **ASI** | `phca/asi/sanitizer.py` | Input sanitization, NaN/Inf detection, finite checks |
-| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (50-cycle horizon) |
+| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (`capacity = 10 × sensor_dim` samples) |
 | **M2 (Working)** | `phca/memory/m2_working.py` | Ring-buffer working memory with salience tracking |
 | **G' (Engine)** | `phca/prediction/engine.py` | Prediction engine wrapping Gaussian / discrete / MLP G' |
 | **G' (MLP)** | `phca/world_model/mlp.py` | Pure-NumPy MLP world model (38,868 params, hidden_dim=128; batched replay backward, Phase 5) |
@@ -91,7 +92,7 @@ with no Φ-IQ regression.
 | **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC, Phase 6) |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment (5×5, walls, obstacles, `relocate_goal`) |
-| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo wrapper: Cartpole/Reacher discrete, **Pendulum continuous** (Phase 6); declares `get_action_space()` + `get_goal_reference()` |
+| **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo wrapper: Cartpole discrete; **Pendulum + Reacher continuous** (Phase 6/7); `get_action_space()` + `get_goal_reference()` |
 | **ActionSpace** | `phca/config.py` | `DiscreteSpace(n)` / `ContinuousSpace(low, high, dim)` union + helpers (Phase 6) |
 | **Config** | `phca/config.py` | Global constants, resource bounds, `StreamID` (P-Stream only), `ActionSpace` types |
 
@@ -118,13 +119,13 @@ Formal definitions and proofs in [research/outputs/07-rigorous-whitepaper.md](..
      + 0.15·TransferEfficiency + 0.20·ResourceEfficiency - 0.10·FailureRate
 ```
 
-| Level | Name | What it measures | Phase 6 result (this machine) |
+| Level | Name | What it measures | Result (this machine, 2026-07-03) |
 | :--- | :--- | :--- | :--- |
-| L0 | Stationary Prediction | Prediction accuracy, static env | 0.7064 |
-| L1 | Reactive Control | Prediction under active control + action diversity | 0.7135 |
-| L2 | Goal Pursuit | Goal-reaching rate in maze with walls/obstacles | 0.7783 (goal_rate 0.95) |
-| L3 | Self-Motivated Exploration | MDIM drive diversity + autonomy | 0.7673 |
-| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7414** (gate PASS) |
+| L0 | Stationary Prediction | Prediction accuracy, static env | 0.7032 |
+| L1 | Reactive Control | Prediction under active control + action diversity | 0.7125 |
+| L2 | Goal Pursuit | Goal-reaching rate in maze with walls/obstacles | 0.7773 |
+| L3 | Self-Motivated Exploration | MDIM drive diversity + autonomy | 0.7683 |
+| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7403** (gate PASS) |
 
 Gate floor: Overall ≥ 0.5486. Cycle latency < 500 ms (mean ~17 ms, p95 ~31 ms, this machine). Failure rate < 10% (0 violations).
 
@@ -133,19 +134,18 @@ Gate floor: Overall ≥ 0.5486. Cycle latency < 500 ms (mean ~17 ms, p95 ~31 ms,
 ## MuJoCo Environments
 
 `MuJoCoSimpleEnv` wraps gymnasium MuJoCo environments into `EnvironmentProtocol` so the
-cognitive cycle drives them unchanged. As of Phase 6 each env declares its true action space
-via `get_action_space()`: Pendulum-v1 exposes a **continuous** `ContinuousSpace([-2,2], dim=1)`
-and the cycle selects torque via an MPC-style, prediction-driven sampler (no reward, no policy
-gradient); Cartpole and Reacher stay discrete. MuJoCo is opt-in
-(`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
+cognitive cycle drives them unchanged. Pendulum-v1 (`ContinuousSpace([-2,2], dim=1)`) and
+Reacher-v5 (`ContinuousSpace([-1,1]², dim=2)`) use an MPC-style, prediction-driven sampler;
+Cartpole stays discrete. MuJoCo is opt-in (`requirements-mujoco.txt`); run headless with
+`MUJOCO_GL=disabled`.
 
-| Env | ID | Action space | State dim | Phase 6 result (100 cyc) |
+| Env | ID | Action space | State dim | Result (D-107) |
 | :--- | :--- | :--- | :--- | :--- |
-| Cartpole | `InvertedPendulum-v5` | Discrete (3: L / stay / R) | 4 | PASS — 5.0 ms, 0 violations, error 3.65→0.25 |
-| Pendulum | `Pendulum-v1` | **Continuous** (torque ∈ [-2,2], dim 1) | 3 | PASS — 7.4 ms, 0 violations, error 29.6→0.68 (MLP learns continuous dynamics) |
-| Reacher  | `Reacher-v5` | Discrete (5: 2D SW/NW/stay/NE/SE) | 10 | PASS — 6.2 ms, 0 violations, error 512→91.7 (**Reacher-continuous = Phase 7 target**) |
+| Cartpole | `InvertedPendulum-v5` | Discrete (3: L / stay / R) | 4 | PASS — discrete, 0 violations |
+| Pendulum | `Pendulum-v1` | **Continuous** (torque ∈ [-2,2], dim 1) | 3 | PASS — 7.1 ms, 0 violations, error 29.6→0.68 |
+| Reacher  | `Reacher-v5` | **Continuous** (actuator ∈ [-1,1]², dim 2) | 10 | PASS — 4.4 ms, 0 violations, error 105.7→8.4 |
 
-CI exercises 33 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly` MuJoCo gate
+CI exercises 36 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly` MuJoCo gate
 (`check_benchmark_gate.py --mujoco`) asserts 0 violations + error↓ per env, with a `--neg-test`
 proving the gate catches synthetic violations.
 
@@ -207,7 +207,8 @@ Dynamic mode is experimental and measured separately from the canonical static b
   `_select_continuous_action()` (sample K=8 candidates, predict each, pick best ŝ'→goal-ref,
   ε-greedy; A1-capped K·dim ≤ 16 forward passes; no reward/value/policy-gradient).
   `MuJoCoSimpleEnv` wires Pendulum-v1 to `ContinuousSpace([-2,2], dim=1)` + upright
-  `get_goal_reference()` `[1,0,0]`. Reacher-continuous deferred to Phase 7 (surgical scope).
+  `get_goal_reference()` `[1,0,0]`. Reacher-v5 wired to `ContinuousSpace([-1,1]², dim=2)` +
+  fingertip-on-target goal reference (Phase 7 / D-107).
 - **OOD calibration** (Phase 6 / D-100): `scripts/ood_calibration.py` σ-sweep; blended
   confidence drops monotonically 0.97→0.26 (σ 0→1.0), aleatoric ↓ / epistemic ↑ / MSE ↑.
 - **Assumption validation** (Phase 6 / D-101): `scripts/assumption_validation.py --ci` runs one
@@ -217,8 +218,11 @@ Dynamic mode is experimental and measured separately from the canonical static b
   latency p95/p99 + Φ-IQ at 1k/5k/10k); `check_benchmark_gate.py --mujoco`/`--neg-test`;
   `make nightly` orchestrates the full suite (script+gate, not a cron job). The nightly stress
   test caught a pre-existing M3/M4 retention-growth finding (Phase 7 target, D-102).
-- **Monitoring system** (`MetricsStore`, file logging, curses dashboard) is optional, zero-overhead
-  when unused. See `scripts/phca-monitor.py` and `scripts/phca-logs.py`.
+- **Monitoring system** (`ObservabilityFrame`, `ObservabilityStore`, PyQt Observatory) is
+  optional, zero-overhead when unused. See `scripts/phca_observatory.py`, `scripts/phca_replay.py`,
+  and `docs/observability.md`.
+- **Deferred blueprint items:** dual G′+V ensemble, VSA modules, M5 procedural memory,
+  `phca/resilience/` failure matrix, grounding adapter (levels 0/2).
 
 ---
 
@@ -260,11 +264,10 @@ validation `--ci` → OOD calibration (monotonic) → nightly stress. The nightl
 (`scripts/nightly_stress.py`) samples RSS every 100 cycles (full + late-half slope), latency
 p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations. 1000-cyc CI run exits 0 in ~43 s; 10k soak ~3 min.
 
-**Honest finding (D-102):** the nightly stress test caught a sustained ~4 KB/cyc RSS growth —
-M3 episodic memory (10_000 FIFO cap, in-memory SQLite skips VACUUM) + M4 facts (~150/1000cyc,
-no cap). Pre-existing architecture, NOT a Phase 6 regression; M3/M4 retention caps are a
-Phase 7 workstream. The leak threshold is calibrated above this baseline (catches catastrophic
-new leaks) while the finer fix is deferred.
+**Honest finding (D-102, updated Phase 7):** nightly stress gates on **late-half** RSS slope
+(`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (~4650 B/cyc), `make nightly` fails the
+retention stage while latency, violations, and Φ-IQ checkpoints pass. M4 has a 1000-fact cap
+with pruning in code; M3/M4 soak target remains open.
 
 ---
 
@@ -290,7 +293,7 @@ This was fixed in gap-closure issue A-001/A-004 (D-036).
 
 ## Up-to-Date Reference
 
-- See `DECISIONS.md` (D-001 through D-105) for the complete design decision history.
+- See `DECISIONS.md` (D-001 through D-107+) for the complete design decision history.
 - See `docs/phase6_completion_report.md` for the Phase 6 sign-off.
 - See `docs/phase4_gap_closure_report.md` for the Phase 4 gap-closure execution summary.
 - See `docs/phase5_completion_report.md` for the Phase 5 sign-off.

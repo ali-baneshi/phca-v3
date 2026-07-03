@@ -11,7 +11,12 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.cognitive_panels import build_moment_series, count_moments, flow_timing_ratio, goal_id_from_frame
+from phca.monitoring.cognitive_panels import (
+    build_moment_series,
+    count_moments,
+    flow_near_bound_modules,
+    goal_id_from_frame,
+)
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
@@ -20,7 +25,6 @@ from phca.monitoring.qt_dashboard import (
     _action_status_line,
     _flow_bottleneck_key,
     _flow_status_line,
-    _FLOW_ALL_MODULES,
     _phase_frame_is_grid,
     _phase_status_line,
     _overview_evidence_line,
@@ -248,14 +252,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             bottleneck_counts[bn] = bottleneck_counts.get(bn, 0) + 1
         if int(getattr(f, "violations_count", 0) or 0) > 0 or bool(getattr(f, "rbta_violations", None)):
             violation_cycle_count += 1
-        bounds = dict(getattr(f, "rbta_bounds", {}) or {})
-        near_bound = False
-        for mod in _FLOW_ALL_MODULES:
-            ratio = flow_timing_ratio(mod, timings, bounds)
-            if ratio is not None and ratio > 0.8:
-                near_bound = True
-                break
-        if near_bound:
+        if flow_near_bound_modules(f, top_k=1):
             near_bound_cycle_count += 1
 
         scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]

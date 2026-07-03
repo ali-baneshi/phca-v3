@@ -7,12 +7,14 @@ through a pipeline of specialised modules, governed by a Resource-Bounded
 Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
-**Phase 6 hardened.** 332 tests passing (299 core + 33 MuJoCo), 0 errors.
-Overall Φ-IQ **0.7414** (4-level MLP, 200 cyc). `gprime_learn` **8.77 ms** mean
-(this machine). Cartpole, Pendulum (continuous), and Reacher all run green in CI.
-Pendulum-v1 now emits **true continuous torque** via an MPC-style prediction-driven
-action selector; OOD confidence and invariants A1/A3/A4/A5 are **measured**
-(Phase 6); a `make nightly` hardening suite gates regressions.
+**Phase 7 in progress** (observability + retention; Phase 6 hardened baseline).
+**560 tests** passing (`make test-python` 524 + `make test-mujoco` 36), 0 errors.
+Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-03).
+Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
+prediction-driven action selector; Cartpole stays discrete. OOD confidence and
+invariants A1/A3/A4/A5 are **measured** (Phase 6). `make nightly` runs the full
+hardening suite; the tightened retention gate (late RSS slope ≤ 500 B/cyc) is a
+Phase 7 open item — see [docs/limitations.md](docs/limitations.md).
 
 ---
 
@@ -50,9 +52,9 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (332 = 299 core + 33 MuJoCo; set MUJOCO_GL=disabled for headless)
+# Run all tests (524 core + 36 MuJoCo = 560; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
-# plus the MuJoCo tests (make test-all ignores them by default):
+# MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco
 
 # Canonical benchmark (4 levels, 200 cycles each, MLP mode)
@@ -64,7 +66,7 @@ PYTHONPATH=python python scripts/benchmark.py --quick
 # Dynamic-goal curriculum (L2 relocates the goal every 75 cycles — validated)
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals --dynamic-goals-every 75
 
-# MuJoCo environments — Pendulum is now CONTINUOUS (Phase 6); Cartpole/Reacher discrete
+# MuJoCo environments — Pendulum + Reacher CONTINUOUS (Phase 6/7); Cartpole discrete
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env pendulum --use-mlp --cycles=100
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env cartpole --use-mlp --cycles=100
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env reacher  --use-mlp --cycles=100
@@ -218,19 +220,19 @@ the vectorisation (see Limitations / D-092).
 
 `MuJoCoSimpleEnv` wraps gymnasium MuJoCo environments into the
 `EnvironmentProtocol` so the cognitive cycle drives them unchanged. As of
-Phase 6, each env declares its true action space via `get_action_space()`:
-Pendulum-v1 exposes a **continuous** `ContinuousSpace([-2,2], dim=1)` and the
-cycle selects torque via an MPC-style, prediction-driven sampler (no reward,
-no policy gradient); Cartpole and Reacher stay on a discrete ≤5-bin path.
-MuJoCo is opt-in (`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
+Phase 6/7, each env declares its true action space via `get_action_space()`:
+Pendulum-v1 (`ContinuousSpace([-2,2], dim=1)`) and Reacher-v5 (`ContinuousSpace([-1,1]², dim=2)`)
+use an MPC-style, prediction-driven sampler (no reward, no policy gradient).
+Cartpole stays on a discrete 3-bin path. MuJoCo is opt-in (`requirements-mujoco.txt`);
+run headless with `MUJOCO_GL=disabled`.
 
-| Env | ID | Action space | State dim | 100-cyc result (Phase 6) |
+| Env | ID | Action space | State dim | 100-cyc result (D-107) |
 | :--- | :--- | :--- | :--- | :--- |
-| Cartpole | `InvertedPendulum-v5` | Discrete (3: push L / stay / push R) | 4 | PASS — 5.0 ms, 0 violations, error 3.65→0.25 |
-| Pendulum | `Pendulum-v1` | **Continuous** (torque ∈ [-2,2], dim 1) | 3 | PASS — 7.4 ms, 0 violations, error 29.6→0.68 (MLP learns continuous dynamics) |
-| Reacher  | `Reacher-v5` | Discrete (5: 2D grid) | 10 | PASS — 6.2 ms, 0 violations, error 512→91.7 (**Reacher-continuous is a Phase 7 target**) |
+| Cartpole | `InvertedPendulum-v5` | Discrete (3: push L / stay / push R) | 4 | PASS — discrete, 0 violations |
+| Pendulum | `Pendulum-v1` | **Continuous** (torque ∈ [-2,2], dim 1) | 3 | PASS — 7.1 ms, 0 violations, error 29.6→0.68 |
+| Reacher  | `Reacher-v5` | **Continuous** (actuator ∈ [-1,1]², dim 2) | 10 | PASS — 4.4 ms, 0 violations, error 105.7→8.4 |
 
-CI exercises all 33 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly`
+CI exercises 36 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly`
 MuJoCo gate (`check_benchmark_gate.py --mujoco`) asserts 0 violations + error↓
 per env, with a `--neg-test` proving the gate catches synthetic violations.
 
@@ -301,34 +303,16 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 ## Limitations
 
-- **Reacher-continuous is a Phase 7 target.** Pendulum-v1 is the continuous
-  unlock (Phase 6); Reacher's 2D continuous action space is deferred to keep
-  the change surgical (D-095 plan). Reacher currently runs a 5-bin discrete
-  path and PASSes.
-- **M3/M4 retention cap is a Phase 7 workstream.** The nightly stress test
-  (Phase 6 / C1) caught a sustained ~4 KB/cyc RSS growth: M3 episodic memory
-  has a 10_000-episode FIFO cap but the in-memory SQLite skips VACUUM, and M4
-  facts accumulate ~150/1000cyc with no cap. This is **pre-existing
-  architecture behaviour, not a Phase 6 regression**; the nightly leak
-  threshold is calibrated above this baseline (catches catastrophic new
-  leaks) while the finer M3/M4 retention-cap fix is deferred to Phase 7
-  (D-102). A 24h soak would need this resolved.
-- **Discrete GridWorld action selector also uses real goal geometry.** The
-  canonical discrete path blends Manhattan distance gain with prediction, so
-  it is not purely prediction-driven; the **continuous MPC path is** the clean
-  prediction-primary mechanism (A4 is measured there, D-101).
-- **Reacher is basic.** Validated for 100 cycles with no errors and 0 RBTA
-  violations, but no goal-reaching Φ-IQ composite (Reacher has no grid goal);
-  the benchmark reports latency + prediction-error trend + violations.
-- **Dynamic goals are experimental at the validated cadence (every-75).**
-  every-50 is not achievable (L2 collapses to ~0.43); every-100 is below 0.50
-  on this machine. Dynamic L2 is SGD-trajectory-sensitive and varies by
-  machine/numpy build (D-092 zero-trust finding).
-- **`gprime_learn` remains the known perf bound** even after the Phase-5
-  85.7% cut — it is still the largest per-cycle cost; further gains would need
-  `train_steps`/`batch_size` changes that touch learning dynamics.
-- **P-Stream only.** E-Stream and S-Stream were removed in Phase 3.3 (D-020);
-  consolidation runs on a fixed 10-cycle timer.
+See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
+
+- **Long-run memory growth (Phase 7).** `make nightly` uses a tightened late-half
+  RSS slope gate (500 B/cyc). On this machine the soak still reports ~4–5 KB/cyc,
+  so the retention stage fails even when latency, violations, and Φ-IQ pass.
+- **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
+  **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
+- **No NLP, vision, multi-agent, or M5 procedural memory.**
+- **Dynamic goals** are experimental at every-75 only.
+- **P-Stream only** (E/S streams removed D-020).
 
 ---
 
@@ -366,7 +350,9 @@ make nightly NIGHTLY_CYCLES=1000
 | [docs/phase5_completion_report.md](docs/phase5_completion_report.md) | Phase 5 sign-off: metrics, decisions D-092–D-094, limitations. |
 | [docs/phase4_readiness_report.md](docs/phase4_readiness_report.md) | Phase 4 sign-off. |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-105). |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-107+). |
+| [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open Phase 7 items. |
+| [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay, integrity checks. |
 | [docs/phase3.3_full_completion_report.md](docs/phase3.3_full_completion_report.md) | Phase 3.3 gap-closure completion report. |
 | [docs/architectural_audit_report.md](docs/architectural_audit_report.md) | Full audit of 28 issues with resolution status. |
 | [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1–A5, RBTA, MDIM, failure modes). |
@@ -391,21 +377,22 @@ make nightly NIGHTLY_CYCLES=1000
 │   │   ├── regulation/          # RBTA enforcer + adaptive parameter control
 │   │   ├── hpm/                 # HPM composition grammar
 │   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
+│   │   ├── monitoring/          # Cognitive Observatory (ObservabilityFrame, Qt dashboard)
 │   │   └── config.py            # Shared types + resource bounds
 │   ├── tests/                   # Integration tests (stress, chaos, edge cases, MuJoCo)
-│   └── benchmarks/              # Package benchmark runner (scripts/benchmark.py preferred)
+│   └── benchmarks/              # Legacy runner (use scripts/benchmark.py)
 ├── scripts/
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary; --env gridworld/cartpole/pendulum/reacher)
 │   ├── check_benchmark_gate.py  # CI gate: static Φ-IQ + --mujoco + --neg-test (Phase 6)
 │   ├── ood_calibration.py       # OOD σ-sweep confidence curve (Phase 6 / B1)
 │   ├── assumption_validation.py # A1/A3/A4/A5 falsifiable experiments + --ci (Phase 6 / B2)
-│   ├── nightly_stress.py        # 10k-cycle RSS-leak + latency + Φ-IQ stress (Phase 6 / C1)
+│   ├── nightly_stress.py        # RSS-leak + latency + Φ-IQ stress (Phase 6 / C1)
 │   ├── profile_mlp_learn.py     # gprime_learn per-module profile (Phase 5 perf target)
 │   ├── longrun_probe.py         # 1000-cycle stability probe (latency creep + RSS)
-│   ├── phca-monitor.py          # Live terminal dashboard
 │   ├── phca-logs.py             # Structured log viewer
-│   ├── phca_observatory.py      # PyQt Cognitive Observatory (live + JSONL)
+│   ├── phca_observatory.py      # PyQt Cognitive Observatory (live + JSONL) — canonical UI
 │   ├── phca_replay.py           # Session replay + --check integrity gate
+│   ├── phca_visualise.py        # Matplotlib legacy dashboard (deprecated for full review)
 │   └── profile_cycle.py         # Per-cycle profiling (Gaussian path)
 ├── docs/                        # Architecture, decisions, completion reports
 │   └── observability.md         # Observatory JSONL schema, replay, --check rules

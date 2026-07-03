@@ -9,7 +9,6 @@ import pytest
 
 from phca.monitoring.cognitive_panels import (
     RBTA_TO_FLOW,
-    flow_near_bound_modules,
     flow_timing_ratio,
     rbta_time_bound_ms,
 )
@@ -173,7 +172,7 @@ def test_session_report_near_bound_units():
     lines = [
         json.dumps({
             "cycle_id": 0,
-            "module_timings": {"prediction": 4.2},
+            "module_timings": {"prediction": 2.6},
             "rbta_bounds": {"G'": {"time": 0.005}},
             "action_rationale": {},
             "prediction_error": 0.1,
@@ -184,8 +183,38 @@ def test_session_report_near_bound_units():
     assert report["flow_metrics"]["near_bound_cycle_count"] >= 1
 
 
+def test_session_report_near_bound_matches_shared_helper_threshold():
+    lines = [
+        json.dumps({
+            "cycle_id": 0,
+            "module_timings": {"prediction": 2.4},
+            "rbta_bounds": {"G'": {"time": 0.005}},
+            "action_rationale": {},
+            "prediction_error": 0.1,
+            "env_kind": "grid",
+        })
+    ]
+    report = build_session_report({}, lines)
+    assert report["flow_metrics"]["near_bound_cycle_count"] == 0
+
+
+def test_session_report_does_not_mutate_input_json():
+    raw = {
+        "cycle_id": 0,
+        "module_timings": {"prediction": 2.6},
+        "rbta_bounds": {"G'": {"time": 0.005}},
+        "action_rationale": {"best_score": 0.7, "chosen_idx": 1},
+        "candidate_scores": [0.2, 0.7],
+        "prediction_error": 0.1,
+        "env_kind": "grid",
+    }
+    before = json.loads(json.dumps(raw))
+    build_session_report({}, [json.dumps(raw)])
+    assert raw == before
+
+
 def test_rebuild_histories_resets_scales(qt_app):
-    from phca.monitoring.qt_dashboard import CandidateScoreView, ScaleState
+    from phca.monitoring.qt_dashboard import CandidateScoreView
 
     view = CandidateScoreView()
     for i in range(5):

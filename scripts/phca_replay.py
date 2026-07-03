@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """PHCA v3.0 — Session Replay Tool (Observability v2).
 
-Replays a recorded observability session produced by phca_visualise.py.
+Replays a recorded observability session. PyQt ``--qt`` replay is the
+canonical Phase 8 path; matplotlib ``--from-jsonl`` replay is legacy.
 
 A session dir contains:
   - meta.json          run metadata
@@ -10,8 +11,8 @@ A session dir contains:
 
 Modes:
     <session_dir>              Play the recorded video (mp4/gif) in a window.
-    <session_dir> --from-jsonl Reconstruct the dashboard from the JSONL and play
-                               it back at any fps (full-fidelity, no video needed).
+    <session_dir> --qt         Reconstruct the PyQt Observatory from JSONL.
+    <session_dir> --from-jsonl Reconstruct the legacy matplotlib dashboard from JSONL.
     <session_dir> --check      Consistency gate (used by the acceptance suite):
                                verify meta parses, JSONL lines all parse, and the
                                video file (if present) is non-zero. Exit 0/1.

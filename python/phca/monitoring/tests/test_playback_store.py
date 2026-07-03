@@ -1,10 +1,13 @@
 """Tests for playback rebuild semantics and observability-store drains."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from phca.monitoring.observability import ObservabilityFrame, ObservabilityStore
 from phca.monitoring.playback import PlaybackClock
+from phca.monitoring.render import frame_from_json
 
 
 @pytest.fixture(scope="module")
@@ -144,3 +147,29 @@ def test_dashboard_controller_scrub_rebuilds_all_panels(qt_app):
     clock.seek(3)
     assert len(win.retention.m3) == 4
     assert list(win.retention.m3) == [0, 1, 2, 3]
+
+
+def test_dashboard_controller_scrub_500_jsonl_frames_no_mutation(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    raw_frames = [_rich_frame(i).to_json() for i in range(500)]
+    raw_before = json.loads(json.dumps(raw_frames))
+    frames = [frame_from_json(json.loads(json.dumps(obj))) for obj in raw_frames]
+    frame_zero_before = frames[0].to_json()
+    frame_last_before = frames[-1].to_json()
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="replay")
+    clock.set_frames(frames)
+    clock.on_update = lambda f, rolling, err: win.controller.update(f, rolling, err)
+    win._transport = type("_T", (), {"clock": clock})()
+
+    for idx in (0, 250, 499, 10):
+        clock.seek(idx)
+        qt_app.processEvents()
+
+    assert raw_frames == raw_before
+    assert frames[0].to_json() == frame_zero_before
+    assert frames[-1].to_json() == frame_last_before
+    assert len(win.retention.m3) == 11
+    assert list(win.retention.m3) == list(range(11))
+    assert len(win.rbta_bounds._hist["G':time"]) == 11

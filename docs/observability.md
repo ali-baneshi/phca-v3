@@ -14,7 +14,9 @@ phca_observatory._tick()       [Qt main thread]
     └─ PlaybackClock.push() → DashboardController.update() → 7 tabs
 ```
 
-Dashboard and report code **must not mutate** `ObservabilityFrame` instances after capture. Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fields.
+Dashboard and report code **must not mutate** `ObservabilityFrame` instances or input JSON
+after capture (`build_session_report()` deep-reads lines without mutating parsed dicts).
+Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fields.
 
 ## Session directory layout
 
@@ -44,8 +46,10 @@ Scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertaint
 ### Unit rules (RBTA)
 
 - `module_timings[*]` → **milliseconds**
-- `rbta_bounds[*].time` → **seconds**
-- All near-bound ratios use `flow_timing_ratio()` in `cognitive_panels.py` (ms/ms).
+- `rbta_bounds[*].time` → **seconds** (converted to ms by `rbta_time_bound_ms()`)
+- Near-bound ratio: `flow_timing_ratio(mod, timings, bounds)` = measured_ms / bound_ms
+- Near-bound modules: `flow_near_bound_modules(f, top_k=3)` returns modules with ratio **> 0.5**, sorted descending
+- Pipeline time budget: `pipeline_time_budget_ms()` sums RBTA time bounds for pipeline modules
 
 ## Replay modes
 
@@ -89,7 +93,9 @@ Shared helpers in `python/phca/monitoring/cognitive_panels.py`:
 - `rbta_time_bound_ms`, `flow_timing_ratio`, `flow_near_bound_modules`
 - `build_moment_series` for offline moment flags
 
-`session_report.py` and Flow/Retention/RBTA panels use the same normalization.
+`session_report.py` and Flow/Retention/RBTA panels use the same normalization via
+`cognitive_panels.py`. Session reports count near-bound cycles using the same
+`flow_near_bound_modules()` threshold as the live Flow panel.
 
 ## Manual smoke checklist
 
@@ -116,6 +122,9 @@ mkdir -p .tmp
 TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
+
+225 tests (2026-07-03). Integrity tests cover `--check`, session report near-bound
+parity, and input JSON immutability (`test_observability_integrity.py`).
 
 ## Known gaps
 

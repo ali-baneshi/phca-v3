@@ -4,7 +4,7 @@
 
 1. **Branch:** `git checkout -b <ticket-id>-description` (e.g., `phca-3.1-001-scaffold`)
 2. **Implement:** Write code. Commit often with meaningful messages.
-3. **Test:** `make test-all && make lint` before pushing
+3. **Test:** `make test-all && MUJOCO_GL=disabled make test-mujoco && make lint` before pushing
 4. **Push:** `git push -u origin <branch>`
 5. **Open PR:** Fill in the PR template (what was done, what was tested, benchmark results)
 6. **Review:** Request review from the ML/Systems Lead
@@ -17,11 +17,6 @@
 - **Types:** Type hints required on all public functions
 - **Format:** `black` (default settings)
 - **Lint:** `ruff` — zero errors before merge
-
-### Rust
-- **Format:** `rustfmt` defaults
-- **Lint:** `cargo clippy` — zero warnings
-- **Unsafe:** No `unsafe` blocks without explicit lead approval
 
 ### All Languages
 - **Seeds:** Use fixed random seeds (`seed=42`) in all tests
@@ -44,13 +39,24 @@ Reviewers must check:
 - [ ] Does the code match the v3.0 specification?
 - [ ] Are all public functions type-annotated?
 - [ ] Are there unit tests covering the change?
-- [ ] Do all tests pass (`make test-all`)?
+- [ ] Do all tests pass (`make test-python` + `make test-mujoco`)?
 - [ ] Is there a performance measurement (no regression)?
 - [ ] Is the decision logged in `DECISIONS.md` if applicable?
 - [ ] Is there any dead code or commented-out code?
+- [ ] For monitoring changes: do Observatory tests pass with `QT_QPA_PLATFORM=offscreen`?
+
+## Hardening Changes
+
+For changes touching cognition, benchmarks, or long-run stability:
+
+```bash
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/assumption_validation.py --ci
+make nightly NIGHTLY_CYCLES=1000   # full hardening suite (may fail on retention gate — see STATUS.md)
+```
 
 ## Getting Help
 
 - Tag `@lead` in Slack for blockers
 - Tag `@researcher` for v3.0 spec interpretation
-- Check `docs/11-engineers-playbook.md` for ticket details
+- Check [research/outputs/11-engineers-playbook.md](research/outputs/11-engineers-playbook.md) for ticket details

@@ -1,115 +1,116 @@
-# Limitations — What Erasmus Cannot Do (Yet)
+# Limitations — What PHCA Cannot Do (Yet)
 
-Erasmus is a cognitive architecture for **embodied, resource-bounded autonomous agents**. It is not a general AI system. This document clearly states what it cannot do, so you can decide if it is the right tool for your use case.
+PHCA (Predictive Hierarchical Cognitive Architecture) is a cognitive architecture for **embodied, resource-bounded autonomous agents**. It is not a general AI system. (The project was briefly referred to as "Erasmus" in early docs; **PHCA** is the canonical name.)
+
+This document states what PHCA cannot do, so you can decide if it is the right tool for your use case.
 
 ---
 
-## What Erasmus Cannot Do
+## What PHCA Cannot Do
 
 | Capability | Status | Explanation |
 |---|---|---|
 | **Language understanding** | ❌ Not supported | No NLP, no chat, no text generation. The system operates on numerical state vectors only. |
 | **General knowledge** | ❌ Not supported | No knowledge base, no web search, no common-sense reasoning. Knowledge is limited to learned transition patterns. |
 | **Creative writing / art** | ❌ Not supported | No generative capabilities for text, images, or music. |
-| **Real-time control** | ⚠️ Limited | ~50ms per cognitive cycle (~20 decisions/second). Not suitable for sub-20ms real-time control loops. |
-| **Continuous actions** | ⚠️ Experimental | Action spaces are discretised into ≤5 bins. Continuous action support is in development. |
-| **Vision / image processing** | ❌ Not supported | No convolutional layers, no image input. States are flat numerical vectors. |
+| **Real-time control** | ⚠️ Limited | ~10–17 ms mean cycle latency on the MLP path (~60–95 decisions/second). Not suitable for sub-5 ms hard real-time loops. |
+| **Vision / image processing** | ❌ Not supported | No convolutional layers, no image input. States are flat numerical vectors (MuJoCo camera is observability-only). |
 | **Multi-agent coordination** | ❌ Not supported | Single-agent only. Multiple cycles cannot share memory. |
-| **Multi-level grounding (levels 0–2)** | ⚠️ Partial | ASI always emits level 1; Grounding Level Adapter (§2.5.1) deferred to Phase 4.2 |
+| **Multi-level grounding (levels 0–2)** | ⚠️ Partial | ASI always emits grounding level 1; Grounding Level Adapter deferred. |
 | **Long-term procedural memory (M5)** | ❌ Not implemented | Skills are compiled in TSPL but not stored in a persistent library. |
+| **Dual G′+V ensemble / VSA** | ❌ Not implemented | Blueprint items; only G′ (Gaussian / discrete graph / MLP) is implemented. |
+| **Resilience failure matrix** | ❌ Stub only | `phca/resilience/` is a placeholder package. |
 
 ---
 
 ## Current Constraints
 
 ### Environment
-| Constraint | Limit | Reason |
-|---|---|---|
-| State dimension (GridWorld) | 84 (5×5), 309 (10×10), 1209 (20×20) | GridWorld one-hot encoding + local view |
-| Discrete actions | ≤ 5 | Action discretisation granularity |
-| Action space | Discrete only | Continuous actions experimental |
-| Grid size (GridWorld) | 5×5, 10×10, 20×20 | Computational budget |
 
-### Performance
-| Metric | Typical Value | Target |
+| Constraint | Limit | Notes |
 |---|---|---|
-| Cycle latency (MLP) | ~50ms p95 | < 500ms (met) |
-| Cycle latency (Gaussian G') | ~214ms p95 | < 500ms (met) |
-| Decisions per second | ~20 | N/A |
+| State dimension (GridWorld) | 84 (5×5), 309 (10×10), 1209 (20×20) | One-hot encoding + local view |
+| GridWorld actions | 5 discrete (N/S/E/W/stay) | Discrete only |
+| Cartpole | 3 discrete bins | `InvertedPendulum-v5` |
+| Pendulum | **Continuous** torque ∈ [-2, 2], dim 1 | Phase 6 — MPC prediction-driven selector |
+| Reacher | **Continuous** actuator ∈ [-1, 1]², dim 2 | Phase 7 / D-107 — same MPC path as Pendulum |
+| MuJoCo | Opt-in (`requirements-mujoco.txt`) | 3 envs validated; headless: `MUJOCO_GL=disabled` |
+
+### Performance (this machine, re-measured 2026-07-03)
+
+| Metric | Typical value | Target / bound |
+|---|---|---|
+| Cycle latency (MLP) mean | ~10–17 ms | < 500 ms RBTA bound (met) |
+| Cycle latency (MLP) p95 | ~14–31 ms | < 500 ms (met) |
+| `gprime_learn` mean | ~5–9 ms (env-dependent) | Dominant per-module cost |
+| Decisions per second | ~60–95 | N/A |
 | Prediction error (steady state) | 0.05–0.15 | Decreasing over time |
-| L2 Goal Pursuit Φ-IQ | **0.476** | ≥ 0.5 (Phase 4 target) |
+| L2 Goal Pursuit Φ-IQ (static, 200 cyc) | **0.777** | ≥ 0.5 (met) |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.740** | ≥ 0.5486 gate floor (met) |
 
 ### Hardware
+
 | Resource | Requirement |
 |---|---|
 | CPU only | Tested on consumer x86_64 (no GPU needed) |
-| RAM | ~100 MB typical |
+| RAM | ~100–270 MB typical (grows under long soaks — see below) |
 | Disk | ~50 MB for code + dependencies |
-| Optional | Rust toolchain for performance-critical modules |
+
+Rust toolchain is **not** required (workspace removed D-084).
 
 ---
 
 ## Known Weaknesses
 
-### Level 2 (Goal Pursuit) Φ-IQ = 0.477
+### Long-run memory growth (Phase 7 workstream)
 
-Goal reaching (`goal_rate ≈ 0.94`) is strong after D-070/D-071 fixes, but L2 Φ-IQ remains below the 0.5 target because **adaptation_speed** and **transfer_efficiency** sub-metrics score near zero in sustained goal-holding runs. Phase 4.1 will address skill chaining and cross-episode transfer.
+The nightly stress test uses a **late-half RSS slope** gate (`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (2026-07-03), a 1000-cycle run reports late slope **~4650 B/cyc**, so `make nightly` **fails** the retention gate even though latency, violations, and Φ-IQ checkpoints pass. Root cause: M3 episodic fill phase, in-memory SQLite fragmentation, and M4 fact accumulation. M4 now has a 1000-fact cap with pruning (Phase 7 / B2 in code); the soak slope target remains open.
 
-### MLP Default hidden_dim = 128
+### Discrete GridWorld selector is not purely prediction-driven
+
+The canonical discrete path blends Manhattan distance gain with prediction confidence and MDIM alignment. The **continuous MPC path** (Pendulum, Reacher) is the clean prediction-primary mechanism (A4 measured there, D-101).
+
+### MLP default hidden_dim = 128
 
 The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-028/D-072. This is the canonical capacity for GridWorld-scale environments.
 
-### Discrete Actions Only
-All environments currently discretise actions into 3–5 bins. For Cartpole: `[-3, 0, +3]`. For Pendulum: `[-2, 0, +2]`. Fine-grained or continuous control is not yet supported.
+### Dynamic goals are experimental
 
-### MuJoCo Environments (Experimental)
-MuJoCo support is functional but experimental:
-- Only 3 environments tested (InvertedPendulum-v5, Pendulum-v1, Reacher-v5)
-- Requires `gymnasium[mujoco]` (not in default dependencies)
-- Continuous action support deferred
+`--dynamic-goals-every 75` is the validated cadence (L2 ≥ 0.50). every-50 and every-100 are not achievable on this machine. Dynamic L2 is SGD-trajectory-sensitive across machines (D-092).
+
+### Consolidation "semantic" facts are statistical
+
+`SemanticFact` in `consolidation/scheduler.py` is pattern matching over episodes, not true semantic memory.
 
 ---
 
-## When NOT to Use Erasmus
+## When NOT to Use PHCA
 
 - You need **language processing**, **chat**, or **text generation**
 - You need **image recognition**, **object detection**, or **video processing**
-- You need **real-time control** with sub-20ms latency requirements
-- You need **continuous action spaces** (e.g., torque control with fine granularity)
+- You need **sub-5 ms hard real-time** control loops
 - You need **general knowledge**, **common-sense reasoning**, or **logical inference**
-- You need a **pre-trained model** — Erasmus learns from scratch in each run
+- You need a **pre-trained model** — PHCA learns from scratch in each run
+- You need **multi-agent** coordination or shared memory across agents
 
 ---
 
-## Roadmap to Address Limitations
+## Open Work (Phase 7+)
 
-| Limitation | Target Phase | Status |
-|---|---|---|
-| L2 Φ-IQ ≥ 0.5 | Phase 4.1 | 🔜 In progress |
-| Continuous actions | Phase 4.1 | 🔜 Planned |
-| Full MuJoCo suite (5+ envs) | Phase 4.2 | 🔜 Planned |
-| ROS 2 integration | Phase 4.2 | 🔜 Planned |
-| Real-robot tests | Phase 4.3 | 🔜 Planned |
-| M5 procedural memory | Phase 4.3 | 🔜 Planned |
-| Multi-agent coordination | Phase 4.4 | 🔜 Deferred |
-| Hierarchical planning | Phase 4.4 | 🔜 Deferred |
+| Item | Status |
+|---|---|
+| M3/M4 retention soak (late slope ≤ 500 B/cyc) | In progress — `make nightly` fails today |
+| Cognitive Observatory hardening | In progress — JSONL/replay/report parity |
+| Grounding adapter (levels 0/2) | Deferred |
+| M5 procedural memory | Not implemented |
+| Full MuJoCo suite (5+ envs) | Planned |
+| Multi-agent coordination | Deferred |
 
 ---
 
-## Review Notes (Pass 1 — Accuracy)
-- MLP latency 50ms p95 verified from gate_phase3.3_final.md (MLP mode).
-- Gaussian G' latency 214ms verified from same source.
-- L2 Φ-IQ 0.477 verified from `logs/benchmark_l2_ps1.json` (500 cycles, hidden_dim=128).
-- MLP hidden_dim=128 verified from cycle.py `build()` and mlp.py constructor (D-072).
-- All "not supported" capabilities verified by searching source for relevant modules.
-- Discrete action counts verified from action maps in mujoco_env.py and grid_world.py.
+## Related Documents
 
-## Review Notes (Pass 2 — Clarity)
-- Each limitation has a clear explanation of why it exists.
-- Performance table gives both typical values and targets.
-- "When NOT to use" section makes adoption decisions easy.
-
-## Review Notes (Pass 3 — Completeness)
-- Covers: what it cannot do, current constraints, known weaknesses, when to avoid, roadmap.
-- Links to phi_iq_metric.md for benchmark interpretation.
-- Roadmap covers Phase 4 plans with realistic timing.
+- [phi_iq_metric.md](phi_iq_metric.md) — benchmark level definitions
+- [architecture.md](architecture.md) — 12-step cycle and module map
+- [observability.md](observability.md) — Cognitive Observatory contracts
+- [STATUS.md](../STATUS.md) — live issue registry and test status

@@ -62,7 +62,6 @@ from .cognitive_panels import (
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
-    flow_timing_ratio,
     pipeline_time_budget_ms,
     rbta_bound_for_module,
     rbta_time_bound_ms,
