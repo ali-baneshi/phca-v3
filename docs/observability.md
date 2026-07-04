@@ -31,9 +31,21 @@ Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fi
 
 ## JSONL schema
 
+### Schema governance (Phase 9)
+
+Every new JSONL frame includes `schema_version: 1`. Legacy sessions without
+`schema_version` are treated as schema v0 and remain replay/report compatible.
+`meta.json` includes `observability_schema_version` for newly recorded sessions.
+
+Replay and report loading pass JSON objects through
+`normalize_observability_json()` before constructing an `ObservabilityFrame`.
+Unknown future schema versions fail closed in `--check` and replay/report
+loading; mixed schema versions in a single JSONL fail `--check` unless
+`--allow-incomplete` is explicitly used for forensic inspection.
+
 ### Recorded fields (replay/report)
 
-Scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
+`schema_version`, scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
 
 ### Live-only (not in JSONL)
 
@@ -128,6 +140,7 @@ Fails unless:
 3. `cycle_id` is contiguous `0..N-1`
 4. All lines parse; `frame_from_json` smoke on first/mid/last
 5. Video (if present) is non-zero; `ffprobe` validates stream when available
+6. `schema_version` is supported; mixed versions fail unless `--allow-incomplete`
 
 When `recorded_cycles` is present, `--check` also reports whether JSONL line count matches it. A mismatch fails unless `--allow-incomplete` is explicitly used; empty JSONL always fails.
 
@@ -168,12 +181,12 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**225 tests** (2026-07-03). Key modules:
+**232 tests** (2026-07-03). Key modules:
 
 | Module | Coverage |
 |--------|----------|
 | `test_playback_store.py` | Seek/rebuild semantics, 500-frame scrub immutability |
-| `test_observability_integrity.py` | RBTA units, `--check`, report parity, JSON immutability |
+| `test_observability_integrity.py` | RBTA units, `--check`, schema governance, report parity, JSON immutability |
 | `test_*_dashboard.py` | Per-panel smoke, replay banners, scrub rebuild |
 | `test_cognitive_panels.py` | Shared helper contracts |
 | `test_session_report.py` | Offline report from JSONL |
@@ -183,7 +196,6 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 
 | Gap | Target phase |
 |-----|--------------|
-| No formal `schema_version` / migration policy | Phase 9 |
 | Offline report does not cover every dashboard subview | Phase 10 |
 | Large sessions (3000+ cycles) may lag on scrub rebuild | Phase 11 |
 | Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated |

@@ -85,6 +85,9 @@ make nightly NIGHTLY_CYCLES=1000          # CI; use NIGHTLY_CYCLES=10000 for a t
 python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
 python scripts/check_benchmark_gate.py --mujoco logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json
 python scripts/check_benchmark_gate.py --neg-test   # proves the gate catches violations
+
+# Causal behavior gate: PHCA vs non-PHCA GridWorld controls, levels 1-3
+PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
 ```
 
 ---
@@ -195,6 +198,18 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
   Pendulum continuous (100cyc): 7.4 ms, 0 violations, error 29.6→0.68
   Nightly hardening (make nightly NIGHTLY_CYCLES=1000): exit 0
 ```
+
+### Causal Evidence Gate
+
+`scripts/phca_causal_eval.py` compares PHCA against non-PHCA GridWorld controls
+on three scenario levels: simple navigation, constrained partial observation,
+and long-horizon goal switching/interruption. Current 200-cycle × 5-seed result:
+Level 1 **passes** versus random; Levels 2–3 **fail** versus `greedy_observed`.
+This is intentional honesty: greedy full-info remains a ceiling, and the current
+PHCA GridWorld policy does not yet exploit memory/consolidation strongly enough
+to beat observed greedy under the harder scenarios.
+
+See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md).
 
 ### Performance (Phase 5, Workstream A — D-092)
 

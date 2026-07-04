@@ -10,7 +10,7 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phca.monitoring.observability import ObservabilityFrame
+from phca.monitoring.observability import ObservabilityFrame, normalize_observability_json
 from phca.monitoring.cognitive_panels import (
     build_moment_series,
     count_moments,
@@ -94,7 +94,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         ln = ln.strip()
         if not ln:
             continue
-        frames.append(frame_from_json(json.loads(ln)))
+        frames.append(frame_from_json(normalize_observability_json(json.loads(ln))))
 
     n = len(frames)
     err_hist: Deque[float] = deque(maxlen=TREND_WINDOW)

@@ -1,0 +1,672 @@
+#!/usr/bin/env python3
+"""PHCA causal evidence gate.
+
+Compares PHCA against non-PHCA GridWorld controls on extrinsic task metrics.
+This answers whether PHCA improves agent behavior, not whether runtime works.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
+from statistics import mean, median
+from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
+
+import numpy as np
+
+from phca.core.cycle import CognitiveCycle
+from phca.config import DiscreteSpace
+from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld
+
+BASE_METRICS = (
+    "goal_rate",
+    "first_goal_cycle",
+    "mean_distance_to_goal",
+    "cumulative_reward",
+)
+LONG_HORIZON_METRICS = BASE_METRICS + ("coverage_rate", "switch_recovery_cycle")
+HIGHER_IS_BETTER = {
+    "goal_rate": True,
+    "first_goal_cycle": False,
+    "mean_distance_to_goal": False,
+    "cumulative_reward": True,
+    "coverage_rate": True,
+    "switch_recovery_cycle": False,
+}
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    """Causal-evidence scenario configuration."""
+
+    name: str
+    description: str
+    metrics: Tuple[str, ...] = BASE_METRICS
+    sensor_noise: float = 0.0
+    goal_delay: int = 0
+    partial_map: bool = False
+    dynamic_goals_every: int = 0
+    dynamic_obstacles_every: int = 0
+    sensor_dropout_every: int = 0
+    sensor_dropout_len: int = 0
+    sensor_dropout_fraction: float = 0.0
+    gate_controls: Tuple[str, ...] = ("random",)
+
+
+SCENARIOS: Dict[str, ScenarioSpec] = {
+    "level1": ScenarioSpec(
+        name="level1",
+        description="Simple goal navigation; greedy_full_info is expected to be the ceiling.",
+        gate_controls=("random",),
+    ),
+    "level2": ScenarioSpec(
+        name="level2",
+        description="Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+        sensor_noise=0.05,
+        goal_delay=3,
+        partial_map=True,
+        dynamic_obstacles_every=25,
+        gate_controls=("random", "greedy_observed"),
+    ),
+    "level3": ScenarioSpec(
+        name="level3",
+        description="Long-horizon GridWorld: goal switching, interruption windows, partial map.",
+        metrics=LONG_HORIZON_METRICS,
+        sensor_noise=0.04,
+        goal_delay=3,
+        partial_map=True,
+        dynamic_goals_every=50,
+        dynamic_obstacles_every=35,
+        sensor_dropout_every=45,
+        sensor_dropout_len=5,
+        sensor_dropout_fraction=0.2,
+        gate_controls=("random", "greedy_observed"),
+    ),
+}
+
+
+class ScenarioGridWorld:
+    """Harness-only GridWorld wrapper for constrained causal scenarios."""
+
+    EMPTY = GridWorld.EMPTY
+    WALL = GridWorld.WALL
+    GOAL = GridWorld.GOAL
+    HAZARD = GridWorld.HAZARD
+
+    def __init__(
+        self,
+        *,
+        size: int,
+        obstacles: List[Tuple[int, int]],
+        seed: int,
+        spec: ScenarioSpec,
+    ) -> None:
+        self.base = GridWorld(size=size, obstacles=obstacles, seed=seed)
+        self.size = self.base.size
+        self.rng = np.random.RandomState(seed + 10_000)
+        self.spec = spec
+        self.step_count = 0
+        self.max_steps = self.base.max_steps
+        self.action_space_size = self.base.action_space_size
+        self._managed_wall: Optional[Tuple[int, int]] = None
+        self._goal_history: Deque[Tuple[int, int]] = deque(maxlen=max(spec.goal_delay + 1, 1))
+        self._agent_history: Deque[Tuple[int, int]] = deque(maxlen=max(spec.goal_delay + 1, 1))
+        self._known_walls = np.zeros((self.size, self.size), dtype=bool)
+        self.switch_cycles: List[int] = []
+        self.goal_reached_cycles: List[int] = []
+        self.visited: set[Tuple[int, int]] = set()
+        self.grid = self.base.grid.copy()
+        self.agent_pos = self.base.agent_pos
+        self.goal_pos = self.base.goal_pos
+        self._sync_observed(force=True)
+
+    @property
+    def true_agent_pos(self) -> Tuple[int, int]:
+        return tuple(self.base.agent_pos)
+
+    @property
+    def true_goal_pos(self) -> Tuple[int, int]:
+        return tuple(self.base.goal_pos)
+
+    @property
+    def stay_action(self) -> int:
+        return self.base.stay_action
+
+    def get_state_dim(self) -> int:
+        return self.base.get_state_dim()
+
+    def get_possible_actions(self) -> List[str]:
+        return list(ACTION_NAMES)
+
+    def get_action_names(self) -> List[str]:
+        return list(ACTION_NAMES)
+
+    def get_action_space(self):
+        return DiscreteSpace(n=self.action_space_size)
+
+    def get_goal_position(self) -> Tuple[int, int] | None:
+        return self.goal_pos
+
+    def reset(self, seed: int | None = None) -> np.ndarray:
+        obs = self.base.reset(seed=seed)
+        self.step_count = 0
+        self._goal_history.clear()
+        self._agent_history.clear()
+        self._known_walls.fill(False)
+        self.switch_cycles.clear()
+        self.goal_reached_cycles.clear()
+        self.visited.clear()
+        self._sync_observed(force=True)
+        return self._transform_observation(obs)
+
+    def relocate_goal(self) -> Tuple[int, int]:
+        pos = self.base.relocate_goal()
+        self.switch_cycles.append(self.step_count)
+        self._sync_observed(force=True)
+        return pos
+
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
+        if self.spec.dynamic_goals_every and self.step_count > 0:
+            if self.step_count % self.spec.dynamic_goals_every == 0:
+                self.relocate_goal()
+        if self.spec.dynamic_obstacles_every and self.step_count > 0:
+            if self.step_count % self.spec.dynamic_obstacles_every == 0:
+                self._move_dynamic_wall()
+
+        obs, reward, _terminal, info = self.base.step(action)
+        self.step_count = self.base.step_count
+        self.visited.add(self.true_agent_pos)
+        if info.get("goal_reached", False):
+            self.goal_reached_cycles.append(self.step_count - 1)
+        self._sync_observed()
+        wrapped_info = dict(info)
+        wrapped_info["agent_pos"] = self.true_agent_pos
+        wrapped_info["goal_pos"] = self.true_goal_pos
+        return self._transform_observation(obs), reward, False, wrapped_info
+
+    def _get_observation(self) -> np.ndarray:
+        return self._transform_observation(self.base._get_observation())
+
+    def _sync_observed(self, *, force: bool = False) -> None:
+        self._goal_history.append(self.true_goal_pos)
+        self._agent_history.append(self.true_agent_pos)
+        if force:
+            while len(self._goal_history) < self._goal_history.maxlen:
+                self._goal_history.append(self.true_goal_pos)
+            while len(self._agent_history) < self._agent_history.maxlen:
+                self._agent_history.append(self.true_agent_pos)
+        delay = min(self.spec.goal_delay, len(self._goal_history) - 1)
+        self.goal_pos = list(self._goal_history)[-1 - delay]
+        self.agent_pos = list(self._agent_history)[-1 - delay]
+        self._reveal_local_walls(self.true_agent_pos)
+        self.grid = self._observed_grid()
+
+    def _reveal_local_walls(self, pos: Tuple[int, int]) -> None:
+        row, col = pos
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                rr, cc = row + dr, col + dc
+                if 0 <= rr < self.size and 0 <= cc < self.size:
+                    if self.base.grid[rr, cc] == self.WALL:
+                        self._known_walls[rr, cc] = True
+
+    def _observed_grid(self) -> np.ndarray:
+        if not self.spec.partial_map:
+            return self.base.grid.copy()
+        observed = np.zeros_like(self.base.grid)
+        observed[self._known_walls] = self.WALL
+        observed[self.goal_pos] = self.GOAL
+        return observed
+
+    def _transform_observation(self, obs: np.ndarray) -> np.ndarray:
+        out = np.asarray(obs, dtype=np.float32).copy()
+        n = self.size * self.size
+
+        out[n:2 * n] = 0.0
+        gr, gc = self.goal_pos
+        out[n + gr * self.size + gc] = 1.0
+
+        if self.spec.partial_map:
+            out[2 * n:3 * n] = self._known_walls.astype(np.float32).ravel()
+
+        if self.spec.sensor_noise > 0.0:
+            out += self.rng.normal(0.0, self.spec.sensor_noise, size=out.shape).astype(np.float32)
+            out = np.clip(out, 0.0, 1.0)
+
+        if self._in_dropout_window():
+            count = max(1, int(len(out) * self.spec.sensor_dropout_fraction))
+            idx = self.rng.choice(len(out), size=count, replace=False)
+            out[idx] = 0.0
+
+        return out.astype(np.float32)
+
+    def _in_dropout_window(self) -> bool:
+        if not self.spec.sensor_dropout_every or not self.spec.sensor_dropout_len:
+            return False
+        return (self.step_count % self.spec.sensor_dropout_every) < self.spec.sensor_dropout_len
+
+    def _move_dynamic_wall(self) -> None:
+        if self._managed_wall is not None:
+            row, col = self._managed_wall
+            if self.base.grid[row, col] == self.WALL:
+                self.base.grid[row, col] = self.EMPTY
+            self._known_walls[row, col] = False
+
+        blocked = {self.true_agent_pos, self.true_goal_pos, self.base.start_pos}
+        candidates = [
+            (r, c)
+            for r in range(self.size)
+            for c in range(self.size)
+            if (r, c) not in blocked and self.base.grid[r, c] == self.EMPTY
+        ]
+        if not candidates:
+            self._managed_wall = None
+            return
+        self._managed_wall = tuple(candidates[int(self.rng.randint(len(candidates)))])
+        self.base.grid[self._managed_wall] = self.WALL
+
+
+def generate_goal_pursuit_obstacles(seed: int, size: int = 5) -> List[Tuple[int, int]]:
+    """Match benchmark.py Level-2 obstacle generation without importing the runner."""
+    rng = np.random.RandomState(seed)
+    obstacles: List[Tuple[int, int]] = []
+    gap_row = int(rng.randint(0, size))
+    for row in range(size):
+        if row != gap_row:
+            obstacles.append((row, 2))
+    for _ in range(2):
+        row, col = [int(x) for x in rng.randint(0, size, size=2)]
+        if (row, col) not in obstacles:
+            obstacles.append((row, col))
+    return obstacles
+
+
+def build_scenario_env(seed: int, size: int, spec: ScenarioSpec) -> ScenarioGridWorld:
+    obstacles = generate_goal_pursuit_obstacles(seed + 2, size=size)
+    return ScenarioGridWorld(size=size, obstacles=obstacles, seed=seed + 2, spec=spec)
+
+
+def distance_to_goal(env: ScenarioGridWorld) -> int:
+    ar, ac = env.true_agent_pos
+    gr, gc = env.true_goal_pos
+    return abs(ar - gr) + abs(ac - gc)
+
+
+def reward_from_env(env: ScenarioGridWorld) -> float:
+    if env.true_agent_pos == env.true_goal_pos:
+        return 1.0
+    if env.base.grid[env.true_agent_pos] == env.HAZARD:
+        return -0.5
+    return -0.01
+
+
+def greedy_distance_action(env: ScenarioGridWorld, *, full_info: bool) -> int:
+    """One-step Manhattan-distance controller with no PHCA state or prediction."""
+    agent_pos = env.true_agent_pos if full_info else env.agent_pos
+    goal_pos = env.true_goal_pos if full_info else env.get_goal_position()
+    grid = env.base.grid if full_info else env.grid
+    best_action = env.stay_action
+    if goal_pos is None:
+        return best_action
+    best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
+    for action, (dr, dc) in enumerate(ACTION_DELTAS):
+        row = agent_pos[0] + dr
+        col = agent_pos[1] + dc
+        if not (0 <= row < env.size and 0 <= col < env.size):
+            continue
+        if grid[row, col] == env.WALL:
+            continue
+        dist = abs(row - goal_pos[0]) + abs(col - goal_pos[1])
+        if dist < best_distance:
+            best_distance = dist
+            best_action = action
+    return best_action
+
+
+def switch_recovery_cycle(env: ScenarioGridWorld, cycles: int) -> Optional[float]:
+    if not env.switch_cycles:
+        return None
+    recoveries: List[int] = []
+    for switch in env.switch_cycles:
+        after = [cycle for cycle in env.goal_reached_cycles if cycle >= switch]
+        recoveries.append((after[0] - switch) if after else cycles + 1)
+    return float(mean(recoveries)) if recoveries else None
+
+
+def summarize_trace(
+    *,
+    agent: str,
+    seed: int,
+    cycles: int,
+    env: ScenarioGridWorld,
+    distances: List[float],
+    rewards: List[float],
+    goals: List[bool],
+    rbta_violations: int = 0,
+) -> Dict[str, Any]:
+    first_goal: Optional[int] = None
+    for idx, reached in enumerate(goals):
+        if reached:
+            first_goal = idx
+            break
+    return {
+        "agent": agent,
+        "seed": int(seed),
+        "cycles": int(cycles),
+        "goal_rate": float(mean([1.0 if g else 0.0 for g in goals])) if goals else 0.0,
+        "first_goal_cycle": first_goal,
+        "mean_distance_to_goal": float(mean(distances)) if distances else 0.0,
+        "cumulative_reward": float(sum(rewards)),
+        "coverage_rate": float(len(env.visited) / float(env.size * env.size)),
+        "switch_recovery_cycle": switch_recovery_cycle(env, cycles),
+        "rbta_violation_rate": float(rbta_violations / max(cycles, 1)),
+    }
+
+
+def run_control_agent(
+    agent: str,
+    seed: int,
+    cycles: int,
+    size: int,
+    spec: ScenarioSpec,
+) -> Dict[str, Any]:
+    env = build_scenario_env(seed, size, spec)
+    rng = np.random.RandomState(seed)
+    distances: List[float] = []
+    rewards: List[float] = []
+    goals: List[bool] = []
+    for _ in range(cycles):
+        if agent == "random":
+            action = int(rng.randint(0, env.action_space_size))
+        elif agent == "greedy_observed":
+            action = greedy_distance_action(env, full_info=False)
+        elif agent == "greedy_full_info":
+            action = greedy_distance_action(env, full_info=True)
+        else:
+            raise ValueError(f"unknown control agent {agent!r}")
+        _, reward, _, info = env.step(action)
+        distances.append(float(distance_to_goal(env)))
+        rewards.append(float(reward))
+        goals.append(bool(info.get("goal_reached", False)))
+    return summarize_trace(
+        agent=agent, seed=seed, cycles=cycles, env=env,
+        distances=distances, rewards=rewards, goals=goals,
+    )
+
+
+def run_phca_agent(
+    seed: int,
+    cycles: int,
+    size: int,
+    spec: ScenarioSpec,
+    *,
+    use_mlp: bool,
+) -> Dict[str, Any]:
+    env = build_scenario_env(seed, size, spec)
+    cycle = CognitiveCycle.build(
+        env=env,
+        seed=seed + 2,
+        use_mlp=use_mlp,
+        gprime_b_time=0.050 if use_mlp else 0.020,
+    )
+    distances: List[float] = []
+    rewards: List[float] = []
+    goals: List[bool] = []
+    violations = 0
+    for _ in range(cycles):
+        metrics = cycle.step()
+        distances.append(float(distance_to_goal(env)))
+        rewards.append(reward_from_env(env))
+        goals.append(bool(metrics.goal_reached))
+        violations += int(metrics.violations_count)
+    row = summarize_trace(
+        agent="phca", seed=seed, cycles=cycles, env=env,
+        distances=distances, rewards=rewards, goals=goals,
+        rbta_violations=violations,
+    )
+    row["model"] = "MLP" if use_mlp else "Gaussian"
+    row["prediction_error_mean"] = float(mean(
+        [m.prediction_error for m in cycle.metrics_history]
+    )) if cycle.metrics_history else 0.0
+    row["episode_count"] = int(
+        cycle.consolidation.m3.count() if hasattr(cycle, "consolidation") else 0
+    )
+    row["fact_count"] = int(cycle.consolidation.get_stats().get("total_facts_stored", 0))
+    return row
+
+
+def _metric_value(row: Dict[str, Any], metric: str) -> float:
+    value = row.get(metric)
+    if value is None:
+        if metric in ("first_goal_cycle", "switch_recovery_cycle"):
+            return float(int(row.get("cycles", 0)) + 1)
+        return 0.0
+    return float(value)
+
+
+def aggregate_runs(
+    runs: List[Dict[str, Any]],
+    metrics: Iterable[str] = BASE_METRICS,
+) -> Dict[str, Dict[str, Any]]:
+    by_agent: Dict[str, List[Dict[str, Any]]] = {}
+    for row in runs:
+        by_agent.setdefault(str(row["agent"]), []).append(row)
+    summary: Dict[str, Dict[str, Any]] = {}
+    for agent, rows in sorted(by_agent.items()):
+        data: Dict[str, Any] = {"n": len(rows)}
+        for metric in metrics:
+            vals = [_metric_value(row, metric) for row in rows]
+            data[f"{metric}_mean"] = float(mean(vals))
+            data[f"{metric}_median"] = float(median(vals))
+        data["success_rate"] = float(mean([
+            1.0 if row.get("first_goal_cycle") is not None else 0.0
+            for row in rows
+        ]))
+        data["rbta_violation_rate_mean"] = float(mean([
+            float(row.get("rbta_violation_rate", 0.0)) for row in rows
+        ]))
+        if any("prediction_error_mean" in row for row in rows):
+            data["prediction_error_mean"] = float(mean([
+                float(row.get("prediction_error_mean", 0.0)) for row in rows
+            ]))
+        if any("episode_count" in row for row in rows):
+            data["episode_count_mean"] = float(mean([
+                float(row.get("episode_count", 0.0)) for row in rows
+            ]))
+            data["fact_count_mean"] = float(mean([
+                float(row.get("fact_count", 0.0)) for row in rows
+            ]))
+        summary[agent] = data
+    return summary
+
+
+def compare_agents(
+    summary: Dict[str, Dict[str, Any]],
+    *,
+    metrics: Iterable[str] = BASE_METRICS,
+    gate_controls: Iterable[str] = ("random",),
+) -> Dict[str, Any]:
+    phca = summary.get("phca")
+    metric_list = list(metrics)
+    if phca is None:
+        return {"gate": {"passed": False, "reason": "missing phca rows"}}
+    comparisons: Dict[str, Any] = {}
+    gate_details: Dict[str, Any] = {}
+    gate_passed = True
+    for other in ("random", "greedy_observed", "greedy_full_info"):
+        if other not in summary:
+            continue
+        per_metric: Dict[str, Dict[str, Any]] = {}
+        better_count = 0
+        worse_count = 0
+        for metric in metric_list:
+            key = f"{metric}_mean"
+            phca_value = float(phca[key])
+            other_value = float(summary[other][key])
+            delta = phca_value - other_value
+            higher = HIGHER_IS_BETTER[metric]
+            better = delta > 0 if higher else delta < 0
+            worse = delta < 0 if higher else delta > 0
+            better_count += int(better)
+            worse_count += int(worse)
+            per_metric[metric] = {
+                "phca": phca_value,
+                other: other_value,
+                "delta_phca_minus_other": delta,
+                "phca_better": bool(better),
+                "phca_worse": bool(worse),
+            }
+        comparisons[other] = {
+            "metrics": per_metric,
+            "phca_better_count": better_count,
+            "phca_worse_count": worse_count,
+        }
+        if other in gate_controls:
+            needed = max(1, int(np.ceil(len(metric_list) * 0.75)))
+            passed = better_count >= needed
+            gate_details[other] = {
+                "passed": bool(passed),
+                "phca_better_count": int(better_count),
+                "required": int(needed),
+            }
+            gate_passed = gate_passed and passed
+    comparisons["gate"] = {
+        "passed": bool(gate_passed),
+        "controls": gate_details,
+        "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+        "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+    }
+    return comparisons
+
+
+def run_level(
+    *,
+    level: str,
+    cycles: int,
+    seeds: int,
+    size: int,
+    agents: Iterable[str],
+    use_mlp: bool,
+) -> Dict[str, Any]:
+    spec = SCENARIOS[level]
+    selected = list(agents)
+    runs: List[Dict[str, Any]] = []
+    for seed in range(seeds):
+        if "phca" in selected:
+            runs.append(run_phca_agent(seed, cycles, size, spec, use_mlp=use_mlp))
+        for agent in ("random", "greedy_observed", "greedy_full_info"):
+            if agent in selected:
+                runs.append(run_control_agent(agent, seed, cycles, size, spec))
+    summary = aggregate_runs(runs, spec.metrics)
+    return {
+        "config": {
+            "level": level,
+            "description": spec.description,
+            "cycles": int(cycles),
+            "seeds": int(seeds),
+            "grid_size": int(size),
+            "agents": selected,
+            "metrics": list(spec.metrics),
+            "gate_controls": list(spec.gate_controls),
+            "phca_model": "MLP" if use_mlp else "Gaussian",
+        },
+        "runs": runs,
+        "summary": summary,
+        "comparisons": compare_agents(
+            summary, metrics=spec.metrics, gate_controls=spec.gate_controls,
+        ),
+    }
+
+
+def run_evaluation(
+    *,
+    cycles: int,
+    seeds: int,
+    size: int,
+    agents: Iterable[str],
+    use_mlp: bool,
+    levels: Iterable[str] = ("level1",),
+) -> Dict[str, Any]:
+    selected_levels = list(levels)
+    reports = {
+        level: run_level(
+            level=level, cycles=cycles, seeds=seeds, size=size,
+            agents=agents, use_mlp=use_mlp,
+        )
+        for level in selected_levels
+    }
+    if len(reports) == 1:
+        return next(iter(reports.values()))
+    return {
+        "config": {
+            "cycles": int(cycles),
+            "seeds": int(seeds),
+            "grid_size": int(size),
+            "levels": selected_levels,
+            "agents": list(agents),
+            "phca_model": "MLP" if use_mlp else "Gaussian",
+        },
+        "levels": reports,
+        "gate": {
+            "passed": all(
+                report["comparisons"]["gate"].get("passed", False)
+                for report in reports.values()
+            )
+        },
+    }
+
+
+def parse_levels(raw: str) -> List[str]:
+    if raw == "all":
+        return ["level1", "level2", "level3"]
+    levels = [part.strip() for part in raw.split(",") if part.strip()]
+    unknown = [level for level in levels if level not in SCENARIOS]
+    if unknown:
+        raise SystemExit(f"unknown levels: {', '.join(unknown)}")
+    return levels
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PHCA causal evidence evaluation")
+    parser.add_argument("--cycles", type=int, default=200)
+    parser.add_argument("--seeds", type=int, default=5)
+    parser.add_argument("--grid-size", type=int, default=5)
+    parser.add_argument("--levels", default="level1")
+    parser.add_argument("--agents", default="phca,random,greedy_observed,greedy_full_info")
+    parser.add_argument("--use-mlp", action="store_true")
+    parser.add_argument("--output", default="logs/phca_causal_eval.json")
+    parser.add_argument("--gate", action="store_true")
+    args = parser.parse_args()
+
+    agents = [a.strip() for a in args.agents.split(",") if a.strip()]
+    report = run_evaluation(
+        cycles=args.cycles,
+        seeds=args.seeds,
+        size=args.grid_size,
+        agents=agents,
+        use_mlp=args.use_mlp,
+        levels=parse_levels(args.levels),
+    )
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2))
+    if "levels" in report:
+        passed = bool(report["gate"].get("passed", False))
+        print(f"Wrote {out}")
+        for level, level_report in report["levels"].items():
+            gate = level_report["comparisons"].get("gate", {})
+            print(f"{level}: {'PASS' if gate.get('passed') else 'FAIL'} — {gate.get('rule')}")
+    else:
+        gate = report["comparisons"].get("gate", {})
+        passed = bool(gate.get("passed", False))
+        print(f"Wrote {out}")
+        print(f"Gate: {'PASS' if passed else 'FAIL'} — {gate.get('rule')}")
+    if args.gate and not passed:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -71,6 +71,9 @@ _ENV_FRAME_TTL_S = 0.0
 _MEM_CACHE: Dict[int, Tuple[float, Dict[str, Any]]] = {}
 _MEM_TTL_S = 0.5
 
+OBSERVABILITY_SCHEMA_VERSION = 1
+SUPPORTED_OBSERVABILITY_SCHEMA_VERSIONS = {0, OBSERVABILITY_SCHEMA_VERSION}
+
 
 def _cached_rss() -> int:
     if _PROC is None:
@@ -246,6 +249,7 @@ def clear_snap_cache() -> None:
 @dataclass
 class ObservabilityFrame:
     """Immutable snapshot of one cognitive cycle's world + mind state."""
+    schema_version: int = OBSERVABILITY_SCHEMA_VERSION
     cycle_id: int = 0
     # External world
     agent_pos: Optional[Tuple[int, int]] = None
@@ -682,6 +686,7 @@ class ObservabilityFrame:
                 return [_s(v) for v in x]
             return x
         d = {k: _s(v) for k, v in asdict(self).items()}
+        d["schema_version"] = OBSERVABILITY_SCHEMA_VERSION
         # Belt-and-braces explicit casts for the structured fields.
         d["agent_pos"] = ([int(v) for v in self.agent_pos]
                           if self.agent_pos is not None else None)
@@ -729,7 +734,7 @@ class ObservabilityFrame:
         for k in ("cycle_id", "episode_count", "fact_count", "violations_count",
                   "drive_id", "active_drive_id", "rss_bytes", "m3_cap",
                   "m4_cap", "m4_prune_target", "state_dim", "action_dim",
-                  "action_count", "goal_creation_cycle"):
+                  "action_count", "goal_creation_cycle", "schema_version"):
             if k in d and d[k] is not None:
                 d[k] = int(d[k])
         for k in ("latency_ms", "prediction_error", "prediction_confidence",
@@ -748,6 +753,41 @@ class ObservabilityFrame:
                      "last_action_vector"):
             d.pop(drop, None)
         return d
+
+
+def observability_schema_version(obj: Dict[str, Any]) -> int:
+    """Return the Observatory JSON schema version; missing means legacy v0."""
+    raw = obj.get("schema_version", 0)
+    if isinstance(raw, bool):
+        raise ValueError("schema_version must be an integer")
+    try:
+        version = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"schema_version must be an integer, got {raw!r}") from exc
+    if version < 0:
+        raise ValueError(f"schema_version must be >= 0, got {version}")
+    return version
+
+
+def normalize_observability_json(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy and normalize a JSONL object before replay/report reconstruction.
+
+    v0 is the pre-Phase-9 legacy shape with no explicit schema marker. v1 is
+    the current schema. Unknown future versions fail closed so replay/check
+    does not silently misrepresent data.
+    """
+    if not isinstance(obj, dict):
+        raise ValueError("observability JSON record must be an object")
+    version = observability_schema_version(obj)
+    if version not in SUPPORTED_OBSERVABILITY_SCHEMA_VERSIONS:
+        supported = sorted(SUPPORTED_OBSERVABILITY_SCHEMA_VERSIONS)
+        raise ValueError(
+            f"unsupported observability schema_version={version} "
+            f"(supported: {supported})"
+        )
+    out = json.loads(json.dumps(obj))
+    out["schema_version"] = version
+    return out
 
 
 class ObservabilityStore:
@@ -819,7 +859,11 @@ class SessionRecorder:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_dir = self.root / ts
         self.session_dir.mkdir(parents=True, exist_ok=True)
-        meta = {**meta, "fps": self.fps}
+        meta = {
+            **meta,
+            "fps": self.fps,
+            "observability_schema_version": OBSERVABILITY_SCHEMA_VERSION,
+        }
         (self.session_dir / "meta.json").write_text(json.dumps(meta, indent=2))
         self._jsonl = open(self.session_dir / "timeseries.jsonl", "w", encoding="utf-8")
         return self.session_dir

@@ -1250,3 +1250,26 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Reacher's 2D `Box([-1,1]^2)` is the natural second continuous env. The MPC selector's `K·dim ≤ 16` cap holds at K=8 for dim=2 with no cycle.py change — the continuous plumbing (ActionSpace, MPC selector, get_goal_reference) from Phase 6 generalises cleanly. The fingertip→target goal reference is verified against the gymnasium obs spec, not assumed. Prediction/goal-driven (no reward, value, or policy gradient), preserving A4/A5.
 - **v3.0 trace:** §3.2 (typed composition), A1 (4.4 ms ≪ 500 ms; 0 violations), A4 (predict per candidate, dim=2), A5 (gprime.learn on continuous action_vec every cycle).
 - **Tests/Validation:** 335 passed 0 errors; Gate A PASS — Reacher continuous PASS, Pendulum/Cartpole/GridWorld no regression, Φ-IQ 0.7416, assumptions 4/4.
+
+## Decision D-110: Phase 9 Observatory schema governance
+
+- **Date:** 2026-07-03
+- **Author:** Principal Architect (Phase 9)
+- **Category:** Tier 2 (observability data contract)
+- **Problem:** Phase 8 hardened replay/scrub behavior, but JSONL had no formal schema marker. Field drift could make replay/report silently misrepresent older or future sessions.
+- **Option chosen:** Added `OBSERVABILITY_SCHEMA_VERSION = 1` and `schema_version` on each serialized `ObservabilityFrame`. New `meta.json` writes `observability_schema_version`. Missing per-frame `schema_version` is legacy v0 and remains compatible. Replay/report normalize JSON through `normalize_observability_json()` before frame reconstruction. Unknown future versions fail closed; mixed-version JSONL fails `--check` unless `--allow-incomplete` is used for forensic inspection.
+- **Rationale:** A small in-code normalizer is sufficient for v0→v1 and avoids resurrecting the removed SQLite migration framework from D-052. This keeps Phase 9 scoped to Observatory JSONL governance, not database migrations or Phase 10 report expansion.
+- **v3.0 trace:** A2 (temporal replay integrity), A3 (no false certainty from unknown schemas), A1 (constant-time per-frame normalization).
+- **Tests/Validation:** schema stamp, legacy v0 replay, unknown version failure, mixed-version failure, and normalization immutability tests in `python/phca/monitoring/tests/test_observability_integrity.py`.
+
+## Decision D-111: Three-level causal behavior evidence gate
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (scientific evidence — causal behavior comparison)
+- **Problem:** Runtime health, Φ-IQ, and observability correctness do not prove that PHCA improves agent behavior. A simple GridWorld navigation benchmark mostly measures `navigate → reach goal`, where full-information greedy should win. PHCA needs causal evidence under scenarios closer to its invariants: bounded resources, temporal causality, incomplete knowledge, prediction, feedback, memory, interruptions, non-stationarity, and recovery.
+- **Option chosen:** Added `scripts/phca_causal_eval.py` and `python/tests/test_causal_eval.py`. The gate now has three levels: `level1` simple navigation; `level2` constrained GridWorld with noisy/delayed observation, partial wall map, and dynamic obstacles; `level3` long-horizon GridWorld with goal switching, occlusion windows, partial map, exploration coverage, and switch recovery. Controls are `random`, `greedy_observed`, and `greedy_full_info`. `greedy_full_info` is reported as a ceiling, not gated by default. Gate rule: PHCA must beat each scenario-gated control on at least 75% of that level's metrics.
+- **Results:** `PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json` produced mixed results. Level 1 PASS: PHCA beats random 4/4; greedy_full_info remains stronger. Level 2 FAIL: PHCA beats random 4/4 but beats `greedy_observed` 0/4. Level 3 FAIL: PHCA beats random 5/6 but beats `greedy_observed` 1/6. Key means: L1 PHCA goal_rate 0.941 vs random 0.075; L2 PHCA goal_rate 0.400 vs greedy_observed 0.420; L3 PHCA goal_rate 0.168 / coverage 0.456 / recovery 71.6 vs greedy_observed 0.287 / 0.336 / 55.9.
+- **Rationale:** This avoids both overclaiming and testing PHCA only on greedy's ideal problem. The harder levels expose the intended PHCA-relevant axes, while the current result honestly shows that PHCA's discrete GridWorld policy does not yet exploit memory/consolidation/prediction enough to beat observed greedy.
+- **v3.0 trace:** A1 is monitored by `rbta_violation_rate`; A2 by delayed observation and switch recovery; A3 by partial observation; A4/A5 by prediction/error learning; memory/consolidation by `episode_count` and `fact_count`.
+- **Tests/Validation:** `PYTHONPATH=python python -m pytest python/tests/test_causal_eval.py -q` passed 5 tests. Documentation updated in `docs/phca_causal_evidence.md`.

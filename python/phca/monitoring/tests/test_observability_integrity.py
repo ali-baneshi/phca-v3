@@ -12,7 +12,13 @@ from phca.monitoring.cognitive_panels import (
     flow_timing_ratio,
     rbta_time_bound_ms,
 )
-from phca.monitoring.observability import ObservabilityFrame, clear_snap_cache
+from phca.monitoring.observability import (
+    OBSERVABILITY_SCHEMA_VERSION,
+    ObservabilityFrame,
+    SessionRecorder,
+    clear_snap_cache,
+    normalize_observability_json,
+)
 from phca.monitoring.render import frame_from_json
 from phca.monitoring.session_report import build_session_report
 
@@ -129,6 +135,86 @@ def test_replay_check_fails_recorded_cycles_mismatch(tmp_path):
     lines = [json.dumps({"cycle_id": i}) for i in range(3)]
     (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
     spec = importlib.util.spec_from_file_location("phca_replay_recorded", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._check(str(d)) == 1
+    assert mod._check(str(d), allow_incomplete=True) == 0
+
+
+def test_observability_to_json_stamps_schema_version():
+    raw = ObservabilityFrame(cycle_id=7).to_json()
+    assert raw["schema_version"] == OBSERVABILITY_SCHEMA_VERSION
+
+
+def test_session_recorder_stamps_schema_version_in_meta(tmp_path):
+    rec = SessionRecorder(root=str(tmp_path), record=True)
+    session_dir = rec.start({"cycles": 1})
+    assert session_dir is not None
+    rec.record(ObservabilityFrame(cycle_id=0))
+    rec.close()
+    meta = json.loads((session_dir / "meta.json").read_text())
+    assert meta["observability_schema_version"] == OBSERVABILITY_SCHEMA_VERSION
+    assert meta["recorded_cycles"] == 1
+
+
+def test_frame_from_json_legacy_v0_missing_schema_supported():
+    raw = {
+        "cycle_id": 2,
+        "module_timings": {"prediction": 1.0},
+        "rbta_bounds": {"G'": {"time": 0.005}},
+    }
+    f = frame_from_json(raw)
+    assert f.schema_version == 0
+    assert f.cycle_id == 2
+    assert f.module_timings["prediction"] == pytest.approx(1.0)
+
+
+def test_normalize_observability_json_rejects_unknown_schema():
+    with pytest.raises(ValueError, match="unsupported observability schema_version=99"):
+        normalize_observability_json({"schema_version": 99, "cycle_id": 0})
+
+
+def test_normalize_observability_json_does_not_mutate_input():
+    raw = {
+        "schema_version": 1,
+        "cycle_id": 0,
+        "action_rationale": {"best_score": 0.4},
+        "candidate_scores": [0.4, 0.2],
+    }
+    before = json.loads(json.dumps(raw))
+    normalized = normalize_observability_json(raw)
+    normalized["action_rationale"]["best_score"] = 9.9
+    assert raw == before
+
+
+def test_replay_check_fails_unknown_schema_version(tmp_path):
+    import importlib.util
+
+    d = tmp_path / "sess_unknown_schema"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"cycles": 1}))
+    (d / "timeseries.jsonl").write_text(json.dumps({
+        "schema_version": 99,
+        "cycle_id": 0,
+    }) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_unknown_schema", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._check(str(d)) == 1
+
+
+def test_replay_check_fails_mixed_schema_versions(tmp_path):
+    import importlib.util
+
+    d = tmp_path / "sess_mixed_schema"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"cycles": 2}))
+    lines = [
+        json.dumps({"cycle_id": 0}),
+        json.dumps({"schema_version": 1, "cycle_id": 1}),
+    ]
+    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_mixed_schema", _SCRIPTS / "phca_replay.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod._check(str(d)) == 1

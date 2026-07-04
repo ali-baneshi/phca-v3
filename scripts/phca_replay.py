@@ -57,6 +57,7 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
     print(f"Session: {session_dir}")
     print(f"  meta       : env={meta.get('env')} cycles={meta.get('cycles')} "
           f"recorded={meta.get('recorded_cycles', '?')} "
+          f"obs_schema={meta.get('observability_schema_version', '?')} "
           f"record_fps={meta.get('record_fps')} mlp={meta.get('mlp')}")
     print(f"  jsonl      : {len(lines)} lines")
     if not lines:
@@ -78,13 +79,18 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
         print(f"  [PASS] JSONL line count matches meta.cycles ({expected})")
     parse_fail_lines: list[int] = []
     parsed: list[dict] = []
+    schema_versions: set[int] = set()
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+    from phca.monitoring.observability import normalize_observability_json
     for i, ln in enumerate(lines, start=1):
         try:
-            parsed.append(json.loads(ln))
+            obj = normalize_observability_json(json.loads(ln))
+            schema_versions.add(int(obj.get("schema_version", 0)))
+            parsed.append(obj)
         except Exception as e:
             parse_fail_lines.append(i)
             if len(parse_fail_lines) <= 5:
-                print(f"  [FAIL] line {i}: JSON parse error: {e}")
+                print(f"  [FAIL] line {i}: JSON/schema error: {e}")
     if parse_fail_lines:
         extra = len(parse_fail_lines) - 5
         if extra > 0:
@@ -92,6 +98,12 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
         ok = False
     elif lines:
         print(f"  [PASS] all {len(lines)} JSONL lines parse")
+    if schema_versions:
+        versions = ", ".join(str(v) for v in sorted(schema_versions))
+        print(f"  schema     : {versions}")
+        if len(schema_versions) > 1 and not allow_incomplete:
+            print(f"  [FAIL] mixed schema_version values: {versions}")
+            ok = False
     if parsed and not allow_incomplete:
         for i, obj in enumerate(parsed):
             cid = obj.get("cycle_id", i)
@@ -103,7 +115,6 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
             print(f"  [PASS] cycle_id contiguous 0..{len(parsed) - 1}")
     if parsed:
         try:
-            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
             from phca.monitoring.render import frame_from_json
             for idx in {0, len(parsed) // 2, len(parsed) - 1}:
                 frame_from_json(parsed[idx])

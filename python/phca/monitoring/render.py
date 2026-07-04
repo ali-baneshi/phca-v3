@@ -27,7 +27,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from .observability import ObservabilityFrame
+from .observability import ObservabilityFrame, normalize_observability_json
 
 DRIVE_NAMES = {
     1: "D1 PredErr", 2: "D2 Critical", 3: "D3 Compet",
@@ -390,6 +390,7 @@ def update_dashboard(handle: DashboardHandle, f: ObservabilityFrame) -> None:
 
 def frame_from_json(obj: Dict[str, Any]) -> ObservabilityFrame:
     """Reconstruct an ObservabilityFrame from a JSONL line (for replay)."""
+    obj = normalize_observability_json(obj)
     f = ObservabilityFrame()
     array_fields = {
         "predicted_state", "obs_vector", "goal_ref", "continuous_action",
