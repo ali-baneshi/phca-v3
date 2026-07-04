@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 from phca.prediction.engine import PredictionEngine
 from phca.prediction.error_unit import PredictionErrorUnit
 from phca.learning.tspl import TSPL
-from phca.regulation.rbta_enforcer import RBTAEnforcer
+from phca.regulation.rbta_enforcer import EnforcerAction, RBTAEnforcer
 from phca.motivation.mdim import MDIM
 from phca.attention.attention import Attention
 from phca.regulation.pid_controller import AdaptiveParameterController
@@ -189,6 +189,12 @@ class CognitiveCycle:
         self._planning_grid: Optional[np.ndarray] = None
         self._task_lock: bool = False
 
+        # RBTA enforcement carry-forward (P1-01): prior cycle action shapes next cycle.
+        self._rbta_carry_action: EnforcerAction = EnforcerAction.CONTINUE
+        self._rbta_skip_feedback: bool = False
+        self._rbta_skip_consolidation: bool = False
+        self._rbta_action_candidate_limit: Optional[int] = None
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=env.size)
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
@@ -228,6 +234,15 @@ class CognitiveCycle:
         metrics = CycleMetrics(cycle_id=self.cycle_count)
 
         try:
+            # Per-cycle RBTA enforcement flags (reset; carry-forward applied below).
+            self._rbta_skip_feedback = False
+            self._rbta_skip_consolidation = False
+            self._rbta_action_candidate_limit = None
+            if self._rbta_carry_action == EnforcerAction.TERMINATE:
+                self._rbta_skip_feedback = True
+            elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
+                self._rbta_action_candidate_limit = 1
+
             # Step 0: ASI sanitization
             t0 = time.perf_counter()
             raw_obs = self.env._get_observation()
@@ -385,9 +400,35 @@ class CognitiveCycle:
             }
             metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
+            # RBTA preflight: same-cycle TERMINATE/INTERRUPT before expensive action/feedback.
+            preflight_action = self._rbta_preflight_check(metrics, hpm_spec)
+            if preflight_action == EnforcerAction.TERMINATE:
+                self._rbta_skip_feedback = True
+                self._rbta_skip_consolidation = True
+            elif preflight_action == EnforcerAction.INTERRUPT:
+                self._rbta_action_candidate_limit = 1
+                self._rbta_skip_consolidation = True
+
             # Step 9: Action selection + environment step
             t5 = time.perf_counter()
-            action = self._select_action()
+            if self._rbta_skip_feedback:
+                action = self.env.stay_action
+                self.last_candidate_scores = []
+                self.last_candidate_rollouts = []
+                self.last_action_rationale = {
+                    "explored": False,
+                    "eps": 0.0,
+                    "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
+                    "continuous": False,
+                    "best_score": None,
+                    "k_candidates": 1,
+                    "chosen_idx": int(action),
+                    "task_lock": bool(self._task_lock),
+                    "rbta_safe_mode": True,
+                    "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+                }
+            else:
+                action = self._select_action()
             if self._is_continuous:
                 action_vec_step = np.asarray(action, dtype=np.float32)
                 obs, reward, terminal, info = self.env.step(action_vec_step)
@@ -400,7 +441,7 @@ class CognitiveCycle:
             # conditioned on the action that was taken (not last_action
             # from the previous cycle). This makes the error meaningful for
             # learned world models like the MLP.
-            if self.current_state is not None:
+            if self.current_state is not None and not self._rbta_skip_feedback:
                 if self._is_continuous:
                     action_vec = action_vec_step
                 else:
@@ -559,6 +600,9 @@ class CognitiveCycle:
             metrics.violations_count = len(violations)
             self.last_violations = violations  # Observability v2: RBTA reasons
             metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
+            self._rbta_carry_action = enforcer_action
+            if enforcer_action in (EnforcerAction.INTERRUPT, EnforcerAction.TERMINATE):
+                self._rbta_skip_consolidation = True
 
             # Step 15: Logging — also populate dashboard fields
             metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
@@ -577,12 +621,24 @@ class CognitiveCycle:
             if self.observability_store is not None:
                 from phca.monitoring.observability import ObservabilityFrame
                 self.observability_store.push(ObservabilityFrame.from_cycle(self))
-            if len(self.metrics_history) > 10000:
+            if len(self.metrics_history) > 5000:
                 self.metrics_history = self.metrics_history[-5000:]
 
             # Steps 16-18: Consolidation (periodic E→S transfer)
-            t_consol = time.perf_counter()
-            consol_report = self.consolidation.step(self.cycle_count)
+            if self._rbta_skip_consolidation:
+                consol_report = type("_Skip", (), {
+                    "success": False,
+                    "episodes_processed": 0,
+                    "facts_generated": 0,
+                    "duration_ms": 0.0,
+                })()
+                metrics.module_timings["consolidation"] = 0.0
+            else:
+                t_consol = time.perf_counter()
+                consol_report = self.consolidation.step(self.cycle_count)
+                metrics.module_timings["consolidation"] = (
+                    time.perf_counter() - t_consol
+                ) * 1000
             if consol_report.success and consol_report.episodes_processed > 0:
                 # Log consolidated fact types for transparency
                 recent_facts = self.consolidation.get_semantic_facts(
@@ -597,11 +653,7 @@ class CognitiveCycle:
                      fact_types=fact_types,
                      total_facts=self.consolidation.get_stats()["total_facts_stored"],
                      ms=f"{consol_report.duration_ms:.1f}")
-            metrics.module_timings["consolidation"] = (
-                time.perf_counter() - t_consol
-            ) * 1000
-            self.runtime_log["CONSOL"] = metrics.module_timings["consolidation"] / 1000.0
-            # Recompute energy_log to reflect actual CONSOL runtime
+            self.runtime_log["CONSOL"] = metrics.module_timings.get("consolidation", 0.0) / 1000.0
             consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
             self.energy_log["CONSOL"] = consol_energy
 
@@ -711,7 +763,13 @@ class CognitiveCycle:
         _obs = self.observability_store is not None
         _rollouts: list = []
 
-        for action_idx in range(self.env.action_space_size):
+        candidate_indices = range(self.env.action_space_size)
+        if self._rbta_action_candidate_limit is not None:
+            candidate_indices = list(candidate_indices)[
+                : self._rbta_action_candidate_limit
+            ]
+
+        for action_idx in candidate_indices:
             action = np.zeros(self.env.action_space_size, dtype=np.float32)
             action[action_idx] = 1.0
             self.engine.update_action(action)
@@ -1181,6 +1239,50 @@ class CognitiveCycle:
         cv = std_err / mean_err
         vol = min(1.0, cv)
         return float(np.clip(vol, 0.1, 0.99))
+
+    def _rbta_preflight_check(
+        self,
+        metrics: CycleMetrics,
+        hpm_spec: Dict[str, Any],
+    ) -> EnforcerAction:
+        """Partial RBTA check after regulation, before action selection.
+
+        Uses measured module timings collected so far. Same-cycle TERMINATE
+        skips feedback (STAY); INTERRUPT limits prediction rollouts.
+        """
+        self._collect_runtime_log(metrics)
+        hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
+        reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
+        reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
+        composition_tree = {
+            "type": "SEQUENCE",
+            "id": "cognitive_cycle",
+            "children": [
+                "ASI",
+                "WM",
+                "PE",
+                {
+                    "type": "PARALLEL",
+                    "id": "regulation_block",
+                    "children": ["MDIM", "CR", "ATTN", "HPM"],
+                    "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy},
+                },
+            ],
+            "bounds": {
+                "B_time": reg_b_time + 0.050,
+                "B_energy": reg_b_energy + 0.010,
+            },
+        }
+        _, action = self.rbta.check_cycle(
+            runtime_log=self.runtime_log,
+            memory_log=self.memory_log,
+            energy_log=self.energy_log,
+            belief_entropies=self.belief_entropies,
+            sensor_failure_count=self.sensor_failure_count,
+            asi_failure_limit=self.asi_failure_limit,
+            composition_tree=composition_tree,
+        )
+        return action
 
     def _collect_runtime_log(self, metrics: Optional[CycleMetrics] = None) -> None:
         """Collect module runtime/memory/energy logs for RBTA from actual measurements.

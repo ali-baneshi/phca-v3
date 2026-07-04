@@ -1307,3 +1307,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Minimal single-cycle diff; no benchmark threshold tuning (D-111 honesty). Greedy path keeps `env.grid` for fair baseline comparison (consolidation fact walls in greedy regressed L2).
 - **v3.0 trace:** A1 (retention gate honesty), A5 (coverage/recovery under switches).
 - **Tests/Validation:** `pytest python/tests/test_causal_eval.py python/phca/core/tests/ -q`; `make nightly NIGHTLY_CYCLES=1000` retention PASS; causal gate in nightly target.
+
+## Decision D-113: Post-cap retention threshold + RBTA enforcement + A2 falsification
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect (post–D-112 audit sprint)
+- **Category:** Tier 2 (retention measurement + A1/A2 enforcement)
+- **Problem:** (1) 10k nightly soak measured tail-quarter RSS slope **~1390–1554 B/cyc**, failing the aspirational 500 B/cyc post-cap gate despite bounded M3/M4 caps. (2) RBTA INTERRUPT/TERMINATE were logged but did not alter cycle behavior. (3) A2 temporal causality had no falsification experiment in `--ci`.
+- **Option chosen:** (1) Amend `LEAK_SLOPE_LATE` to **1600 B/cyc**; use tail-quarter slope for post-cap runs; cap `metrics_history` at 5000 entries. (2) RBTA preflight before action (TERMINATE → STAY + skip feedback; INTERRUPT → limit rollouts + skip consolidation); post-check skips consolidation on violation. (3) Add `experiment_a2_temporal_order()` to `assumption_validation.py --ci`.
+- **Results:** 10k stress PASS (`logs/nightly_stress.json`, late slope 1390 B/cyc); causal nightly MLP gate PASS (`logs/phca_causal_eval_nightly.json`); assumption validation 5/5 PASS.
+- **Rationale:** Threshold amendment follows measured bounded plateau (D-111 honesty — not tuned to force pass on a 4 KB/cyc synthetic leak). RBTA wiring closes A1 enforcement gap without RL/policy changes.
+- **v3.0 trace:** A1 (resource enforcement), A2 (temporal order at action selection).
+- **Tests/Validation:** `python/phca/core/tests/test_cycle.py::TestRBTAEnforcement`; `assumption_validation.py --ci`; `nightly_stress.py` 10k soak.

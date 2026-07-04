@@ -56,7 +56,7 @@ flowchart TD
 | 1  | M1/M2 | `m2.write(state)` + `m1.write(state)` (working + sensory memory) |
 | 2-4 | G'   | `engine.predict(state)` → `predicted, confidence` (Gaussian / discrete / MLP) |
 | 8-13 | MDIM+APC+ATTN+HPM | query facts, generate goal, regulate, attend ( **before action** — P0-1) |
-| 9  | Cycle | discrete: blended scorer or MPC continuous → action |
+| 9  | Cycle | discrete: **task_lock observed-greedy** + sparse L3 coverage probe (D-112) when extrinsic goal present; else blended scorer; continuous: MPC (A4 primary) |
 | 5-7 | PEU+TSPL+G' | post-step: `peu.compute`, `tspl.update`, `gprime.learn` |
 | 14 | RBTA  | `check_cycle(runtime, mem, energy, entropy)` |
 | 15 | Cycle | Logging — append `metrics_history` |
@@ -85,7 +85,7 @@ with no Φ-IQ regression.
 | **APC** | `phca/regulation/pid_controller.py` | Adaptive parameter control (PID-based modulation of T, η, α) |
 | **ATTN** | `phca/attention/attention.py` | Precision-weighted sparse attention with Gumbel noise |
 | **HPM** | `phca/hpm/parser.py` | Hierarchical procedure memory: composition operators + `compute_bounds()` |
-| **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement |
+| **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement; **INTERRUPT/TERMINATE alter cycle behavior** (skip feedback/consolidation, limit rollouts — P1-01) |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC, Phase 6) |
@@ -101,7 +101,7 @@ with no Φ-IQ regression.
 | Invariant | Enforcement |
 | :--- | :--- |
 | **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`). **Measured (Phase 6/B2):** inject over-budget → ≥1 violation. |
-| **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. |
+| **A2** Temporal Causality | Pipeline ordering in the 12-step cycle; RBTA preflight/post enforcement (P1-01). **Measured (P1-02):** 10-step monitor — zero future-state timestamps at action selection. |
 | **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured (Phase 6/B2):** 100-cyc min entropy ≥ 0.01. |
 | **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). **Measured (Phase 6/B2):** continuous MPC selector calls predict per candidate. **OOD measured (Phase 6/B1):** blended confidence 0.97→0.26 as σ 0→1.0. |
 | **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured (Phase 6/B2):** no-op learn → frozen weights (Δ 0.0000); active learn → weights update (Δ 0.043). |

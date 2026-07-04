@@ -126,3 +126,24 @@ def test_notable_cycles_cap():
     meta = {"env": "Reacher-v5"}
     report = build_session_report(meta, _load_fixture_lines())
     assert len(report["notable_cycles"]) <= 20
+
+
+def test_session_report_overview_results_parity():
+    """Phase 10: offline report fields match Overview format_session_results_lines."""
+    from phca.monitoring.cognitive_panels import format_session_results_lines
+
+    meta = {"env": "Reacher-v5"}
+    report = build_session_report(meta, _load_fixture_lines())
+    lines = format_session_results_lines(report)
+    joined = "\n".join(lines)
+    assert lines
+    assert str(report.get("cycles", 0)) in lines[0]
+    assert "explore" in lines[0].lower()
+    mech_pct = (report.get("action_metrics") or {}).get("mechanism_pct") or {}
+    if mech_pct:
+        top = max(mech_pct.items(), key=lambda kv: kv[1])
+        assert top[0] in joined
+    phase_pct = report.get("phase_budget_pct") or {}
+    if phase_pct:
+        top_phase = max(phase_pct.items(), key=lambda kv: kv[1])
+        assert top_phase[0] in joined

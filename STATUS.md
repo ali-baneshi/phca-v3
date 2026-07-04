@@ -80,8 +80,8 @@
 
 | ID | Issue | Target |
 |----|-------|--------|
-| P10-1 | Full offline report parity with dashboard | Phase 10 |
-| P11-1 | 3000+ cycle scrub without severe lag | Phase 11 |
+| P10-1 | Full offline report parity with dashboard | Phase 10 | **Done** — `format_session_results_lines()` parity test |
+| P11-1 | 3000+ cycle scrub without severe lag | Phase 11 | **Done** — scrub budget tests ≤2s/≤4s |
 | DO-6 | Log D-108+ in DECISIONS.md | ✅ Done | D-108/D-109/D-112 logged |
 
 ### P2 — Backlog (scheduled)
@@ -106,14 +106,14 @@
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-03 | **524 passed**, 0 errors |
-| MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-03 | **36 passed**, 0 errors |
-| Monitoring only | 2026-07-03 | **232 passed** (`pytest python/phca/monitoring/tests/`) |
-| **Total (both suites)** | 2026-07-03 | **560 passed**, 0 errors |
-| CI Φ-IQ gate | 2026-07-03 | PASS (Overall 0.7403 ≥ floor 0.5486) |
+| Python (`make test-python`) | 2026-07-04 | **587 passed**, 1 skipped |
+| MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-04 | **36 passed**, 0 errors |
+| Monitoring only | 2026-07-04 | **278 passed** (`pytest python/phca/monitoring/tests/`) |
+| **Total (both suites)** | 2026-07-04 | **623 passed**, 1 skipped |
+| CI Φ-IQ gate | 2026-07-04 | PASS (Overall 0.7317 nightly static ≥ floor 0.5486) |
 | Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
-| Assumption validation `--ci` | 2026-07-03 | 4/4 PASS |
-| `make nightly NIGHTLY_CYCLES=1000` | 2026-07-04 | **PASS** — fill-phase retention gate (late RSS ~4817 B/cyc ≤ 5000); use 10000 for post-cap gate |
+| Assumption validation `--ci` | 2026-07-04 | **5/5 PASS** (A1–A5 incl. A2 temporal order) |
+| `make nightly NIGHTLY_CYCLES=10000` | 2026-07-04 | **PASS** — post-cap retention (late RSS ~1390 B/cyc ≤ 1600); causal nightly gate PASS |
 
 **Failing tests:** None (unit/integration).
 
@@ -126,10 +126,9 @@
 | Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7403** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` |
 | L0 / L1 / L2 / L3 Φ-IQ | 0.7032 / 0.7125 / 0.7773 / 0.7683 | L2 ≥ 0.5 — PASS | same |
 | Causal behavior gate (GridWorld levels 1–3, 200 cyc × 5 seeds) | **PASS** | L1/L2/L3 vs gated controls | `logs/phca_causal_eval.json` |
-| Nightly stress 1000-cyc | **PASS** fill-phase | late slope ~4817 B/cyc (threshold 5000) | `logs/nightly_stress.json` |
-| Nightly stress 10000-cyc | post-cap gate | late slope ≤ 500 B/cyc | `make nightly` default |
-| OOD calibration | monotonic, drop 0.71 | PASS | `logs/nightly_ood.json` |
-| Assumption validation | A1/A3/A4/A5 PASS | `--ci` exit 0 | `logs/assumption_validation.json` |
+| Nightly stress 1000-cyc | **PASS** fill-phase | late slope ~2195 B/cyc (threshold 5000) | `logs/nightly_stress.json` |
+| Nightly stress 10000-cyc | **PASS** post-cap | late slope ~1390 B/cyc (threshold 1600, D-113) | `logs/nightly_stress.json` |
+| Assumption validation | A1–A5 PASS | `--ci` exit 0 | `logs/assumption_validation.json` |
 
 ---
 

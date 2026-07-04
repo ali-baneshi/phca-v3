@@ -7,6 +7,8 @@ falsifiable, measured checks.
 
   A1 (Resource Boundedness): inject an over-budget module timing → RBTA must
       flag ≥1 violation.
+  A2 (Temporal Causality): action selection at cycle t must not consume state
+      stamped at t+1 (future-timestamp probe must fail closed).
   A3 (Incomplete Knowledge): drive the MLP with low-noise repeated input for
       100 cycles → belief entropy must stay ≥ entropy_floor (0.01).
   A4 (Prediction as Primary): zero out the prediction engine's output → the
@@ -73,6 +75,37 @@ def experiment_a1_rbta() -> dict:
     passed = n >= 1
     return {"invariant": "A1", "name": "RBTA flags over-budget module",
             "violations": n, "passed": bool(passed)}
+
+
+# ── A2: action at t cannot use state stamped at t+1 ──────────
+
+def experiment_a2_temporal_order() -> dict:
+    """Falsify future-state leakage into same-cycle action selection."""
+    cycle = _build_l2_cycle()
+    violations: list = []
+    orig_select = CognitiveCycle._select_action
+
+    def _monitored_select(self):
+        if self.current_state is not None:
+            if self.current_state.timestamp > float(self.cycle_count) + 1e-6:
+                violations.append(float(self.current_state.timestamp))
+        return orig_select(self)
+
+    CognitiveCycle._select_action = _monitored_select
+    try:
+        for _ in range(10):
+            cycle.step()
+    finally:
+        CognitiveCycle._select_action = orig_select
+
+    passed = len(violations) == 0
+    return {
+        "invariant": "A2",
+        "name": "action at t uses state stamped ≤ t",
+        "steps": 10,
+        "future_state_violations": len(violations),
+        "passed": bool(passed),
+    }
 
 
 # ── A3: belief entropy floor under low-noise input ────────────
@@ -188,6 +221,7 @@ def main() -> None:
 
     experiments = [
         experiment_a1_rbta,
+        experiment_a2_temporal_order,
         experiment_a3_entropy_floor,
         experiment_a4_prediction_primary,
         experiment_a5_feedback_driven,

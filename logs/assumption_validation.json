@@ -7,9 +7,16 @@
       "passed": true
     },
     {
+      "invariant": "A2",
+      "name": "action at t uses state stamped \u2264 t",
+      "steps": 10,
+      "future_state_violations": 0,
+      "passed": true
+    },
+    {
       "invariant": "A3",
       "name": "belief entropy floor \u2265 \u03b5",
-      "min_entropy": 0.5,
+      "min_entropy": 0.3464403973846848,
       "floor": 0.01,
       "passed": true
     },
@@ -23,7 +30,7 @@
       "invariant": "A5",
       "name": "feedback drives world-model updates",
       "frozen_rel_change": 0.0,
-      "active_rel_change": 0.042914987523636074,
+      "active_rel_change": 0.07387751587562598,
       "passed": true
     }
   ],

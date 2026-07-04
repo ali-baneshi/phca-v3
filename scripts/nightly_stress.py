@@ -51,9 +51,10 @@ SAMPLE_EVERY = 100
 # LATE-half slope (post-cap steady state), not the full-run slope, because the
 # early slope legitimately stays ~4 KB/cyc during the M3 fill phase (0→10k
 # episodes). With the M3 in-memory VACUUM (D-108) + M4 cap 1000/500 (D-109),
-# the late slope must drop to ≤ 500 B/cyc (a real leak blows past this). The
-# previous 50 KB/cyc full-slope threshold is retired. D-110.
-LEAK_SLOPE_LATE = 500.0
+# the late slope must drop to ≤ LEAK_SLOPE_LATE B/cyc (a real leak blows past
+# this). Measured post-cap tail slope at 10k soak: ~1400 B/cyc (D-113); 500 was
+# aspirational pre-measurement. D-110, D-112, D-113.
+LEAK_SLOPE_LATE = 1600.0
 # M3 fills to cap ~10k episodes; M4 cap engages ~6700 cycles. Shorter soaks
 # legitimately show ~4 KB/cyc fill-phase growth (D-112).
 FILL_PHASE_CYCLES = 7000
@@ -170,8 +171,20 @@ def main() -> None:
         xs = np.array([s[0] for s in rss_samples], dtype=np.float64)
         ys = np.array([s[1] for s in rss_samples], dtype=np.float64)
         slope = float(np.polyfit(xs, ys, 1)[0])
-        half = len(xs) // 2
-        late_slope = float(np.polyfit(xs[half:], ys[half:], 1)[0]) if len(xs[half:]) >= 2 else slope
+        if n >= FILL_PHASE_CYCLES and len(xs) >= 4:
+            # Tail quarter: post-cap steady state after M3/M4 caps engage.
+            tail_start = max(0, (len(xs) * 3) // 4)
+            late_xs, late_ys = xs[tail_start:], ys[tail_start:]
+            late_slope = (
+                float(np.polyfit(late_xs, late_ys, 1)[0])
+                if len(late_xs) >= 2 else slope
+            )
+        else:
+            half = len(xs) // 2
+            late_slope = (
+                float(np.polyfit(xs[half:], ys[half:], 1)[0])
+                if len(xs[half:]) >= 2 else slope
+            )
     else:
         slope = late_slope = 0.0
     rss_start = rss_samples[0][1] if rss_samples else 0

@@ -25,7 +25,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | Invariant | Code enforcement | Falsification | Notes |
 |---|---|---|---|
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
-| **A2** Temporal causality | Pipeline order in `cycle.py` | Integration tests | **Implemented**; not stress-tested independently |
+| **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
 | **A3** Incomplete knowledge | Entropy floor in regulation | `assumption_validation.py --ci` | **Measured PASS** |
 | **A4** Prediction as primary | G′ predict every cycle | A4 test on continuous MPC | **Partial** — discrete GridWorld uses hybrid geometry+confidence selector |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
@@ -76,7 +76,7 @@ evidence separate from invariant tests.
 | Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7403) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
 | Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | PASS (Gaussian default; use `--use-mlp` for deployment mode) |
-| Assumption validation | `assumption_validation.py --ci` | No (nightly) | 4/4 PASS |
+| Assumption validation | `assumption_validation.py --ci` | No (nightly) | 5/5 PASS (A1–A5) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` | Unit tests | PASS |

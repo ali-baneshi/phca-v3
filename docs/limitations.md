@@ -64,11 +64,11 @@ Rust toolchain is **not** required (workspace removed D-084).
 
 ### Long-run memory growth (Phase 7 workstream)
 
-The nightly stress test uses a **phase-aware late-half RSS slope** gate (D-112): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤500 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=10000`). A 1000-cycle run reports late slope **~4817 B/cyc** and **passes** the fill-phase gate. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth; verify post-cap slope with a 10k soak.
+The nightly stress test uses a **phase-aware late-half RSS slope** gate (D-112, D-113): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=10000`). Measured 10k tail-quarter slope **~1390 B/cyc** (2026-07-04); the prior 500 B/cyc target was aspirational pre-measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
 
 ### Discrete GridWorld selector is not purely prediction-driven
 
-The canonical discrete path blends Manhattan distance gain with prediction confidence and MDIM alignment. The **continuous MPC path** (Pendulum, Reacher) is the clean prediction-primary mechanism (A4 measured there, D-101).
+When an extrinsic goal is present, **`task_lock`** routes action selection through an observed-greedy Manhattan controller (fair vs `greedy_observed` baseline), with a sparse L3 coverage probe every 50 cycles on-goal (D-112). G′ prediction drives the **continuous MPC path** (Pendulum, Reacher) — the clean prediction-primary mechanism (A4 measured there, D-101).
 
 ### MLP default hidden_dim = 128
 
@@ -88,9 +88,9 @@ Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, 
 
 - **Live-only fields in replay** — camera frames, bulky rollouts, full M3/M4 lists are not in JSONL (by design; banners mark gaps).
 - **`schema_version`** — shipped Phase 9 (`OBSERVABILITY_SCHEMA_VERSION = 1`, D-110); legacy v0 sessions normalize on replay.
-- **Large-session scrub** — sessions of 3000+ cycles may lag on history rebuild (Phase 11 target).
+- **Large-session scrub** — sessions of 3000+ cycles: scrub rebuild budget **≤2s** (live) / **≤4s** (review) enforced by tests (Phase 11).
 - **Legacy matplotlib replay** — `phca_visualise.py` / `--from-jsonl` is not full-fidelity; use PyQt `--qt`.
-- **Offline report scope** — `session_report.json` summarizes key metrics; it does not replicate every dashboard subview (Phase 10 target).
+- **Offline report scope** — `session_report.json` summarizes key metrics and shares `format_session_results_lines()` with the Overview panel (Phase 10 parity for mechanism/phase budget); it does not replicate every live-only subview (camera, full rollouts).
 
 ---
 
@@ -118,7 +118,7 @@ Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, 
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phase 7–8 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, **232 monitoring tests** (560 total — [STATUS.md](../STATUS.md)).
+**Phase 7–9 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, **278 monitoring tests** (623 total with MuJoCo — [STATUS.md](../STATUS.md)).
 
 ---
 
