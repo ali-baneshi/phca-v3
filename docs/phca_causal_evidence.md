@@ -69,13 +69,13 @@ Command:
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
 ```
 
-Measured on 2026-07-04 (post P0 gap-closure):
+Measured on 2026-07-04 (post P0 gap-closure + L3 coverage fix, D-112):
 
 | Level | Result | Gate detail |
 |-------|--------|-------------|
 | `level1` | PASS | PHCA beats random on 4/4 metrics; greedy_full_info remains stronger |
 | `level2` | PASS | PHCA beats random on 4/4; beats `greedy_observed` on 3/4 |
-| `level3` | FAIL | PHCA beats random on 5/6; beats `greedy_observed` on 4/6 (need 5/6) |
+| `level3` | PASS | PHCA beats random on 5/6; beats `greedy_observed` on 5/6 |
 
 Selected means (Gaussian G', 200 cycles × 5 seeds):
 
@@ -83,15 +83,15 @@ Selected means (Gaussian G', 200 cycles × 5 seeds):
 |-------|-------|-----------|------------|---------------|--------|----------|----------|
 | `level2` | `phca` | 0.542 | 5.6 | 0.734 | 107.484 | — | — |
 | `level2` | `greedy_observed` | 0.420 | 5.6 | 0.935 | 82.840 | — | — |
-| `level3` | `phca` | 0.340 | 5.6 | 1.278 | 66.680 | 0.320 | 31.1 |
+| `level3` | `phca` | 0.322 | 5.6 | 1.300 | 63.044 | 0.344 | 32.0 |
 | `level3` | `greedy_observed` | 0.287 | 5.6 | 1.537 | 55.974 | 0.336 | 55.9 |
 
-Prior measurement (2026-07-04 pre-fix):
+Prior measurement (2026-07-04 pre-L3-coverage fix):
 
 | Level | Result | PHCA vs greedy_observed |
 |-------|--------|-------------------------|
-| `level2` | FAIL | 0/4 metrics |
-| `level3` | FAIL | 1/6 metrics |
+| `level2` | PASS | 3/4 metrics |
+| `level3` | FAIL | 4/6 metrics (`coverage_rate` short) |
 
 ## Interpretation
 
@@ -105,12 +105,9 @@ Supported claims:
 
 Unsupported claims:
 
-- PHCA currently beats a fair observed greedy controller on **all** long-horizon
-  GridWorld metrics (Level 3 gate: 4/6 vs `greedy_observed`, one metric short).
 - PHCA currently beats a full-information greedy controller.
 
-This is a better benchmark shape. Level 2 now passes versus `greedy_observed`
-after P0 cycle reorder, task-lock, and observed-greedy navigation. Level 3
-improved from 1/6 to 4/6 (goal rate, distance, reward, recovery) but still
-misses the 75% gate on `coverage_rate` alone.
+This is a better benchmark shape. Levels 2–3 now pass versus `greedy_observed`
+after P0 cycle reorder, task-lock, observed-greedy navigation, and sparse L3
+coverage probes (`cycle_count % 50 == 0` on-goal unvisited steps, D-112).
 

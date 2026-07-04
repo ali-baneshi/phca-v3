@@ -79,8 +79,8 @@ PYTHONPATH=python python scripts/benchmark.py --levels=0,2 --cycles=500 --output
 | Cycle latency | < 500ms | ~50ms p95 ✅ |
 | Failure rate | < 10% | 1.8–3.4% ✅ |
 | Goal autonomy (L3) | Drive diversity > 0.1 | Achieved ✅ |
-| Overall Φ-IQ | > 0.5 | **0.668** ✅ |
-| Level 2 Φ-IQ | ≥ 0.5 (aspirational) | **0.476** ❌ |
+| Overall Φ-IQ | > 0.5 | **0.7403** ✅ |
+| Level 2 Φ-IQ | ≥ 0.5 | **0.7773** ✅ |
 
 ### What the Numbers Mean
 
@@ -96,25 +96,25 @@ PYTHONPATH=python python scripts/benchmark.py --levels=0,2 --cycles=500 --output
 
 ## Latest Results
 
-**Date:** 2026-07-01  
-**Configuration:** MLP world model, 200 cycles/level, 5×5 GridWorld  
-**Source:** `docs/phase4_gap_closure_report.md`
+**Date:** 2026-07-04  
+**Configuration:** MLP world model (hidden 128, ~38,868 params), 200 cycles/level, 5×5 GridWorld  
+**Source:** `logs/benchmark_report.json`, `STATUS.md`
 
 ```
-Overall Φ-IQ: 0.668
+Overall Φ-IQ: 0.7403
 
 Level  Φ-IQ     Pred    Adapt   Goals   Transfer Resource Fail
 ────────────────────────────────────────────────────────────────
-L0     0.708    0.656   0.815   1.000   0.534    0.924    0.005
-L1     0.724    0.751   0.855   0.800   0.642    0.931    0.000
-L2     0.476    0.686   0.040   0.950   0.027    0.926    0.010
-L3     0.763    0.666   1.000   1.000   0.666    0.922    0.040
+L0     0.703    —       —       —       —        —        —
+L1     0.713    —       —       —       —        —        —
+L2     0.777    —       —       —       —        —        —
+L3     0.768    —       —       —       —        —        —
 
 Pass Criteria:
   [✅] Cycle latency < 500ms
   [✅] Failure rate < 10%
   [✅] Goal autonomy achieved
-  [~]  Φ-IQ > 0.5 (overall: 0.668 pass, L2: 0.476 borderline)
+  [✅] Φ-IQ > 0.5 (overall 0.7403; L2 0.7773)
 ```
 
 ### Key Observations

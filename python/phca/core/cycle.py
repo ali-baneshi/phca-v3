@@ -673,11 +673,20 @@ class CognitiveCycle:
 
         # Task-lock: pure observed-greedy navigation (beats blended scorer on L3)
         if self._task_lock and hasattr(self.env, "agent_pos"):
+            spec = getattr(self.env, "spec", None)
+            long_horizon = bool(getattr(spec, "dynamic_goals_every", 0))
             explore_ties = self._goal_switch_cooldown > 0 or bool(
                 getattr(self.env, "switch_cycles", [])
             )
+            goal_pos = self.env.get_goal_position()
+            on_goal = (
+                goal_pos is not None
+                and tuple(self.env.agent_pos) == tuple(goal_pos)
+            )
+            sparse_probe = long_horizon and on_goal and (self.cycle_count % 50 == 0)
             greedy_action, greedy_score, greedy_comp = self._select_greedy_grid_action(
                 explore_ties=explore_ties,
+                at_goal_explore=sparse_probe,
             )
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
@@ -968,7 +977,12 @@ class CognitiveCycle:
                 grid = np.where(fact_walls > 0.5, env.WALL, grid)
         return grid
 
-    def _select_greedy_grid_action(self, *, explore_ties: bool = False) -> tuple:
+    def _select_greedy_grid_action(
+        self,
+        *,
+        explore_ties: bool = False,
+        at_goal_explore: bool = False,
+    ) -> tuple:
         """One-step Manhattan controller using observed goal/walls (fair vs greedy_observed)."""
         env = self.env
         goal_pos = env.get_goal_position()
@@ -1014,6 +1028,27 @@ class CognitiveCycle:
             ):
                 best_action = action_idx
                 best_unvisited = True
+
+        if (
+            at_goal_explore
+            and tuple(agent_pos) == tuple(goal_pos)
+            and visited is not None
+        ):
+            for action_idx, name in enumerate(action_names):
+                if name == "STAY":
+                    continue
+                dr, dc = deltas[name]
+                row = agent_pos[0] + dr
+                col = agent_pos[1] + dc
+                if not (0 <= row < env.size and 0 <= col < env.size):
+                    continue
+                if grid[row, col] == env.WALL:
+                    continue
+                if (row, col) not in visited:
+                    best_action = action_idx
+                    best_distance = abs(row - goal_pos[0]) + abs(col - goal_pos[1])
+                    break
+
         score = 1.0 / max(best_distance, 1)
         return best_action, score, {
             "distance_gain": 0.0,

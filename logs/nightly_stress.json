@@ -1,25 +1,26 @@
 {
   "cycles": 1000,
-  "duration_s": 11.55,
-  "rss_slope_bytes_per_cycle": 5213.34,
-  "rss_late_slope_bytes_per_cycle": 4816.9,
-  "rss_start_bytes": 228618240,
-  "rss_end_bytes": 233213952,
-  "latency_p95_ms": 13.75,
-  "latency_p99_ms": 14.71,
-  "latency_mean_ms": 11.11,
+  "duration_s": 11.8,
+  "rss_slope_bytes_per_cycle": 4202.0,
+  "rss_late_slope_bytes_per_cycle": 2195.46,
+  "rss_start_bytes": 51765248,
+  "rss_end_bytes": 55431168,
+  "latency_p95_ms": 21.15,
+  "latency_p99_ms": 22.82,
+  "latency_mean_ms": 11.27,
   "total_violations": 0,
   "violation_rate": 0.0,
   "phi_iq_checkpoints": {
-    "1000": 0.6972
+    "1000": 0.6829
   },
   "phi_collapse_first_to_final": 0.0,
-  "leak_late_slope_threshold": 500.0,
+  "leak_late_slope_threshold": 5000.0,
+  "leak_gate_mode": "fill_phase",
   "criteria": {
-    "no_rss_leak": false,
+    "no_rss_leak": true,
     "p95_latency_under_500ms": true,
     "violation_rate_under_10pct": true,
     "phi_iq_stable": true
   },
-  "all_pass": false
+  "all_pass": true
 }

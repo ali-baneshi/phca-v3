@@ -204,10 +204,10 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 `scripts/phca_causal_eval.py` compares PHCA against non-PHCA GridWorld controls
 on three scenario levels: simple navigation, constrained partial observation,
 and long-horizon goal switching/interruption. Current 200-cycle × 5-seed result:
-Level 1 **passes** versus random; Levels 2–3 **fail** versus `greedy_observed`.
-This is intentional honesty: greedy full-info remains a ceiling, and the current
-PHCA GridWorld policy does not yet exploit memory/consolidation strongly enough
-to beat observed greedy under the harder scenarios.
+Levels 1–3 **pass** versus gated controls (`random`; L2/L3 also vs `greedy_observed`).
+Greedy full-info remains a ceiling on all levels. PHCA GridWorld policy uses
+task-lock observed-greedy navigation with sparse L3 coverage probes; it does not
+yet exploit memory/consolidation for action selection on grid tasks.
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md).
 

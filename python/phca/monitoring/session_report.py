@@ -151,6 +151,27 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     pca_variances: List[float] = []
     max_pred_errors: List[float] = []
     pca_proj = BeliefProjection(window=16)
+    mechanism_counts: Dict[str, int] = {
+        "greedy_fallback": 0,
+        "prediction": 0,
+        "explore": 0,
+        "stay": 0,
+        "continuous": 0,
+        "other": 0,
+    }
+
+    def _classify_action_mechanism(rationale: Dict[str, Any]) -> str:
+        if rationale.get("explored"):
+            return "explore"
+        if rationale.get("greedy_fallback"):
+            return "greedy_fallback"
+        if rationale.get("continuous"):
+            return "continuous"
+        if rationale.get("goal_id") == 5 or rationale.get("note") == "D5 energy: STAY":
+            return "stay"
+        if rationale.get("best_score") is not None or rationale.get("k_candidates"):
+            return "prediction"
+        return "other"
 
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -163,6 +184,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             all_dists.append(float(kin["dist"]))
 
         r = dict(getattr(f, "action_rationale", {}) or {})
+        mechanism_counts[_classify_action_mechanism(r)] += 1
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
 
@@ -359,6 +381,11 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
     moment_series = build_moment_series(frames)
     moment_totals = count_moments(moment_series)
     anchor_moment_flags: Dict[str, Dict[str, Any]] = {}
+    mechanism_pct: Dict[str, float] = {}
+    if n:
+        mechanism_pct = {
+            k: round(100.0 * v / n, 2) for k, v in mechanism_counts.items()
+        }
     for anchor_key, target_idx in anchor_targets.items():
         if 0 <= target_idx < len(moment_series):
             m = moment_series[target_idx]
@@ -407,6 +434,8 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "score_margin_median": _median(score_margins),
             "best_score_early_median": _median(bs_early),
             "best_score_late_median": _median(bs_late),
+            "mechanism_histogram": mechanism_counts,
+            "mechanism_pct": mechanism_pct,
             "anchor_action_status": anchor_action_status,
             "anchor_action_moments": anchor_moment_flags,
         },

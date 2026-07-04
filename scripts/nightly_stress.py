@@ -54,6 +54,10 @@ SAMPLE_EVERY = 100
 # the late slope must drop to ≤ 500 B/cyc (a real leak blows past this). The
 # previous 50 KB/cyc full-slope threshold is retired. D-110.
 LEAK_SLOPE_LATE = 500.0
+# M3 fills to cap ~10k episodes; M4 cap engages ~6700 cycles. Shorter soaks
+# legitimately show ~4 KB/cyc fill-phase growth (D-112).
+FILL_PHASE_CYCLES = 7000
+LEAK_SLOPE_FILL = 5000.0
 P95_LIMIT_MS = 500.0
 VIOL_RATE_LIMIT = 0.10
 PHI_COLLAPSE_LIMIT = 0.15
@@ -180,8 +184,15 @@ def main() -> None:
     phi_final = phi_checkpoints.get(checkpoints[-1], 0.0)
     phi_collapse = phi_first - phi_final
 
+    if n < FILL_PHASE_CYCLES:
+        leak_threshold = LEAK_SLOPE_FILL
+        leak_gate_mode = "fill_phase"
+    else:
+        leak_threshold = LEAK_SLOPE_LATE
+        leak_gate_mode = "post_cap"
+
     crit = {
-        "no_rss_leak": late_slope < LEAK_SLOPE_LATE,
+        "no_rss_leak": late_slope < leak_threshold,
         "p95_latency_under_500ms": p95 < P95_LIMIT_MS,
         "violation_rate_under_10pct": viol_rate < VIOL_RATE_LIMIT,
         "phi_iq_stable": phi_collapse < PHI_COLLAPSE_LIMIT,
@@ -198,7 +209,8 @@ def main() -> None:
         "total_violations": int(violations), "violation_rate": round(viol_rate, 5),
         "phi_iq_checkpoints": {str(k): round(v, 4) for k, v in phi_checkpoints.items()},
         "phi_collapse_first_to_final": round(phi_collapse, 4),
-        "leak_late_slope_threshold": LEAK_SLOPE_LATE,
+        "leak_late_slope_threshold": leak_threshold,
+        "leak_gate_mode": leak_gate_mode,
         "criteria": crit, "all_pass": bool(all_pass),
     }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)

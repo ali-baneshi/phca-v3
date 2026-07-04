@@ -56,6 +56,9 @@ def test_build_session_report_metrics():
     assert "0" in cpm["anchor_moment_flags"]
     assert report["flow_metrics"].get("anchor_flow_moments")
     assert report["action_metrics"].get("anchor_action_moments")
+    mh = report["action_metrics"].get("mechanism_histogram", {})
+    assert sum(mh.values()) == report["cycles"]
+    assert "mechanism_pct" in report["action_metrics"]
     assert "retention_metrics" in report
     assert "memory_metrics" in report
     assert "goals_metrics" in report

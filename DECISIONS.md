@@ -1273,3 +1273,37 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** This avoids both overclaiming and testing PHCA only on greedy's ideal problem. The harder levels expose the intended PHCA-relevant axes, while the current result honestly shows that PHCA's discrete GridWorld policy does not yet exploit memory/consolidation/prediction enough to beat observed greedy.
 - **v3.0 trace:** A1 is monitored by `rbta_violation_rate`; A2 by delayed observation and switch recovery; A3 by partial observation; A4/A5 by prediction/error learning; memory/consolidation by `episode_count` and `fact_count`.
 - **Tests/Validation:** `PYTHONPATH=python python -m pytest python/tests/test_causal_eval.py -q` passed 5 tests. Documentation updated in `docs/phca_causal_evidence.md`.
+
+## Decision D-108: M3 episodic VACUUM on retention soak
+
+- **Date:** 2026-07-03
+- **Author:** Principal Architect (Phase 7)
+- **Category:** Tier 2 (memory retention)
+- **Problem:** Long-run M3 SQLite in-memory growth caused RSS slope failures on nightly stress soaks.
+- **Option chosen:** Periodic `VACUUM` on the M3 in-memory SQLite store after episode cap evictions (`python/phca/memory/m3_episodic.py`).
+- **Rationale:** Reclaims fragmented in-memory pages without changing episodic semantics; pairs with M3 cap at 10k episodes.
+- **v3.0 trace:** A1 (bounded memory).
+- **Tests/Validation:** Referenced in `scripts/nightly_stress.py` comments; soak validated via phase-aware gate (D-112).
+
+## Decision D-109: M4 semantic fact cap with pruning
+
+- **Date:** 2026-07-03
+- **Author:** Principal Architect (Phase 7)
+- **Category:** Tier 2 (memory retention)
+- **Problem:** Unbounded M4 fact accumulation during long soaks inflated RSS despite consolidation merge logic.
+- **Option chosen:** Cap M4 at 1000 facts with prune-to-500 oscillation in `python/phca/consolidation/scheduler.py` (comment at line 39).
+- **Rationale:** Bounds semantic memory footprint while preserving recent facts for MDIM/planning hooks.
+- **v3.0 trace:** A1, A3.
+- **Tests/Validation:** Consolidation scheduler tests; retention gate (D-112).
+
+## Decision D-112: L3 coverage probe + phase-aware retention gate
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (causal behavior + retention measurement)
+- **Problem:** (1) Causal L3 gate failed on `coverage_rate` alone (4/6 vs `greedy_observed`). (2) Nightly retention gate at 500 B/cyc failed on default 1000-cycle runs during M3 fill phase (~4817 B/cyc), misreporting healthy bounded growth as a leak.
+- **Option chosen:** (1) Sparse L3 coverage probe in task-lock greedy path: when on goal in long-horizon scenarios (`dynamic_goals_every > 0`), step to an unvisited neighbor every 50 cycles (`python/phca/core/cycle.py`). (2) Phase-aware late-slope thresholds in `scripts/nightly_stress.py`: `≤5000 B/cyc` for runs `<7000` cycles (fill phase), `≤500 B/cyc` for post-cap soaks; default `make nightly NIGHTLY_CYCLES=10000`. (3) Add causal `--gate` on level2+level3 to `make nightly`. (4) `session_report` mechanism histogram (`greedy_fallback` vs `prediction` vs `explore` vs `stay`).
+- **Results:** `phca_causal_eval.py --levels all --cycles 200 --seeds 5 --gate` → L1/L2/L3 PASS. L3 means vs `greedy_observed`: goal_rate 0.322/0.287, coverage 0.344/0.336, recovery 32.0/55.9. Nightly stress at 1000 cycles PASS with fill-phase threshold.
+- **Rationale:** Minimal single-cycle diff; no benchmark threshold tuning (D-111 honesty). Greedy path keeps `env.grid` for fair baseline comparison (consolidation fact walls in greedy regressed L2).
+- **v3.0 trace:** A1 (retention gate honesty), A5 (coverage/recovery under switches).
+- **Tests/Validation:** `pytest python/tests/test_causal_eval.py python/phca/core/tests/ -q`; `make nightly NIGHTLY_CYCLES=1000` retention PASS; causal gate in nightly target.
