@@ -62,7 +62,7 @@ evidence separate from invariant tests.
 | Failure matrix A–F | Blueprint | `phca/resilience/` | **Stub** |
 | GridWorld | Phase 3.1 | `phca/environments/grid_world.py` | **Implemented** |
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
-| Cognitive Observatory | Phase 7–11 | `phca/monitoring/` | **Complete** (schema, replay, report parity, scrub perf) |
+| Cognitive Observatory | Phase 7–12 | `phca/monitoring/` | **Complete** (schema, replay, report parity, scrub perf, multi-session compare) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
 | Φ-IQ L4–L5 | Blueprint | — | **Not implemented** |
 

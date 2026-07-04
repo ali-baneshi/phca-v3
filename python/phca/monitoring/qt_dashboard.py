@@ -12,22 +12,14 @@ arrowheads, and the MuJoCo phase-space placeholder; added shared chart infra
 packet on the flow graph, a 6-drive radar, predicted-next-cell ghost, retention
 cap-engagement / event markers / leak-rate, and a replay scrubber.
 
-Tabs:
-  1. Overview         — world (grid + G′ heatmap + predicted-cell ghost + trail)
-                        + drives (value vs target, active highlighted) + adaptive
-                        error/confidence trend + attention + status (gauges).
-  2. Cognitive Flow   — animated ASI→M2→G′→PE→PEU→TSPL→Action→RBTA pipeline;
-                        per-node ms + sparkline, cost-colored, radius-by-cost,
-                        arrowheads, travelling data packet, red-on-violation,
-                        module×cycle cost heatmap (rolling-max scaled), legend.
-  3. Action Selection — candidate-score bars (chosen annotated w/ action name),
-                        D5/explore state banner, ε-greedy decay, explore/exploit
-                        dots, continuous-action torque dial.
-  4. Phase Space      — GridWorld trajectory + G′ error map; 6-drive radar
-                        portrait; MuJoCo per-dim predicted-vs-actual error bars.
-  5. Retention        — M3/M4/RSS/latency with current values + cap-engagement
-                        % + prune/VACUUM markers + latency histogram + leak-rate;
-                        scrolling RBTA violation table.
+Tabs (7 — indices 0–6):
+  0. Overview              — grid/MuJoCo world, drives, error/confidence, session-results (review)
+  1. Cognitive Flow      — ASI→M2→G′→PE→PEU→TSPL→Action→RBTA pipeline; timings, near-bound, violations
+  2. Action Selection    — candidate scores, explore/exploit, rollouts (live-only)
+  3. Phase Space & Trajectory — trajectory, radar, per-dim traces
+  4. Retention & Resources — RSS/M3/M4, mechanism rollup, RBTA bounds table
+  5. Memory & Belief     — M1/M2/M3 snapshots, m3_top_error
+  6. Goals & Motivation  — drives D1–D6, goal stack, pareto
 
 All polling-side: read-only on the frame; the cycle thread never touches Qt.
 """

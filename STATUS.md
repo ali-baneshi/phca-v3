@@ -1,7 +1,7 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-04  
-**Phase:** 12 COMPLETE — Observatory multi-session compare (Phases 9–11 + D-108–D-115); Phases 13–20 backlog  
+**Phase:** 12 COMPLETE — Observatory multi-session compare (Phases 7–12; D-108–D-115); Phases 13–20 backlog  
 **Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-115)
 
 ---
@@ -67,7 +67,7 @@
 
 | ID | Issue | Status | Resolution |
 |----|-------|--------|------------|
-| P8-1 | Seek/scrub without panel desync | ✅ Done | `PlaybackClock` + `rebuild_histories()` on 11 views |
+| P8-1 | Seek/scrub without panel desync | ✅ Done | `PlaybackClock` + `rebuild_histories()` on 10 canvas views (7 tabs) |
 | P8-2 | Accurate replay banners | ✅ Done | Action, Flow, Phase Space, Memory panels |
 | P8-3 | Transport + keyboard controls | ✅ Done | `_TransportBar`, Space/Arrows/Home/End/Esc |
 | P8-4 | Frame/JSON immutability on scrub | ✅ Done | `test_dashboard_controller_scrub_500_jsonl_frames_no_mutation` |

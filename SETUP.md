@@ -57,7 +57,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-## Cognitive Observatory (Phases 8–11)
+## Cognitive Observatory (Phases 8–12)
 
 ```bash
 # Live run

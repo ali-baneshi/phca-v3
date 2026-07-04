@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phases 8–11 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), and large-session scrub performance (Phase 11).
+**Phases 8–12 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), large-session scrub performance (Phase 11), and multi-session `--compare` (Phase 12). Phases 13–20 are backlog — see [STATUS.md](../STATUS.md).
 
 ## Thread model
 
@@ -27,6 +27,7 @@ Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fi
 | `meta.json` | Run metadata; `cycles` = **requested** run length; `recorded_cycles` written on recorder close |
 | `timeseries.jsonl` | One compact JSON object per cycle (~2 KB) |
 | `session_report.json` | Offline aggregate; **written automatically** after live runs (unless `--no-verify`) |
+| `session.mp4` / `.gif` | Optional dashboard video (not in JSONL) |
 
 ### Post-run trust (live launcher)
 
@@ -59,7 +60,20 @@ for CI auto-close.
 - **Review mode** — window stays open after run (default); `--close-at-end` for CI.
 - **MuJoCo JSONL honesty** — non-grid sessions omit misleading `agent_pos`/`goal_pos`.
 - **Scrub perf (Phase 11 — complete)** — decimated rolling rebuild + lazy per-tab rebuild on seek; budget tests ≤2s/≤4s at 3000+ cycles.
-| `session.mp4` / `.gif` | Optional dashboard video (not in JSONL) |
+
+## Dashboard tab index
+
+| # | Tab | Primary focus |
+|---|-----|---------------|
+| 0 | Overview | Grid/MuJoCo world, drives, error/confidence, session-results (review) |
+| 1 | Cognitive Flow | Pipeline timings, near-bound, violations |
+| 2 | Action Selection | Scores, explore/exploit, rollouts (live-only) |
+| 3 | Phase Space & Trajectory | Trajectory, radar, per-dim traces |
+| 4 | Retention & Resources | RSS/M3/M4, mechanism rollup, RBTA bounds table |
+| 5 | Memory & Belief | M1/M2/M3 snapshots, `m3_top_error` |
+| 6 | Goals & Motivation | Drives D1–D6, goal stack, pareto |
+
+Tab labels match `OBSERVATORY_TAB_LABELS` in [`cognitive_panels.py`](../python/phca/monitoring/cognitive_panels.py).
 
 ## JSONL schema
 
@@ -135,7 +149,7 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 
 ## Panel rebuild contract
 
-All tab views implement `rebuild_histories(frames: List[ObservabilityFrame])`. On seek or jump, `DashboardController` invokes rebuild on all 11 views: Overview, Cognitive Flow, Action Selection, Phase Space (trajectory, radar, per-dim), Retention, RBTA bounds, Goals & Motivation, Memory & Belief.
+All tab views implement `rebuild_histories(frames: List[ObservabilityFrame])`. On seek or jump, `DashboardController` invokes rebuild on **10 canvas views** across 7 tabs: Overview, Cognitive Flow, Action Selection, Phase Space (trajectory, radar, per-dim), Retention (+ embedded RBTA bounds), Memory & Belief, Goals & Motivation.
 
 Live sequential ticks call `update(frame)` only; history grows by append unless a jump is detected.
 
@@ -219,7 +233,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**242 tests** (2026-07-04). Key modules:
+**278 monitoring tests** (623 total with MuJoCo — 2026-07-04). Key modules:
 
 | Module | Coverage |
 |--------|----------|

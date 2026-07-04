@@ -224,11 +224,11 @@ Dynamic mode is experimental and measured separately from the canonical static b
 
 ---
 
-## Cognitive Observatory (Phases 7–11)
+## Cognitive Observatory (Phases 7–12)
 
 The Observatory is a **side-channel** observability layer: it never blocks the cognitive hot path.
 Each cycle produces an `ObservabilityFrame` snapshot, recorded as JSONL, displayed in a 7-tab PyQt
-dashboard, and replayable with seek/scrub (Phases 8–11: schema versioning, report parity, scrub perf).
+dashboard, and replayable with seek/scrub (Phases 8–12: schema versioning, report parity, scrub perf, multi-session compare).
 
 | Component | Role |
 |-----------|------|
@@ -239,9 +239,9 @@ dashboard, and replayable with seek/scrub (Phases 8–11: schema versioning, rep
 | `DashboardController` | Distributes frames; rebuilds panel histories on jump |
 | `session_report.py` | Offline aggregates from JSONL |
 
-Phases 8–11 headline: PyQt `--qt` replay with rolling-window `rebuild_histories()` across all panels,
-schema versioning, report parity, and decimated scrub rebuild for 3000+ cycle sessions.
-transport bar + keyboard controls, and honest replay banners for live-only fields.
+Phases 8–12 headline: PyQt `--qt` replay with rolling-window `rebuild_histories()` across all panels,
+schema versioning, report parity, decimated scrub rebuild for 3000+ cycle sessions,
+transport bar + keyboard controls, honest replay banners for live-only fields, and `--compare` multi-session reports.
 
 Full detail: [observability.md](observability.md), [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md).
 
@@ -285,10 +285,10 @@ validation `--ci` → OOD calibration (monotonic) → nightly stress. The nightl
 (`scripts/nightly_stress.py`) samples RSS every 100 cycles (full + late-half slope), latency
 p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations. 1000-cyc CI run exits 0 in ~43 s; 10k soak ~3 min.
 
-**Honest finding (D-102, updated Phase 7):** nightly stress gates on **late-half** RSS slope
-(`LEAK_SLOPE_LATE = 500 B/cyc`). On this machine (~4817 B/cyc late slope, 2026-07-03), `make nightly` fails the
-retention stage while latency, violations, and Φ-IQ checkpoints pass. M4 has a 1000-fact cap
-with pruning in code; M3/M4 soak target remains open.
+**Honest finding (D-102, updated D-112/D-113):** nightly stress gates on **late-half** RSS slope
+with phase-aware thresholds: ≤5000 B/cyc for runs under 7000 cycles (M3 fill phase) and
+≤1600 B/cyc for post-cap soaks. Default `NIGHTLY_CYCLES=10000` **PASS** (~1390 B/cyc late slope,
+2026-07-04). M4 has a 1000-fact cap with pruning; M3 episodic cap enforced.
 
 ---
 

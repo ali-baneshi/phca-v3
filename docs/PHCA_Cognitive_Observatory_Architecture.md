@@ -2,7 +2,7 @@
 
 ## Purpose of This Document
 
-This document is written for someone with no prior background in the project who wants to quickly and deeply understand what PHCA Cognitive Observatory is, why it was built, what scientific and engineering foundations it rests on, where it sits within a 20-phase roadmap at Phase 7, what its limitations are, what use cases it suits, and what the correct development path should be.
+This document is written for someone with no prior background in the project who wants to quickly and deeply understand what PHCA Cognitive Observatory is, why it was built, what scientific and engineering foundations it rests on, where it sits within a 20-phase roadmap (Observatory **Phases 7–12 complete**, Phases 13–20 backlog), what its limitations are, what use cases it suits, and what the correct development path should be.
 
 The perspective of this document is that of a senior architect of complex systems: it is not merely an explanation of files or a few components; it attempts to clarify data ownership boundaries, architectural contracts, system risks, technical debt, observability requirements, and the future of development.
 
@@ -12,7 +12,7 @@ The perspective of this document is that of a senior architect of complex system
 
 PHCA Cognitive Observatory is an observability, replay, and reporting layer for the PHCA cognitive architecture. The system converts each cognitive cycle of the agent into a structured frame, displays it live in a PyQt5 dashboard, records it as JSONL, enables replay and scrub on past sessions, and builds offline reports from the same data.
 
-This system is in Phase 7, meaning it is not yet a final product. Phase 7 should be understood as the “cognitive observability and behavior transparency” phase, not the full product maturity phase. Of the 20 phases on the overall path, Phase 7 is the point where the system no longer merely runs, but must be able to explain to a human what it saw at each moment, what it predicted, why it chose an action, what errors it had, what resources it consumed, and whether replay shows the same thing that live showed.
+Observatory **Phases 7–12 are complete** (2026-07). Phase 7 established the cognitive observability foundation; Phases 8–12 added replay/scrub hardening, schema governance, report parity, large-session performance, and multi-session compare. Phases 13–20 remain backlog — see [STATUS.md](../STATUS.md).
 
 The highest architectural risks at this stage are:
 
@@ -69,7 +69,7 @@ Without Observatory, the system becomes a black box. With Observatory, the syste
 
 ## Place of Phase 7 in the 20-Phase Path
 
-This project is in Phase 7 of 20 phases. This matters because expectations from Phase 15 or 20 must not be imposed on Phase 7.
+This project’s Observatory roadmap spans 20 phases; **Phases 7–12 are complete**. This matters because expectations from Phase 15 or 20 must not be imposed on what is already shipped, and backlog items must not be described as missing when they were delivered in Phases 8–12.
 
 ### Early Phases
 
@@ -86,7 +86,7 @@ Early phases are usually for building foundational components:
 
 > **Status: Complete (2026-07).** Frame schema, JSONL recording, 7-tab PyQt dashboard,
 > `session_report.py`, shared `cognitive_panels.py` helpers, RBTA unit normalization,
-> and `--check` integrity gate are shipped. 225 monitoring tests.
+> and `--check` integrity gate are shipped. **278 monitoring tests** (623 total with MuJoCo).
 
 Phase 7 means the system must show itself. This phase is the transition from “merely running” to “being understandable.”
 
@@ -100,20 +100,28 @@ In Phase 7 we expect:
 - Live and replay to be separated and honestly labeled.
 - Heavy data such as images or bulky rollouts not to inflate JSONL without reason.
 
-### Future Phases
+### What shipped in Phases 8–12
 
-From Phase 8 to 20, the system is expected to move toward greater maturity:
+- **Phase 8:** `PlaybackClock` seek/scrub, rolling-window `rebuild_histories()`, transport bar, replay banners.
+- **Phase 9:** `schema_version: 1`, legacy v0 normalization, mixed-version `--check` failures.
+- **Phase 10:** `session_report.json` parity with Overview via shared helpers.
+- **Phase 11:** Decimated rolling rebuild + lazy per-tab rebuild; scrub budget ≤2s/≤4s at 3000+ cycles.
+- **Phase 12:** `phca_replay.py --compare` multi-session report comparison (D-115).
 
-- More precise and lower-cost observability.
-- Formal schema versioning.
-- More complete behavioral tests.
-- Deeper analytical reports.
-- A more extensible dashboard.
-- Support for larger sessions.
-- Multi-session comparison.
-- Anomaly detection tools.
-- Better decision explainability.
-- Usability in research, education, benchmark, and audit.
+### Future Phases (13–20 backlog)
+
+From Phase 13 to 20, the system is expected to move toward greater maturity:
+
+- Anomaly detection (spike, drift, resource leak, unstable goals).
+- Deeper action explainability and causal chains.
+- Stable observability API for external tools.
+- Production hardening (crash isolation, session integrity).
+- Multi-agent Observatory with synchronized timelines.
+- Interactive analysis (query, filter cognitive moments).
+- Scientific validation and one-command reproducibility.
+- Phase 20 research/product maturity sign-off.
+
+See [STATUS.md](../STATUS.md) for the Observatory Phases 13–20 backlog table.
 
 ---
 
@@ -134,9 +142,9 @@ flowchart TD
     H --> I[Overview]
     H --> J[Cognitive Flow]
     H --> K[Action Selection]
-    H --> L[Phase Space]
-    H --> M[Retention]
-    H --> N[Memory & Belief]
+    H --> L[Phase Space and Trajectory]
+    H --> M[Retention and Resources]
+    H --> N[Memory and Belief]
     H --> O[Goals & Motivation]
     E --> P[session_report.py]
     P --> Q[session_report.json]
@@ -461,7 +469,7 @@ Risk:
 
 - Showing stale score in a new cycle is a P0 error because it misexplains the decision.
 
-### 4. Phase Space
+### 4. Phase Space & Trajectory
 
 This panel shows belief/state space.
 
@@ -480,7 +488,7 @@ Risk:
 
 - Index mismatch in PEU layer can cause paint crash.
 
-### 5. Retention
+### 5. Retention & Resources
 
 This panel shows resources and memory.
 
@@ -577,55 +585,29 @@ Vague phrases like “may differ” are insufficient if a field is actually reco
 
 ## Current Limitations
 
-This system is in Phase 7, so it has natural limitations.
+Observatory Phases 7–12 are complete; remaining limits are honest backlog items, not undelivered Phase 7–11 work.
 
-### Schema Limitation
+### Resolved in Phases 7–12
 
-Schema does not yet have formal versioning. If a field is added or removed, old replay may silently degrade.
+| Area | Resolution |
+|------|------------|
+| Schema versioning | Phase 9 — `schema_version: 1`, v0 normalization, `--check` fail-closed |
+| Replay/scrub desync | Phase 8 — `PlaybackClock`, `rebuild_histories()`, transport controls |
+| Summary report parity | Phase 10 — shared `format_session_results_lines()` with Overview |
+| Large-session scrub lag | Phase 11 — decimated rebuild; budget ≤2s/≤4s at 3000+ cycles |
+| Multi-session compare | Phase 12 — `phca_replay.py --compare` (D-115) |
 
-Correct approach:
+### Remaining limitations
 
-- Add schema_version.
-- Roundtrip tests.
-- Document live-only fields.
+**Live-only JSONL fields.** Camera frames, full rollouts, bulk M3/M4 lists, and `drive_goals` are not persisted. Replay panels must show explicit banners; vague “may differ” wording is insufficient.
 
-### Performance Limitation
+**Legacy matplotlib/static replay.** The PyQt `--qt` path is canonical; legacy render paths are not full-fidelity.
 
-Sessions of 1500 or 3000 cycles can make the UI heavy.
+**Phases 13–20 backlog.** Anomaly detection, deeper action explainability, stable observability API, multi-agent timelines, interactive query tools, and Phase 20 maturity sign-off are not yet shipped.
 
-Risks:
+**Residual performance.** Phase 11 mitigates scrub cost for 3000+ cycles; paint-heavy panels may still cost CPU on very long live runs.
 
-- Unnecessary rebuilds.
-- Paint-time computation.
-- sort/argsort on every repaint.
-- Invalid QPixmap cache.
-
-Correct approach:
-
-- Cache with correct key.
-- Rebuild only on seek/jump.
-- Append only on sequential live tick.
-- Limit history window.
-
-### Report Parity Limitation
-
-Offline report does not yet cover all dashboard capabilities.
-
-Correct approach:
-
-- Pure helpers in `cognitive_panels.py` as source of truth.
-- Dashboard and report both use shared helper.
-- Report uses only JSONL.
-
-### Legacy Render Limitation
-
-Matplotlib/static replay path still exists but is not on par with PyQt dashboard.
-
-Correct approach:
-
-- Either declare it legacy and limited.
-- Or share important replay logic.
-- Or remove/isolate in the future.
+**Report subview gaps.** Offline `session_report.json` covers key summaries aligned with Overview; it does not replicate every live-only subview (camera, full rollouts) by design.
 
 ---
 
@@ -760,7 +742,7 @@ Critical work:
 ### Phase 8: Replay and Scrub Hardening
 
 > **Status: Complete (2026-07).** `PlaybackClock` seek/scrub, rolling-window
-> `rebuild_histories()` on all 11 panel views, `_TransportBar` + keyboard transport,
+> `rebuild_histories()` on all 10 canvas views (7 tabs), `_TransportBar` + keyboard transport,
 > autoscale freeze on scrub, replay banners for live-only fields, and 500-frame scrub
 > immutability tests are shipped.
 
@@ -896,7 +878,7 @@ Before every important change, ask:
 
 ## Conclusion
 
-PHCA Cognitive Observatory in Phase 7 is not a decorative tool; it is part of the system trust architecture. This layer determines whether a human can understand agent behavior, replay it, report on it, and find cognitive or resource errors.
+PHCA Cognitive Observatory (Phases 7–12 complete) is not a decorative tool; it is part of the system trust architecture. This layer determines whether a human can understand agent behavior, replay it, report on it, and find cognitive or resource errors.
 
 If this layer is built correctly, PHCA turns from an obscure complex system into one that is observable, criticizable, and extensible. If this layer is built incorrectly, even if the agent itself works well, the human may have a wrong understanding.
 

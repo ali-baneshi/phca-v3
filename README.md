@@ -7,8 +7,8 @@ through a pipeline of specialised modules, governed by a Resource-Bounded
 Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
-**Phase 11 complete** (Cognitive Observatory Phases 9–11: schema governance, report parity,
-large-session scrub perf; D-108–D-113 hardening: retention, causal gate, RBTA enforcement, A2).
+**Phase 12 complete** (Cognitive Observatory Phases 9–12: schema governance, report parity,
+large-session scrub perf, multi-session `--compare`; D-108–D-115 hardening: retention, causal gate, RBTA enforcement, A2).
 **623 tests** passing (`make test-python` 587 + `make test-mujoco` 36), 0 errors.
 Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-04).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
@@ -321,10 +321,10 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 ---
 
-## Phase 9–11 — Cognitive Observatory Completion
+## Phase 9–12 — Cognitive Observatory Completion
 
-Phases 9–11 complete the Observatory data contract and performance story on top of
-Phase 8 replay/scrub hardening.
+Phases 9–12 complete the Observatory data contract, performance story, and multi-session
+compare on top of Phase 8 replay/scrub hardening.
 
 ### Phase 9 — Schema Governance (D-110)
 
@@ -342,6 +342,11 @@ Phase 8 replay/scrub hardening.
 - Decimated rolling rebuild + lazy per-tab rebuild on seek (`cognitive_panels.py`).
 - Scrub budget tests: ≤2s (live) / ≤4s (review) at 3000+ cycles.
 
+### Phase 12 — Multi-Session Comparison (D-115)
+
+- `phca_replay.py --compare` with `compare_session_reports()` and structured deltas.
+- Optional `--compare-output` JSON export for regression tracking.
+
 See [docs/observability.md](docs/observability.md) and
 [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
 
@@ -356,8 +361,8 @@ See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
   7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
   `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1390 B/cyc). See
   [docs/limitations.md](docs/limitations.md) and [STATUS.md](STATUS.md).
-- **Observatory Phases 8–11 shipped:** seek/scrub replay, schema versioning,
-  report parity, large-session scrub perf — see [docs/observability.md](docs/observability.md).
+- **Observatory Phases 8–12 shipped:** seek/scrub replay, schema versioning,
+  report parity, large-session scrub perf, multi-session `--compare` — see [docs/observability.md](docs/observability.md).
 - **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
   **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
 - **No NLP, vision, multi-agent, or M5 procedural memory.**
@@ -459,7 +464,7 @@ make nightly NIGHTLY_CYCLES=1000
 
 ## Cognitive Observatory
 
-Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 8–11), and
+Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 8–12), and
 offline session reports with schema versioning and Overview parity. PyQt `--qt` replay is the canonical path; matplotlib
 `--from-jsonl` is legacy.
 
