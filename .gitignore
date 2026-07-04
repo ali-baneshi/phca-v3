@@ -18,6 +18,7 @@ target/
 
 # Project-local temp (TMPDIR=.tmp in docs)
 .tmp/
+.git-tmp/
 
 # Pytest basetemp (if used)
 .pytest_tmp/
