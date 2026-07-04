@@ -805,6 +805,9 @@ Goal:
 
 ### Phase 12: Multi-session Comparison
 
+> **Status: Complete (2026-07).** `phca_replay.py --compare` + `compare_session_reports()`
+> with structured deltas and `--compare-output` JSON export (D-115).
+
 Goal:
 
 - Compare multiple sessions.
