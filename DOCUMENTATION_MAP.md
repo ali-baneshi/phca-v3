@@ -31,6 +31,7 @@ below.
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior gate |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay, integrity |
+| [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/) | Copy-paste English prompts for Observatory Phases 13–20 |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix |
 | [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers |
 | [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md) | Canonical log files index |

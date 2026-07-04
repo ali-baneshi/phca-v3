@@ -489,6 +489,11 @@ def data_contract_text(panel_key: str, *, replay: bool, review: bool = False) ->
 
 def classify_action_mechanism(rationale: Dict[str, Any]) -> str:
     """Classify one cycle's action mechanism (mirrors session_report)."""
+    if rationale.get("rbta_safe_mode"):
+        return "rbta_safe"
+    mech = rationale.get("mechanism")
+    if isinstance(mech, str) and mech:
+        return mech
     if rationale.get("explored"):
         return "explore"
     if rationale.get("greedy_fallback"):
@@ -514,6 +519,7 @@ def mechanism_histogram(
         "explore": 0,
         "stay": 0,
         "continuous": 0,
+        "rbta_safe": 0,
         "other": 0,
     }
     tail = frames[-window:] if window > 0 else frames
@@ -699,12 +705,28 @@ def format_session_results_lines(
         lines.append(format_early_late("dist", dist_e, dist_l))
     lines.append(err_line)
 
+    anom = report.get("anomalies") or {}
+    active = anom.get("active") or []
+    if active:
+        lines.append("anomalies: " + ", ".join(active))
+
     action_m = report.get("action_metrics") or {}
     mech_pct = action_m.get("mechanism_pct") or {}
     mech_top = _top_pct_items(mech_pct, 3)
     if mech_top:
         lines.append(
             "mechanism: " + " · ".join(f"{k} {v:.0f}%" for k, v in mech_top)
+        )
+    explain_m = action_m.get("explain_metrics") or {}
+    dr_counts = explain_m.get("decision_reason_counts") or {}
+    if dr_counts and report.get("cycles"):
+        n = int(report["cycles"])
+        dr_top = sorted(dr_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        lines.append(
+            "explain: "
+            + " · ".join(
+                f"{k} {100.0 * v / n:.0f}%" for k, v in dr_top if v > 0
+            )
         )
 
     phase_pct = report.get("phase_budget_pct") or {}

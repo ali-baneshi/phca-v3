@@ -1342,3 +1342,26 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Gate JSONs in `logs/` root remain for CI; sessions/logs stay local. Comparison reuses session_report metrics for regression triage across runs.
 - **v3.0 trace:** A2 (honest replay/report data contracts), A1 (no unbounded artifact bloat in VCS).
 - **Tests/Validation:** `test_compare_session_reports_delta`; `git ls-files` excludes `.cursor`, `.tmp`, `logs/sessions`; filter-repo + signed commit.
+
+## Decision D-116: Observatory Phase 13 session anomaly detection
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 13)
+- **Problem:** No automatic session-level detection of prediction spikes, error drift, RSS leaks, or goal/drive instability; nightly stress leak logic was duplicated and not exposed on recorded JSONL sessions.
+- **Option chosen:** (1) `python/phca/monitoring/retention_slope.py` — shared phase-aware RSS slope (D-112/D-113 constants). (2) `python/phca/monitoring/session_anomalies.py` — `detect_session_anomalies()` with typed flags `spike`, `drift`, `leak`, `goal_instability`; cycle markers reuse `build_moment_series()`. (3) `session_report.json` gains additive `anomalies` block. (4) `phca_replay.py --check` prints per-flag PASS/FAIL; `--anomaly-strict` exits 1 on critical `leak` only. (5) `scripts/nightly_anomaly_gate.py` as `make nightly` step 7/7.
+- **Thresholds (honest, not tuned to force pass):** spike rate > 20% when cycles ≥ 30, or ≥ 10 spikes when cycles ≥ 50; drift when late error median > 1.20× early and Δ > 0.5; leak when JSONL RSS late slope ≥ phase-aware threshold (5000 B/cyc fill / 1600 B/cyc post-cap) with ≥ 50 RSS samples and ≥ 200 cycles; goal instability when combined drive-switch rate > 25% or ≥ 3 switches in a 20-cycle window.
+- **Rationale:** One shared helper for report, replay check, and nightly gate; preserves JSONL schema v1 and frame immutability; informational anomaly summary on default `--check` keeps Phase 7–12 integrity behavior unchanged.
+- **v3.0 trace:** A1 (resource leak surfacing), A2 (honest offline metrics).
+- **Tests/Validation:** `test_session_anomalies.py`; `nightly_anomaly_gate.py`; monitoring suite 294 passed; total 639 passed.
+
+## Decision D-117: Observatory Phase 14 action explainability
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 14)
+- **Problem:** `action_rationale` in JSONL carried partial selection metadata (scores, explore flag, fact ids) but no canonical causal chain from drive → goal → candidate scoring → chosen action; continuous MPC omitted `score_components`; replay/report/UI each interpreted rationale differently.
+- **Option chosen:** (1) `_finalize_action_rationale()` in `cycle.py` on all selection paths — adds `drive_id`, `mechanism`, `decision_reason`, `relevant_facts_summary`, `chosen_label` (no `schema_version` bump). (2) Shared `python/phca/monitoring/action_explain.py` for chain formatting. (3) Action tab explain band in `CandidateScoreView` (JSONL-only; rollouts remain live-only banner). (4) `session_report.action_metrics.explain_metrics` with `decision_reason_counts` + `anchor_explain`. (5) `phca_replay.py --check` prints explain PASS/WARN (informational).
+- **Rationale:** Explanations serialize only cycle-computed data; legacy sessions without new keys still load/replay with infer fallback; shared helper keeps dashboard, report, and check aligned.
+- **v3.0 trace:** A2 (honest action-selection audit trail), A4 (continuous MPC parity).
+- **Tests/Validation:** `TestActionRationaleEnrichment`; `test_action_explain.py`; monitoring 311 passed; total 656 passed.

@@ -129,30 +129,32 @@ nightly: nightly-mujoco
 	@echo "============================================"
 	@echo "  PHCA v3.0 — Nightly CI Hardening"
 	@echo "============================================"
-	@echo "[1/6] Static Φ-IQ benchmark (200cyc MLP)..."
+	@echo "[1/7] Static Φ-IQ benchmark (200cyc MLP)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --use-mlp --cycles=200 --output=logs/nightly_static.json >/dev/null
 	@python scripts/check_benchmark_gate.py logs/nightly_static.json logs/benchmark_ci_baseline.json
-	@echo "[2/6] MuJoCo benchmark gate (see nightly-mujoco) — done."
-	@echo "[3/6] Assumption validation (A1/A3/A4/A5, --ci)..."
+	@echo "[2/7] MuJoCo benchmark gate (see nightly-mujoco) — done."
+	@echo "[3/7] Assumption validation (A1/A3/A4/A5, --ci)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
 	    --output=logs/nightly_assumptions.json
-	@echo "[4/6] OOD calibration (σ-sweep, monotonic)..."
+	@echo "[4/7] OOD calibration (σ-sweep, monotonic)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/ood_calibration.py \
 	    --output=logs/nightly_ood.json
-	@echo "[5/6] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."
+	@echo "[5/7] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."
 	@MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
 	    python scripts/nightly_stress.py --output=logs/nightly_stress.json
-	@echo "[6/6] Causal behavior gate (level2+level3, 200cyc × 5 seeds)..."
+	@echo "[6/7] Causal behavior gate (level2+level3, 200cyc × 5 seeds)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
 	    --levels level2,level3 --cycles 200 --seeds 5 --use-mlp --gate \
 	    --output logs/phca_causal_eval_nightly.json
+	@echo "[7/7] Session anomaly gate..."
+	@PYTHONPATH=python python scripts/nightly_anomaly_gate.py --output=logs/nightly_anomaly_gate.json
 	@echo "============================================"
 	@echo "  Nightly hardening: ALL PASS"
 	@echo "============================================"
 
 nightly-mujoco:
-	@echo "[2/6] MuJoCo benchmark gate (Pendulum continuous + Cartpole/Reacher discrete)..."
+	@echo "[2/7] MuJoCo benchmark gate (Pendulum continuous + Cartpole/Reacher discrete)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \

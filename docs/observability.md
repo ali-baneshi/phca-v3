@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phases 8–12 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), large-session scrub performance (Phase 11), and multi-session `--compare` (Phase 12). Phases 13–20 are backlog — see [STATUS.md](../STATUS.md).
+**Phases 8–14 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), large-session scrub performance (Phase 11), multi-session `--compare` (Phase 12), session anomaly detection (Phase 13), and action explainability (Phase 14). Phases 15–20 are backlog — see [STATUS.md](../STATUS.md).
 
 ## Thread model
 
@@ -92,6 +92,23 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 ### Recorded fields (replay/report)
 
 `schema_version`, scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
+
+#### `action_rationale` (Phase 14 extension — no schema_version bump)
+
+Nested object per cycle. Legacy keys remain; new keys are optional.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `explored`, `eps`, `goal_id`, `continuous`, `best_score`, `k_candidates`, `chosen_idx` | various | Pre-Phase-14 selection metadata |
+| `score_components` | object | Discrete: `distance_gain`, `pga`, `confidence`, `alignment`, …; continuous MPC: `confidence`, `ref_align`, `pga` |
+| `relevant_fact_ids` | list[str] | M4 fact ids used during selection |
+| `drive_id` | int | Active drive at selection (usually equals `goal_id`) |
+| `mechanism` | str | `explore`, `prediction`, `greedy_fallback`, `stay`, `continuous`, `rbta_safe`, `other` |
+| `decision_reason` | str | Finer grain: `explore`, `d5_stay`, `rbta_safe`, `greedy_fallback`, `prediction`, `continuous_mpc`, `continuous_explore` |
+| `relevant_facts_summary` | list | `[{fact_id, confidence}]`, cap 5 |
+| `chosen_label` | str | Human label: `MOVE_E #2` or `τ#3` |
+
+Shared formatter: [`action_explain.py`](../python/phca/monitoring/action_explain.py).
 
 ### Live-only (not in JSONL)
 
@@ -198,6 +215,64 @@ When `recorded_cycles` is present, `--check` also reports whether JSONL line cou
 
 Use `--allow-incomplete` to skip count/contiguity checks (still fails on empty JSONL).
 
+When integrity checks pass, `--check` also runs session anomaly detection and prints:
+
+```text
+  anomalies  : spike=PASS drift=PASS leak=PASS goal_instability=PASS
+  Anomaly overall: PASS
+```
+
+Anomaly flags are **informational** by default (exit code follows JSONL integrity only). Use `--anomaly-strict` to exit 1 when a **critical** flag is active (currently `leak` only).
+
+When integrity checks pass, `--check` also reports explain field presence:
+
+```text
+  explain    : PASS (decision_reason in first/mid/last)
+  explain    : WARN (legacy rationale only)
+```
+
+PASS requires Phase 14 `decision_reason` or `mechanism` on first/mid/last frames; WARN for legacy sessions — does not change exit code.
+
+## Action explainability (Phase 14)
+
+The Action Selection tab includes a replay-safe **explain band** (drive → reason → score → chosen → facts) built from JSONL fields only via `build_explain_chain()`. `candidate_rollouts` remain live-only (existing replay banner).
+
+`session_report.json` adds `action_metrics.explain_metrics`:
+
+- `decision_reason_counts` — histogram over the session
+- `anchor_explain` — causal chains at anchor cycles (`0`, `mid`, `last`)
+
+## Anomaly detection (Phase 13)
+
+Shared module: [`session_anomalies.py`](../python/phca/monitoring/session_anomalies.py). RSS slope helpers: [`retention_slope.py`](../python/phca/monitoring/retention_slope.py) (same phase-aware thresholds as `nightly_stress.py`, D-112/D-113).
+
+| Flag | Session rule | Severity |
+|------|--------------|----------|
+| `spike` | Spike rate > 20% when cycles ≥ 30, or ≥ 10 spikes when cycles ≥ 50 | info |
+| `drift` | Late error median > 1.20× early and absolute Δ > 0.5 (distance drift uses 1.15× when kinematics present) | warn |
+| `leak` | JSONL `rss_bytes` late slope ≥ phase threshold (5000 B/cyc fill / 1600 B/cyc post-cap); needs ≥ 50 RSS samples and ≥ 200 cycles for post-cap gate | **critical** |
+| `goal_instability` | Combined drive-switch rate > 25%, or ≥ 3 goal/drive switches in any 20-cycle window | warn |
+
+Cycle-level markers (cap 50) appear in `session_report.json` under `anomalies.cycle_markers` (e.g. per-cycle `spike` from `build_moment_series()`).
+
+```bash
+# Integrity + anomaly summary
+PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
+
+# Fail on critical leak flag
+PYTHONPATH=python python scripts/phca_replay.py --check --anomaly-strict logs/sessions/<ts>/
+```
+
+**Nightly:** `make nightly` step `[7/7]` runs `scripts/nightly_anomaly_gate.py` (synthetic positive/negative checks; writes `logs/nightly_anomaly_gate.json`).
+
+**Optional longer soak (pre-release, not in default nightly):**
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
+  python scripts/phca_observatory.py --cycles=200 --mlp --close-at-end
+PYTHONPATH=python python scripts/phca_replay.py --check --anomaly-strict logs/sessions/<latest>/
+```
+
 ## Dashboard / report parity
 
 Shared helpers in [`python/phca/monitoring/cognitive_panels.py`](python/phca/monitoring/cognitive_panels.py):
@@ -233,7 +308,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**278 monitoring tests** (623 total with MuJoCo — 2026-07-04). Key modules:
+**311 monitoring tests** (656 total with MuJoCo — 2026-07-04). Key modules:
 
 | Module | Coverage |
 |--------|----------|
@@ -243,6 +318,8 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | `test_*_dashboard.py` | Per-panel smoke, replay banners, scrub rebuild |
 | `test_cognitive_panels.py` | Shared helper contracts |
 | `test_session_report.py` | Offline report from JSONL |
+| `test_session_anomalies.py` | Phase 13 spike/drift/leak/goal flags |
+| `test_action_explain.py` | Phase 14 action rationale explain chain |
 | `test_r2_extensions.py` | Moment parity, retention/memory/goals anchors |
 
 ## Known gaps (remaining)

@@ -798,11 +798,19 @@ Goal:
 
 ### Phase 13: Anomaly Detection
 
+> **Status: Complete (2026-07).** `detect_session_anomalies()` + `session_report.anomalies`;
+> `phca_replay.py --check` anomaly summary; `--anomaly-strict` for critical leak;
+> `scripts/nightly_anomaly_gate.py` as `make nightly` step 7 (D-116).
+
 Goal:
 
 - Automatic detection of spike, drift, resource leak, unstable goals.
 
 ### Phase 14: Action Explainability
+
+> **Status: Complete (2026-07).** `_finalize_action_rationale()` + `action_explain.py`;
+> Action tab explain band; `session_report.action_metrics.explain_metrics`;
+> `phca_replay.py --check` explain PASS/WARN (D-117).
 
 Goal:
 

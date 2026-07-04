@@ -1,0 +1,21 @@
+Plan and implement Observatory Phase 15 for PHCA v3.0 at /home/<username>/Pictures/Autonomous-AI-june2026/new-ai.
+
+Context: Observatory Phases 7–12 complete. Goal is a stable public API for external tools.
+
+Phase 15 gate (STATUS.md): stable `phca.monitoring` export + schema documentation for programmatic access and analytical export.
+
+Current state:
+- python/phca/monitoring/__init__.py is minimal (one-line docstring)
+- Real surface is scattered: observability.py, session_report.py, cognitive_panels.py, playback.py, scripts/phca_replay.py
+
+Deliverables for the plan:
+1. Curated public API in phca/monitoring/__init__.py (explicit __all__): frame load/save, normalize_observability_json, build_session_report, compare_session_reports, cognitive_moment helpers, PlaybackClock basics — no Qt imports in __init__
+2. New docs/observability_api.md: stable vs internal modules, field schema reference, versioning policy
+3. Export helpers: e.g. export_session_parquet() or export_session_csv() for key scalars (choose one format, stdlib-friendly or existing deps only)
+4. Deprecation boundary: qt_dashboard.py and render.py marked internal in docs
+5. Tests: import smoke, API stability test (ensure __all__ symbols exist), round-trip export on fixture session
+6. STATUS.md + DECISIONS.md update
+
+Constraints: do not break existing script imports; PyQt5 remains optional for API consumers; schema_version=1 documented as contract.
+
+Explore monitoring package layout and session_report.py first, then plan.

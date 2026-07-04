@@ -18,6 +18,8 @@ from phca.monitoring.cognitive_panels import (
     flow_near_bound_modules,
     goal_id_from_frame,
 )
+from phca.monitoring.session_anomalies import detect_session_anomalies
+from phca.monitoring.action_explain import explain_anchor_bundle, infer_decision_reason
 from phca.monitoring.qt_dashboard import (
     TREND_WINDOW,
     BeliefProjection,
@@ -158,8 +160,11 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         "explore": 0,
         "stay": 0,
         "continuous": 0,
+        "rbta_safe": 0,
         "other": 0,
     }
+    decision_reason_counts: Dict[str, int] = {}
+    anchor_explain: Dict[str, Dict[str, Any]] = {}
 
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -173,6 +178,8 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
 
         r = dict(getattr(f, "action_rationale", {}) or {})
         mechanism_counts[classify_action_mechanism(r)] += 1
+        dr = infer_decision_reason(r)
+        decision_reason_counts[dr] = decision_reason_counts.get(dr, 0) + 1
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
 
@@ -298,6 +305,8 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
                     "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
                     "action_status": _action_status_line(f, scores, chosen),
                 }
+            if idx == target_idx and anchor_key not in anchor_explain:
+                anchor_explain[anchor_key] = explain_anchor_bundle(f)
             if idx == target_idx and anchor_key not in anchor_phase_status:
                 anchor_phase_status[anchor_key] = {
                     "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
@@ -385,6 +394,18 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
                 "dominant_phase": m.get("dominant_phase", ""),
             }
 
+    partial_report = {
+        "cycles": n,
+        "spike_count": spike_count,
+        "drive_switch_count": drive_switch_count,
+        "error_early_median": err_early_med,
+        "error_late_median": err_late_med,
+        "dist_early_median": dist_early_med,
+        "dist_late_median": dist_late_med,
+        "goals_metrics": {"active_drive_switch_count": active_drive_switch_count},
+    }
+    anomalies = detect_session_anomalies(frames, partial_report)
+
     return {
         "meta": dict(meta),
         "cycles": n,
@@ -426,6 +447,10 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             "mechanism_pct": mechanism_pct,
             "anchor_action_status": anchor_action_status,
             "anchor_action_moments": anchor_moment_flags,
+            "explain_metrics": {
+                "decision_reason_counts": decision_reason_counts,
+                "anchor_explain": anchor_explain,
+            },
         },
         "phase_space_metrics": {
             "dominant_env_kind": dominant_env,
@@ -456,6 +481,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         },
         "anchor_narratives": anchor_narratives,
         "notable_cycles": notable_cycles,
+        "anomalies": anomalies,
     }
 
 
@@ -514,6 +540,16 @@ def print_report_summary(report: Dict[str, Any], *, stream=None) -> None:
         for item in notable[:5]:
             print(f"    cycle {item.get('cycle_id')}: {', '.join(item.get('reasons', []))}",
                   file=out)
+    anom = report.get("anomalies") or {}
+    aflags = anom.get("flags") or {}
+    if aflags:
+        print(
+            f"  anomalies: spike={'FAIL' if aflags.get('spike') else 'PASS'}"
+            f" drift={'FAIL' if aflags.get('drift') else 'PASS'}"
+            f" leak={'FAIL' if aflags.get('leak') else 'PASS'}"
+            f" goal={'FAIL' if aflags.get('goal_instability') else 'PASS'}",
+            file=out,
+        )
     flow_m = report.get("flow_metrics") or {}
     if flow_m:
         print(f"  flow: bottleneck={flow_m.get('bottleneck_module')}"
@@ -531,6 +567,11 @@ def print_report_summary(report: Dict[str, Any], *, stream=None) -> None:
               f"  explore_empty={action_m.get('cycles_explore_empty_scores')}"
               f"  margin_med={action_m.get('score_margin_median')}",
               file=out)
+        explain_m = action_m.get("explain_metrics") or {}
+        dr_counts = explain_m.get("decision_reason_counts") or {}
+        if dr_counts:
+            top = max(dr_counts.items(), key=lambda kv: kv[1])
+            print(f"  explain: top reason {top[0]} ({top[1]} cycles)", file=out)
         for key in ("0", "mid", "last"):
             item = (action_m.get("anchor_action_status") or {}).get(key)
             if item:

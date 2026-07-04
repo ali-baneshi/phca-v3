@@ -1,0 +1,22 @@
+Plan and implement Observatory Phase 16 for PHCA v3.0 at /home/<username>/Pictures/Autonomous-AI-june2026/new-ai.
+
+Context: Phases 7–12 complete. Phase 16 focuses on running the Observatory reliably in production-like conditions.
+
+Phase 16 gate (STATUS.md): subprocess Observatory launcher + crash recovery test + session integrity on abnormal exit.
+
+Existing code:
+- scripts/phca_observatory.py — cycle in daemon thread, Qt main thread, SessionRecorder, post-run verify via phca_replay --check
+- Session layout: meta.json, timeseries.jsonl, session_report.json (docs/observability.md)
+- test_observatory_launcher.py
+
+Deliverables for the plan:
+1. Subprocess wrapper (scripts/phca_observatory_supervisor.py or flag on launcher): isolate Qt/cycle crash from caller; propagate exit codes
+2. Crash recovery: partial session detection (incomplete JSONL, missing recorded_cycles), meta.json status field, --recover or auto-finalize best-effort session_report
+3. Diagnostic logs: structured supervisor log (session dir, cycle count at crash, verify result)
+4. Integration test: simulate kill mid-run; assert JSONL integrity + --check behavior with --allow-incomplete vs strict
+5. Document operational runbook in docs/observability.md (headless CI vs desktop, Wayland notes from SETUP.md)
+6. STATUS.md + DECISIONS.md
+
+Constraints: no regression to live dashboard threading model; M3 SQLite stays in cycle thread; existing --no-verify / --close-at-end flags preserved.
+
+Read phca_observatory.py, SessionRecorder.close(), phca_replay --check, test_observatory_launcher.py. Plan before coding.

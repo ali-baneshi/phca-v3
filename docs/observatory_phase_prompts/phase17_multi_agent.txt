@@ -1,0 +1,18 @@
+Plan and implement Observatory Phase 17 for PHCA v3.0 at /home/<username>/Pictures/Autonomous-AI-june2026/new-ai.
+
+Context: Single-agent Observatory is complete through Phase 12. Phase 17 adds multi-agent observation.
+
+Phase 17 gate (STATUS.md): `agent_id` on ObservabilityFrame/JSONL + synced multi-agent timeline in dashboard and reports.
+
+Deliverables for the plan:
+1. Data model: agent_id (and optional agent_label) on ObservabilityFrame, JSONL, meta.json; backward compatible default agent_id=0 for legacy sessions
+2. Recording: either multi-agent single JSONL (agent_id per line) or multi-agent session dir layout — pick one, document tradeoffs
+3. Minimal multi-agent runner: script or env flag to run 2 agents (can share env or parallel GridWorld instances) with interleaved or aligned cycle recording
+4. Dashboard: agent selector or split timeline; replay/scrub respects agent_id; honest banners when per-agent live-only data differs
+5. session_report per-agent aggregates + compare_session_reports extension
+6. Tests: 2-agent fixture session, replay --check, scrub immutability
+7. Schema note in observability.md; STATUS.md; DECISIONS.md
+
+Constraints: do not require distributed systems in v1 — local multi-agent is enough; preserve single-agent paths unchanged when agent_id omitted.
+
+Survey observability.py, phca_observatory.py, playback.py, qt_dashboard controller. Produce plan with chosen multi-agent recording model.

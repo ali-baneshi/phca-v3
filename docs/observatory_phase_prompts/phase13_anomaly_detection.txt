@@ -1,0 +1,24 @@
+Plan and implement Observatory Phase 13 for the PHCA v3.0 repo at /home/<username>/Pictures/Autonomous-AI-june2026/new-ai.
+
+Context: Observatory Phases 7–12 are COMPLETE (see STATUS.md, docs/PHCA_Cognitive_Observatory_Architecture.md). Phase 13 is the next backlog item.
+
+Phase 13 gate (from STATUS.md): automatic detection of spike, drift, resource leak, and goal instability — surfaced via `phca_replay.py --check` anomaly flags and a nightly hook.
+
+Existing code to extend (do NOT reimplement from scratch):
+- cognitive_moment() / overview_spike() / build_moment_series() in python/phca/monitoring/cognitive_panels.py
+- spike_count and flow metrics in python/phca/monitoring/session_report.py
+- compare_session_reports() regression_flags in session_report.py
+- nightly_stress.py retention slope logic (D-112/D-113 phase-aware gates)
+- phca_replay.py --check integrity gate
+
+Deliverables I expect in the plan:
+1. A shared anomaly module (e.g. detect_session_anomalies()) with typed flags: spike, drift, leak, goal_instability — reusing moment logic where possible
+2. Extension of session_report.json with an anomalies block + cycle-level anomaly markers where appropriate
+3. phca_replay.py --check prints PASS/FAIL anomaly summary; optional --anomaly-strict exit 1 on critical flags
+4. Nightly integration (Makefile target or nightly script step) with thresholds documented honestly (not tuned to force pass)
+5. Unit tests mirroring test_session_report.py / test_cognitive_panels.py patterns
+6. Docs: STATUS.md Phase 13 row, DECISIONS.md entry, observability.md section
+
+Constraints: preserve schema_version=1 compatibility; no ObservabilityFrame mutation; shared helpers for dashboard/report/check; 623+ tests must stay green.
+
+Start by reading STATUS.md, docs/observability.md, cognitive_panels.py, session_report.py, scripts/phca_replay.py, scripts/nightly_stress.py. Then produce an actionable implementation plan with file paths, acceptance criteria, and test commands before coding.

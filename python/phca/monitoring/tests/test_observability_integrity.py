@@ -251,6 +251,42 @@ def test_replay_check_fails_mixed_schema_versions(tmp_path):
     assert mod._check(str(d), allow_incomplete=True) == 0
 
 
+def test_replay_check_anomaly_overall_pass(tmp_path, capsys):
+    import importlib.util
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "reacher_short.jsonl"
+    lines = [ln for ln in fixture.read_text().splitlines() if ln.strip()]
+    d = tmp_path / "sess_anom_ok"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"env": "Reacher-v5", "cycles": len(lines)}))
+    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_anom_ok", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rc = mod._check(str(d))
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "Anomaly overall: PASS" in captured.out
+
+
+def test_replay_check_explain_warn_legacy(tmp_path, capsys):
+    import importlib.util
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "reacher_short.jsonl"
+    lines = [ln for ln in fixture.read_text().splitlines() if ln.strip()]
+    d = tmp_path / "sess_explain_legacy"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"env": "Reacher-v5", "cycles": len(lines)}))
+    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_explain_legacy", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rc = mod._check(str(d))
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "explain    : WARN" in captured.out
+
+
 def test_snap_cache_object_isolation():
     clear_snap_cache()
 

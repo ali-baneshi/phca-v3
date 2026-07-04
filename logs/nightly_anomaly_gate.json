@@ -1,0 +1,27 @@
+{
+  "checks": [
+    {
+      "name": "positive_reacher_fixture",
+      "passed": true,
+      "active": []
+    },
+    {
+      "name": "negative_leak",
+      "passed": true,
+      "late_slope": 5499.999999999912
+    },
+    {
+      "name": "negative_drift",
+      "passed": true
+    },
+    {
+      "name": "negative_goal_instability",
+      "passed": true
+    },
+    {
+      "name": "negative_spike_density",
+      "passed": true
+    }
+  ],
+  "all_pass": true
+}

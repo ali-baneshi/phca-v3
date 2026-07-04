@@ -50,7 +50,8 @@ def _load_session(session_dir: str):
     return meta, lines, video
 
 
-def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
+def _check(session_dir: str, *, allow_incomplete: bool = False,
+           anomaly_strict: bool = False) -> int:
     meta, lines, video = _load_session(session_dir)
     if meta is None:
         return 1
@@ -148,8 +149,31 @@ def _check(session_dir: str, *, allow_incomplete: bool = False) -> int:
             ok = False
     else:
         print(f"  [WARN] no video file (live-only or --no-record run)")
-    print(f"  Overall: {'PASS' if ok else 'FAIL'}")
-    return 0 if ok else 1
+    anomaly_ok = True
+    if parsed and ok:
+        try:
+            from phca.monitoring.render import frame_from_json
+            from phca.monitoring.session_anomalies import (
+                anomaly_strict_fail,
+                detect_session_anomalies,
+                print_anomaly_summary,
+            )
+            frames = [frame_from_json(obj) for obj in parsed]
+            anomaly_result = detect_session_anomalies(frames)
+            print_anomaly_summary(anomaly_result, stream=sys.stdout)
+            if anomaly_strict and anomaly_strict_fail(anomaly_result):
+                anomaly_ok = False
+            from phca.monitoring.action_explain import explain_smoke_pass
+            if explain_smoke_pass(frames):
+                print("  explain    : PASS (decision_reason in first/mid/last)", file=sys.stdout)
+            else:
+                print("  explain    : WARN (legacy rationale only)", file=sys.stdout)
+        except Exception as e:
+            print(f"  [FAIL] anomaly detection: {e}")
+            anomaly_ok = False
+    overall = ok and anomaly_ok
+    print(f"  Overall: {'PASS' if overall else 'FAIL'}")
+    return 0 if overall else 1
 
 
 def _play_video(video: Path, fps: float) -> int:
@@ -372,6 +396,8 @@ def main() -> None:
                         help="consistency check only (exit 0/1), no playback")
     parser.add_argument("--allow-incomplete", action="store_true",
                         help="with --check, do not fail on empty/mismatched JSONL")
+    parser.add_argument("--anomaly-strict", action="store_true",
+                        help="with --check, exit 1 on critical anomaly flags (leak)")
     parser.add_argument("--report", action="store_true",
                         help="build session_report.json from JSONL and print summary")
     parser.add_argument("--compare", metavar="BASELINE_SESSION",
@@ -394,7 +420,8 @@ def main() -> None:
     if not args.session:
         parser.error("session dir required")
     if args.check:
-        sys.exit(_check(args.session, allow_incomplete=args.allow_incomplete))
+        sys.exit(_check(args.session, allow_incomplete=args.allow_incomplete,
+                        anomaly_strict=args.anomaly_strict))
     if args.report:
         sys.exit(_report(args.session))
     if args.qt:

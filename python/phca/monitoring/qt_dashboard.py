@@ -68,6 +68,7 @@ from .cognitive_panels import (
     session_status_text,
 )
 from phca.monitoring.observability import OBSERVABILITY_SCHEMA_VERSION
+from phca.monitoring.action_explain import build_explain_chain
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
@@ -189,6 +190,7 @@ _ACTION_STATUS_H = 14
 _ACTION_CHIPS_H = 16
 _ACTION_DECISION_H = 28
 _ACTION_CTX_H = 28
+_ACTION_EXPLAIN_H = 36
 _ACTION_MECH_H = 16
 _ACTION_SPARK_W = 62
 _ACTION_SPARK_H = 28
@@ -232,7 +234,8 @@ def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     chips_y = status_y + _ACTION_STATUS_H
     decision_y = chips_y + _ACTION_CHIPS_H
     ctx_y = decision_y + _ACTION_DECISION_H
-    mech_y = ctx_y + _ACTION_CTX_H
+    explain_y = ctx_y + _ACTION_CTX_H
+    mech_y = explain_y + _ACTION_EXPLAIN_H
     body_top = mech_y + _ACTION_MECH_H + 4
     margin = 8
     spark_gutter = 3 * _ACTION_SPARK_W + 2 * _ACTION_SPARK_GAP + 12
@@ -255,6 +258,7 @@ def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
         "chips_y": chips_y,
         "decision_y": decision_y,
         "ctx_y": ctx_y,
+        "explain_y": explain_y,
         "mech_y": mech_y,
         "body_top": body_top,
         "body_h": body_h,
@@ -4864,6 +4868,32 @@ class CandidateScoreView(_BaseCanvas):
         if link:
             p.drawText(x, y + 12, fm.elidedText(link, QtCore.Qt.ElideRight, w))
 
+    def _draw_action_explain_band(
+        self,
+        p: QtGui.QPainter,
+        f: ObservabilityFrame,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
+    ) -> None:
+        """Phase 14: causal explain chain from JSONL action_rationale only."""
+        chain = build_explain_chain(f)
+        p.setPen(DIM_COL)
+        p.setFont(_F_AXIS)
+        fm = p.fontMetrics()
+        if not chain:
+            r = f.action_rationale or {}
+            msg = (
+                "explain: (legacy rationale — no decision_reason)"
+                if r else "explain: —"
+            )
+            p.drawText(x, y + 10, fm.elidedText(msg, QtCore.Qt.ElideRight, w))
+            return
+        line_h = max(12, fm.height())
+        for i, line in enumerate(chain[:3]):
+            p.drawText(x, y + 10 + i * line_h, fm.elidedText(line, QtCore.Qt.ElideRight, w))
+
     def _rollout_cloud(self, p: QtGui.QPainter, f: ObservabilityFrame,
                        x0: int, top: int, x1: int, cloud_bot: int,
                        footer_y: int, footer_h: int,
@@ -5036,6 +5066,8 @@ class CandidateScoreView(_BaseCanvas):
             p, f, scores, chosen, moment, pareto,
             lay["left_x"], lay["decision_y"], w - lay["left_x"] - 8, _ACTION_DECISION_H)
         self._action_context_band(p, f, lay["left_x"], lay["ctx_y"] + 10, lay["left_w"])
+        self._draw_action_explain_band(
+            p, f, lay["left_x"], lay["explain_y"] + 4, lay["left_w"], _ACTION_EXPLAIN_H)
         _draw_mechanism_stacked_bar(
             p, self._mech_frames, lay["left_x"], lay["mech_y"],
             w - lay["left_x"] - 8, _ACTION_MECH_H)

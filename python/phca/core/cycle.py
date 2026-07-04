@@ -415,7 +415,7 @@ class CognitiveCycle:
                 action = self.env.stay_action
                 self.last_candidate_scores = []
                 self.last_candidate_rollouts = []
-                self.last_action_rationale = {
+                self.last_action_rationale = self._finalize_action_rationale({
                     "explored": False,
                     "eps": 0.0,
                     "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
@@ -426,7 +426,7 @@ class CognitiveCycle:
                     "task_lock": bool(self._task_lock),
                     "rbta_safe_mode": True,
                     "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-                }
+                }, decision_reason="rbta_safe")
             else:
                 action = self._select_action()
             if self._is_continuous:
@@ -670,6 +670,72 @@ class CognitiveCycle:
 
         return metrics
 
+    def _facts_ids(self) -> list:
+        return [f.fact_id for f in self._relevant_facts]
+
+    def _facts_summary(self) -> list:
+        return [
+            {
+                "fact_id": f.fact_id,
+                "confidence": round(float(f.confidence), 3),
+            }
+            for f in self._relevant_facts[:5]
+        ]
+
+    def _mechanism_for_reason(self, decision_reason: str) -> str:
+        return {
+            "rbta_safe": "rbta_safe",
+            "explore": "explore",
+            "continuous_explore": "explore",
+            "d5_stay": "stay",
+            "greedy_fallback": "greedy_fallback",
+            "prediction": "prediction",
+            "continuous_mpc": "continuous",
+        }.get(decision_reason, "other")
+
+    def _chosen_label_from_rationale(self, rationale: dict) -> str:
+        is_cont = bool(rationale.get("continuous"))
+        if is_cont:
+            ci = rationale.get("chosen_idx")
+            if isinstance(ci, (int, float)) and int(ci) >= 0:
+                return f"τ#{int(ci)}"
+            return "τ"
+        ci = rationale.get("chosen_idx")
+        if isinstance(ci, (int, float)):
+            idx = int(ci)
+            names = (
+                self.env.get_action_names()
+                if hasattr(self.env, "get_action_names") else []
+            )
+            if 0 <= idx < len(names):
+                return f"{names[idx]} #{idx}"
+            return f"#{idx}"
+        return "—"
+
+    def _finalize_action_rationale(
+        self,
+        rationale: dict,
+        *,
+        decision_reason: str,
+    ) -> dict:
+        """Attach Phase 14 explain fields from cycle-computed selection state."""
+        r = dict(rationale)
+        r["decision_reason"] = decision_reason
+        goal = self.current_goal
+        gid = r.get("goal_id")
+        if gid is None and goal is not None:
+            gid = goal.drive_id
+        if gid is not None:
+            r["goal_id"] = int(gid)
+            r["drive_id"] = int(gid)
+        if "relevant_fact_ids" not in r:
+            r["relevant_fact_ids"] = self._facts_ids()
+        if "relevant_facts_summary" not in r:
+            r["relevant_facts_summary"] = self._facts_summary()
+        r["mechanism"] = self._mechanism_for_reason(decision_reason)
+        r["chosen_label"] = self._chosen_label_from_rationale(r)
+        return r
+
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
 
@@ -695,7 +761,7 @@ class CognitiveCycle:
         rng = np.random.RandomState(self.cycle_count)
         if eps > 0.0 and rng.random() < eps:
             pick = int(rng.randint(0, self.env.action_space_size))
-            self.last_action_rationale = {
+            self.last_action_rationale = self._finalize_action_rationale({
                 "explored": True, "eps": float(eps),
                 "goal_id": int(goal_id), "continuous": False,
                 "best_score": None,
@@ -703,14 +769,14 @@ class CognitiveCycle:
                 "chosen_idx": pick,
                 "task_lock": bool(self._task_lock),
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-            }
+            }, decision_reason="explore")
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return pick
 
         # D5 (Energy Efficiency): prefer STAY — skip under task-lock (P0-3)
         if goal_id == 5 and not self._task_lock:
-            self.last_action_rationale = {
+            self.last_action_rationale = self._finalize_action_rationale({
                 "explored": False, "eps": float(eps),
                 "goal_id": 5, "continuous": False,
                 "best_score": None, "k_candidates": None,
@@ -718,7 +784,7 @@ class CognitiveCycle:
                 "chosen_idx": int(self.env.stay_action),
                 "task_lock": bool(self._task_lock),
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-            }
+            }, decision_reason="d5_stay")
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return self.env.stay_action
@@ -742,7 +808,7 @@ class CognitiveCycle:
             )
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
-            self.last_action_rationale = {
+            self.last_action_rationale = self._finalize_action_rationale({
                 "explored": False, "eps": 0.0,
                 "goal_id": int(goal_id), "continuous": False,
                 "best_score": float(greedy_score),
@@ -752,7 +818,7 @@ class CognitiveCycle:
                 "greedy_fallback": True,
                 "score_components": greedy_comp,
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-            }
+            }, decision_reason="greedy_fallback")
             return greedy_action
 
         best_action = self.env.stay_action
@@ -858,7 +924,7 @@ class CognitiveCycle:
         else:
             self.last_candidate_rollouts = []
 
-        self.last_action_rationale = {
+        self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
             "best_score": float(best_score),
@@ -867,7 +933,7 @@ class CognitiveCycle:
             "task_lock": bool(self._task_lock),
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-        }
+        }, decision_reason="prediction")
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:
@@ -890,10 +956,15 @@ class CognitiveCycle:
 
         rng = np.random.RandomState(self.cycle_count)
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
+        goal = self.current_goal
+        goal_id = goal.drive_id if goal else None
         if rng.random() < eps:
-            self.last_action_rationale = {"explored": True, "eps": float(eps),
-                                          "goal_id": None, "continuous": True,
-                                          "best_score": None, "k_candidates": int(K)}
+            self.last_action_rationale = self._finalize_action_rationale({
+                "explored": True, "eps": float(eps),
+                "goal_id": int(goal_id) if goal_id is not None else None,
+                "continuous": True,
+                "best_score": None, "k_candidates": int(K),
+            }, decision_reason="continuous_explore")
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
@@ -902,6 +973,7 @@ class CognitiveCycle:
         ref = np.asarray(ref, dtype=np.float32) if ref is not None else None
 
         best_a, best_score, best_idx = None, -float("inf"), -1
+        best_components: dict = {}
         cand_scores = []
         _obs = self.observability_store is not None
         _rollouts: list = []
@@ -934,6 +1006,11 @@ class CognitiveCycle:
                 })
             if score > best_score:
                 best_score, best_a, best_idx = score, a, ci
+                best_components = {
+                    "confidence": float(np.clip(confidence, 0.0, 1.0)),
+                    "ref_align": float(ref_align),
+                    "pga": float(pga),
+                }
         self.last_candidate_scores = cand_scores
         if _obs:
             for r in _rollouts:
@@ -942,11 +1019,16 @@ class CognitiveCycle:
             self.last_candidate_rollouts = _rollouts[:8]
         else:
             self.last_candidate_rollouts = []
-        self.last_action_rationale = {"explored": False, "eps": float(eps),
-                                      "goal_id": None, "continuous": True,
-                                      "best_score": float(best_score) if best_a is not None else None,
-                                      "k_candidates": int(K),
-                                      "chosen_idx": int(best_idx)}
+        self.last_action_rationale = self._finalize_action_rationale({
+            "explored": False, "eps": float(eps),
+            "goal_id": int(goal_id) if goal_id is not None else None,
+            "continuous": True,
+            "best_score": float(best_score) if best_a is not None else None,
+            "k_candidates": int(K),
+            "chosen_idx": int(best_idx),
+            "score_components": best_components,
+            "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+        }, decision_reason="continuous_mpc")
         return best_a if best_a is not None else (
             low + (high - low) * 0.5).astype(np.float32)
 

@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-04  
-**Phase:** 12 COMPLETE — Observatory multi-session compare (Phases 7–12; D-108–D-115); Phases 13–20 backlog  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-115)
+**Phase:** 14 COMPLETE — Observatory action explainability (Phases 7–14; D-108–D-117); Phases 15–20 backlog  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-117)
 
 ---
 
@@ -22,6 +22,8 @@
 | 10 | Phase 10 offline report parity | Complete |
 | 11 | Phase 11 large-session scrub performance | Complete |
 | 12 | Phase 12 multi-session comparison | Complete |
+| 13 | Phase 13 anomaly detection | Complete |
+| 14 | Phase 14 action explainability | Complete |
 
 ---
 
@@ -97,12 +99,22 @@
 |----|-------|--------|------------|
 | P12-1 | Multi-session report comparison | ✅ Done | `phca_replay.py --compare` + `compare_session_reports()` (D-115) |
 
-### Observatory Phases 13–20 — Backlog
+### Phase 13 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P13-1 | Anomaly detection (spike/drift/leak/goal instability) | ✅ Done | `session_anomalies.py`, `session_report.anomalies`, `phca_replay.py --check` + `--anomaly-strict`, `nightly_anomaly_gate.py` (D-116) |
+
+### Phase 14 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P14-1 | Action explainability (`action_rationale` + Explain band) | ✅ Done | `_finalize_action_rationale()`, `action_explain.py`, Action tab explain band, `explain_metrics` in session_report (D-117) |
+
+### Observatory Phases 15–20 — Backlog
 
 | Phase | Focus | Gate / deliverable |
 |-------|-------|-------------------|
-| **13** | Anomaly detection (spike/drift/leak/goal instability) | `--check` anomaly flags; nightly hook |
-| **14** | Action explainability | `action_rationale` in JSONL + Explain panel |
 | **15** | Observability API | stable `phca.monitoring` export + schema doc |
 | **16** | Production hardening | subprocess Observatory + crash recovery test |
 | **17** | Multi-agent Observatory | `agent_id` on frames + synced timeline |
@@ -111,6 +123,7 @@
 | **20** | Research maturity sign-off | Phase 20 archive report; all gates green |
 
 See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
+Copy-paste planning prompts for each backlog phase: [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/).
 
 ### Documentation / Decisions
 
@@ -141,10 +154,10 @@ See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observ
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-04 | **587 passed**, 1 skipped |
+| Python (`make test-python`) | 2026-07-04 | **620 passed**, 1 skipped |
 | MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-04 | **36 passed**, 0 errors |
-| Monitoring only | 2026-07-04 | **278 passed** (`pytest python/phca/monitoring/tests/`) |
-| **Total (both suites)** | 2026-07-04 | **623 passed**, 1 skipped |
+| Monitoring only | 2026-07-04 | **311 passed** (`pytest python/phca/monitoring/tests/`) |
+| **Total (both suites)** | 2026-07-04 | **656 passed**, 1 skipped |
 | CI Φ-IQ gate | 2026-07-04 | PASS (Overall 0.7317 nightly static ≥ floor 0.5486) |
 | Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
 | Assumption validation `--ci` | 2026-07-04 | **5/5 PASS** (A1–A5 incl. A2 temporal order) |
@@ -171,6 +184,8 @@ See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observ
 
 | Date | Fix | Outcome |
 |------|-----|---------|
+| 2026-07-04 | Phase 14 action explainability (D-117) | Rich `action_rationale`, Explain band, report/check parity; 656 tests green |
+| 2026-07-04 | Phase 13 anomaly detection (D-116) | Shared spike/drift/leak/goal flags; `--check` + nightly gate; 639 tests green |
 | 2026-07-04 | phase-10&11 + docs sync | Report parity, scrub perf, README/STATUS aligned; pgmpy pin (D-114) |
 | 2026-07-04 | L3 causal coverage fix + retention gate (D-112) | L1/L2/L3 causal PASS; phase-aware nightly retention |
 | 2026-07-04 | Three-level causal behavior gate | L1 passes; L2/L3 expose gap vs observed greedy (pre-fix) |

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -208,3 +210,82 @@ class TestRBTAEnforcement:
         assert metrics.rbta_action in ("INTERRUPT", "TERMINATE")
         if metrics.rbta_action == "INTERRUPT":
             assert metrics.module_timings.get("consolidation", 0.0) == 0.0
+
+
+class TestActionRationaleEnrichment:
+    """Phase 14: action_rationale explain fields on all selection paths."""
+
+    def _state(self, cycle: CognitiveCycle) -> None:
+        cycle.current_state = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.ones(cycle.state_dim, dtype=np.float32),
+        )
+
+    def test_discrete_prediction_rationale_fields(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle.cycle_count = 400
+        self._state(cycle)
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 1.0
+        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            cycle._select_action()
+        r = cycle.last_action_rationale
+        assert r["decision_reason"] == "prediction"
+        assert r["mechanism"] == "prediction"
+        assert r.get("drive_id") is not None
+        assert isinstance(r.get("score_components"), dict)
+
+    def test_discrete_explore_rationale(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        self._state(cycle)
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 0.0
+        mock_rng.randint.return_value = 2
+        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            cycle._select_action()
+        assert cycle.last_action_rationale["decision_reason"] == "explore"
+
+    def test_d5_stay_rationale(self):
+        from unittest.mock import Mock
+
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        self._state(cycle)
+        cycle.current_goal = Mock(drive_id=5, target_state=None)
+        cycle._task_lock = False
+        cycle.cycle_count = 100
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 1.0
+        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            cycle._select_action()
+        assert cycle.last_action_rationale["decision_reason"] == "d5_stay"
+        assert cycle.last_action_rationale["mechanism"] == "stay"
+
+    def test_rbta_safe_rationale(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        tiny = ResourceBounds(B_time=1e-9, B_mem=1, B_energy=1e-9, entropy_floor=0.01)
+        for mod_id in list(cycle.rbta._bounds.keys()):
+            cycle.rbta.update_bounds(mod_id, tiny)
+        cycle.step()
+        r = cycle.last_action_rationale
+        assert r.get("decision_reason") == "rbta_safe"
+        assert r.get("mechanism") == "rbta_safe"
+        assert r.get("rbta_safe_mode") is True
+
+    def test_continuous_mpc_rationale(self):
+        from phca.config import continuous_space
+
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle.action_space = continuous_space(-1.0, 1.0, 2)
+        cycle._is_continuous = True
+        cycle.cycle_count = 400
+        self._state(cycle)
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 1.0
+        mock_rng.uniform.return_value = np.array([0.1, -0.2], dtype=np.float32)
+        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            cycle._select_continuous_action()
+        r = cycle.last_action_rationale
+        assert r["decision_reason"] == "continuous_mpc"
+        assert r["mechanism"] == "continuous"
+        assert isinstance(r.get("score_components"), dict)
+        assert r.get("chosen_idx") is not None

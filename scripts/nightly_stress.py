@@ -41,24 +41,20 @@ import numpy as np
 import psutil
 
 from phca.config import ResourceBounds
+from phca.monitoring.retention_slope import (
+    FILL_PHASE_CYCLES,
+    LEAK_SLOPE_FILL,
+    LEAK_SLOPE_LATE,
+    compute_rss_slopes,
+    leak_threshold_for_cycles,
+    rss_leak_flagged,
+)
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
 
 
 CHECKPOINTS = [1000, 5000, 10000, 50000, 100000]
 SAMPLE_EVERY = 100
-# Leak detector threshold (bytes/cycle) — Phase 7 / B3. The gate now uses the
-# LATE-half slope (post-cap steady state), not the full-run slope, because the
-# early slope legitimately stays ~4 KB/cyc during the M3 fill phase (0→10k
-# episodes). With the M3 in-memory VACUUM (D-108) + M4 cap 1000/500 (D-109),
-# the late slope must drop to ≤ LEAK_SLOPE_LATE B/cyc (a real leak blows past
-# this). Measured post-cap tail slope at 10k soak: ~1400 B/cyc (D-113); 500 was
-# aspirational pre-measurement. D-110, D-112, D-113.
-LEAK_SLOPE_LATE = 1600.0
-# M3 fills to cap ~10k episodes; M4 cap engages ~6700 cycles. Shorter soaks
-# legitimately show ~4 KB/cyc fill-phase growth (D-112).
-FILL_PHASE_CYCLES = 7000
-LEAK_SLOPE_FILL = 5000.0
 P95_LIMIT_MS = 500.0
 VIOL_RATE_LIMIT = 0.10
 PHI_COLLAPSE_LIMIT = 0.15
@@ -114,9 +110,9 @@ def _neg_test() -> int:
     xs = np.array([i * SAMPLE_EVERY for i in range(n // SAMPLE_EVERY)], dtype=np.float64)
     ys = np.array([base + (i * SAMPLE_EVERY) * 4000 for i in range(n // SAMPLE_EVERY)],
                   dtype=np.float64)
-    slope = float(np.polyfit(xs, ys, 1)[0])
-    half = len(xs) // 2
-    late_slope = float(np.polyfit(xs[half:], ys[half:], 1)[0])
+    slopes = compute_rss_slopes(xs.tolist(), ys.tolist(), total_cycles=n)
+    late_slope = float(slopes["late_slope"])
+    # Neg-test proves post-cap threshold catches sustained 4 KB/cyc leaks.
     flagged = late_slope >= LEAK_SLOPE_LATE
     print("=" * 60)
     print(f"  PHCA v3.0 — Nightly Stress NEG-TEST ({n} synthetic cyc)")
@@ -168,23 +164,11 @@ def main() -> None:
     # RSS leak slope (bytes/cycle). Report full-run slope and late-half slope
     # (the late half is the cleaner leak signal once bounded buffers saturate).
     if len(rss_samples) >= 2:
-        xs = np.array([s[0] for s in rss_samples], dtype=np.float64)
-        ys = np.array([s[1] for s in rss_samples], dtype=np.float64)
-        slope = float(np.polyfit(xs, ys, 1)[0])
-        if n >= FILL_PHASE_CYCLES and len(xs) >= 4:
-            # Tail quarter: post-cap steady state after M3/M4 caps engage.
-            tail_start = max(0, (len(xs) * 3) // 4)
-            late_xs, late_ys = xs[tail_start:], ys[tail_start:]
-            late_slope = (
-                float(np.polyfit(late_xs, late_ys, 1)[0])
-                if len(late_xs) >= 2 else slope
-            )
-        else:
-            half = len(xs) // 2
-            late_slope = (
-                float(np.polyfit(xs[half:], ys[half:], 1)[0])
-                if len(xs[half:]) >= 2 else slope
-            )
+        xs = [s[0] for s in rss_samples]
+        ys = [s[1] for s in rss_samples]
+        slopes = compute_rss_slopes(xs, ys, total_cycles=n)
+        slope = float(slopes["full_slope"])
+        late_slope = float(slopes["late_slope"])
     else:
         slope = late_slope = 0.0
     rss_start = rss_samples[0][1] if rss_samples else 0
@@ -197,15 +181,10 @@ def main() -> None:
     phi_final = phi_checkpoints.get(checkpoints[-1], 0.0)
     phi_collapse = phi_first - phi_final
 
-    if n < FILL_PHASE_CYCLES:
-        leak_threshold = LEAK_SLOPE_FILL
-        leak_gate_mode = "fill_phase"
-    else:
-        leak_threshold = LEAK_SLOPE_LATE
-        leak_gate_mode = "post_cap"
+    leak_threshold, leak_gate_mode = leak_threshold_for_cycles(n)
 
     crit = {
-        "no_rss_leak": late_slope < leak_threshold,
+        "no_rss_leak": not rss_leak_flagged(late_slope, n),
         "p95_latency_under_500ms": p95 < P95_LIMIT_MS,
         "violation_rate_under_10pct": viol_rate < VIOL_RATE_LIMIT,
         "phi_iq_stable": phi_collapse < PHI_COLLAPSE_LIMIT,
