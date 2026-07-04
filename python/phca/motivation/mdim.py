@@ -409,15 +409,24 @@ class MDIM:
             for d in [1, 3, 5]:
                 self.drives[d].deficit = 0.0
 
+        # Goal-switch boost: spike D1 when extrinsic goal relocated (P0-4).
+        if context.get("goal_switch_boost"):
+            self.drives[1].deficit = max(float(self.drives[1].deficit), 5.0)
+            for d in (2, 4, 5, 6):
+                self.drives[d].deficit = 0.0
+
         # Softmax weighting of deficits (now with suppressed drives if meta-stable)
         # Include D6 (Empowerment) in goal generation per v3.0 §2.4.1 Def 3.11(3)
         deficits = np.array([self.drives[d].deficit for d in range(1, 7)], dtype=np.float64)
         exp_deficits = np.exp((deficits - deficits.max()) / max(self.temperature, 0.01))
         weights = exp_deficits / (exp_deficits.sum() + 1e-8)
 
-        # Select winning drive via weighted sampling
-        rng = np.random.RandomState(self._cycle)
-        winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
+        # Task-lock: force D1 when extrinsic goal is active (P0-3).
+        if context.get("task_lock"):
+            winner = 1
+        else:
+            rng = np.random.RandomState(self._cycle)
+            winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
 
         # Generate goal from winning drive
         goal = self._goal_from_drive(winner, weights[int(winner) - 1], context)

@@ -202,6 +202,26 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | `meta.cycles` is requested count; compare with `recorded_cycles` via `--check` | Ongoing |
 | GridWorld overview hides camera QLabel; grid body is the camera substitute | By design |
 
+## Troubleshooting (live Observatory)
+
+### Wayland / `libdecor-gtk.so`
+
+On Wayland (`echo $XDG_SESSION_TYPE`), PyQt5 may print:
+
+```text
+Failed to load plugin 'libdecor-gtk.so': failed to init
+```
+
+This is **not** a crash. The cognitive cycle and JSONL recording continue normally.
+Install the system decoration plugin (`libdecor-gtk` on Arch/Manjaro) or run with
+`QT_QPA_PLATFORM=xcb` if you prefer XWayland. See [SETUP.md](../SETUP.md).
+
+### Startup warnings
+
+- **`pgmpy` FutureWarning with `--mlp`:** should not appear after lazy-import
+  hardening; if it does, use a venv from `requirements.txt`.
+- **No video file on `--check`:** expected unless you passed `--record-video`.
+
 ## Related documents
 
 - [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory architecture and 20-phase roadmap

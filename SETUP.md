@@ -4,13 +4,17 @@
 
 | Tool | Version | Check |
 | :--- | :--- | :--- |
-| Python | 3.11+ | `python --version` |
+| Python | 3.11 or 3.12 (recommended) | `python --version` |
 | Git | 2.40+ | `git --version` |
 | Make | — | `make --version` |
 
 > **Rust toolchain:** not required. The Rust workspace was removed in
 > D-084 (empty crates; Python is not a bottleneck at ~10–17 ms mean MLP cycle
 > latency). Re-introduce Rust only if profiling shows Python as a bottleneck.
+
+> **Python 3.14+:** may work locally but is not CI-pinned. Use a venv with
+> `requirements.txt` (see below) to avoid drift (e.g. unpinned `pgmpy` /
+> `numpy` versions and startup warnings).
 
 ## Quick Setup (5 minutes)
 
@@ -19,8 +23,8 @@
 git clone https://github.com/your-org/phca-v3.git
 cd phca-v3
 
-# 2. Install Python dependencies
-python3 -m venv .venv
+# 2. Create a venv (Python 3.11 or 3.12 recommended)
+python3.11 -m venv .venv   # or python3.12
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
@@ -68,6 +72,38 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
 ```
 
 See [docs/observability.md](docs/observability.md) for playback/scrub semantics and transport controls.
+
+## Observatory troubleshooting
+
+### `Failed to load plugin 'libdecor-gtk.so'`
+
+Harmless on many **Wayland** desktops (KDE, GNOME). Qt tries to load GTK window
+decorations; the run still succeeds (`Done. N cycles; N JSONL lines`).
+
+Fix (pick one):
+
+```bash
+# Arch / Manjaro — install the GTK decoration plugin
+sudo pacman -S libdecor-gtk
+
+# Or force XWayland / X11 for Qt
+QT_QPA_PLATFORM=xcb PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
+```
+
+### `pgmpy.estimators.StructureScore is deprecated`
+
+With `--mlp`, PHCA no longer imports pgmpy on startup. If you still see this,
+you are likely running outside the project venv with a global `pgmpy` pulled in
+by another import path. Recreate the venv from `requirements.txt`.
+
+### Session integrity after a live run
+
+```bash
+PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
+```
+
+The Observatory prints a one-line `Session OK:` summary when recording completes;
+use `--verify` on `phca_observatory.py` to run the same check inline.
 
 ## Benchmarks
 

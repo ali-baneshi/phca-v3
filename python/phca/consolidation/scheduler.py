@@ -193,6 +193,7 @@ class ConsolidationScheduler:
             # Flush pending M3 writes so episodes are durable before marking
             self.m3.flush()
             marked = self.m3.mark_consolidated(episode_ids)
+            purged = self.m3.purge_consolidated(keep_recent=500)
 
             # Increment MVCC version for next writes
             self.m3.increment_version()
@@ -212,7 +213,7 @@ class ConsolidationScheduler:
             self._total_facts += n_facts
 
             _log(logger, "info", "consolidation.complete",
-                 episodes=marked, facts=n_facts,
+                 episodes=marked, facts=n_facts, purged=purged,
                  version=snapshot.snapshot_version,
                  duration_ms=f"{report.duration_ms:.1f}",
                  total_processed=self._total_processed,

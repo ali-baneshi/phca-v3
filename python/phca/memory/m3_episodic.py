@@ -140,7 +140,7 @@ class M3EpisodicMemory:
         self._pending_commits: int = 0
         self._commit_interval: int = 10
         self._episodes_since_vacuum: int = 0
-        self._vacuum_interval: int = 1000  # VACUUM every 1000 episodes (G-010)
+        self._vacuum_interval: int = 100  # VACUUM every 100 evictions/purges (P1-4)
 
         # Initialize database
         self._conn: Optional[sqlite3.Connection] = None
@@ -425,6 +425,35 @@ class M3EpisodicMemory:
                 _log(logger, "debug", "m3.evict", count=excess)
                 # Track deletions for VACUUM scheduling (G-010)
                 self._episodes_since_vacuum += excess
+                self._vacuum_if_needed()
+
+    def purge_consolidated(self, keep_recent: int = 500) -> int:
+        """Delete consolidated episodes, retaining the most recent (P1-4 retention).
+
+        Args:
+            keep_recent: Minimum consolidated episodes to retain.
+
+        Returns:
+            Number of episodes deleted.
+        """
+        with self._lock:
+            total_cons = self.count(consolidated=1)
+            if total_cons <= keep_recent:
+                return 0
+            to_delete = total_cons - keep_recent
+            cursor = self._connection.execute(
+                "DELETE FROM episodes WHERE episode_id IN ("
+                "SELECT episode_id FROM episodes WHERE consolidated = 1 "
+                "ORDER BY timestamp ASC LIMIT ?"
+                ")", (to_delete,),
+            )
+            self._connection.commit()
+            deleted = cursor.rowcount
+        if deleted > 0:
+            self._episodes_since_vacuum += deleted
+            self._vacuum_if_needed()
+            _log(logger, "debug", "m3.purge_consolidated", deleted=deleted)
+        return deleted
 
     def _vacuum_if_needed(self) -> None:
         """Run VACUUM periodically to reclaim space from deleted episodes.

@@ -55,14 +55,12 @@ flowchart TD
 | 0  | ASI   | `sanitize(raw_obs)` → `clean_state` (NaN/Inf/finite checks) |
 | 1  | M1/M2 | `m2.write(state)` + `m1.write(state)` (working + sensory memory) |
 | 2-4 | G'   | `engine.predict(state)` → `predicted, confidence` (Gaussian / discrete / MLP) |
-| 5-6 | PEU  | `peu.compute(next, prediction)` → precision-weighted error |
-| 7  | TSPL  | `tspl.update(error, state, pred)` — P-Stream learning |
-| 8  | —     | (reserved) |
-| 9  | Cycle | `argmax(goal_alignment + confidence)` (discrete) **or** MPC-sample continuous actions and pick best ŝ'→ref (Phase 6) → action |
-| 10-13 | MDIM+APC+ATTN+HPM | generate goal, regulate, attend, `compute_bounds()` |
+| 8-13 | MDIM+APC+ATTN+HPM | query facts, generate goal, regulate, attend ( **before action** — P0-1) |
+| 9  | Cycle | discrete: blended scorer or MPC continuous → action |
+| 5-7 | PEU+TSPL+G' | post-step: `peu.compute`, `tspl.update`, `gprime.learn` |
 | 14 | RBTA  | `check_cycle(runtime, mem, energy, entropy)` |
 | 15 | Cycle | Logging — append `metrics_history` |
-| 16-18 | Consolidation | episodic → semantic transfer (10-cycle timer) |
+| 16-18 | Consolidation | episodic → semantic transfer + M3 purge (10-cycle timer) |
 | 19 | Cycle | `cycle_count += 1` |
 
 The `gprime.learn(transition)` step (between TSPL and Step 9) is the dominant per-cycle

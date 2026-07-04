@@ -2,10 +2,9 @@
 PHCA v3.0 - Cognitive Cycle Orchestrator.
 
 Phase 3.3: 12-step cognitive cycle (finalized subset of 21-step blueprint).
-  Active steps: 0 (ASI), 1 (Memory), 2-4 (Prediction), 5-6 (PEU),
-  7 (TSPL), 8 (Attention), 9 (Action), 10-13 (MDIM/CR/ATTN/HPM),
-  14 (RBTA), 15 (Logging), 16-18 (Consolidation), 19 (Increment).
-  Deferred: Step 8 (standalone attention — merged with MDIM/CR group).
+  Active steps: 0 (ASI), 1 (Memory), 2-4 (Prediction), 8-13 (MDIM/CR/ATTN before action),
+  9 (Action), 5-7 (PEU/TSPL/learn post-step), 14 (RBTA), 15 (Logging),
+  16-18 (Consolidation), 19 (Increment).
 
 Phase 4: Dynamic composition tree, full Empowerment (D6), M5 procedural memory.
 
@@ -36,8 +35,10 @@ from phca.asi.sanitizer import ASISanitizer
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
 from phca.memory.m3_episodic import M3EpisodicMemory
-from phca.world_model.graph import WorldModelGPrime, StateNode, TemporalEdge
 from phca.world_model.mlp import WorldModelMLP
+
+if TYPE_CHECKING:
+    from phca.world_model.graph import WorldModelGPrime
 
 from phca.prediction.engine import PredictionEngine
 from phca.prediction.error_unit import PredictionErrorUnit
@@ -95,7 +96,7 @@ class CognitiveCycle:
         sanitizer: ASISanitizer,
         m1: M1SensoryBuffer,
         m2: M2WorkingMemory,
-        gprime: WorldModelGPrime,
+        gprime: "WorldModelGPrime | WorldModelMLP",
         engine: PredictionEngine,
         peu: PredictionErrorUnit,
         tspl: TSPL,
@@ -180,6 +181,14 @@ class CognitiveCycle:
         # Attention weights for modulating G'.learn() (Issue #4 fix)
         self._attention_weights: np.ndarray = np.ones(self.state_dim, dtype=np.float32)
 
+        # P0: pre-action planning state (MDIM before action, facts → wall map)
+        self._last_prediction_error: float = 0.0
+        self._last_goal_pos: Optional[tuple] = None
+        self._goal_switch_cooldown: int = 0
+        self._relevant_facts: list = []
+        self._planning_grid: Optional[np.ndarray] = None
+        self._task_lock: bool = False
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=env.size)
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
@@ -258,15 +267,127 @@ class CognitiveCycle:
                 metrics.prediction_confidence = confidence
             metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
 
-            # (Step 5-6: PEU — deferred after env.step for correct action context)
+            # Steps 8-13: MDIM + CR + ATTN + facts (before action — P0-1).
+            # Uses prior-cycle prediction error; current obs + confidence.
+            consol_stats = self.consolidation.get_stats()
+            t_mdim = time.perf_counter()
+            error_volatility = self._approximate_error_volatility()
+            empowerment = self._estimate_empowerment()
+            if self.observability_store is not None:
+                self.last_empowerment = float(empowerment)
 
-            # (Step 7: TSPL — deferred after PEU)
+            if self.current_state is not None:
+                self._relevant_facts = self.consolidation.get_relevant_facts(
+                    self.current_state, n=5, min_confidence=0.3,
+                )
+                fact_confidence_mean = float(
+                    np.mean([f.confidence for f in self._relevant_facts])
+                ) if self._relevant_facts else 0.0
+                fact_count = len(self._relevant_facts)
+            else:
+                self._relevant_facts = []
+                fact_confidence_mean = 0.0
+                fact_count = 0
 
-            # (Step 8: Attention moved after MDIM/CR to use CR-controlled parameters)
+            self._planning_grid = self._build_planning_wall_grid()
 
-            # Step 9a: Action selection + environment step
+            env_goal_pos = self.env.get_goal_position()
+            goal_switch_boost = False
+            if env_goal_pos is not None:
+                if (
+                    self._last_goal_pos is not None
+                    and tuple(env_goal_pos) != tuple(self._last_goal_pos)
+                ):
+                    goal_switch_boost = True
+                    self._goal_switch_cooldown = 15
+                self._last_goal_pos = tuple(env_goal_pos)
+            if self._goal_switch_cooldown > 0:
+                goal_switch_boost = True
+                self._goal_switch_cooldown -= 1
+
+            self._task_lock = env_goal_pos is not None
+            self._cycle_flops = self._compute_cycle_flops()
+            if self._cycle_flops > 0:
+                energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
+            else:
+                energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
+            model_entropy = max(0.01, 1.0 - metrics.prediction_confidence)
+
+            mdim_context = {
+                "prediction_error": self._last_prediction_error,
+                "error_volatility": error_volatility,
+                "skill_accuracy": self.tspl.skill_accuracy,
+                "model_entropy": model_entropy,
+                "energy_cost": energy_cost,
+                "cycle": self.cycle_count,
+                "prediction_confidence": metrics.prediction_confidence,
+                "empowerment": empowerment,
+                "consolidation_facts": consol_stats.get("total_facts_stored", 0),
+                "fact_confidence_mean": fact_confidence_mean,
+                "fact_count": fact_count,
+                "env_goal_pos": env_goal_pos,
+                "size": self.env.size if hasattr(self.env, "size") else 0,
+                "task_lock": self._task_lock,
+                "goal_switch_boost": goal_switch_boost,
+            }
+            self.current_goal = self.mdim.generate_goal(mdim_context)
+            metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
+
+            t_cr = time.perf_counter()
+            T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
+            self.mdim.temperature = T
+            self.tspl.configs[StreamID.P_STREAM].eta = eta
+            self.attention.gumbel_temperature = alpha * 0.5
+            metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
+
+            t_attn = time.perf_counter()
+            attention_chunks = self.attention.select(
+                self.m2.chunks, self.current_goal,
+                prediction=self.last_prediction,
+            )
+            for chunk in attention_chunks:
+                self.attention.update_precision(
+                    chunk.chunk_id, self._last_prediction_error,
+                )
+            if attention_chunks:
+                weights = np.array([c.salience for c in attention_chunks])
+                w_sum = weights.sum()
+                if w_sum > 1e-8:
+                    weights = weights / w_sum
+                else:
+                    weights = np.ones_like(weights) / max(len(weights), 1)
+                if len(weights) >= self.state_dim:
+                    self._attention_weights = weights[:self.state_dim]
+                else:
+                    reps = int(np.ceil(self.state_dim / max(len(weights), 1)))
+                    self._attention_weights = np.tile(weights, reps)[:self.state_dim]
+            else:
+                self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
+            metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
+
+            t_hpm = time.perf_counter()
+            hpm_spec = {
+                "type": "SEQUENCE", "id": "cognitive_cycle",
+                "children": [
+                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
+                    {"type": "SEQUENCE", "id": "prediction_block",
+                     "children": [
+                         "WM",
+                         {"type": "Predict", "id": "G'_PE", "horizon": 1},
+                     ]},
+                    {"type": "PARALLEL", "id": "regulation_block",
+                     "children": ["MDIM", "CR", "ATTN", "HPM"]},
+                    "ACTION",
+                    {"type": "SEQUENCE", "id": "feedback_block",
+                     "children": ["PEU", "TSPL-P"]},
+                    "CYCLE",
+                ],
+            }
+            metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
+
+            # Step 9: Action selection + environment step
             t5 = time.perf_counter()
-            action = self._select_action()  # int (discrete) or np.ndarray (continuous)
+            action = self._select_action()
             if self._is_continuous:
                 action_vec_step = np.asarray(action, dtype=np.float32)
                 obs, reward, terminal, info = self.env.step(action_vec_step)
@@ -367,6 +488,7 @@ class CognitiveCycle:
                     drive_id=m3_drive_id,
                     timestamp=self.cycle_count,
                 )
+                self._last_prediction_error = metrics.prediction_error
 
             if self._is_continuous:
                 self.last_action = action_vec_step.copy()
@@ -386,113 +508,8 @@ class CognitiveCycle:
                 self.env.reset()
                 self.gprime.reset()
                 self.sanitizer.reset()  # clear stale precision across episode boundaries (N6)
-
-            # Steps 10-13: MDIM + CR + ATTN + HPM (Phase 3.2)
-            # Compute Φ approximation from module states (replaces synthetic decay)
-            t_mdim = time.perf_counter()
-            error_volatility = self._approximate_error_volatility()
-            # Estimate empowerment from prediction confidence spread across actions
-            empowerment = self._estimate_empowerment()
-            if self.observability_store is not None:
-                self.last_empowerment = float(empowerment)
-            # Gather consolidation facts from prev cycle's E→S transfer (P1-D fix)
-            consol_stats = self.consolidation.get_stats()
-            total_facts = consol_stats.get("total_facts_stored", 0)
-            # Get relevant facts for the current state to bias goals (A3 fix)
-            if self.current_state is not None:
-                relevant_facts = self.consolidation.get_relevant_facts(
-                    self.current_state, n=5, min_confidence=0.3,
-                )
-                fact_confidence_mean = float(np.mean([f.confidence for f in relevant_facts])) if relevant_facts else 0.0
-                fact_count = len(relevant_facts)
-            else:
-                relevant_facts = []
-                fact_confidence_mean = 0.0
-                fact_count = 0
-            # C3 fix: FLOP-based energy unified for D5 and RBTA
-            self._cycle_flops = self._compute_cycle_flops()
-            if self._cycle_flops > 0:
-                energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
-            else:
-                energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
-            # AF-001: model_entropy from prediction confidence (real uncertainty)
-            # Low confidence → high entropy → D4 drives exploration.
-            model_entropy = max(0.01, 1.0 - metrics.prediction_confidence)
-            mdim_context = {
-                "prediction_error": metrics.prediction_error,
-                "error_volatility": error_volatility,
-                "skill_accuracy": self.tspl.skill_accuracy,
-                "model_entropy": model_entropy,
-                "energy_cost": energy_cost,
-                "cycle": self.cycle_count,
-                "prediction_confidence": metrics.prediction_confidence,
-                "empowerment": empowerment,
-
-                "consolidation_facts": total_facts,
-                "fact_confidence_mean": fact_confidence_mean,
-                "fact_count": fact_count,
-
-                # S-003: Environment goal position for MDIM drive targets
-                "env_goal_pos": self.env.get_goal_position(),
-                "size": self.env.size if hasattr(self.env, "size") else 0,
-            }
-            self.current_goal = self.mdim.generate_goal(mdim_context)
-            metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
-
-            # Adaptive controller regulates and returns (T, eta, alpha)
-            t_cr = time.perf_counter()
-            T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
-            self.mdim.temperature = T
-            self.tspl.configs[StreamID.P_STREAM].eta = eta
-            self.attention.gumbel_temperature = alpha * 0.5
-            metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
-
-            t_attn = time.perf_counter()
-            attention_chunks = self.attention.select(
-                self.m2.chunks, self.current_goal,
-                prediction=self.last_prediction,
-            )
-            for chunk in attention_chunks:
-                self.attention.update_precision(
-                    chunk.chunk_id, metrics.prediction_error,
-                )
-            # Wire attention weights into learning: high-salience chunks get more weight
-            if attention_chunks:
-                weights = np.array([c.salience for c in attention_chunks])
-                w_sum = weights.sum()
-                if w_sum > 1e-8:
-                    weights = weights / w_sum
-                else:
-                    weights = np.ones_like(weights) / max(len(weights), 1)
-                # Pad/truncate to state_dim for per-dimension weight
-                if len(weights) >= self.state_dim:
-                    self._attention_weights = weights[:self.state_dim]
-                else:
-                    # Repeat weights to match state_dim
-                    reps = int(np.ceil(self.state_dim / max(len(weights), 1)))
-                    self._attention_weights = np.tile(weights, reps)[:self.state_dim]
-            else:
-                self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
-            metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
-
-            t_hpm = time.perf_counter()
-            hpm_spec = {
-                "type": "SEQUENCE", "id": "cognitive_cycle",
-                "children": [
-                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
-                    {"type": "SEQUENCE", "id": "prediction_block",
-                     "children": [
-                         "WM",
-                         {"type": "Predict", "id": "G'_PE", "horizon": 1},
-                         "PEU",
-                         "TSPL-P",
-                     ]},
-                    {"type": "PARALLEL", "id": "regulation_block",
-                     "children": ["MDIM", "CR", "ATTN", "HPM"]},
-                    "CYCLE",
-                ],
-            }
-            metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
+                self._last_goal_pos = None
+                self._goal_switch_cooldown = 0
 
             # Step 14: RBTA enforcement
             t6 = time.perf_counter()
@@ -511,17 +528,18 @@ class CognitiveCycle:
             composition_tree = {
                 "type": "SEQUENCE", "id": "cognitive_cycle",
                 "children": [
-                    "ASI",       # Step 0: sanitization
-                    "WM",        # Step 1: memory write
-                    "PE",        # Steps 2-4: prediction
-                    "PEU",       # Steps 5-6: error computation
-                    "TSPL-P",    # Step 7: P-Stream update
+                    "ASI",
+                    "WM",
+                    "PE",
                     {
                         "type": "PARALLEL", "id": "regulation_block",
                         "children": ["MDIM", "CR", "ATTN", "HPM"],
                         "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy},
                     },
-                    "CYCLE",     # Step 19: increment + logging
+                    "ACTION",
+                    "PEU",
+                    "TSPL-P",
+                    "CYCLE",
                 ],
                 "bounds": {
                     "B_time": reg_b_time * 2 + 0.050,  # 2× regulator + safety margin
@@ -618,35 +636,69 @@ class CognitiveCycle:
         goal_id = goal.drive_id if goal else 1
         target = goal.target_state if goal else None
 
-        # Adaptive ε-greedy: explore less as model converges
+        # Adaptive ε-greedy: explore less as model converges; task-lock reduces ε (P0-3)
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
+        if self._task_lock:
+            eps = 0.0
         rng = np.random.RandomState(self.cycle_count)
-        if rng.random() < eps:
+        if eps > 0.0 and rng.random() < eps:
             pick = int(rng.randint(0, self.env.action_space_size))
-            self.last_action_rationale = {"explored": True, "eps": float(eps),
-                                          "goal_id": int(goal_id), "continuous": False,
-                                          "best_score": None,
-                                          "k_candidates": int(self.env.action_space_size),
-                                          "chosen_idx": pick}
+            self.last_action_rationale = {
+                "explored": True, "eps": float(eps),
+                "goal_id": int(goal_id), "continuous": False,
+                "best_score": None,
+                "k_candidates": int(self.env.action_space_size),
+                "chosen_idx": pick,
+                "task_lock": bool(self._task_lock),
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+            }
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return pick
 
-        # D5 (Energy Efficiency): prefer STAY
-        if goal_id == 5:
-            self.last_action_rationale = {"explored": False, "eps": float(eps),
-                                          "goal_id": 5, "continuous": False,
-                                          "best_score": None, "k_candidates": None,
-                                          "note": "D5 energy: STAY",
-                                          "chosen_idx": int(self.env.stay_action)}
+        # D5 (Energy Efficiency): prefer STAY — skip under task-lock (P0-3)
+        if goal_id == 5 and not self._task_lock:
+            self.last_action_rationale = {
+                "explored": False, "eps": float(eps),
+                "goal_id": 5, "continuous": False,
+                "best_score": None, "k_candidates": None,
+                "note": "D5 energy: STAY",
+                "chosen_idx": int(self.env.stay_action),
+                "task_lock": bool(self._task_lock),
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+            }
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
             return self.env.stay_action
+
+        # Task-lock: pure observed-greedy navigation (beats blended scorer on L3)
+        if self._task_lock and hasattr(self.env, "agent_pos"):
+            explore_ties = self._goal_switch_cooldown > 0 or bool(
+                getattr(self.env, "switch_cycles", [])
+            )
+            greedy_action, greedy_score, greedy_comp = self._select_greedy_grid_action(
+                explore_ties=explore_ties,
+            )
+            self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
+            self.last_action_rationale = {
+                "explored": False, "eps": 0.0,
+                "goal_id": int(goal_id), "continuous": False,
+                "best_score": float(greedy_score),
+                "k_candidates": int(self.env.action_space_size),
+                "chosen_idx": int(greedy_action),
+                "task_lock": True,
+                "greedy_fallback": True,
+                "score_components": greedy_comp,
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+            }
+            return greedy_action
 
         best_action = self.env.stay_action
         best_score = -float("inf")
         action_confidences = []
         scores_per_action = [0.0] * self.env.action_space_size
+        best_components: dict = {}
         _obs = self.observability_store is not None
         _rollouts: list = []
 
@@ -670,45 +722,58 @@ class CognitiveCycle:
                         "chosen": False,
                     })
 
-                # Continuous distance gain (0 = toward goal, 1 = away)
                 distance_gain = self._compute_distance_gain(action_idx)
 
-                # Predicted goal alignment — ramps up as MLP learns.
-                # Onset at cycle 50 (was 200) so the learned signal participates
-                # during the 200-cycle benchmark window, not only after it ends.
                 ramp = float(np.clip((self.cycle_count - 50) / 100.0, 0.0, 1.0))
                 pga = self._predicted_goal_alignment(predicted)
+                conf = min(confidence, 1.0)
+                alignment = 0.0
 
-                # D1/D3: strongly prioritize reducing distance, confidence secondary.
-                # MDIM target_state alignment adds drive-specific bias (G5 fix).
+                # P0-2: prediction-primary under low confidence; task-lock stays geometry-primary
+                mean_conf_preview = float(np.mean(action_confidences)) if action_confidences else conf
+                if self._task_lock:
+                    prediction_primary = False
+                else:
+                    prediction_primary = mean_conf_preview < 0.4
+
                 if goal_id in (1, 3):
-                    base_score = (1.0 - distance_gain) * 0.6 + min(confidence, 1.0) * 0.2
-                    base_score = base_score * (1.0 - ramp * 0.4) + pga * (ramp * 0.4)
                     if target is not None:
                         alignment = self._state_space_alignment(predicted, target)
+                    if prediction_primary:
+                        base_score = 0.45 * pga + 0.35 * conf + 0.20 * (1.0 - distance_gain)
+                        score = base_score + alignment * 0.15
+                    else:
+                        base_score = (1.0 - distance_gain) * 0.6 + conf * 0.2
+                        base_score = base_score * (1.0 - ramp * 0.4) + pga * (ramp * 0.4)
+                        score = base_score + alignment * 0.2 if target is not None else base_score
+                elif goal_id in (2, 4):
+                    if target is not None:
+                        alignment = self._state_space_alignment(predicted, target)
+                    if prediction_primary:
+                        base_score = 0.35 * (1.0 - conf) + 0.25 * pga + 0.20 * (1.0 - distance_gain)
                         score = base_score + alignment * 0.2
                     else:
-                        score = base_score
-                elif goal_id in (2, 4):
-                    # D2/D4: seek uncertainty, penalize moving away.
-                    # MDIM target_state alignment adds drive-specific bias (G5 fix).
-                    base_score = (1.0 - min(confidence, 1.0)) * 0.5 + (1.0 - distance_gain) * 0.2
-                    if target is not None:
-                        alignment = self._state_space_alignment(predicted, target)
-                        score = base_score + alignment * 0.3
-                    else:
-                        score = base_score
+                        base_score = (1.0 - conf) * 0.5 + (1.0 - distance_gain) * 0.2
+                        score = base_score + alignment * 0.3 if target is not None else base_score
                 else:
-                    # D6 (Empowerment): state-space alignment only
                     state_align = self._state_space_alignment(predicted, target)
                     score = state_align
+                    alignment = state_align
 
                 scores_per_action[action_idx] = float(score)
-                if _obs and _rollouts and _rollouts[-1].get("action_idx") == action_idx:
-                    _rollouts[-1]["score"] = float(score)
                 if score > best_score:
                     best_score = score
                     best_action = action_idx
+                    best_components = {
+                        "distance_gain": float(distance_gain),
+                        "pga": float(pga),
+                        "confidence": float(conf),
+                        "alignment": float(alignment),
+                        "prediction_primary": bool(prediction_primary),
+                        "fact_boost": float(len(self._relevant_facts) > 0),
+                    }
+                if _obs and _rollouts and _rollouts[-1].get("action_idx") == action_idx:
+                    _rollouts[-1]["score"] = float(score)
             except Exception as e:
                 action_confidences.append(0.0)
                 _log(logger, "warning", "action_selection.predict_failed",
@@ -726,11 +791,16 @@ class CognitiveCycle:
         else:
             self.last_candidate_rollouts = []
 
-        self.last_action_rationale = {"explored": False, "eps": float(eps),
-                                      "goal_id": int(goal_id), "continuous": False,
-                                      "best_score": float(best_score),
-                                      "k_candidates": int(self.env.action_space_size),
-                                      "chosen_idx": int(best_action)}
+        self.last_action_rationale = {
+            "explored": False, "eps": float(eps),
+            "goal_id": int(goal_id), "continuous": False,
+            "best_score": float(best_score),
+            "k_candidates": int(self.env.action_space_size),
+            "chosen_idx": int(best_action),
+            "task_lock": bool(self._task_lock),
+            "score_components": best_components,
+            "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+        }
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:
@@ -879,6 +949,82 @@ class CognitiveCycle:
         max_dist = 2 * (env.size - 1) if hasattr(env, 'size') else 8
         return float(np.clip(1.0 - dist / max_dist, 0.1, 1.0))
 
+    def _build_planning_wall_grid(self) -> Optional[np.ndarray]:
+        """Merge env wall map with consolidation fact wall hints (P0-5)."""
+        env = self.env
+        if not (hasattr(env, "grid") and hasattr(env, "WALL") and hasattr(env, "size")):
+            return None
+        n = env.size * env.size
+        grid = np.array(env.grid, copy=True)
+        if self.current_state is not None and len(self.current_state.values) >= 3 * n:
+            obs_walls = self.current_state.values[2 * n:3 * n].reshape(env.size, env.size)
+            grid = np.where(obs_walls > 0.5, env.WALL, grid)
+        for fact in self._relevant_facts:
+            if fact.state_pattern is None:
+                continue
+            pat = fact.state_pattern.values
+            if len(pat) >= 3 * n:
+                fact_walls = pat[2 * n:3 * n].reshape(env.size, env.size)
+                grid = np.where(fact_walls > 0.5, env.WALL, grid)
+        return grid
+
+    def _select_greedy_grid_action(self, *, explore_ties: bool = False) -> tuple:
+        """One-step Manhattan controller using observed goal/walls (fair vs greedy_observed)."""
+        env = self.env
+        goal_pos = env.get_goal_position()
+        if goal_pos is None:
+            return env.stay_action, 0.0, {}
+        agent_pos = env.agent_pos
+        grid = env.grid
+        best_action = env.stay_action
+        best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
+        best_unvisited = False
+        action_names = env.get_action_names()
+        deltas = {
+            "MOVE_N": (-1, 0), "MOVE_S": (1, 0),
+            "MOVE_E": (0, 1), "MOVE_W": (0, -1), "STAY": (0, 0),
+        }
+        visited = getattr(env, "visited", None)
+
+        def _dest_unvisited(action_idx: int) -> bool:
+            if visited is None:
+                return False
+            dr, dc = deltas[action_names[action_idx]]
+            return (agent_pos[0] + dr, agent_pos[1] + dc) not in visited
+
+        for action_idx, name in enumerate(action_names):
+            dr, dc = deltas[name]
+            row = agent_pos[0] + dr
+            col = agent_pos[1] + dc
+            if not (0 <= row < env.size and 0 <= col < env.size):
+                continue
+            if grid[row, col] == env.WALL:
+                continue
+            dist = abs(row - goal_pos[0]) + abs(col - goal_pos[1])
+            cand_unvisited = visited is not None and (row, col) not in visited
+            if dist < best_distance:
+                best_distance = dist
+                best_action = action_idx
+                best_unvisited = cand_unvisited
+            elif (
+                explore_ties
+                and dist == best_distance
+                and cand_unvisited
+                and not best_unvisited
+            ):
+                best_action = action_idx
+                best_unvisited = True
+        score = 1.0 / max(best_distance, 1)
+        return best_action, score, {
+            "distance_gain": 0.0,
+            "pga": 0.0,
+            "confidence": 1.0,
+            "alignment": 0.0,
+            "prediction_primary": False,
+            "fact_boost": float(len(self._relevant_facts) > 0),
+            "greedy_fallback": True,
+        }
+
     def _compute_distance_gain(self, action_idx: int) -> float:
         """Compute normalized distance gain for an action.
 
@@ -893,8 +1039,8 @@ class CognitiveCycle:
         env = self.env
         goal_pos = env.get_goal_position()
         if goal_pos is not None and hasattr(env, "agent_pos"):
-            # GridWorld-specific: compute Manhattan distance gain
             if hasattr(env, "grid") and hasattr(env, "WALL"):
+                grid = self._planning_grid if self._planning_grid is not None else env.grid
                 action_names = env.get_action_names()
                 dr, dc = {
                     "MOVE_N": (-1, 0), "MOVE_S": (1, 0),
@@ -905,7 +1051,7 @@ class CognitiveCycle:
 
                 if not (0 <= new_row < env.size and 0 <= new_col < env.size):
                     return 1.0
-                if env.grid[new_row, new_col] == env.WALL:
+                if grid[new_row, new_col] == env.WALL:
                     return 1.0
 
                 g_row, g_col = goal_pos
@@ -1141,6 +1287,8 @@ class CognitiveCycle:
                 lr=mlp_lr,
             )
         elif use_continuous:
+            from phca.world_model.graph import WorldModelGPrime
+
             gprime = WorldModelGPrime.build_gaussian_grid(
                 state_dim=state_dim,
                 action_dim=action_dim,
@@ -1149,6 +1297,8 @@ class CognitiveCycle:
             )
         else:
             # Phase 3.1: Discrete binary G' with pgmpy exact inference
+            from phca.world_model.graph import StateNode, TemporalEdge, WorldModelGPrime
+
             gprime = WorldModelGPrime(
                 state_dim=state_dim,
                 action_dim=action_dim,

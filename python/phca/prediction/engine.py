@@ -10,12 +10,11 @@ v3.0 References:
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Tuple
 
 import numpy as np
 
 from phca.config import StateVector
-from phca.world_model.graph import WorldModelGPrime
 
 
 class PredictionEngine:
@@ -29,7 +28,7 @@ class PredictionEngine:
         - Confidence via ensemble disagreement.
     """
 
-    def __init__(self, gprime: WorldModelGPrime):
+    def __init__(self, gprime: Any):
         """Initialize the prediction engine.
 
         Args:

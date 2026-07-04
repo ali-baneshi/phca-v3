@@ -1,0 +1,1015 @@
+{
+  "config": {
+    "cycles": 200,
+    "seeds": 5,
+    "grid_size": 5,
+    "levels": [
+      "level2",
+      "level3"
+    ],
+    "agents": [
+      "phca",
+      "random",
+      "greedy_observed",
+      "greedy_full_info"
+    ],
+    "phca_model": "Gaussian"
+  },
+  "levels": {
+    "level2": {
+      "config": {
+        "level": "level2",
+        "description": "Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+        "cycles": 200,
+        "seeds": 5,
+        "grid_size": 5,
+        "agents": [
+          "phca",
+          "random",
+          "greedy_observed",
+          "greedy_full_info"
+        ],
+        "metrics": [
+          "goal_rate",
+          "first_goal_cycle",
+          "mean_distance_to_goal",
+          "cumulative_reward"
+        ],
+        "gate_controls": [
+          "random",
+          "greedy_observed"
+        ],
+        "phca_model": "Gaussian"
+      },
+      "runs": [
+        {
+          "agent": "phca",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.165,
+          "first_goal_cycle": 7,
+          "mean_distance_to_goal": 1.305,
+          "cumulative_reward": 31.33,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 7.460757131555238,
+          "episode_count": 200,
+          "fact_count": 97
+        },
+        {
+          "agent": "random",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.09,
+          "first_goal_cycle": 23,
+          "mean_distance_to_goal": 1.735,
+          "cumulative_reward": 16.18,
+          "coverage_rate": 0.44,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.665,
+          "first_goal_cycle": 7,
+          "mean_distance_to_goal": 0.55,
+          "cumulative_reward": 132.33,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.99,
+          "first_goal_cycle": 2,
+          "mean_distance_to_goal": 0.015,
+          "cumulative_reward": 197.98,
+          "coverage_rate": 0.12,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.67,
+          "first_goal_cycle": 6,
+          "mean_distance_to_goal": 0.555,
+          "cumulative_reward": 133.34,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 8.768953549140678,
+          "episode_count": 200,
+          "fact_count": 52
+        },
+        {
+          "agent": "random",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.075,
+          "first_goal_cycle": 19,
+          "mean_distance_to_goal": 1.74,
+          "cumulative_reward": 13.15,
+          "coverage_rate": 0.6,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.165,
+          "first_goal_cycle": 6,
+          "mean_distance_to_goal": 1.36,
+          "cumulative_reward": 31.33,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.985,
+          "first_goal_cycle": 3,
+          "mean_distance_to_goal": 0.03,
+          "cumulative_reward": 196.97,
+          "coverage_rate": 0.16,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.775,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 0.345,
+          "cumulative_reward": 154.55,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 9.74982133944691,
+          "episode_count": 200,
+          "fact_count": 40
+        },
+        {
+          "agent": "random",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.05,
+          "first_goal_cycle": 49,
+          "mean_distance_to_goal": 2.62,
+          "cumulative_reward": 8.1,
+          "coverage_rate": 0.72,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.17,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 1.31,
+          "cumulative_reward": 32.34,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.995,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 0.005,
+          "cumulative_reward": 198.99,
+          "coverage_rate": 0.08,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.93,
+          "first_goal_cycle": 14,
+          "mean_distance_to_goal": 0.15,
+          "cumulative_reward": 185.86,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 10.771673616648695,
+          "episode_count": 200,
+          "fact_count": 28
+        },
+        {
+          "agent": "random",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.04,
+          "first_goal_cycle": 8,
+          "mean_distance_to_goal": 2.945,
+          "cumulative_reward": 6.08,
+          "coverage_rate": 0.76,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.93,
+          "first_goal_cycle": 14,
+          "mean_distance_to_goal": 0.15,
+          "cumulative_reward": 185.86,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.985,
+          "first_goal_cycle": 3,
+          "mean_distance_to_goal": 0.03,
+          "cumulative_reward": 196.97,
+          "coverage_rate": 0.16,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.17,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 1.315,
+          "cumulative_reward": 32.34,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 7.54901345226614,
+          "episode_count": 200,
+          "fact_count": 92
+        },
+        {
+          "agent": "random",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.04,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 3.055,
+          "cumulative_reward": 6.08,
+          "coverage_rate": 0.8,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.17,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 1.305,
+          "cumulative_reward": 32.34,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 1.0,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 0.0,
+          "cumulative_reward": 200.0,
+          "coverage_rate": 0.04,
+          "switch_recovery_cycle": null,
+          "rbta_violation_rate": 0.0
+        }
+      ],
+      "summary": {
+        "greedy_full_info": {
+          "n": 5,
+          "goal_rate_mean": 0.991,
+          "goal_rate_median": 0.99,
+          "first_goal_cycle_mean": 1.8,
+          "first_goal_cycle_median": 2.0,
+          "mean_distance_to_goal_mean": 0.016,
+          "mean_distance_to_goal_median": 0.015,
+          "cumulative_reward_mean": 198.182,
+          "cumulative_reward_median": 197.98,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        },
+        "greedy_observed": {
+          "n": 5,
+          "goal_rate_mean": 0.42000000000000004,
+          "goal_rate_median": 0.17,
+          "first_goal_cycle_mean": 5.6,
+          "first_goal_cycle_median": 6.0,
+          "mean_distance_to_goal_mean": 0.935,
+          "mean_distance_to_goal_median": 1.305,
+          "cumulative_reward_mean": 82.84,
+          "cumulative_reward_median": 32.34,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        },
+        "phca": {
+          "n": 5,
+          "goal_rate_mean": 0.542,
+          "goal_rate_median": 0.67,
+          "first_goal_cycle_mean": 5.6,
+          "first_goal_cycle_median": 6.0,
+          "mean_distance_to_goal_mean": 0.734,
+          "mean_distance_to_goal_median": 0.555,
+          "cumulative_reward_mean": 107.48400000000001,
+          "cumulative_reward_median": 133.34,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0,
+          "prediction_error_mean": 8.860043817811531,
+          "episode_count_mean": 200.0,
+          "fact_count_mean": 61.8
+        },
+        "random": {
+          "n": 5,
+          "goal_rate_mean": 0.059,
+          "goal_rate_median": 0.05,
+          "first_goal_cycle_mean": 19.8,
+          "first_goal_cycle_median": 19.0,
+          "mean_distance_to_goal_mean": 2.419,
+          "mean_distance_to_goal_median": 2.62,
+          "cumulative_reward_mean": 9.918,
+          "cumulative_reward_median": 8.1,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        }
+      },
+      "comparisons": {
+        "random": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.542,
+              "random": 0.059,
+              "delta_phca_minus_other": 0.48300000000000004,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "random": 19.8,
+              "delta_phca_minus_other": -14.200000000000001,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "mean_distance_to_goal": {
+              "phca": 0.734,
+              "random": 2.419,
+              "delta_phca_minus_other": -1.685,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "cumulative_reward": {
+              "phca": 107.48400000000001,
+              "random": 9.918,
+              "delta_phca_minus_other": 97.566,
+              "phca_better": true,
+              "phca_worse": false
+            }
+          },
+          "phca_better_count": 4,
+          "phca_worse_count": 0
+        },
+        "greedy_observed": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.542,
+              "greedy_observed": 0.42000000000000004,
+              "delta_phca_minus_other": 0.122,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "greedy_observed": 5.6,
+              "delta_phca_minus_other": 0.0,
+              "phca_better": false,
+              "phca_worse": false
+            },
+            "mean_distance_to_goal": {
+              "phca": 0.734,
+              "greedy_observed": 0.935,
+              "delta_phca_minus_other": -0.20100000000000007,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "cumulative_reward": {
+              "phca": 107.48400000000001,
+              "greedy_observed": 82.84,
+              "delta_phca_minus_other": 24.644000000000005,
+              "phca_better": true,
+              "phca_worse": false
+            }
+          },
+          "phca_better_count": 3,
+          "phca_worse_count": 0
+        },
+        "greedy_full_info": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.542,
+              "greedy_full_info": 0.991,
+              "delta_phca_minus_other": -0.44899999999999995,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "greedy_full_info": 1.8,
+              "delta_phca_minus_other": 3.8,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "mean_distance_to_goal": {
+              "phca": 0.734,
+              "greedy_full_info": 0.016,
+              "delta_phca_minus_other": 0.718,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "cumulative_reward": {
+              "phca": 107.48400000000001,
+              "greedy_full_info": 198.182,
+              "delta_phca_minus_other": -90.69799999999998,
+              "phca_better": false,
+              "phca_worse": true
+            }
+          },
+          "phca_better_count": 0,
+          "phca_worse_count": 4
+        },
+        "gate": {
+          "passed": true,
+          "controls": {
+            "random": {
+              "passed": true,
+              "phca_better_count": 4,
+              "required": 3
+            },
+            "greedy_observed": {
+              "passed": true,
+              "phca_better_count": 3,
+              "required": 3
+            }
+          },
+          "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+          "note": "greedy_full_info is reported as a ceiling unless explicitly gated"
+        }
+      }
+    },
+    "level3": {
+      "config": {
+        "level": "level3",
+        "description": "Long-horizon GridWorld: goal switching, interruption windows, partial map.",
+        "cycles": 200,
+        "seeds": 5,
+        "grid_size": 5,
+        "agents": [
+          "phca",
+          "random",
+          "greedy_observed",
+          "greedy_full_info"
+        ],
+        "metrics": [
+          "goal_rate",
+          "first_goal_cycle",
+          "mean_distance_to_goal",
+          "cumulative_reward",
+          "coverage_rate",
+          "switch_recovery_cycle"
+        ],
+        "gate_controls": [
+          "random",
+          "greedy_observed"
+        ],
+        "phca_model": "Gaussian"
+      },
+      "runs": [
+        {
+          "agent": "phca",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.585,
+          "first_goal_cycle": 7,
+          "mean_distance_to_goal": 0.695,
+          "cumulative_reward": 116.17,
+          "coverage_rate": 0.4,
+          "switch_recovery_cycle": 4.0,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 8.804749187570978,
+          "episode_count": 200,
+          "fact_count": 66
+        },
+        {
+          "agent": "random",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.105,
+          "first_goal_cycle": 23,
+          "mean_distance_to_goal": 2.51,
+          "cumulative_reward": 19.21,
+          "coverage_rate": 0.4,
+          "switch_recovery_cycle": 77.66666666666667,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.34,
+          "first_goal_cycle": 7,
+          "mean_distance_to_goal": 1.1,
+          "cumulative_reward": 66.68,
+          "coverage_rate": 0.4,
+          "switch_recovery_cycle": 5.333333333333333,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 0,
+          "cycles": 200,
+          "goal_rate": 0.715,
+          "first_goal_cycle": 2,
+          "mean_distance_to_goal": 0.565,
+          "cumulative_reward": 142.43,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": 68.66666666666667,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.48,
+          "first_goal_cycle": 6,
+          "mean_distance_to_goal": 0.98,
+          "cumulative_reward": 94.96,
+          "coverage_rate": 0.28,
+          "switch_recovery_cycle": 8.0,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 8.15450649038163,
+          "episode_count": 200,
+          "fact_count": 71
+        },
+        {
+          "agent": "random",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.05,
+          "first_goal_cycle": 19,
+          "mean_distance_to_goal": 3.76,
+          "cumulative_reward": 8.1,
+          "coverage_rate": 0.56,
+          "switch_recovery_cycle": 66.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.13,
+          "first_goal_cycle": 6,
+          "mean_distance_to_goal": 2.425,
+          "cumulative_reward": 24.26,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": 141.33333333333334,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 1,
+          "cycles": 200,
+          "goal_rate": 0.84,
+          "first_goal_cycle": 3,
+          "mean_distance_to_goal": 0.325,
+          "cumulative_reward": 167.68,
+          "coverage_rate": 0.32,
+          "switch_recovery_cycle": 9.666666666666666,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.09,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 1.795,
+          "cumulative_reward": 16.18,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": 51.0,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 8.754629871693298,
+          "episode_count": 200,
+          "fact_count": 75
+        },
+        {
+          "agent": "random",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.04,
+          "first_goal_cycle": 48,
+          "mean_distance_to_goal": 2.865,
+          "cumulative_reward": 6.08,
+          "coverage_rate": 0.68,
+          "switch_recovery_cycle": 95.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.085,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 1.84,
+          "cumulative_reward": 15.17,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": 52.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 2,
+          "cycles": 200,
+          "goal_rate": 0.725,
+          "first_goal_cycle": 1,
+          "mean_distance_to_goal": 0.57,
+          "cumulative_reward": 144.45,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": 19.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.225,
+          "first_goal_cycle": 14,
+          "mean_distance_to_goal": 1.785,
+          "cumulative_reward": 43.45,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": 86.33333333333333,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 8.793940771279965,
+          "episode_count": 200,
+          "fact_count": 53
+        },
+        {
+          "agent": "random",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.025,
+          "first_goal_cycle": 8,
+          "mean_distance_to_goal": 3.275,
+          "cumulative_reward": 3.05,
+          "coverage_rate": 0.72,
+          "switch_recovery_cycle": 201.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.61,
+          "first_goal_cycle": 14,
+          "mean_distance_to_goal": 1.13,
+          "cumulative_reward": 121.22,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": 71.66666666666667,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 3,
+          "cycles": 200,
+          "goal_rate": 0.705,
+          "first_goal_cycle": 3,
+          "mean_distance_to_goal": 0.87,
+          "cumulative_reward": 140.41,
+          "coverage_rate": 0.32,
+          "switch_recovery_cycle": 69.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "phca",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.32,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 1.135,
+          "cumulative_reward": 62.64,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": 6.0,
+          "rbta_violation_rate": 0.0,
+          "model": "Gaussian",
+          "prediction_error_mean": 6.686378071516197,
+          "episode_count": 200,
+          "fact_count": 84
+        },
+        {
+          "agent": "random",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.03,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 3.63,
+          "cumulative_reward": 4.06,
+          "coverage_rate": 0.8,
+          "switch_recovery_cycle": 201.0,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_observed",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.27,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 1.19,
+          "cumulative_reward": 52.54,
+          "coverage_rate": 0.36,
+          "switch_recovery_cycle": 9.333333333333334,
+          "rbta_violation_rate": 0.0
+        },
+        {
+          "agent": "greedy_full_info",
+          "seed": 4,
+          "cycles": 200,
+          "goal_rate": 0.875,
+          "first_goal_cycle": 0,
+          "mean_distance_to_goal": 0.24,
+          "cumulative_reward": 174.75,
+          "coverage_rate": 0.2,
+          "switch_recovery_cycle": 8.333333333333334,
+          "rbta_violation_rate": 0.0
+        }
+      ],
+      "summary": {
+        "greedy_full_info": {
+          "n": 5,
+          "goal_rate_mean": 0.772,
+          "goal_rate_median": 0.725,
+          "first_goal_cycle_mean": 1.8,
+          "first_goal_cycle_median": 2.0,
+          "mean_distance_to_goal_mean": 0.514,
+          "mean_distance_to_goal_median": 0.565,
+          "cumulative_reward_mean": 153.944,
+          "cumulative_reward_median": 144.45,
+          "coverage_rate_mean": 0.248,
+          "coverage_rate_median": 0.2,
+          "switch_recovery_cycle_mean": 34.93333333333334,
+          "switch_recovery_cycle_median": 19.0,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        },
+        "greedy_observed": {
+          "n": 5,
+          "goal_rate_mean": 0.28700000000000003,
+          "goal_rate_median": 0.27,
+          "first_goal_cycle_mean": 5.6,
+          "first_goal_cycle_median": 6.0,
+          "mean_distance_to_goal_mean": 1.537,
+          "mean_distance_to_goal_median": 1.19,
+          "cumulative_reward_mean": 55.974000000000004,
+          "cumulative_reward_median": 52.54,
+          "coverage_rate_mean": 0.336,
+          "coverage_rate_median": 0.36,
+          "switch_recovery_cycle_mean": 55.93333333333334,
+          "switch_recovery_cycle_median": 52.0,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        },
+        "phca": {
+          "n": 5,
+          "goal_rate_mean": 0.33999999999999997,
+          "goal_rate_median": 0.32,
+          "first_goal_cycle_mean": 5.6,
+          "first_goal_cycle_median": 6.0,
+          "mean_distance_to_goal_mean": 1.278,
+          "mean_distance_to_goal_median": 1.135,
+          "cumulative_reward_mean": 66.68,
+          "cumulative_reward_median": 62.64,
+          "coverage_rate_mean": 0.32,
+          "coverage_rate_median": 0.36,
+          "switch_recovery_cycle_mean": 31.066666666666666,
+          "switch_recovery_cycle_median": 8.0,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0,
+          "prediction_error_mean": 8.238840878488414,
+          "episode_count_mean": 200.0,
+          "fact_count_mean": 69.8
+        },
+        "random": {
+          "n": 5,
+          "goal_rate_mean": 0.05,
+          "goal_rate_median": 0.04,
+          "first_goal_cycle_mean": 19.6,
+          "first_goal_cycle_median": 19.0,
+          "mean_distance_to_goal_mean": 3.2079999999999997,
+          "mean_distance_to_goal_median": 3.275,
+          "cumulative_reward_mean": 8.1,
+          "cumulative_reward_median": 6.08,
+          "coverage_rate_mean": 0.632,
+          "coverage_rate_median": 0.68,
+          "switch_recovery_cycle_mean": 128.13333333333333,
+          "switch_recovery_cycle_median": 95.0,
+          "success_rate": 1.0,
+          "rbta_violation_rate_mean": 0.0
+        }
+      },
+      "comparisons": {
+        "random": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.33999999999999997,
+              "random": 0.05,
+              "delta_phca_minus_other": 0.29,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "random": 19.6,
+              "delta_phca_minus_other": -14.000000000000002,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "mean_distance_to_goal": {
+              "phca": 1.278,
+              "random": 3.2079999999999997,
+              "delta_phca_minus_other": -1.9299999999999997,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "cumulative_reward": {
+              "phca": 66.68,
+              "random": 8.1,
+              "delta_phca_minus_other": 58.580000000000005,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "coverage_rate": {
+              "phca": 0.32,
+              "random": 0.632,
+              "delta_phca_minus_other": -0.312,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "switch_recovery_cycle": {
+              "phca": 31.066666666666666,
+              "random": 128.13333333333333,
+              "delta_phca_minus_other": -97.06666666666666,
+              "phca_better": true,
+              "phca_worse": false
+            }
+          },
+          "phca_better_count": 5,
+          "phca_worse_count": 1
+        },
+        "greedy_observed": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.33999999999999997,
+              "greedy_observed": 0.28700000000000003,
+              "delta_phca_minus_other": 0.052999999999999936,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "greedy_observed": 5.6,
+              "delta_phca_minus_other": 0.0,
+              "phca_better": false,
+              "phca_worse": false
+            },
+            "mean_distance_to_goal": {
+              "phca": 1.278,
+              "greedy_observed": 1.537,
+              "delta_phca_minus_other": -0.2589999999999999,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "cumulative_reward": {
+              "phca": 66.68,
+              "greedy_observed": 55.974000000000004,
+              "delta_phca_minus_other": 10.706000000000003,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "coverage_rate": {
+              "phca": 0.32,
+              "greedy_observed": 0.336,
+              "delta_phca_minus_other": -0.016000000000000014,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "switch_recovery_cycle": {
+              "phca": 31.066666666666666,
+              "greedy_observed": 55.93333333333334,
+              "delta_phca_minus_other": -24.86666666666667,
+              "phca_better": true,
+              "phca_worse": false
+            }
+          },
+          "phca_better_count": 4,
+          "phca_worse_count": 1
+        },
+        "greedy_full_info": {
+          "metrics": {
+            "goal_rate": {
+              "phca": 0.33999999999999997,
+              "greedy_full_info": 0.772,
+              "delta_phca_minus_other": -0.43200000000000005,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "first_goal_cycle": {
+              "phca": 5.6,
+              "greedy_full_info": 1.8,
+              "delta_phca_minus_other": 3.8,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "mean_distance_to_goal": {
+              "phca": 1.278,
+              "greedy_full_info": 0.514,
+              "delta_phca_minus_other": 0.764,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "cumulative_reward": {
+              "phca": 66.68,
+              "greedy_full_info": 153.944,
+              "delta_phca_minus_other": -87.26399999999998,
+              "phca_better": false,
+              "phca_worse": true
+            },
+            "coverage_rate": {
+              "phca": 0.32,
+              "greedy_full_info": 0.248,
+              "delta_phca_minus_other": 0.07200000000000001,
+              "phca_better": true,
+              "phca_worse": false
+            },
+            "switch_recovery_cycle": {
+              "phca": 31.066666666666666,
+              "greedy_full_info": 34.93333333333334,
+              "delta_phca_minus_other": -3.8666666666666707,
+              "phca_better": true,
+              "phca_worse": false
+            }
+          },
+          "phca_better_count": 2,
+          "phca_worse_count": 4
+        },
+        "gate": {
+          "passed": false,
+          "controls": {
+            "random": {
+              "passed": true,
+              "phca_better_count": 5,
+              "required": 5
+            },
+            "greedy_observed": {
+              "passed": false,
+              "phca_better_count": 4,
+              "required": 5
+            }
+          },
+          "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+          "note": "greedy_full_info is reported as a ceiling unless explicitly gated"
+        }
+      }
+    }
+  },
+  "gate": {
+    "passed": false
+  }
+}

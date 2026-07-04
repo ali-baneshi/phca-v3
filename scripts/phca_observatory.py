@@ -26,6 +26,7 @@ Usage (needs a display + PyQt5):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -46,6 +47,40 @@ from phca.monitoring.observability import ObservabilityStore, SessionRecorder
 from phca.monitoring.playback import CyclePacer, PlaybackClock
 from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
 from PyQt5 import QtCore
+
+
+def _session_summary(session_dir: Path | None, n_lines: int, expected: int) -> None:
+    """One-line post-run recording health (matches meta.recorded_cycles when present)."""
+    if session_dir is None:
+        return
+    recorded = None
+    meta_path = session_dir / "meta.json"
+    if meta_path.exists():
+        try:
+            recorded = json.loads(meta_path.read_text()).get("recorded_cycles")
+        except Exception:
+            pass
+    recorded_ok = recorded is None or n_lines == int(recorded)
+    if n_lines == expected and recorded_ok:
+        print(f"Session OK: {n_lines} JSONL lines (recorded_cycles match).")
+    else:
+        print(
+            f"Session WARN: {n_lines} JSONL lines; requested {expected}, "
+            f"recorded={recorded}",
+            file=sys.stderr,
+        )
+
+
+def _run_session_verify(session_dir: Path) -> int:
+    """Run phca_replay.py --check on the recorded session (inline verify)."""
+    replay = Path(__file__).resolve().parent / "phca_replay.py"
+    env = os.environ.copy()
+    env.setdefault("PYTHONPATH", str(_pkg_root))
+    proc = subprocess.run(
+        [sys.executable, str(replay), "--check", str(session_dir)],
+        env=env,
+    )
+    return int(proc.returncode)
 
 
 def _camera_self_test(env: Any) -> bool:
@@ -206,6 +241,8 @@ def main() -> None:
                         help="live camera capture rate on cycle thread (Hz)")
     parser.add_argument("--camera-fail-cooldown-ms", type=int, default=250,
                         help="cooldown after burst camera capture failures (ms)")
+    parser.add_argument("--verify", action="store_true",
+                        help="after recording, run phca_replay.py --check on the session")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -350,6 +387,11 @@ def main() -> None:
                   file=sys.stderr)
 
     app = make_app()
+    if app.platformName().lower() == "wayland":
+        print(
+            "Wayland: if Qt prints 'libdecor-gtk.so failed to init', "
+            "install libdecor-gtk or use QT_QPA_PLATFORM=xcb (see SETUP.md)."
+        )
     win = ObservatoryWindow()
     ctrl = win.controller
     camera_wired = False
@@ -535,6 +577,11 @@ def main() -> None:
         msg = (f"Done. {len(store)} cycles; {recorder.count} JSONL lines"
                + (f"; {video.frames} video frames" if video else "") + ".")
         print(msg)
+        if not args.no_record:
+            _session_summary(session_dir, recorder.count, args.cycles)
+            if args.verify and session_dir is not None:
+                if _run_session_verify(session_dir) != 0:
+                    print("[verify] session check FAILED", file=sys.stderr)
         win.close()
 
     timer = QtCore.QTimer(win)
@@ -570,6 +617,8 @@ def main() -> None:
         rc = 0
     stop_flag.set()
     ct.join(timeout=5.0)
+    if ct.is_alive():
+        print("[cycle thread] did not exit within 5s", file=sys.stderr)
     sys.exit(int(getattr(rc, "real", rc)) if rc else 0)
 
 

@@ -69,26 +69,29 @@ Command:
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
 ```
 
-Measured on 2026-07-04:
+Measured on 2026-07-04 (post P0 gap-closure):
 
 | Level | Result | Gate detail |
 |-------|--------|-------------|
 | `level1` | PASS | PHCA beats random on 4/4 metrics; greedy_full_info remains stronger |
-| `level2` | FAIL | PHCA beats random on 4/4, but beats `greedy_observed` on 0/4 |
-| `level3` | FAIL | PHCA beats random on 5/6, but beats `greedy_observed` on 1/6 |
+| `level2` | PASS | PHCA beats random on 4/4; beats `greedy_observed` on 3/4 |
+| `level3` | FAIL | PHCA beats random on 5/6; beats `greedy_observed` on 4/6 (need 5/6) |
 
-Selected means:
+Selected means (Gaussian G', 200 cycles × 5 seeds):
 
 | Level | Agent | Goal rate | First goal | Mean distance | Reward | Coverage | Recovery |
 |-------|-------|-----------|------------|---------------|--------|----------|----------|
-| `level1` | `phca` | 0.941 | 1.8 | 0.069 | 188.082 | — | — |
-| `level1` | `random` | 0.075 | 19.8 | 2.327 | 13.150 | — | — |
-| `level1` | `greedy_full_info` | 0.991 | 1.8 | 0.016 | 198.182 | — | — |
-| `level2` | `phca` | 0.400 | 7.2 | 1.246 | 78.800 | — | — |
+| `level2` | `phca` | 0.542 | 5.6 | 0.734 | 107.484 | — | — |
 | `level2` | `greedy_observed` | 0.420 | 5.6 | 0.935 | 82.840 | — | — |
-| `level3` | `phca` | 0.168 | 7.2 | 2.256 | 31.936 | 0.456 | 71.6 |
+| `level3` | `phca` | 0.340 | 5.6 | 1.278 | 66.680 | 0.320 | 31.1 |
 | `level3` | `greedy_observed` | 0.287 | 5.6 | 1.537 | 55.974 | 0.336 | 55.9 |
-| `level3` | `random` | 0.050 | 19.6 | 3.208 | 8.100 | 0.632 | 128.1 |
+
+Prior measurement (2026-07-04 pre-fix):
+
+| Level | Result | PHCA vs greedy_observed |
+|-------|--------|-------------------------|
+| `level2` | FAIL | 0/4 metrics |
+| `level3` | FAIL | 1/6 metrics |
 
 ## Interpretation
 
@@ -102,12 +105,12 @@ Supported claims:
 
 Unsupported claims:
 
-- PHCA currently beats a fair observed greedy controller in constrained or
-  long-horizon GridWorld.
+- PHCA currently beats a fair observed greedy controller on **all** long-horizon
+  GridWorld metrics (Level 3 gate: 4/6 vs `greedy_observed`, one metric short).
 - PHCA currently beats a full-information greedy controller.
 
-This is a better benchmark shape, but it also reveals the next engineering gap:
-PHCA's current discrete GridWorld policy is not yet exploiting memory,
-consolidation, or prediction strongly enough to beat a simple observed greedy
-controller under Level 2/3 constraints.
+This is a better benchmark shape. Level 2 now passes versus `greedy_observed`
+after P0 cycle reorder, task-lock, and observed-greedy navigation. Level 3
+improved from 1/6 to 4/6 (goal rate, distance, reward, recovery) but still
+misses the 75% gate on `coverage_rate` alone.
 

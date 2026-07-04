@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -59,7 +59,18 @@ ci-local: lint
 	mkdir -p logs
 	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
 	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
+	$(MAKE) causal-smoke
 	@echo "✅ ci-local: ALL PASS"
+
+# ── Causal behavior gate smoke (P0-6) ────────────────────────
+
+causal-smoke:
+	@echo "Running causal L2 smoke (10 cycles × 1 seed)..."
+	mkdir -p logs
+	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
+	    --levels level2 --cycles 10 --seeds 1 \
+	    --output logs/phca_causal_eval_smoke.json
+	@echo "✅ causal-smoke: completed (see logs/phca_causal_eval_smoke.json)"
 
 # ── Benchmarks ───────────────────────────────────────────────
 
