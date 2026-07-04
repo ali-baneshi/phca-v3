@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 
-import pytest
 
 from phca.monitoring.observability import ObservabilityFrame, SessionRecorder
 from phca.monitoring.session_recovery import (

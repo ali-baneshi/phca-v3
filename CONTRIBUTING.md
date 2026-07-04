@@ -56,7 +56,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-Test counts: see [STATUS.md](STATUS.md) (**623 total** = 587 core + 36 MuJoCo).
+Test counts: see [STATUS.md](STATUS.md) (**699 total** = 663 core + 36 MuJoCo).
 
 Scrub/rebuild behavior is guarded by `test_playback_store.py` (including 500-frame JSON
 immutability). Replay banner changes need coverage in the relevant `test_*_dashboard.py` module.

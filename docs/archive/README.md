@@ -15,6 +15,7 @@ Historical phase reports and audit snapshots. Metrics in these files reflect
 | `phase4_readiness_report.md` | Phase 4 | Sign-off |
 | `phase5_completion_report.md` | Phase 5 | Sign-off (D-092–D-094) |
 | `phase6_completion_report.md` | Phase 6 | Sign-off (continuous actions, hardening) |
+| `phase20_completion_report.md` | Phase 20 | Observatory Phases 7–20 research maturity sign-off |
 | `silent_failure_and_fallacy_report.md` | Audit | Silent failure analysis |
 
 For current truth see [STATUS.md](../../STATUS.md) and [DOCUMENTATION_MAP.md](../../DOCUMENTATION_MAP.md).

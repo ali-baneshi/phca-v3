@@ -1420,3 +1420,14 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Manifest is the single source of truth for what “reproduce” means; report provides audit trail for Phase 20 sign-off. Quick profile adds scientific gates beyond `ci-local`; full profile mirrors `make nightly` without replacing it.
 - **v3.0 trace:** Scientific validation gate (Phase 19).
 - **Tests/Validation:** `test_reproduce.py` (manifest schema, dry-run subprocess, gate verify helpers); 6 tests.
+
+## Decision D-123: Observatory Phase 20 research maturity sign-off
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 20)
+- **Problem:** Phases 7–19 shipped incrementally but no capstone audit, cross-doc sync, or honest distinction between Observatory complete vs whole-PHCA blueprint backlog.
+- **Option chosen:** (1) Zero-trust audit: `make test-python`, `make test-mujoco`, monitoring suite, `make reproduce-quick`, `phca_replay --check` on reacher/grid fixtures. (2) `docs/archive/phase20_completion_report.md` as citable sign-off artifact. (3) Architecture checklist verified item-by-item. (4) Living-doc drift fixes only (counts, phase range). (5) No new features; minimal regression fixes (lint re-exports, `frame_from_json` in `render.py`).
+- **Rationale:** Phase 20 gate is honesty, not expansion. Observatory maturity is separable from M5/L4–L5/grounding backlog. `reproduce-quick` is the CI-budget audit entry point; full `make reproduce` / `make nightly` for soak validation.
+- **v3.0 trace:** Observatory research maturity gate (Phase 20).
+- **Tests/Validation:** Audit 699 passed (663 core + 36 MuJoCo), 343 monitoring; reproduce-quick ALL PASS; replay --check PASS on fixtures.

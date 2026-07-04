@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-04  
-**Phase:** 16 COMPLETE — Observatory production hardening (Phases 7–16; D-108–D-119); Phases 17–20 backlog  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-119)
+**Phase:** 20 COMPLETE — Observatory Phases 7–20 signed off (D-108–D-123)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-123)
 
 ---
 
@@ -26,6 +26,10 @@
 | 14 | Phase 14 action explainability | Complete |
 | 15 | Phase 15 observability API | Complete |
 | 16 | Phase 16 production hardening | Complete |
+| 17 | Phase 17 multi-agent Observatory | Complete |
+| 18 | Phase 18 interactive query | Complete |
+| 19 | Phase 19 scientific validation | Complete |
+| 20 | Phase 20 research maturity sign-off | Complete |
 
 ---
 
@@ -143,14 +147,14 @@
 |----|-------|--------|------------|
 | P19-1 | Scientific validation (`make reproduce` one-command manifest) | ✅ Done | `reproduce_manifest.json` quick/full profiles; `scripts/reproduce.py` driver + `logs/reproduce_report.json`; `make reproduce` / `make reproduce-quick`; `test_reproduce.py` (D-122) |
 
-### Observatory Phase 20 — Backlog
+### Phase 20 — Complete
 
-| Phase | Focus | Gate / deliverable |
-|-------|-------|-------------------|
-| **20** | Research maturity sign-off | Phase 20 archive report; all gates green |
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P20-1 | Research maturity sign-off (audit + archive report) | ✅ Done | Zero-trust audit; `docs/archive/phase20_completion_report.md`; architecture checklist; cross-doc sync; D-123 |
 
 See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
-Copy-paste planning prompts for each backlog phase: [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/).
+Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/).
 
 ### Documentation / Decisions
 
@@ -181,11 +185,12 @@ Copy-paste planning prompts for each backlog phase: [docs/observatory_phase_prom
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-04 | **620 passed**, 1 skipped |
+| Python (`make test-python`) | 2026-07-04 | **663 passed**, 1 skipped |
 | MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-04 | **36 passed**, 0 errors |
-| Monitoring only | 2026-07-04 | **311 passed** (`pytest python/phca/monitoring/tests/`) |
-| **Total (both suites)** | 2026-07-04 | **656 passed**, 1 skipped |
-| CI Φ-IQ gate | 2026-07-04 | PASS (Overall 0.7317 nightly static ≥ floor 0.5486) |
+| Monitoring only | 2026-07-04 | **343 passed**, 1 skipped |
+| **Total (both suites)** | 2026-07-04 | **699 passed**, 1 skipped |
+| Reproduce quick (`make reproduce-quick`) | 2026-07-04 | **ALL PASS** (26 s) |
+| CI Φ-IQ gate | 2026-07-04 | PASS (quick Φ-IQ 0.8415 ≥ floor 0.5486) |
 | Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
 | Assumption validation `--ci` | 2026-07-04 | **5/5 PASS** (A1–A5 incl. A2 temporal order) |
 | `make nightly NIGHTLY_CYCLES=10000` | 2026-07-04 | **PASS** — post-cap retention (late RSS ~1390 B/cyc ≤ 1600); causal nightly gate PASS |
@@ -211,7 +216,8 @@ Copy-paste planning prompts for each backlog phase: [docs/observatory_phase_prom
 
 | Date | Fix | Outcome |
 |------|-----|---------|
-| 2026-07-04 | Phase 14 action explainability (D-117) | Rich `action_rationale`, Explain band, report/check parity; 656 tests green |
+| 2026-07-04 | Phase 20 Observatory sign-off (D-123) | Zero-trust audit; 699 tests; reproduce-quick PASS; phase20_completion_report.md |
+| 2026-07-04 | Phase 19 scientific reproduction (D-122) | `make reproduce` manifest + driver |
 | 2026-07-04 | Phase 13 anomaly detection (D-116) | Shared spike/drift/leak/goal flags; `--check` + nightly gate; 639 tests green |
 | 2026-07-04 | phase-10&11 + docs sync | Report parity, scrub perf, README/STATUS aligned; pgmpy pin (D-114) |
 | 2026-07-04 | L3 causal coverage fix + retention gate (D-112) | L1/L2/L3 causal PASS; phase-aware nightly retention |

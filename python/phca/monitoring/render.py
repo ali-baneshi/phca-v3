@@ -21,14 +21,13 @@ drive adaptation trends), A1 (RBTA reasons + retention caps visible), G5
 """
 from __future__ import annotations
 
-import copy
 from collections import deque
 from typing import Any, Dict, Optional
 
 import numpy as np
 
-from .observability import ObservabilityFrame, normalize_observability_json
-from .session_io import frame_from_json
+from .observability import ObservabilityFrame
+from .session_io import frame_from_json  # noqa: F401 — re-export for legacy imports
 
 DRIVE_NAMES = {
     1: "D1 PredErr", 2: "D2 Critical", 3: "D3 Compet",

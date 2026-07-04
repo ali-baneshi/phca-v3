@@ -62,7 +62,7 @@ evidence separate from invariant tests.
 | Failure matrix A–F | Blueprint | `phca/resilience/` | **Stub** |
 | GridWorld | Phase 3.1 | `phca/environments/grid_world.py` | **Implemented** |
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
-| Cognitive Observatory | Phase 7–12 | `phca/monitoring/` | **Complete** (schema, replay, report parity, scrub perf, multi-session compare) |
+| Cognitive Observatory | Phase 7–20 | `phca/monitoring/` | **Complete** (schema, replay, report, scrub, compare, anomalies, explain, API, supervisor, multi-agent, query, reproduce) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
 | Φ-IQ L4–L5 | Blueprint | — | **Not implemented** |
 
@@ -80,6 +80,10 @@ evidence separate from invariant tests.
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` | Unit tests | PASS |
+| Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | PASS (quick, 2026-07-04) |
+
+**Scope note:** Observatory Phases 7–20 are complete. Whole PHCA blueprint items
+(M5, L4–L5, grounding adapter, etc.) remain in backlog below.
 
 ---
 

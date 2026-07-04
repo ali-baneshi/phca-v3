@@ -1,7 +1,7 @@
 """Phase-aware RSS leak slope helpers (D-112/D-113; shared by nightly stress + session anomalies)."""
 from __future__ import annotations
 
-from typing import Any, Dict, Sequence, Union
+from typing import Dict, Sequence, Union
 
 import numpy as np
 

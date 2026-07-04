@@ -43,7 +43,7 @@ code .
 ## Running Tests
 
 ```bash
-make test-all         # Core + monitoring (587 tests); MuJoCo files ignored
+make test-all         # Core + monitoring (663 tests); MuJoCo files ignored
 make test-mujoco      # MuJoCo integration only (36 tests); needs gymnasium[mujoco]
 make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency

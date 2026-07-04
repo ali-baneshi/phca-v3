@@ -23,7 +23,6 @@ from phca.monitoring.observability import (
     normalize_observability_json,
 )
 from phca.monitoring.render import frame_from_json
-from phca.monitoring.session_io import frame_to_json
 from phca.monitoring.session_report import (
     build_session_report,
     compare_all_agents,

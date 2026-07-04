@@ -8,17 +8,14 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.render import frame_from_json
 from phca.monitoring.session_query import (
     MomentQuery,
     export_matches_jsonl,
     navigate_match,
     query_frames,
-    query_session_dir,
 )
 
 _ROOT = Path(__file__).resolve().parents[4]

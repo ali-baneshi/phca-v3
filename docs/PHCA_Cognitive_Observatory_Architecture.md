@@ -2,7 +2,7 @@
 
 ## Purpose of This Document
 
-This document is written for someone with no prior background in the project who wants to quickly and deeply understand what PHCA Cognitive Observatory is, why it was built, what scientific and engineering foundations it rests on, where it sits within a 20-phase roadmap (Observatory **Phases 7–12 complete**, Phases 13–20 backlog), what its limitations are, what use cases it suits, and what the correct development path should be.
+This document is written for someone with no prior background in the project who wants to quickly and deeply understand what PHCA Cognitive Observatory is, why it was built, what scientific and engineering foundations it rests on, where it sits within a 20-phase roadmap (Observatory **Phases 7–20 complete**, 2026-07), what its limitations are, what use cases it suits, and what the correct development path should be.
 
 The perspective of this document is that of a senior architect of complex systems: it is not merely an explanation of files or a few components; it attempts to clarify data ownership boundaries, architectural contracts, system risks, technical debt, observability requirements, and the future of development.
 
@@ -12,7 +12,7 @@ The perspective of this document is that of a senior architect of complex system
 
 PHCA Cognitive Observatory is an observability, replay, and reporting layer for the PHCA cognitive architecture. The system converts each cognitive cycle of the agent into a structured frame, displays it live in a PyQt5 dashboard, records it as JSONL, enables replay and scrub on past sessions, and builds offline reports from the same data.
 
-Observatory **Phases 7–12 are complete** (2026-07). Phase 7 established the cognitive observability foundation; Phases 8–12 added replay/scrub hardening, schema governance, report parity, large-session performance, and multi-session compare. Phases 13–20 remain backlog — see [STATUS.md](../STATUS.md).
+Observatory **Phases 7–20 are complete** (2026-07). Phase 7 established the cognitive observability foundation; Phases 8–12 added replay/scrub, schema governance, report parity, performance, and multi-session compare; Phases 13–19 added anomalies, explainability, API, production hardening, multi-agent, query, and reproduction; Phase 20 is the research maturity sign-off ([phase20_completion_report.md](archive/phase20_completion_report.md)).
 
 The highest architectural risks at this stage are:
 
@@ -69,7 +69,7 @@ Without Observatory, the system becomes a black box. With Observatory, the syste
 
 ## Place of Phase 7 in the 20-Phase Path
 
-This project’s Observatory roadmap spans 20 phases; **Phases 7–12 are complete**. This matters because expectations from Phase 15 or 20 must not be imposed on what is already shipped, and backlog items must not be described as missing when they were delivered in Phases 8–12.
+This project’s Observatory roadmap spans 20 phases; **Phases 7–20 are complete** (2026-07). Phase 20 sign-off: [phase20_completion_report.md](archive/phase20_completion_report.md).
 
 ### Early Phases
 
@@ -86,7 +86,7 @@ Early phases are usually for building foundational components:
 
 > **Status: Complete (2026-07).** Frame schema, JSONL recording, 7-tab PyQt dashboard,
 > `session_report.py`, shared `cognitive_panels.py` helpers, RBTA unit normalization,
-> and `--check` integrity gate are shipped. **278 monitoring tests** (623 total with MuJoCo).
+> and `--check` integrity gate are shipped. **343 monitoring tests** (699 total with MuJoCo).
 
 Phase 7 means the system must show itself. This phase is the transition from “merely running” to “being understandable.”
 
@@ -585,7 +585,7 @@ Vague phrases like “may differ” are insufficient if a field is actually reco
 
 ## Current Limitations
 
-Observatory Phases 7–12 are complete; remaining limits are honest backlog items, not undelivered Phase 7–11 work.
+Observatory Phases 7–20 are complete; remaining limits are whole-PHCA blueprint backlog, not undelivered Observatory work.
 
 ### Resolved in Phases 7–12
 
@@ -603,7 +603,7 @@ Observatory Phases 7–12 are complete; remaining limits are honest backlog item
 
 **Legacy matplotlib/static replay.** The PyQt `--qt` path is canonical; legacy render paths are not full-fidelity.
 
-**Phases 13–20 backlog.** Anomaly detection, deeper action explainability, stable observability API, multi-agent timelines, interactive query tools, and Phase 20 maturity sign-off are not yet shipped.
+**Whole-PHCA blueprint backlog.** Observatory is complete; M5 procedural memory, Φ-IQ L4–L5, grounding adapter, and failure-recovery matrix remain outside Observatory scope — see [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md).
 
 **Residual performance.** Phase 11 mitigates scrub cost for 3000+ cycles; paint-heavy panels may still cost CPU on very long live runs.
 
@@ -819,12 +819,18 @@ Goal:
 
 ### Phase 15: Observability API
 
+> **Status: Complete (2026-07).** `phca.monitoring` `__all__`, `session_io.py`, CSV export,
+> `docs/observability_api.md`, Qt-free narrative helpers (D-118).
+
 Goal:
 
 - Stable API for external tools.
 - Export to analytical formats.
 
 ### Phase 16: Production Hardening
+
+> **Status: Complete (2026-07).** `phca_observatory_supervisor.py`, `session_recovery.py`,
+> meta lifecycle, `.latest` pointer, `phca_replay --recover` (D-119).
 
 Goal:
 
@@ -834,12 +840,18 @@ Goal:
 
 ### Phase 17: Distributed / Multi-agent Observatory
 
+> **Status: Complete (2026-07).** `agent_id` on frames, interleaved JSONL, `--agents`
+> aligned runner, dashboard agent selector (D-120).
+
 Goal:
 
 - Observe multiple agents.
 - Synchronize timelines.
 
 ### Phase 18: Interactive Analysis
+
+> **Status: Complete (2026-07).** `session_query.py`, `phca_query.py`, transport-bar
+> moment filter + prev/next nav in replay/review (D-121).
 
 Goal:
 
@@ -849,6 +861,9 @@ Goal:
 
 ### Phase 19: Scientific Validation
 
+> **Status: Complete (2026-07).** `reproduce_manifest.json`, `make reproduce` /
+> `make reproduce-quick`, `scripts/reproduce.py` (D-122).
+
 Goal:
 
 - Validate cognitive hypotheses.
@@ -856,6 +871,9 @@ Goal:
 - Reproducibility package.
 
 ### Phase 20: Product/Research Maturity
+
+> **Status: Complete (2026-07).** Zero-trust audit, cross-doc sync, architecture
+> checklist verification, [phase20_completion_report.md](archive/phase20_completion_report.md) (D-123).
 
 Goal:
 
@@ -886,7 +904,7 @@ Before every important change, ask:
 
 ## Conclusion
 
-PHCA Cognitive Observatory (Phases 7–12 complete) is not a decorative tool; it is part of the system trust architecture. This layer determines whether a human can understand agent behavior, replay it, report on it, and find cognitive or resource errors.
+PHCA Cognitive Observatory (Phases 7–20 complete) is not a decorative tool; it is part of the system trust architecture. This layer determines whether a human can understand agent behavior, replay it, report on it, and find cognitive or resource errors.
 
 If this layer is built correctly, PHCA turns from an obscure complex system into one that is observable, criticizable, and extensible. If this layer is built incorrectly, even if the agent itself works well, the human may have a wrong understanding.
 
@@ -899,4 +917,4 @@ The correct path from here is clear:
 - Then richer storytelling.
 - And throughout, documentation and behavioral tests must grow alongside the code.
 
-This perspective must be maintained until Phase 20: a large cognitive system is not built only with a strong algorithm; it is built with precise observability, clear data contracts, trustworthy tests, and an honest UI.
+This perspective must be maintained beyond Phase 20: a large cognitive system is not built only with a strong algorithm; it is built with precise observability, clear data contracts, trustworthy tests, and an honest UI.

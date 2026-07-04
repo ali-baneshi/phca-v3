@@ -64,7 +64,7 @@ MUJOCO_GL=disabled make test-all
 MUJOCO_GL=disabled make test-mujoco
 ```
 
-Expected: **587** core + **36** MuJoCo = **623** total ([STATUS.md](../STATUS.md)).
+Expected: **663** core + **36** MuJoCo = **699** total ([STATUS.md](../STATUS.md)).
 
 ### Φ-IQ benchmark (canonical)
 

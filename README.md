@@ -7,9 +7,10 @@ through a pipeline of specialised modules, governed by a Resource-Bounded
 Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
-**Phase 12 complete** (Cognitive Observatory Phases 9–12: schema governance, report parity,
-large-session scrub perf, multi-session `--compare`; D-108–D-115 hardening: retention, causal gate, RBTA enforcement, A2).
-**623 tests** passing (`make test-python` 587 + `make test-mujoco` 36), 0 errors.
+**Observatory Phases 7–20 complete** (cognitive observability, replay, multi-agent,
+interactive query, `make reproduce`; D-108–D-123). See
+[docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
+**699 tests** passing (`make test-python` 663 + `make test-mujoco` 36), 1 skipped.
 Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-04).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
 prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
@@ -54,7 +55,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (587 core + 36 MuJoCo = 623; set MUJOCO_GL=disabled for headless)
+# Run all tests (663 core + 36 MuJoCo = 699; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco

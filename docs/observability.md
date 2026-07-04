@@ -419,7 +419,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**311 monitoring tests** (656 total with MuJoCo — 2026-07-04). Key modules:
+**343 monitoring tests** (699 total with MuJoCo — 2026-07-04). Key modules:
 
 | Module | Coverage |
 |--------|----------|
