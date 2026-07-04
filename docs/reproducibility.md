@@ -5,6 +5,39 @@ see [benchmark_artifacts.md](benchmark_artifacts.md).
 
 ---
 
+## One-command reproduction (Phase 19)
+
+The canonical entry point for scientific validation on a clean machine:
+
+```bash
+make setup
+source .venv/bin/activate
+pip install -r requirements-mujoco.txt   # required for full profile
+make reproduce-quick    # ~10–15 min: lint, pytest, quick Φ-IQ gate, scientific gates
+make reproduce          # ~45–90 min: full nightly-equivalent artifact suite
+```
+
+| Command | Profile | What it runs |
+|---|---|---|
+| `make reproduce-quick` | `quick` | `ci-local` subset + assumption `--ci`, OOD calibration, anomaly gate |
+| `make reproduce` | `full` | Canonical Φ-IQ + nightly MuJoCo/stress/causal gates (10k stress soak) |
+
+**Manifest:** [`reproduce_manifest.json`](../reproduce_manifest.json) — step list, output paths, gate floors, runtime estimates.
+
+**Report:** `logs/reproduce_report.json` — per-step PASS/FAIL, durations, stdout tail.
+
+**Dry-run** (no execution):
+
+```bash
+python scripts/reproduce.py --dry-run --profile quick
+```
+
+**Environment pins** (in manifest): Python **3.11**, `MUJOCO_GL=disabled`. Gate floors use existing CI/nightly scripts only — no tightened Φ-IQ thresholds (D-122).
+
+The quick profile runs pytest; the full profile does not (matches `make nightly` scope).
+
+---
+
 ## Environment
 
 | Requirement | Value |

@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -169,6 +169,16 @@ nightly-mujoco:
 # Use 10000 for post-cap retention gate; 1000 uses fill-phase threshold (D-112).
 NIGHTLY_CYCLES ?= 10000
 
+# ── Scientific reproduction (Phase 19) ─────────────────────
+
+reproduce:
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH \
+	    python scripts/reproduce.py --profile full
+
+reproduce-quick:
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH \
+	    python scripts/reproduce.py --profile quick
+
 # ── Profiling ────────────────────────────────────────────────
 
 profile-cycle:
@@ -199,6 +209,8 @@ help:
 	@echo "  make nightly        Run the full nightly hardening suite (static+MuJoCo gates,"
 	@echo "                      assumption validation --ci, OOD calibration, stress test)"
 	@echo "                      override length: make nightly NIGHTLY_CYCLES=10000"
+	@echo "  make reproduce      One-command scientific reproduction (full nightly-equivalent)"
+	@echo "  make reproduce-quick  CI-science subset (~10-15 min)"
 	@echo "  make test-mujoco    Run MuJoCo integration tests (needs gymnasium[mujoco])"
 	@echo "  make clean          Remove build artifacts"
 	@echo "  make help           Show this message"

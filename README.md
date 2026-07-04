@@ -83,6 +83,10 @@ MUJOCO_GL=disabled PYTHONPATH=python:scripts python scripts/assumption_validatio
 # Phase 6 CI hardening: nightly stress + MuJoCo gate (one command, exit 0 = all green)
 make nightly NIGHTLY_CYCLES=1000          # CI; use NIGHTLY_CYCLES=10000 for a true soak
 
+# Phase 19: one-command scientific reproduction (see docs/reproducibility.md)
+make reproduce-quick                      # ~10-15 min CI-science subset
+make reproduce                            # ~45-90 min full nightly-equivalent suite
+
 # CI Φ-IQ regression gate (static + MuJoCo modes)
 python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
 python scripts/check_benchmark_gate.py --mujoco logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json

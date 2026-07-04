@@ -131,12 +131,22 @@
 |----|-------|--------|------------|
 | P17-1 | Multi-agent Observatory (`agent_id` + synced timeline) | ✅ Done | `agent_id`/`agent_label`/`timeline_step` on frames; single JSONL interleaved recording; `--agents` aligned runner; dashboard agent selector + per-agent scrub; per-agent `session_report` + `compare_all_agents`; `phca_replay --check` per-agent contiguity; `test_multi_agent.py` (D-120) |
 
-### Observatory Phases 18–20 — Backlog
+### Phase 18 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P18-1 | Interactive analysis (`phca_query.py` + dashboard filters) | ✅ Done | `session_query.py` shared engine; CLI plain/JSON/export; transport-bar moment filter + prev/next nav in replay/review; `test_session_query.py` (D-121) |
+
+### Phase 19 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P19-1 | Scientific validation (`make reproduce` one-command manifest) | ✅ Done | `reproduce_manifest.json` quick/full profiles; `scripts/reproduce.py` driver + `logs/reproduce_report.json`; `make reproduce` / `make reproduce-quick`; `test_reproduce.py` (D-122) |
+
+### Observatory Phase 20 — Backlog
 
 | Phase | Focus | Gate / deliverable |
 |-------|-------|-------------------|
-| **18** | Interactive analysis | `phca_query.py` CLI + dashboard filters |
-| **19** | Scientific validation | `make reproduce` one-command manifest |
 | **20** | Research maturity sign-off | Phase 20 archive report; all gates green |
 
 See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).

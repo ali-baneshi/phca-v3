@@ -10,6 +10,8 @@ experiments — do not cite without checking dates and config blocks.
 
 | File | Purpose | Updated when |
 |---|---|---|
+| `reproduce_manifest.json` | One-command reproduction step manifest (Phase 19) | When gates or profiles change |
+| `logs/reproduce_report.json` | Reproduce driver audit trail (per-step PASS/FAIL) | `make reproduce` / `make reproduce-quick` |
 | `logs/benchmark_report.json` | **Primary Φ-IQ report** (MLP, 200 cyc, L0–L3) | Manual canonical run |
 | `logs/benchmark_ci_baseline.json` | CI regression floor (L0 quick, Gaussian) | Intentionally pinned; bump via DECISIONS |
 | `logs/phca_causal_eval.json` | Causal gate L1–L3 (200 cyc × 5 seeds) | After causal eval changes |
@@ -61,6 +63,7 @@ PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 \
 
 | Script | Compares |
 |---|---|
+| `scripts/reproduce.py` | Manifest-driven suite; writes `logs/reproduce_report.json` |
 | `scripts/check_benchmark_gate.py` | Report vs baseline (5% tolerance) |
 | `scripts/check_benchmark_gate.py --mujoco` | MuJoCo violations + error trend |
 | `scripts/phca_causal_eval.py --gate` | PHCA vs controls (75% metric rule) |

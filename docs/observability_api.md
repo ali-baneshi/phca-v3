@@ -13,6 +13,10 @@ from phca.monitoring import (
     frame_from_json,
     frames_for_agent,
     is_multi_agent_session,
+    MomentQuery,
+    query_frames,
+    query_session_dir,
+    navigate_match,
     normalize_observability_json,
     session_agent_ids,
 )
@@ -51,6 +55,19 @@ report = build_session_report(
     [f'{{"cycle_id": {f.cycle_id}}}' for f in frames],  # or read JSONL lines directly
 )
 csv_path = export_session_csv(session)  # writes session/scalars.csv
+```
+
+### Moment query (Phase 18)
+
+```python
+from phca.monitoring import MomentQuery, query_session_dir
+
+matches = query_session_dir(
+    "logs/sessions/20260704_120000",
+    MomentQuery(spike=True, violation=True),
+)
+for m in matches:
+    print(m.cycle_id, m.flags)
 ```
 
 For a session directory with `meta.json` + `timeseries.jsonl`:
@@ -130,6 +147,7 @@ Column order is fixed in `export.SESSION_SCALAR_COLUMNS`.
 | `observability.py` | `ObservabilityFrame`, `ObservabilityStore`, schema constants |
 | `session_io.py` | Frame load/save, JSONL/session loaders |
 | `multi_agent.py` | Multi-agent session helpers (`frames_for_agent`, `--check` validators) |
+| `session_query.py` | Cognitive-moment query (`MomentQuery`, `query_frames`, `navigate_match`) |
 | `export.py` | `export_session_csv` |
 | `session_report.py` | Offline session aggregates and compare |
 | `cognitive_panels.py` | Cognitive moment helpers |

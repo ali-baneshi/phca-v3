@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phases 8–16 complete:** PyQt replay/scrub (Phases 8–12), anomaly detection (13), action explainability (14), stable `phca.monitoring` API (15 — [observability_api.md](observability_api.md)), subprocess supervisor + crash recovery (16 — § Production operations). **Phase 17 complete:** multi-agent `agent_id` on frames, aligned local runner, per-agent dashboard timeline, per-agent reports (§ Multi-agent sessions). Phases 18–20 are backlog — see [STATUS.md](../STATUS.md).
+**Phases 8–16 complete:** PyQt replay/scrub (Phases 8–12), anomaly detection (13), action explainability (14), stable `phca.monitoring` API (15 — [observability_api.md](observability_api.md)), subprocess supervisor + crash recovery (16 — § Production operations). **Phase 17 complete:** multi-agent `agent_id` on frames, aligned local runner, per-agent dashboard timeline, per-agent reports (§ Multi-agent sessions). **Phase 18 complete:** cognitive-moment query CLI + dashboard filters (§ Interactive query). Phases 19–20 are backlog — see [STATUS.md](../STATUS.md).
 
 ## Thread model
 
@@ -219,6 +219,34 @@ PYTHONPATH=python python scripts/phca_multi_observatory.py --cycles 100 --no-rec
 # Play recorded video only
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/
 ```
+
+## Interactive query (Phase 18)
+
+Query recorded sessions for cognitive moments (spike, violation, explore, near-bound module, drive, etc.) without opening the dashboard.
+
+```bash
+# List cycle_ids with prediction-error spikes
+PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ --spike
+
+# Structured JSON + count
+PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ --violation --json
+
+# Near-bound prediction module, cycles 100–500
+PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ \
+  --near-bound prediction --cycle-range 100:500
+
+# Export matching frames to JSONL
+PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ --explore --export /tmp/explore.jsonl
+
+# Multi-agent: filter one agent
+PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ --spike --agent-id 1
+```
+
+**Filter semantics:** enabled flags are **AND**ed (`--spike --violation` = both). With no moment flags, `--cycle-range` alone matches all cycles in range. Uses `build_moment_series()` / `cognitive_moment()` — same logic as dashboard badges and `session_report` counts.
+
+**Output modes:** plain `cycle_id` lines (or `agent_id:cycle_id` for multi-agent), `--json`, `--count-only`, `--export PATH`.
+
+**Dashboard:** transport bar filter combo + `◀ moment` / `moment ▶` in replay/review (paused or scrubbing). Keyboard: `[` / `]` jump prev/next match. Disabled during live production follow.
 
 ### Replay banners
 

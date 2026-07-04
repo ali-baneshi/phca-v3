@@ -1398,3 +1398,25 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** One session dir preserves Phase 16 recovery/supervisor tooling. Per-agent projection in the UI avoids breaking single-agent scrub UX. Legacy JSONL/fixtures unchanged when `agent_id` omitted.
 - **v3.0 trace:** Multi-agent observation gate (Phase 17).
 - **Tests/Validation:** `test_multi_agent.py` (fixture, `--check`, scrub immutability, reports, aligned runner smoke); monitoring 333 passed.
+
+## Decision D-121: Observatory Phase 18 interactive query
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 18)
+- **Problem:** Operators could replay and report on sessions but had no lightweight way to find specific cognitive moments (spikes, violations, explore cycles) without manually scrubbing or writing ad-hoc JSONL parsers.
+- **Option chosen:** (1) Qt-free `session_query.py` with `MomentQuery` + `query_frames()` built on `build_moment_series()`. (2) `scripts/phca_query.py` CLI (plain, `--json`, `--count-only`, `--export`). (3) Transport-bar filter combo + prev/next moment navigation in replay/review only. (4) AND semantics for combined filters; read-only (no frame mutation).
+- **Rationale:** Single query engine shared by CLI and dashboard avoids drift from `cognitive_moment()` flags. Transport bar keeps UI scope minimal; live follow unchanged.
+- **v3.0 trace:** Interactive analysis gate (Phase 18).
+- **Tests/Validation:** `test_session_query.py` (engine, CLI subprocess, dashboard nav, 3000-cycle budget); monitoring 344 passed.
+
+## Decision D-122: Observatory Phase 19 scientific reproduction manifest
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 19)
+- **Problem:** Benchmarks, causal gates, assumption validation, and `docs/reproducibility.md` existed, but no single audited command reproduced key scientific artifacts on a clean machine.
+- **Option chosen:** (1) `reproduce_manifest.json` at repo root with `quick` (~10–15 min) and `full` (~45–90 min) profiles. (2) `scripts/reproduce.py` sequential driver writing `logs/reproduce_report.json`. (3) `make reproduce` / `make reproduce-quick` Makefile targets. (4) Verify via existing gate scripts only (`check_benchmark_gate.py`, `--ci`, `--gate`); honest floors documented in manifest, not tightened. (5) `--dry-run` for step listing without execution.
+- **Rationale:** Manifest is the single source of truth for what “reproduce” means; report provides audit trail for Phase 20 sign-off. Quick profile adds scientific gates beyond `ci-local`; full profile mirrors `make nightly` without replacing it.
+- **v3.0 trace:** Scientific validation gate (Phase 19).
+- **Tests/Validation:** `test_reproduce.py` (manifest schema, dry-run subprocess, gate verify helpers); 6 tests.

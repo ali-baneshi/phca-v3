@@ -54,6 +54,7 @@ from .cognitive_panels import (
     cognitive_moment,
     data_contract_text,
     decimate_frames_for_history,
+    FLOW_ALL_MODULES,
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
@@ -6829,6 +6830,34 @@ class _TransportBar(QtWidgets.QFrame):
         self.agent_combo.hide()
         self.agent_combo.currentIndexChanged.connect(self._on_agent_combo)
         lay.addWidget(self.agent_combo, 0)
+        self.moment_filter = QtWidgets.QComboBox()
+        self.moment_filter.setMinimumWidth(100)
+        self.moment_filter.addItems([
+            "All", "Spike", "Violation", "Explore", "Decision", "Learn burst", "Near bound",
+        ])
+        self.moment_module = QtWidgets.QComboBox()
+        self.moment_module.setMinimumWidth(72)
+        for mod in FLOW_ALL_MODULES:
+            self.moment_module.addItem(PIPELINE_LABEL.get(mod, mod), mod)
+        self.moment_module.hide()
+        self.moment_prev = QtWidgets.QToolButton()
+        self.moment_prev.setText("◀ moment")
+        self.moment_next = QtWidgets.QToolButton()
+        self.moment_next.setText("moment ▶")
+        self.moment_lbl = QtWidgets.QLabel("—")
+        self.moment_lbl.setMinimumWidth(48)
+        self._on_moment_filter = None
+        self._on_moment_jump = None
+        self._on_cursor_change = None
+        lay.addWidget(self.moment_filter, 0)
+        lay.addWidget(self.moment_module, 0)
+        lay.addWidget(self.moment_prev, 0)
+        lay.addWidget(self.moment_next, 0)
+        lay.addWidget(self.moment_lbl, 0)
+        self.moment_filter.currentIndexChanged.connect(self._on_moment_filter_changed)
+        self.moment_module.currentIndexChanged.connect(self._on_moment_filter_changed)
+        self.moment_prev.clicked.connect(lambda: self._on_moment_jump_click(-1))
+        self.moment_next.clicked.connect(lambda: self._on_moment_jump_click(1))
         self.play_btn = QtWidgets.QToolButton()
         self.play_btn.setText("⏸ Pause"); self.play_btn.setCheckable(True)
         self.step_btn = QtWidgets.QToolButton(); self.step_btn.setText("⏭ Step")
@@ -6895,6 +6924,64 @@ class _TransportBar(QtWidgets.QFrame):
                 self.agent_combo.blockSignals(False)
                 break
 
+    def setup_moment_navigation(
+        self,
+        on_filter_change: Callable[[], None],
+        on_jump: Callable[[int], None],
+        on_cursor_change: Optional[Callable[[], None]] = None,
+    ) -> None:
+        self._on_moment_filter = on_filter_change
+        self._on_moment_jump = on_jump
+        self._on_cursor_change = on_cursor_change
+        self._sync_moment_nav_enabled()
+
+    def _on_moment_filter_changed(self, *_args) -> None:
+        key = self.moment_filter.currentText()
+        self.moment_module.setVisible(key == "Near bound")
+        if self._on_moment_filter is not None:
+            self._on_moment_filter()
+
+    def _on_moment_jump_click(self, direction: int) -> None:
+        if self._on_moment_jump is not None:
+            self._on_moment_jump(int(direction))
+
+    def moment_query_from_ui(self):
+        from phca.monitoring.session_query import MomentQuery
+        key = self.moment_filter.currentText()
+        q = MomentQuery()
+        if key == "Spike":
+            q.spike = True
+        elif key == "Violation":
+            q.violation = True
+        elif key == "Explore":
+            q.explore = True
+        elif key == "Decision":
+            q.decision_shift = True
+        elif key == "Learn burst":
+            q.learn_burst = True
+        elif key == "Near bound":
+            q.near_bound_module = str(self.moment_module.currentData() or "")
+        return q
+
+    def update_moment_counter(self, pos: int, total: int) -> None:
+        if total <= 0:
+            self.moment_lbl.setText("—")
+        else:
+            self.moment_lbl.setText(f"{pos}/{total}")
+
+    def set_moment_nav_enabled(self, enabled: bool) -> None:
+        for w in (self.moment_filter, self.moment_module,
+                  self.moment_prev, self.moment_next):
+            w.setEnabled(bool(enabled))
+        if not enabled:
+            self.moment_lbl.setText("—")
+        else:
+            self.moment_module.setVisible(
+                self.moment_filter.currentText() == "Near bound")
+
+    def _sync_moment_nav_enabled(self) -> None:
+        pass
+
     # --- speed slider log mapping ------------------------------------------
     def _speed_to_int(self, s: float) -> int:
         import math
@@ -6952,6 +7039,8 @@ class _TransportBar(QtWidgets.QFrame):
         self.clock.seek(val)
         self.label.setText(f"{val} / {max(0, self.clock.n - 1)}")
         set_autoscale_frozen(True)
+        if self._on_cursor_change is not None:
+            self._on_cursor_change()
 
     def _on_freeze_view(self, on: bool) -> None:
         if self.pacer is None:
@@ -7380,6 +7469,55 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._agent_labels: Dict[int, str] = {0: ""}
         self._selected_agent_id: int = 0
         self._all_frames: List[ObservabilityFrame] = []
+        self._moment_matches: List[Any] = []
+
+    def _moment_nav_enabled(self) -> bool:
+        transport = self._transport
+        if transport is None or transport.clock is None:
+            return False
+        clock = transport.clock
+        if self._review_mode:
+            return True
+        if clock.mode == "replay" and (clock.paused or clock.scrubbing):
+            return True
+        return False
+
+    def _rebuild_moment_matches(self) -> None:
+        from phca.monitoring.session_query import (
+            current_match_position,
+            query_frames,
+        )
+        transport = self._transport
+        if transport is None or transport.clock is None:
+            self._moment_matches = []
+            return
+        frames = list(transport.clock._frames)
+        if not frames and self._all_frames:
+            frames = self.project_frames_for_agent(self._all_frames)
+        q = transport.moment_query_from_ui()
+        self._moment_matches = query_frames(frames, q)
+        pos = current_match_position(self._moment_matches, transport.clock.cursor_int)
+        transport.update_moment_counter(pos, len(self._moment_matches))
+        transport.set_moment_nav_enabled(self._moment_nav_enabled())
+
+    def _jump_moment(self, direction: int) -> None:
+        from phca.monitoring.session_query import navigate_match
+        transport = self._transport
+        if transport is None or transport.clock is None or not self._moment_nav_enabled():
+            return
+        if not self._moment_matches:
+            self._rebuild_moment_matches()
+        idx = navigate_match(
+            self._moment_matches, transport.clock.cursor_int, int(direction))
+        if idx is None:
+            return
+        transport.clock.seek(idx)
+        transport._sync_slider()
+        set_autoscale_frozen(True)
+        self._rebuild_moment_matches()
+
+    def _on_moment_filter_changed(self) -> None:
+        self._rebuild_moment_matches()
 
     def init_multi_agent(self, count: int, labels: List[str]) -> None:
         """Configure multi-agent UI (agent selector + per-agent projection)."""
@@ -7420,6 +7558,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
             ]
             self.init_multi_agent(len(self._agent_ids), labels)
         self._apply_agent_projection(rebuild=False)
+        self._rebuild_moment_matches()
 
     def project_frames_for_agent(
         self,
@@ -7462,6 +7601,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         if rebuild and projected:
             prefix = projected[: cursor + 1]
             self.controller.rebuild_all_histories(prefix)
+        self._rebuild_moment_matches()
 
     def set_session_context(self, ctx: Dict[str, Any]) -> None:
         self._session_ctx = dict(ctx or {})
@@ -7541,6 +7681,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
             transport.play_btn.setChecked(True)
             transport.play_btn.setText("Review")
             transport._sync_slider()
+        self._rebuild_moment_matches()
         self.overview.mark_dirty()
         for cv in self.findChildren(_BaseCanvas):
             try:
@@ -7620,6 +7761,11 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._top_frame.show()
         if isinstance(bar, _TransportBar):
             self._transport = bar
+            bar.setup_moment_navigation(
+                self._on_moment_filter_changed,
+                self._jump_moment,
+                on_cursor_change=self._rebuild_moment_matches,
+            )
             if self._multi_agent:
                 labels = [
                     self._agent_labels.get(aid, f"agent_{aid}") for aid in self._agent_ids
@@ -7645,6 +7791,10 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
                 t.clock.seek(0); t._sync_slider(); set_autoscale_frozen(True); return
             if k in (QtCore.Qt.Key_End, QtCore.Qt.Key_Escape):
                 t.clock.follow_live(); t._sync_slider(); set_autoscale_frozen(False); return
+            if k == QtCore.Qt.Key_BracketLeft:
+                self._jump_moment(-1); return
+            if k == QtCore.Qt.Key_BracketRight:
+                self._jump_moment(1); return
         super().keyPressEvent(ev)
 
 

@@ -461,7 +461,10 @@ def _recover(session_dir: str, *, verify: bool = True,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="PHCA session replay tool")
+    parser = argparse.ArgumentParser(
+        description="PHCA session replay tool",
+        epilog="Cognitive-moment query: scripts/phca_query.py <session_dir> --spike",
+    )
     parser.add_argument("session", nargs="?", help="session dir (logs/sessions/<ts>/)")
     parser.add_argument("--check", action="store_true",
                         help="consistency check only (exit 0/1), no playback")

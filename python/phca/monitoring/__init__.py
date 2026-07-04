@@ -42,6 +42,17 @@ from phca.monitoring.session_io import (
     load_jsonl_path,
     load_session_frames,
 )
+from phca.monitoring.session_query import (
+    MomentMatch,
+    MomentQuery,
+    current_match_position,
+    export_matches_jsonl,
+    format_match_line,
+    matches_to_json,
+    navigate_match,
+    query_frames,
+    query_session_dir,
+)
 from phca.monitoring.session_report import (
     build_session_report,
     compare_all_agents,
@@ -82,6 +93,16 @@ __all__ = [
     "validate_aligned_timeline",
     # Export
     "export_session_csv",
+    # Session query (Phase 18)
+    "MomentQuery",
+    "MomentMatch",
+    "query_frames",
+    "query_session_dir",
+    "navigate_match",
+    "current_match_position",
+    "matches_to_json",
+    "export_matches_jsonl",
+    "format_match_line",
     # Cognitive moments
     "cognitive_moment",
     "append_cognitive_moment",
