@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phase 8 (largely complete):** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, and honest replay banners for live-only fields.
+**Phases 8–11 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), and large-session scrub performance (Phase 11).
 
 ## Thread model
 
@@ -49,7 +49,7 @@ works, Overview shows a session-results panel (early/late metrics, mechanism mix
 optional cross-session + Φ-IQ context). Close the window to exit; use `--close-at-end`
 for CI auto-close.
 
-## Dashboard coordination (Phase 10)
+## Dashboard coordination (Phase 10 — complete)
 
 - **Session status strip** — env, `env_kind`, camera mode, cycle/lag, schema, JSONL count.
 - **LIVE / REPLAY / REVIEW data-contract banners** — shared strings in `cognitive_panels.py`.
@@ -58,7 +58,7 @@ for CI auto-close.
 - **Overview session results** — post-run panel from `session_report.json` with optional `--compare-report` and `--benchmark-report`.
 - **Review mode** — window stays open after run (default); `--close-at-end` for CI.
 - **MuJoCo JSONL honesty** — non-grid sessions omit misleading `agent_pos`/`goal_pos`.
-- **Scrub perf (Phase 11 starter)** — decimated rolling rebuild + lazy per-tab rebuild on seek.
+- **Scrub perf (Phase 11 — complete)** — decimated rolling rebuild + lazy per-tab rebuild on seek; budget tests ≤2s/≤4s at 3000+ cycles.
 | `session.mp4` / `.gif` | Optional dashboard video (not in JSONL) |
 
 ## JSONL schema
@@ -142,11 +142,15 @@ Live sequential ticks call `update(frame)` only; history grows by append unless 
 ## Replay modes
 
 ```bash
-# PyQt dashboard from JSONL (canonical Phase 8 path — full fidelity + scrub)
+# PyQt dashboard from JSONL (canonical Observatory path — full fidelity + scrub)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
 
 # Offline session report
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
+
+# Multi-session comparison (Phase 12)
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<new>/ --compare logs/sessions/<prev>/
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<new>/ --compare logs/sessions/<prev>/ --compare-output .tmp/compare.json
 
 # Matplotlib legacy reconstruct (deprecated for full review)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --from-jsonl
@@ -227,13 +231,12 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | `test_session_report.py` | Offline report from JSONL |
 | `test_r2_extensions.py` | Moment parity, retention/memory/goals anchors |
 
-## Known gaps (Phase 9+)
+## Known gaps (remaining)
 
-| Gap | Target phase |
-|-----|--------------|
-| Offline report does not cover every dashboard subview | Phase 10 |
-| Large sessions (3000+ cycles) may lag on scrub rebuild | Phase 11 (decimated + lazy rebuild shipped) |
-| Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated |
+| Gap | Status |
+|-----|--------|
+| Offline report does not cover every dashboard subview (camera, full rollouts) | By design — live-only fields marked in replay banners |
+| Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated — use PyQt `--qt` |
 | `meta.cycles` is requested count; compare with `recorded_cycles` via `--check` | Ongoing |
 | GridWorld overview hides camera QLabel; grid body is the camera substitute | By design |
 

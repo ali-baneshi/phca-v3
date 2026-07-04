@@ -62,7 +62,7 @@ evidence separate from invariant tests.
 | Failure matrix A–F | Blueprint | `phca/resilience/` | **Stub** |
 | GridWorld | Phase 3.1 | `phca/environments/grid_world.py` | **Implemented** |
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
-| Cognitive Observatory | Phase 7–9 | `phca/monitoring/` | **Largely complete** (Phases 8–9) |
+| Cognitive Observatory | Phase 7–11 | `phca/monitoring/` | **Complete** (schema, replay, report parity, scrub perf) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
 | Φ-IQ L4–L5 | Blueprint | — | **Not implemented** |
 
@@ -76,7 +76,7 @@ evidence separate from invariant tests.
 | Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7403) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
 | Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | PASS (Gaussian default; use `--use-mlp` for deployment mode) |
-| Assumption validation | `assumption_validation.py --ci` | No (nightly) | 5/5 PASS (A1–A5) |
+| Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` | Unit tests | PASS |
@@ -100,8 +100,8 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 
 | ID | Item | Phase |
 |---|---|---|
-| P10-1 | Full offline report ↔ dashboard parity | 10 |
-| P11-1 | 3000+ cycle scrub without severe lag | 11 |
+| P10-1 | Full offline report ↔ dashboard parity | **Done** (Phase 10) |
+| P11-1 | 3000+ cycle scrub without severe lag | **Done** (Phase 11) |
 | AD-3 | Unify benchmark entry points | 4.1 (deprecated runner) |
 | AD-4 | M5 procedural memory | 4.3 |
 | SC-1 | Grounding adapter | Deferred |

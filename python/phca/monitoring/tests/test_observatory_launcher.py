@@ -5,8 +5,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-import pytest
-
 _REPO = Path(__file__).resolve().parents[4]
 _SCRIPTS = _REPO / "scripts"
 

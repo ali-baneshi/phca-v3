@@ -5,8 +5,8 @@
 PHCA (Predictive Hierarchical Cognitive Architecture) implements a **12-step cognitive cycle**
 that transforms raw sensor input into goal-directed action through a pipeline of specialized
 modules. The cycle runs at ~60–95 Hz on consumer hardware (~10–17 ms mean latency, MLP path,
-this machine). **560 tests** pass (`make test-python` 524 + `make test-mujoco` 36), 0 errors;
-Overall Φ-IQ **0.7403** (re-measured 2026-07-03). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
+this machine). **623 tests** pass (`make test-python` 587 + `make test-mujoco` 36), 0 errors;
+Overall Φ-IQ **0.7403** (re-measured 2026-07-04). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
 emit true continuous actions via a prediction-driven MPC selector (Phase 6/7).
 
 Formal specification: v3.0 (PHCA-3.1-011). Resource-bounded via the **Resource Bounded
@@ -58,7 +58,7 @@ flowchart TD
 | 8-13 | MDIM+APC+ATTN+HPM | query facts, generate goal, regulate, attend ( **before action** — P0-1) |
 | 9  | Cycle | discrete: **task_lock observed-greedy** + sparse L3 coverage probe (D-112) when extrinsic goal present; else blended scorer; continuous: MPC (A4 primary) |
 | 5-7 | PEU+TSPL+G' | post-step: `peu.compute`, `tspl.update`, `gprime.learn` |
-| 14 | RBTA  | `check_cycle(runtime, mem, energy, entropy)` |
+| 14 | RBTA  | `check_cycle(runtime, mem, energy, entropy)`; TERMINATE→STAY, INTERRUPT→limit rollouts (D-113) |
 | 15 | Cycle | Logging — append `metrics_history` |
 | 16-18 | Consolidation | episodic → semantic transfer + M3 purge (10-cycle timer) |
 | 19 | Cycle | `cycle_count += 1` |
@@ -224,11 +224,11 @@ Dynamic mode is experimental and measured separately from the canonical static b
 
 ---
 
-## Cognitive Observatory (Phase 7–8)
+## Cognitive Observatory (Phases 7–11)
 
 The Observatory is a **side-channel** observability layer: it never blocks the cognitive hot path.
 Each cycle produces an `ObservabilityFrame` snapshot, recorded as JSONL, displayed in a 7-tab PyQt
-dashboard, and replayable with seek/scrub (Phase 8).
+dashboard, and replayable with seek/scrub (Phases 8–11: schema versioning, report parity, scrub perf).
 
 | Component | Role |
 |-----------|------|
@@ -239,7 +239,8 @@ dashboard, and replayable with seek/scrub (Phase 8).
 | `DashboardController` | Distributes frames; rebuilds panel histories on jump |
 | `session_report.py` | Offline aggregates from JSONL |
 
-Phase 8 headline: PyQt `--qt` replay with rolling-window `rebuild_histories()` across all panels,
+Phases 8–11 headline: PyQt `--qt` replay with rolling-window `rebuild_histories()` across all panels,
+schema versioning, report parity, and decimated scrub rebuild for 3000+ cycle sessions.
 transport bar + keyboard controls, and honest replay banners for live-only fields.
 
 Full detail: [observability.md](observability.md), [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md).

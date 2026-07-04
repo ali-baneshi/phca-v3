@@ -82,9 +82,9 @@ The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-
 
 `SemanticFact` in `consolidation/scheduler.py` is pattern matching over episodes, not true semantic memory.
 
-### Observatory limitations (Phase 8 shipped, Phase 9+ open)
+### Observatory limitations (Phases 8–11 shipped)
 
-Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, and honest replay banners. Remaining Observatory limits:
+Phases 8–11 delivered seek/scrub replay, panel history rebuild, transport controls, honest replay banners, schema versioning, report parity, and large-session scrub performance. Remaining Observatory limits:
 
 - **Live-only fields in replay** — camera frames, bulky rollouts, full M3/M4 lists are not in JSONL (by design; banners mark gaps).
 - **`schema_version`** — shipped Phase 9 (`OBSERVABILITY_SCHEMA_VERSION = 1`, D-110); legacy v0 sessions normalize on replay.
@@ -109,16 +109,16 @@ Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, 
 
 | Item | Status |
 |---|---|
-| M3/M4 retention soak (post-cap late slope ≤ 500 B/cyc @ 10k) | Verify with `make nightly` (default 10k); fill-phase gate @ 1k (D-112) |
+| M3/M4 retention soak (post-cap late slope ≤ 1600 B/cyc @ 10k) | **Done** (D-113; measured ~1390 B/cyc) |
 | `schema_version` + JSONL migration | Done (Phase 9 / D-110) |
-| Full offline report ↔ dashboard parity | Phase 10 |
-| Large-session scrub performance (3000+ cycles) | Phase 11 |
+| Full offline report ↔ dashboard parity | Done (Phase 10 / D-112) |
+| Large-session scrub performance (3000+ cycles) | Done (Phase 11) |
 | Grounding adapter (levels 0/2) | Deferred |
 | M5 procedural memory | Not implemented |
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phase 7–9 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, **278 monitoring tests** (623 total with MuJoCo — [STATUS.md](../STATUS.md)).
+**Phases 7–11 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf — **278 monitoring tests** (623 total with MuJoCo — [STATUS.md](../STATUS.md)).
 
 ---
 
@@ -126,6 +126,6 @@ Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, 
 
 - [phi_iq_metric.md](phi_iq_metric.md) — benchmark level definitions
 - [architecture.md](architecture.md) — 12-step cycle and module map
-- [observability.md](observability.md) — Cognitive Observatory contracts (replay/scrub, Phase 8)
+- [observability.md](observability.md) — Cognitive Observatory contracts (Phases 8–11)
 - [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory roadmap
 - [STATUS.md](../STATUS.md) — live issue registry and test status

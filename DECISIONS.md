@@ -1319,3 +1319,26 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Threshold amendment follows measured bounded plateau (D-111 honesty — not tuned to force pass on a 4 KB/cyc synthetic leak). RBTA wiring closes A1 enforcement gap without RL/policy changes.
 - **v3.0 trace:** A1 (resource enforcement), A2 (temporal order at action selection).
 - **Tests/Validation:** `python/phca/core/tests/test_cycle.py::TestRBTAEnforcement`; `assumption_validation.py --ci`; `nightly_stress.py` 10k soak.
+
+## Decision D-114: Pin pgmpy 1.0.0 for numpy 1.26.4 CI compatibility
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect (CI repair)
+- **Category:** Tier 2 (dependency governance)
+- **Problem:** Commit `phase-8&9-fix-01` changed `pgmpy>=1.1.2,<1.3`. pgmpy 1.1.2+ declares `numpy>=2.0`, which conflicts with PHCA's pinned `numpy==1.26.4` and `scipy==1.12.0` (`numpy<1.29`). GitHub Actions `lint` and `test-python` jobs failed at `pip install` with `ResolutionImpossible` on every push after that change.
+- **Option chosen:** Revert to `pgmpy==1.0.0` in `requirements.txt`. pgmpy 1.0.0 wheels on PyPI do not enforce `numpy>=2.0`; `DiscreteBayesianNetwork` and `DiscreteFactor` APIs used in `graph.py` were already validated under this pin (last green CI: `phase-8&9`).
+- **Alternatives:** Upgrade entire stack to numpy 2.x + scipy 1.14+ — deferred; broader regression surface on Φ-IQ and nightly gates.
+- **Rationale:** Minimal, proven fix restores CI without changing cognitive code. pgmpy is lazy-imported on the MLP path; Gaussian/graph mode is the only consumer. Full numpy 2 migration is a separate deliberate upgrade.
+- **v3.0 trace:** A1 (CI gate must install and run within bounded time).
+- **Tests/Validation:** `pip install -r requirements.txt` on Python 3.11; `make lint`; `make test-python`; GitHub Actions `PHCA v3.0 CI` all jobs green.
+
+## Decision D-115: Repo sanitization + Phase 12 session compare
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (repository hygiene + Observatory Phase 12)
+- **Problem:** `.cursor/`, `.tmp/`, `.pytest_tmp/`, `logs/sessions/`, runtime logs, MP4s, and wheels were tracked in Git (PII in pytest paths, 85MB+ blobs). Phase 12 needed structured multi-session comparison beyond live `--compare-report`.
+- **Option chosen:** (1) Expand `.gitignore`; `git rm --cached` polluted paths; `git filter-repo` history purge + force-with-lease push. (2) Add `compare_session_reports()`, `load_session_report()`, `phca_replay.py --compare` / `--compare-output`. (3) Add [SECURITY.md](SECURITY.md) research disclaimer.
+- **Rationale:** Gate JSONs in `logs/` root remain for CI; sessions/logs stay local. Comparison reuses session_report metrics for regression triage across runs.
+- **v3.0 trace:** A2 (honest replay/report data contracts), A1 (no unbounded artifact bloat in VCS).
+- **Tests/Validation:** `test_compare_session_reports_delta`; `git ls-files` excludes `.cursor`, `.tmp`, `logs/sessions`; filter-repo + signed commit.

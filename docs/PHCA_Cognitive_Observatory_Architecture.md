@@ -759,11 +759,10 @@ Critical work:
 
 ### Phase 8: Replay and Scrub Hardening
 
-> **Status: Largely complete (2026-07).** `PlaybackClock` seek/scrub, rolling-window
+> **Status: Complete (2026-07).** `PlaybackClock` seek/scrub, rolling-window
 > `rebuild_histories()` on all 11 panel views, `_TransportBar` + keyboard transport,
 > autoscale freeze on scrub, replay banners for live-only fields, and 500-frame scrub
-> immutability tests are shipped. **Next:** Phase 9 (`schema_version`), Phase 11
-> (large-session performance).
+> immutability tests are shipped.
 
 Goal:
 
@@ -773,6 +772,9 @@ Goal:
 
 ### Phase 9: Schema Governance
 
+> **Status: Complete (2026-07).** `OBSERVABILITY_SCHEMA_VERSION = 1`, legacy v0
+> normalization, unknown/mixed schema `--check` failures (D-110).
+
 Goal:
 
 - schema_version.
@@ -781,12 +783,19 @@ Goal:
 
 ### Phase 10: Report Parity
 
+> **Status: Complete (2026-07).** `session_report.json` shares
+> `format_session_results_lines()` with Overview panel; parity test in
+> `test_session_report.py` (D-112).
+
 Goal:
 
 - Offline report on par with dashboard in key summaries.
 - JSON output for benchmark.
 
 ### Phase 11: Performance for Large Sessions
+
+> **Status: Complete (2026-07).** Decimated rolling rebuild + lazy per-tab rebuild;
+> scrub budget tests ≤2s (live) / ≤4s (review) at 3000+ cycles.
 
 Goal:
 

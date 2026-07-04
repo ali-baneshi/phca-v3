@@ -147,3 +147,34 @@ def test_session_report_overview_results_parity():
     if phase_pct:
         top_phase = max(phase_pct.items(), key=lambda kv: kv[1])
         assert top_phase[0] in joined
+
+
+def test_compare_session_reports_delta():
+    """Phase 12: multi-session report comparison."""
+    from phca.monitoring.session_report import compare_session_reports
+
+    current = {
+        "meta": {"env": "gridworld", "session_id": "b"},
+        "cycles": 200,
+        "error_late_median": 0.4,
+        "explore_ratio": 0.1,
+        "goal_reached_count": 5,
+        "spike_count": 2,
+        "flow_metrics": {"violation_cycle_count": 1},
+        "action_metrics": {"score_margin_median": 0.2},
+    }
+    baseline = {
+        "meta": {"env": "gridworld", "session_id": "a"},
+        "cycles": 200,
+        "error_late_median": 0.5,
+        "explore_ratio": 0.08,
+        "goal_reached_count": 4,
+        "spike_count": 3,
+        "flow_metrics": {"violation_cycle_count": 0},
+        "action_metrics": {"score_margin_median": 0.15},
+    }
+    result = compare_session_reports(current, baseline)
+    assert result["deltas"]["error_late_median"] == pytest.approx(-0.1)
+    assert result["deltas"]["explore_ratio"] == pytest.approx(0.02)
+    assert result["regression_flags"]["error_late_worse"] is False
+    assert result["regression_flags"]["violations_increased"] is True

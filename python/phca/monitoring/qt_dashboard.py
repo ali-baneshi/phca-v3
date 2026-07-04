@@ -5006,7 +5006,6 @@ class CandidateScoreView(_BaseCanvas):
         cr_t = float(getattr(f, "cr_temperature", 0.0) or 0.0)
         pareto = set(int(x) for x in (getattr(f, "pareto_front", []) or []))
         names = list(getattr(f, "action_names", []) or [])
-        y0 = lay["y0"]
         self._draw_replay_banner(p)
         hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         bs = r.get("best_score")

@@ -261,14 +261,14 @@ With 1 engineer: ~2 wall-clock days.
 ### B. Test Suite
 
 ```bash
-cd /home/<username>/Pictures/Autonomous-AI-june2026/new-ai
+cd <repo-root>
 python -m pytest tests/ -x -v --timeout=120
 ```
 
 ### C. Final Validation Benchmark
 
 ```bash
-cd /home/<username>/Pictures/Autonomous-AI-june2026/new-ai
+cd <repo-root>
 python -m phca.benchmark --levels 0 1 2 3 --cycles 500 --output-phase4-report
 ```
 

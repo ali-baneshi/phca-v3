@@ -103,6 +103,6 @@ not describe the running system verbatim.
 Always cite from [STATUS.md](STATUS.md) and named log files in
 [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md):
 
-- **560 tests** (524 core + 36 MuJoCo)
+- **623 tests** (587 core + 36 MuJoCo)
 - **232 monitoring tests** (subset of phca monitoring suite)
 - **Overall Φ-IQ 0.7403** (MLP, 200 cyc/level, seed 42)

@@ -7,13 +7,15 @@ through a pipeline of specialised modules, governed by a Resource-Bounded
 Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
-**Phase 8 largely complete** (Cognitive Observatory replay/scrub hardening; Phase 6 cognitive baseline).
-**560 tests** passing (`make test-python` 524 + `make test-mujoco` 36), 0 errors.
-Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-03).
+**Phase 11 complete** (Cognitive Observatory Phases 9–11: schema governance, report parity,
+large-session scrub perf; D-108–D-113 hardening: retention, causal gate, RBTA enforcement, A2).
+**623 tests** passing (`make test-python` 587 + `make test-mujoco` 36), 0 errors.
+Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-04).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
-prediction-driven action selector; Cartpole stays discrete. OOD confidence and
-invariants A1/A3/A4/A5 are **measured** (Phase 6). Observatory: PyQt live dashboard,
-JSONL recording, seek/scrub replay, and offline session reports — see
+prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
+**measured** (`assumption_validation.py --ci` 5/5 PASS). Causal behavior gate
+L1/L2/L3 **PASS** (D-111, D-112). Observatory: PyQt live dashboard, JSONL
+recording, seek/scrub replay, schema versioning, and offline session reports — see
 [docs/observability.md](docs/observability.md).
 
 ---
@@ -52,7 +54,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (524 core + 36 MuJoCo = 560; set MUJOCO_GL=disabled for headless)
+# Run all tests (587 core + 36 MuJoCo = 623; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco
@@ -153,11 +155,11 @@ flowchart TD
 
 | Invariant | Enforcement |
 | :--- | :--- |
-| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`). **Measured** (Phase 6 / B2): inject over-budget → ≥1 violation. |
-| **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. |
-| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured** (Phase 6 / B2): 100-cyc min entropy ≥ 0.01. |
-| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). **Measured** (Phase 6 / B2): continuous MPC selector calls predict per candidate. **OOD measured** (Phase 6 / B1): blended confidence drops 0.97→0.26 as σ rises 0→1.0. |
-| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured** (Phase 6 / B2): no-op learn → frozen weights (rel Δ 0.0000); active learn → weights update (rel Δ 0.043). |
+| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle; TERMINATE→STAY enforcement (D-113). **Measured**: inject over-budget → ≥1 violation. |
+| **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. **Measured** (D-113): `experiment_a2_temporal_order()` in `--ci`. |
+| **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured**: 100-cyc min entropy ≥ 0.01. |
+| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). **Measured**: continuous MPC selector calls predict per candidate. **OOD measured**: blended confidence drops 0.97→0.26 as σ rises 0→1.0. |
+| **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured**: no-op learn → frozen weights (rel Δ 0.0000); active learn → weights update (rel Δ 0.043). |
 
 ---
 
@@ -179,15 +181,15 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
 
-### Latest Results (MLP G', 200 cycles/level, Phase 6 final)
+### Latest Results (MLP G', 200 cycles/level, 2026-07-04)
 
 ```
-  PHCA v3.0 — Φ-IQ Benchmark Report (Phase 6, this machine)
-  Overall Φ-IQ (4 levels, MLP): 0.7414   (gate PASS, ≥ 0.5486 floor)
-  L0 Stationary:   0.7064
-  L1 Reactive:     0.7135
-  L2 Goal Pursuit: 0.7783   (goal_rate 0.95)
-  L3 Exploration:  0.7673
+  PHCA v3.0 — Φ-IQ Benchmark Report (this machine)
+  Overall Φ-IQ (4 levels, MLP): 0.7403   (gate PASS, ≥ 0.5486 floor)
+  L0 Stationary:   0.7032
+  L1 Reactive:     0.7125
+  L2 Goal Pursuit: 0.7773   (goal_rate 0.95)
+  L3 Exploration:  0.7683
 
   Pass Criteria:
     [✓] Cycle latency < 500 ms        (mean ~17 ms, p95 ~31 ms)
@@ -195,8 +197,9 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
     [✓] Overall Φ-IQ > 0.5
     [✓] L2 Φ-IQ ≥ 0.5
 
-  Pendulum continuous (100cyc): 7.4 ms, 0 violations, error 29.6→0.68
-  Nightly hardening (make nightly NIGHTLY_CYCLES=1000): exit 0
+  Causal gate L1/L2/L3: PASS (200 cyc × 5 seeds)
+  Assumption validation --ci: 5/5 PASS (A1–A5)
+  Nightly 10k soak: PASS (late RSS ~1390 B/cyc ≤ 1600, D-113)
 ```
 
 ### Causal Evidence Gate
@@ -290,6 +293,7 @@ invariant and exits non-zero on any FAIL:
 | Inv | Experiment | Result |
 | :--- | :--- | :--- |
 | A1 | inject over-budget G' timing → RBTA flags ≥1 violation | **PASS** (1 violation) |
+| A2 | temporal order at action selection | **PASS** (D-113) |
 | A3 | 100-cyc low-noise drive → belief entropy ≥ floor (0.01) | **PASS** (min 0.50) |
 | A4 | continuous MPC selector calls predict per candidate | **PASS** (8 calls) |
 | A5 | no-op learn → frozen weights; active learn → weights update | **PASS** (frozen Δ 0.0000, active Δ 0.043) |
@@ -307,7 +311,8 @@ they were bad tests, not masked failures.
 3. Assumption validation `--ci`.
 4. OOD calibration (monotonic check).
 5. Nightly stress (`scripts/nightly_stress.py` — RSS leak detector, latency
-   p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations).
+   p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations, causal gate).
+6. Causal behavior gate (`phca_causal_eval.py --gate` on L2+L3 in nightly).
 
 This is a **script+gate target, not a cron job** — schedule it externally
 (GitHub Actions `schedule:` nightly, systemd timer, or cron). 1000-cyc CI run
@@ -316,18 +321,43 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 ---
 
+## Phase 9–11 — Cognitive Observatory Completion
+
+Phases 9–11 complete the Observatory data contract and performance story on top of
+Phase 8 replay/scrub hardening.
+
+### Phase 9 — Schema Governance (D-110)
+
+- `OBSERVABILITY_SCHEMA_VERSION = 1` stamped on each JSONL frame and in `meta.json`.
+- Legacy v0 sessions normalize on replay via `normalize_observability_json()`.
+- Unknown or mixed schema versions fail `--check` (fail-closed).
+
+### Phase 10 — Report Parity (D-112)
+
+- `session_report.json` shares `format_session_results_lines()` with the Overview panel.
+- Parity test: `python/phca/monitoring/tests/test_session_report.py`.
+
+### Phase 11 — Large-Session Scrub Performance
+
+- Decimated rolling rebuild + lazy per-tab rebuild on seek (`cognitive_panels.py`).
+- Scrub budget tests: ≤2s (live) / ≤4s (review) at 3000+ cycles.
+
+See [docs/observability.md](docs/observability.md) and
+[docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
+
+---
+
 ## Limitations
 
 See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 
 - **Long-run memory growth (Phase 7 retention).** `make nightly` uses a
-  **phase-aware** late-half RSS slope gate (D-112): ≤5000 B/cyc for runs under
-  7000 cycles (M3 fill phase) and ≤500 B/cyc for post-cap soaks (default
-  `NIGHTLY_CYCLES=10000`). A 1000-cycle run passes the fill-phase gate
-  (~4817 B/cyc); verify post-cap slope with a 10k soak. See
+  **phase-aware** late-half RSS slope gate (D-112, D-113): ≤5000 B/cyc for runs under
+  7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
+  `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1390 B/cyc). See
   [docs/limitations.md](docs/limitations.md) and [STATUS.md](STATUS.md).
-- **Observatory Phase 8 done:** seek/scrub replay, panel history rebuild, transport
-  controls, and honest replay banners — see [docs/observability.md](docs/observability.md).
+- **Observatory Phases 8–11 shipped:** seek/scrub replay, schema versioning,
+  report parity, large-session scrub perf — see [docs/observability.md](docs/observability.md).
 - **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
   **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
 - **No NLP, vision, multi-agent, or M5 procedural memory.**
@@ -371,8 +401,9 @@ make nightly NIGHTLY_CYCLES=1000
 | [docs/archive/phase5_completion_report.md](docs/archive/phase5_completion_report.md) | Phase 5 sign-off (historical). |
 | [docs/archive/phase4_readiness_report.md](docs/archive/phase4_readiness_report.md) | Phase 4 sign-off (historical). |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-107+). |
-| [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open Phase 7 items. |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-114+). |
+| [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open backlog items. |
+| [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Three-level causal behavior evidence gate (L1–L3). |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay/scrub, integrity checks. |
 | [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md) | Full Observatory architecture and 20-phase roadmap. |
 | [docs/archive/phase3.3_full_completion_report.md](docs/archive/phase3.3_full_completion_report.md) | Phase 3.3 gap-closure completion report (historical). |
@@ -407,7 +438,7 @@ make nightly NIGHTLY_CYCLES=1000
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary; --env gridworld/cartpole/pendulum/reacher)
 │   ├── check_benchmark_gate.py  # CI gate: static Φ-IQ + --mujoco + --neg-test (Phase 6)
 │   ├── ood_calibration.py       # OOD σ-sweep confidence curve (Phase 6 / B1)
-│   ├── assumption_validation.py # A1/A3/A4/A5 falsifiable experiments + --ci (Phase 6 / B2)
+│   ├── assumption_validation.py # A1–A5 falsifiable experiments + --ci (Phase 6 / D-113)
 │   ├── nightly_stress.py        # RSS-leak + latency + Φ-IQ stress (Phase 6 / C1)
 │   ├── profile_mlp_learn.py     # gprime_learn per-module profile (Phase 5 perf target)
 │   ├── longrun_probe.py         # 1000-cycle stability probe (latency creep + RSS)
@@ -428,8 +459,8 @@ make nightly NIGHTLY_CYCLES=1000
 
 ## Cognitive Observatory
 
-Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phase 8), and
-offline session reports. PyQt `--qt` replay is the canonical path; matplotlib
+Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 8–11), and
+offline session reports with schema versioning and Overview parity. PyQt `--qt` replay is the canonical path; matplotlib
 `--from-jsonl` is legacy.
 
 See **[docs/observability.md](docs/observability.md)** for JSONL schema, playback/scrub
@@ -441,7 +472,7 @@ for the full Observatory architecture and roadmap.
 # Live run
 QT_QPA_PLATFORM=offscreen PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
 
-# Replay with scrub (canonical Phase 8 path)
+# Replay with scrub (canonical Observatory path)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
 
 # Session integrity + offline report

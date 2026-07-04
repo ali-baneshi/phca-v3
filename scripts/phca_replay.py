@@ -29,6 +29,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 def _load_session(session_dir: str):
@@ -341,15 +342,42 @@ def _report(session_dir: str) -> int:
     return 0
 
 
+def _compare(session_dir: str, baseline_dir: str, *, output: Optional[str] = None) -> int:
+    _pkg = Path(__file__).resolve().parent.parent / "python"
+    if str(_pkg) not in sys.path:
+        sys.path.insert(0, str(_pkg))
+    from phca.monitoring.session_report import (
+        compare_session_reports,
+        load_session_report,
+        print_session_compare,
+    )
+    try:
+        current = load_session_report(session_dir)
+        baseline = load_session_report(baseline_dir)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    result = compare_session_reports(current, baseline)
+    if output:
+        Path(output).write_text(json.dumps(result, indent=2))
+        print(f"Wrote {output}")
+    print_session_compare(result, stream=sys.stdout)
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA session replay tool")
-    parser.add_argument("session", help="session dir (logs/sessions/<ts>/)")
+    parser.add_argument("session", nargs="?", help="session dir (logs/sessions/<ts>/)")
     parser.add_argument("--check", action="store_true",
                         help="consistency check only (exit 0/1), no playback")
     parser.add_argument("--allow-incomplete", action="store_true",
                         help="with --check, do not fail on empty/mismatched JSONL")
     parser.add_argument("--report", action="store_true",
                         help="build session_report.json from JSONL and print summary")
+    parser.add_argument("--compare", metavar="BASELINE_SESSION",
+                        help="compare session_report metrics vs another session dir (Phase 12)")
+    parser.add_argument("--compare-output", metavar="JSON",
+                        help="with --compare, write structured comparison JSON")
     parser.add_argument("--from-jsonl", action="store_true",
                         help="reconstruct the matplotlib dashboard from JSONL")
     parser.add_argument("--qt", action="store_true",
@@ -359,6 +387,12 @@ def main() -> None:
                              "(default: pause so the scrubber stays usable)")
     parser.add_argument("--fps", type=float, default=10.0, help="playback fps")
     args = parser.parse_args()
+    if args.compare:
+        if not args.session:
+            parser.error("--compare requires a current session dir argument")
+        sys.exit(_compare(args.session, args.compare, output=args.compare_output))
+    if not args.session:
+        parser.error("session dir required")
     if args.check:
         sys.exit(_check(args.session, allow_incomplete=args.allow_incomplete))
     if args.report:

@@ -6,7 +6,8 @@ numpy==1.26.4
 scipy==1.12.0
 
 # Probabilistic programming (for G' Bayesian network)
-pgmpy>=1.1.2,<1.3
+# pgmpy 1.1.x requires numpy>=2.0; PHCA pins numpy 1.26.4 (D-114).
+pgmpy==1.0.0
 
 # Graph operations
 networkx==3.2.1

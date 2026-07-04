@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-04  
-**Phase:** 8 LARGELY COMPLETE — Observatory replay/scrub hardening (Phase 7 observability stabilization complete; see docs/observability.md)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-112)
+**Phase:** 12 COMPLETE — Observatory multi-session compare (Phases 9–11 + D-108–D-115); Phases 13–20 backlog  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-115)
 
 ---
 
@@ -17,8 +17,11 @@
 | 5 | Documentation & onboarding | Complete |
 | 6 | Strategic v2.0 zero-trust re-audit | Complete (P0/P1/P2 closed; L2 bottleneck closed) |
 | 7 | Phase 7 observability stabilization | Complete |
-| 8 | Phase 8 replay/scrub hardening | Largely complete |
+| 8 | Phase 8 replay/scrub hardening | Complete |
 | 9 | Phase 9 observability schema governance | Complete |
+| 10 | Phase 10 offline report parity | Complete |
+| 11 | Phase 11 large-session scrub performance | Complete |
+| 12 | Phase 12 multi-session comparison | Complete |
 
 ---
 
@@ -60,7 +63,7 @@
 |----|-------|--------|-------|
 | P7-2 | M3/M4 retention soak (late RSS ≤ 500 B/cyc @ 10k) | ✅ Done | D-112 phase-aware gate; fill-phase ≤5000 B/cyc @ 1k |
 
-### Phase 8 — Largely Complete
+### Phase 8 — Complete
 
 | ID | Issue | Status | Resolution |
 |----|-------|--------|------------|
@@ -76,13 +79,45 @@
 |----|-------|--------|------------|
 | P9-1 | `schema_version` + migration policy | ✅ Done | JSONL `schema_version=1`, legacy v0 normalization, unknown/mixed schema checks |
 
-### Phase 10+ — Backlog
+### Phase 10 — Complete
 
-| ID | Issue | Target |
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P10-1 | Full offline report parity with dashboard | ✅ Done | `format_session_results_lines()` parity test |
+
+### Phase 11 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P11-1 | 3000+ cycle scrub without severe lag | ✅ Done | scrub budget tests ≤2s/≤4s |
+
+### Phase 12 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P12-1 | Multi-session report comparison | ✅ Done | `phca_replay.py --compare` + `compare_session_reports()` (D-115) |
+
+### Observatory Phases 13–20 — Backlog
+
+| Phase | Focus | Gate / deliverable |
+|-------|-------|-------------------|
+| **13** | Anomaly detection (spike/drift/leak/goal instability) | `--check` anomaly flags; nightly hook |
+| **14** | Action explainability | `action_rationale` in JSONL + Explain panel |
+| **15** | Observability API | stable `phca.monitoring` export + schema doc |
+| **16** | Production hardening | subprocess Observatory + crash recovery test |
+| **17** | Multi-agent Observatory | `agent_id` on frames + synced timeline |
+| **18** | Interactive analysis | `phca_query.py` CLI + dashboard filters |
+| **19** | Scientific validation | `make reproduce` one-command manifest |
+| **20** | Research maturity sign-off | Phase 20 archive report; all gates green |
+
+See [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
+
+### Documentation / Decisions
+
+| ID | Issue | Status | Resolution |
 |----|-------|--------|
-| P10-1 | Full offline report parity with dashboard | Phase 10 | **Done** — `format_session_results_lines()` parity test |
-| P11-1 | 3000+ cycle scrub without severe lag | Phase 11 | **Done** — scrub budget tests ≤2s/≤4s |
-| DO-6 | Log D-108+ in DECISIONS.md | ✅ Done | D-108/D-109/D-112 logged |
+| DO-6 | Log D-108+ in DECISIONS.md | ✅ Done | D-108/D-109/D-112/D-113/D-114 logged |
+| DO-7 | README + living docs sync (Phase 11) | ✅ Done | 2026-07-04 |
 
 ### P2 — Backlog (scheduled)
 
@@ -136,6 +171,7 @@
 
 | Date | Fix | Outcome |
 |------|-----|---------|
+| 2026-07-04 | phase-10&11 + docs sync | Report parity, scrub perf, README/STATUS aligned; pgmpy pin (D-114) |
 | 2026-07-04 | L3 causal coverage fix + retention gate (D-112) | L1/L2/L3 causal PASS; phase-aware nightly retention |
 | 2026-07-04 | Three-level causal behavior gate | L1 passes; L2/L3 expose gap vs observed greedy (pre-fix) |
 | 2026-07-03 | Phase 8 operational doc sync | Observatory replay/scrub documented; 560 tests green |

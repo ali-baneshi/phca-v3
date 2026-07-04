@@ -13,8 +13,8 @@
 > latency). Re-introduce Rust only if profiling shows Python as a bottleneck.
 
 > **Python 3.14+:** may work locally but is not CI-pinned. Use a venv with
-> `requirements.txt` (see below) to avoid drift (e.g. unpinned `pgmpy` /
-> `numpy` versions and startup warnings).
+> `requirements.txt` (see below) to avoid drift (e.g. unpinned `pgmpy` 1.1.x
+> requiring numpy 2.x while PHCA pins numpy 1.26.4 — see D-114).
 
 ## Quick Setup (5 minutes)
 
@@ -43,7 +43,7 @@ code .
 ## Running Tests
 
 ```bash
-make test-all         # Core + monitoring (524 tests); MuJoCo files ignored
+make test-all         # Core + monitoring (587 tests); MuJoCo files ignored
 make test-mujoco      # MuJoCo integration only (36 tests); needs gymnasium[mujoco]
 make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency
@@ -57,13 +57,13 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-## Cognitive Observatory (Phase 8)
+## Cognitive Observatory (Phases 8–11)
 
 ```bash
 # Live run
 QT_QPA_PLATFORM=offscreen PYTHONPATH=python python scripts/phca_observatory.py --cycles=50 --mlp
 
-# Replay with scrub (canonical Phase 8 path)
+# Replay with scrub (canonical Observatory path)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --qt
 
 # Session integrity + offline report

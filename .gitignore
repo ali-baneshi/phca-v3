@@ -14,3 +14,35 @@ target/
 
 # Editor / IDE
 .opencode/
+.cursor/
+
+# Project-local temp (TMPDIR=.tmp in docs)
+.tmp/
+
+# Pytest basetemp (if used)
+.pytest_tmp/
+
+# Runtime logs (gate JSONs in logs/ root remain tracked)
+logs/phca.log
+logs/phca.log.*
+logs/*.log
+logs/diagnose_level2.csv
+logs/sessions/
+
+# Secrets / local env
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+
+# OS / editor noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Large local artifacts
+*.mp4
+*.whl

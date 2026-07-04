@@ -536,3 +536,111 @@ def print_report_summary(report: Dict[str, Any], *, stream=None) -> None:
             if item:
                 print(f"    action [{key}] cycle {item.get('cycle_id')}: {item.get('action_status')}",
                       file=out)
+
+
+def load_session_report(session_dir: str | Path) -> Dict[str, Any]:
+    """Load or build session_report.json for a session directory."""
+    d = Path(session_dir)
+    report_p = d / "session_report.json"
+    if report_p.exists():
+        return json.loads(report_p.read_text())
+    meta_p = d / "meta.json"
+    jsonl_p = d / "timeseries.jsonl"
+    if not meta_p.exists() or not jsonl_p.exists():
+        raise FileNotFoundError(f"not a valid session dir: {d}")
+    meta = json.loads(meta_p.read_text())
+    lines = [ln for ln in jsonl_p.read_text().splitlines() if ln.strip()]
+    return build_session_report(meta, lines)
+
+
+def _metric_delta(current: Any, baseline: Any) -> Optional[float]:
+    if current is None or baseline is None:
+        return None
+    try:
+        return float(current) - float(baseline)
+    except (TypeError, ValueError):
+        return None
+
+
+def compare_session_reports(
+    current: Dict[str, Any],
+    baseline: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Phase 12: structured deltas between two session reports."""
+    cur_meta = current.get("meta") or {}
+    base_meta = baseline.get("meta") or {}
+    cur_flow = current.get("flow_metrics") or {}
+    base_flow = baseline.get("flow_metrics") or {}
+    cur_action = current.get("action_metrics") or {}
+    base_action = baseline.get("action_metrics") or {}
+
+    return {
+        "current": {
+            "session": cur_meta.get("session_id") or cur_meta.get("env"),
+            "env": cur_meta.get("env"),
+            "cycles": current.get("cycles"),
+        },
+        "baseline": {
+            "session": base_meta.get("session_id") or base_meta.get("env"),
+            "env": base_meta.get("env"),
+            "cycles": baseline.get("cycles"),
+        },
+        "deltas": {
+            "error_late_median": _metric_delta(
+                current.get("error_late_median"), baseline.get("error_late_median")),
+            "explore_ratio": _metric_delta(
+                current.get("explore_ratio"), baseline.get("explore_ratio")),
+            "goal_reached_count": _metric_delta(
+                current.get("goal_reached_count"), baseline.get("goal_reached_count")),
+            "spike_count": _metric_delta(
+                current.get("spike_count"), baseline.get("spike_count")),
+            "violation_cycle_count": _metric_delta(
+                cur_flow.get("violation_cycle_count"),
+                base_flow.get("violation_cycle_count")),
+            "score_margin_median": _metric_delta(
+                cur_action.get("score_margin_median"),
+                base_action.get("score_margin_median")),
+        },
+        "regression_flags": {
+            "error_late_worse": (
+                _metric_delta(current.get("error_late_median"), baseline.get("error_late_median"))
+                is not None
+                and _metric_delta(current.get("error_late_median"), baseline.get("error_late_median")) > 0
+            ),
+            "violations_increased": (
+                _metric_delta(
+                    cur_flow.get("violation_cycle_count"),
+                    base_flow.get("violation_cycle_count"),
+                )
+                is not None
+                and _metric_delta(
+                    cur_flow.get("violation_cycle_count"),
+                    base_flow.get("violation_cycle_count"),
+                ) > 0
+            ),
+        },
+    }
+
+
+def print_session_compare(compare: Dict[str, Any], *, stream=None) -> None:
+    """Human-readable multi-session comparison summary."""
+    out = stream or sys.stderr
+    cur = compare.get("current") or {}
+    base = compare.get("baseline") or {}
+    print(
+        f"Session compare — current={cur.get('session')} ({cur.get('env')}, {cur.get('cycles')} cyc)"
+        f" vs baseline={base.get('session')} ({base.get('env')}, {base.get('cycles')} cyc)",
+        file=out,
+    )
+    deltas = compare.get("deltas") or {}
+    for key, delta in deltas.items():
+        if delta is None:
+            continue
+        print(f"  Δ {key}: {delta:+.4g}", file=out)
+    flags = compare.get("regression_flags") or {}
+    if flags:
+        active = [k for k, v in flags.items() if v]
+        if active:
+            print(f"  regression flags: {', '.join(active)}", file=out)
+        else:
+            print("  regression flags: none", file=out)

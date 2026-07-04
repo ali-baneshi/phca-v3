@@ -157,8 +157,6 @@ class TestRBTAEnforcement:
 
     def test_terminate_skips_feedback_and_consolidation(self):
         """TERMINATE (3+ violations) → STAY, no learn, no consolidation."""
-        from phca.config import ResourceBounds
-
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         self._tighten_all_bounds(cycle)
         metrics = cycle.step()
