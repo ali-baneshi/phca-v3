@@ -43,10 +43,27 @@ import numpy as np
 
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
-from phca.monitoring.observability import ObservabilityStore, SessionRecorder
+from phca.monitoring.observability import (
+    OBSERVABILITY_SCHEMA_VERSION,
+    ObservabilityStore,
+    SessionRecorder,
+)
 from phca.monitoring.playback import CyclePacer, PlaybackClock
+from phca.monitoring.cognitive_panels import format_session_results_lines
 from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
 from PyQt5 import QtCore
+
+
+def _load_optional_json(path: str | None) -> dict | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return None
 
 
 def _session_summary(session_dir: Path | None, n_lines: int, expected: int) -> None:
@@ -69,6 +86,74 @@ def _session_summary(session_dir: Path | None, n_lines: int, expected: int) -> N
             f"recorded={recorded}",
             file=sys.stderr,
         )
+
+
+def _print_post_run_summary(
+    session_dir: Path | None,
+    *,
+    n_lines: int,
+    expected: int,
+    verify_status: str,
+    report_path: Path | None,
+    warnings: list[str],
+    exit_code: int,
+) -> None:
+    """Structured terminal summary after a recorded session."""
+    print("=== Session summary ===")
+    if session_dir is not None:
+        print(f"  dir:      {session_dir}")
+    print(f"  cycles:   {n_lines} / {expected}")
+    print(f"  verify:   {verify_status}")
+    if report_path is not None:
+        print(f"  report:   {report_path}")
+    if warnings:
+        print(f"  warnings: {'; '.join(warnings)}")
+    print(f"=== Exit {exit_code} ===")
+
+
+def _post_run_pipeline(
+    session_dir: Path | None,
+    *,
+    n_lines: int,
+    expected: int,
+    verify: bool,
+    warnings: list[str],
+) -> tuple[int, str, Path | None]:
+    """Verify session, write session_report.json, return (exit_code, status, report_path)."""
+    verify_status = "SKIP"
+    verify_rc = 0
+    report_path: Path | None = None
+    if session_dir is None:
+        return 0, verify_status, report_path
+    if verify:
+        verify_rc = _run_session_verify(session_dir)
+        verify_status = (
+            f"PASS (contiguous cycle_id, schema v{OBSERVABILITY_SCHEMA_VERSION})"
+            if verify_rc == 0
+            else "FAIL"
+        )
+        if verify_rc != 0:
+            print("[verify] session check FAILED", file=sys.stderr)
+    try:
+        from phca.monitoring.session_report import write_session_report
+        write_session_report(session_dir)
+        report_path = session_dir / "session_report.json"
+    except Exception as exc:
+        print(f"[report] session_report.json failed: {exc}", file=sys.stderr)
+        if verify_rc == 0:
+            verify_rc = 1
+            verify_status = "FAIL (report write)"
+    exit_code = verify_rc if verify else 0
+    _print_post_run_summary(
+        session_dir,
+        n_lines=n_lines,
+        expected=expected,
+        verify_status=verify_status,
+        report_path=report_path,
+        warnings=warnings,
+        exit_code=exit_code,
+    )
+    return exit_code, verify_status, report_path
 
 
 def _run_session_verify(session_dir: Path) -> int:
@@ -241,8 +326,16 @@ def main() -> None:
                         help="live camera capture rate on cycle thread (Hz)")
     parser.add_argument("--camera-fail-cooldown-ms", type=int, default=250,
                         help="cooldown after burst camera capture failures (ms)")
-    parser.add_argument("--verify", action="store_true",
-                        help="after recording, run phca_replay.py --check on the session")
+    parser.add_argument("--no-verify", action="store_true",
+                        help="skip post-run phca_replay.py --check (report still written)")
+    parser.add_argument("--close-at-end", action="store_true",
+                        help="close the window when the run completes (default: stay open for review)")
+    parser.add_argument("--compare-report", default=None,
+                        help="optional prior session_report.json for delta comparison in Overview")
+    parser.add_argument("--benchmark-report", default="logs/benchmark_report.json",
+                        help="optional offline Φ-IQ benchmark JSON for Overview context (skip if missing)")
+    parser.add_argument("--no-benchmark-display", action="store_true",
+                        help="do not show Φ-IQ benchmark lines in Overview results")
     args = parser.parse_args()
 
     if args.env == "cartpole":
@@ -386,13 +479,25 @@ def main() -> None:
             print("[camera] cycle thread did not become ready in time",
                   file=sys.stderr)
 
+    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.wayland.debug=false")
     app = make_app()
+    startup_warnings: list[str] = []
     if app.platformName().lower() == "wayland":
+        startup_warnings.append(
+            "libdecor-gtk (Wayland cosmetic — see SETUP.md; try QT_QPA_PLATFORM=xcb)"
+        )
         print(
-            "Wayland: if Qt prints 'libdecor-gtk.so failed to init', "
-            "install libdecor-gtk or use QT_QPA_PLATFORM=xcb (see SETUP.md)."
+            "Wayland note: cosmetic 'libdecor-gtk.so' plugin noise is harmless; "
+            "use QT_QPA_PLATFORM=xcb to silence (see SETUP.md)."
         )
     win = ObservatoryWindow()
+    win.set_session_context({
+        "env": args.env,
+        "camera": args.camera,
+        "target_cycles": args.cycles,
+        "session_dir": str(session_dir) if session_dir else "",
+        "recording": not args.no_record,
+    })
     ctrl = win.controller
     camera_wired = False
 
@@ -464,6 +569,13 @@ def main() -> None:
     def _sync_transport():
         transport.set_range(clock.n)
         transport._sync_slider()
+        latest = store.latest()
+        if latest is not None:
+            win.update_session_strip(
+                latest,
+                jsonl_count=recorder.count,
+                clock_cursor=clock.cursor_int,
+            )
     hb_sync = QtCore.QTimer(win)
     hb_sync.setInterval(250)
     hb_sync.timeout.connect(_sync_transport)
@@ -513,10 +625,10 @@ def main() -> None:
             if err:
                 clock.error = err
                 ctrl.update(store.latest(), None, err)
-                _finish(); return
+                _on_run_complete(); return
             done = stop_flag.is_set() and len(store) >= target
             if done:
-                _finish(); return
+                _on_run_complete(); return
             if video is not None:
                 now = time.monotonic()
                 # Auto-cycle tabs so the mp4 records every tab.
@@ -534,22 +646,14 @@ def main() -> None:
             cycle_holder["error"] = f"tick: {e}"
             ctrl.update(store.latest(), None, f"tick: {e}")
 
-    def _stop_ui_timers() -> None:
-        try:
-            win.render_pacer.stop()
-        except Exception:
-            pass
+    def _stop_production_timers() -> None:
+        """Stop cycle poll + heartbeat + camera; keep render pacer for review scrub."""
         cam_timer = getattr(win.overview, "_capture_timer", None)
         if cam_timer is not None:
             try:
                 cam_timer.stop()
             except Exception:
                 pass
-
-    def _finish():
-        nonlocal last_recorded_cycle
-        # Stop the timers, flush recording, close the video pipe.
-        _stop_ui_timers()
         for t in (timer, hb_timer, hb_sync):
             try:
                 t.stop()
@@ -559,6 +663,23 @@ def main() -> None:
             pacer.stop()
         except Exception:
             pass
+
+    def _stop_all_timers() -> None:
+        _stop_production_timers()
+        try:
+            win.render_pacer.stop()
+        except Exception:
+            pass
+
+    post_run_exit = 0
+    run_completed = False
+
+    def _on_run_complete() -> None:
+        nonlocal last_recorded_cycle, post_run_exit, run_completed
+        if run_completed:
+            return
+        run_completed = True
+        _stop_production_timers()
         snap = store.frames_after(last_recorded_cycle)
         if snap:
             for f in snap:
@@ -571,18 +692,45 @@ def main() -> None:
                     video.grab(win)
             except Exception:
                 pass
-        recorder.flush(); recorder.close()
+        recorder.flush()
+        recorder.close()
         if video is not None:
             video.close()
         msg = (f"Done. {len(store)} cycles; {recorder.count} JSONL lines"
                + (f"; {video.frames} video frames" if video else "") + ".")
         print(msg)
+        verify_status = ""
         if not args.no_record:
             _session_summary(session_dir, recorder.count, args.cycles)
-            if args.verify and session_dir is not None:
-                if _run_session_verify(session_dir) != 0:
-                    print("[verify] session check FAILED", file=sys.stderr)
-        win.close()
+            if session_dir is not None:
+                post_run_exit, verify_status, _ = _post_run_pipeline(
+                    session_dir,
+                    n_lines=recorder.count,
+                    expected=args.cycles,
+                    verify=not args.no_verify,
+                    warnings=startup_warnings,
+                )
+                report = _load_optional_json(str(session_dir / "session_report.json"))
+                compare = _load_optional_json(args.compare_report)
+                benchmark = None
+                if not args.no_benchmark_display:
+                    benchmark = _load_optional_json(args.benchmark_report)
+                if report:
+                    lines = format_session_results_lines(
+                        report,
+                        compare=compare,
+                        benchmark=benchmark,
+                        verify_status=verify_status,
+                    )
+                    win.set_session_results(lines)
+        rolling = store.snapshot()
+        if rolling:
+            ctrl.rebuild_all_histories(rolling)
+        win.enter_review_mode(verify_status=verify_status)
+        print("Review mode: window stays open — scrub tabs and close when done.",
+              file=sys.stderr)
+        if args.close_at_end:
+            win.close()
 
     timer = QtCore.QTimer(win)
     timer.timeout.connect(_tick)
@@ -591,35 +739,35 @@ def main() -> None:
     hb_sync.start()
 
     # Clean exit when the window is closed by the user.
-    def _on_close(_ev):
+    def _on_close(ev):
         stop_flag.set()
-        pacer.stop()
-        _stop_ui_timers()
-        for t in (timer, hb_timer, hb_sync):
+        _stop_all_timers()
+        if not run_completed:
             try:
-                t.stop()
+                recorder.flush()
+                recorder.close()
+                if video is not None:
+                    video.close()
             except Exception:
                 pass
-        # In case _finish() hasn't run (user closed mid-run): flush recorder.
-        try:
-            recorder.flush(); recorder.close()
-            if video is not None:
-                video.close()
-        except Exception:
-            pass
+        ev.accept()
+        app.quit()
+
     win.closeEvent = _on_close  # type: ignore[assignment]
 
     try:
         rc = app.exec_()
     except KeyboardInterrupt:
         stop_flag.set()
-        _finish()
+        _on_run_complete()
         rc = 0
-    stop_flag.set()
-    ct.join(timeout=5.0)
-    if ct.is_alive():
-        print("[cycle thread] did not exit within 5s", file=sys.stderr)
-    sys.exit(int(getattr(rc, "real", rc)) if rc else 0)
+    if not run_completed:
+        stop_flag.set()
+        ct.join(timeout=5.0)
+        if ct.is_alive():
+            print("[cycle thread] did not exit within 5s", file=sys.stderr)
+    ui_rc = int(getattr(rc, "real", rc)) if rc else 0
+    sys.exit(ui_rc or post_run_exit)
 
 
 if __name__ == "__main__":

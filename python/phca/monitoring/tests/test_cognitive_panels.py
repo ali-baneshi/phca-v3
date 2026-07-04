@@ -17,6 +17,11 @@ from phca.monitoring.cognitive_panels import (
     execution_dominant_phase,
     flow_action_link_line,
     flow_near_bound_module,
+    classify_action_mechanism,
+    data_contract_text,
+    format_session_results_lines,
+    mechanism_histogram,
+    moment_tab_badge,
     flow_near_bound_modules,
     flow_status_extras,
     overview_spike,
@@ -186,3 +191,72 @@ def test_action_status_extras_replay_rollouts():
     f = _frame(action_rationale={})
     extras = action_status_extras(f, [0.3], 0, replay=True)
     assert "rollouts=replay" in extras
+
+
+def test_classify_action_mechanism_parity():
+    assert classify_action_mechanism({"explored": True}) == "explore"
+    assert classify_action_mechanism({"continuous": True}) == "continuous"
+    assert classify_action_mechanism({"best_score": 0.5}) == "prediction"
+
+
+def test_mechanism_histogram_window():
+    frames = [
+        _frame(action_rationale={"explored": i % 2 == 0})
+        for i in range(10)
+    ]
+    counts = mechanism_histogram(frames, window=256)
+    assert counts["explore"] == 5
+    assert counts["other"] == 5
+
+
+def test_moment_tab_badge_spike():
+    assert moment_tab_badge({"spike": True}) == "SPIKE"
+    assert moment_tab_badge({}) == ""
+
+
+def test_data_contract_all_panels():
+    for key in ("overview", "flow", "action", "phase", "retention", "memory", "goals"):
+        assert data_contract_text(key, replay=False).startswith("LIVE —")
+        assert data_contract_text(key, replay=True).startswith("REPLAY —")
+
+
+def test_format_early_late():
+    from phca.monitoring.cognitive_panels import format_early_late
+
+    assert "↘" in format_early_late("error", 12.0, 6.0)
+    assert "↗" in format_early_late("error", 6.0, 12.0)
+
+
+def test_format_session_results_lines_compare_and_benchmark():
+    report = {
+        "cycles": 100,
+        "explore_ratio": 0.08,
+        "goal_reached_count": 2,
+        "spike_count": 3,
+        "error_early_median": 12.0,
+        "error_late_median": 6.0,
+        "dist_early_median": 0.5,
+        "dist_late_median": 0.2,
+        "phase_budget_pct": {"Act": 34.0, "Learn": 28.0},
+        "flow_metrics": {"violation_cycle_count": 1},
+        "action_metrics": {
+            "mechanism_pct": {"prediction": 70.0, "continuous": 20.0, "explore": 10.0},
+        },
+    }
+    compare = {
+        "error_late_median": 8.0,
+        "explore_ratio": 0.05,
+        "action_metrics": {"mechanism_pct": {"prediction": 60.0, "explore": 40.0}},
+    }
+    benchmark = {
+        "overall_phi_iq": 0.732,
+        "results": [{"level": 0, "phi_iq": 0.77}, {"level": 1, "phi_iq": 0.65}],
+    }
+    lines = format_session_results_lines(
+        report, compare=compare, benchmark=benchmark, verify_status="PASS")
+    text = "\n".join(lines)
+    assert "session 100 cycles" in text
+    assert "error 12→6" in text.replace(" ", "") or "error 12" in text
+    assert "vs prev" in text
+    assert "Φ-IQ" in text
+    assert "verify: PASS" in text

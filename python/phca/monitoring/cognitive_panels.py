@@ -403,3 +403,277 @@ def count_moments(series: List[Dict[str, Any]]) -> Dict[str, int]:
         "drive_change_count": sum(1 for m in series if m.get("drive_change")),
         "violation_count": sum(1 for m in series if m.get("violation")),
     }
+
+
+# ----- data-contract banners (live + replay, shared across tabs) ------------
+
+DATA_CONTRACT_REPLAY: Dict[str, str] = {
+    "overview": "grid/state/metrics from JSONL; camera and bulk memory are live-only",
+    "flow": "module_timings + rbta_bounds recorded; PEU details are live-only",
+    "action": "scores/rationale recorded · rollouts live-only (candidate_rollouts)",
+    "phase": "state/prediction/goal_ref recorded; rollouts/live goal vectors unavailable",
+    "retention": "counts/caps/RSS/latency recorded; bulk M3/M4 lists live-only",
+    "rbta": "rbta_bounds + module_timings recorded in JSONL",
+    "memory": "G′ uncertainty + M3 top-error recorded; bulk memory/diff live-only",
+    "goals": "drive_goals radial inset is live-only in JSONL",
+}
+
+DATA_CONTRACT_LIVE: Dict[str, str] = {
+    "overview": "camera frame live-only; JSONL has obs_vector + continuous_action",
+    "flow": "module_timings + rbta recorded each cycle",
+    "action": "candidate_scores recorded; rollouts live-only",
+    "phase": "obs_vector/goal_ref recorded; bulk rollouts N/A",
+    "retention": "RSS/latency/episode_count recorded",
+    "rbta": "rbta_bounds + module_timings recorded each cycle",
+    "memory": "fact_count + top-error recorded; bulk M3/M4 lists live-only",
+    "goals": "drive_levels + active_drive recorded",
+}
+
+
+def data_contract_text(panel_key: str, *, replay: bool) -> str:
+    """Return the data-contract banner string for a tab panel."""
+    key = str(panel_key)
+    if replay:
+        body = DATA_CONTRACT_REPLAY.get(key, "")
+        return f"REPLAY — {body}" if body else ""
+    body = DATA_CONTRACT_LIVE.get(key, "")
+    return f"LIVE — {body}" if body else ""
+
+
+def classify_action_mechanism(rationale: Dict[str, Any]) -> str:
+    """Classify one cycle's action mechanism (mirrors session_report)."""
+    if rationale.get("explored"):
+        return "explore"
+    if rationale.get("greedy_fallback"):
+        return "greedy_fallback"
+    if rationale.get("continuous"):
+        return "continuous"
+    if rationale.get("goal_id") == 5 or rationale.get("note") == "D5 energy: STAY":
+        return "stay"
+    if rationale.get("best_score") is not None or rationale.get("k_candidates"):
+        return "prediction"
+    return "other"
+
+
+def mechanism_histogram(
+    frames: List[Any],
+    *,
+    window: int = 256,
+) -> Dict[str, int]:
+    """Rolling mechanism counts from action_rationale (live rollup parity)."""
+    counts = {
+        "greedy_fallback": 0,
+        "prediction": 0,
+        "explore": 0,
+        "stay": 0,
+        "continuous": 0,
+        "other": 0,
+    }
+    tail = frames[-window:] if window > 0 else frames
+    for f in tail:
+        r = dict(getattr(f, "action_rationale", {}) or {})
+        counts[classify_action_mechanism(r)] += 1
+    return counts
+
+
+def mechanism_pct(counts: Dict[str, int]) -> Dict[str, float]:
+    total = sum(counts.values()) or 1
+    return {k: round(100.0 * v / total, 1) for k, v in counts.items() if v}
+
+
+def decimate_frames_for_history(
+    frames: List[Any],
+    max_points: int = 2000,
+) -> List[Any]:
+    """Evenly downsample frame lists for scrub history rebuild (Phase 11)."""
+    n = len(frames)
+    if max_points <= 0 or n <= max_points:
+        return frames
+    step = n / float(max_points)
+    out: List[Any] = []
+    i = 0.0
+    while int(i) < n and len(out) < max_points:
+        out.append(frames[int(i)])
+        i += step
+    if out and out[-1] is not frames[-1]:
+        out.append(frames[-1])
+    return out
+
+
+OBSERVATORY_TAB_LABELS: Tuple[str, ...] = (
+    "Overview",
+    "Cognitive Flow",
+    "Action Selection",
+    "Phase Space & Trajectory",
+    "Retention & Resources",
+    "Memory & Belief",
+    "Goals & Motivation",
+)
+
+
+def moment_tab_badge(flags: Dict[str, Any]) -> str:
+    """Short badge suffix for tab titles when a cognitive moment is active."""
+    if flags.get("spike"):
+        return "SPIKE"
+    if flags.get("violation"):
+        return "VIOL"
+    if flags.get("decision_shift"):
+        return "DECISION"
+    if flags.get("learn_burst"):
+        return "G′lrn"
+    if flags.get("drive_change"):
+        return "DRIVE"
+    return ""
+
+
+def session_status_text(
+    *,
+    env: str = "",
+    env_kind: str = "",
+    camera: str = "",
+    cycle_id: int = 0,
+    total: int = 0,
+    live_lag: int = 0,
+    schema_version: int = 0,
+    jsonl_count: int = 0,
+    recording: bool = True,
+    verify_status: str = "",
+) -> str:
+    """One-line global session strip (all tabs share this context)."""
+    parts: List[str] = []
+    if env:
+        ek = env_kind or "?"
+        parts.append(f"{env} · {ek}")
+    if camera:
+        parts.append(f"cam={camera}")
+    if total > 0:
+        parts.append(f"cycle {cycle_id}/{total}")
+    if live_lag > 0:
+        parts.append(f"lag={live_lag}")
+    if schema_version:
+        parts.append(f"schema v{schema_version}")
+    if recording:
+        parts.append(f"JSONL {jsonl_count}/{total or '?'}")
+    if verify_status:
+        parts.append(f"verify={verify_status}")
+    return "  ·  ".join(parts)
+
+
+def format_early_late(
+    label: str,
+    early: Optional[float],
+    late: Optional[float],
+) -> str:
+    """Compact early→late metric with trend arrow."""
+    if early is None and late is None:
+        return f"{label} —"
+    if early is None:
+        return f"{label} —→{late:.2g}"
+    if late is None:
+        return f"{label} {early:.2g}→—"
+    if late < early:
+        arrow = "↘"
+    elif late > early:
+        arrow = "↗"
+    else:
+        arrow = "→"
+    return f"{label} {early:.2g}→{late:.2g} {arrow}"
+
+
+def _top_pct_items(pct: Dict[str, Any], n: int = 3) -> List[Tuple[str, float]]:
+    items: List[Tuple[str, float]] = []
+    for k, v in (pct or {}).items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if fv > 0:
+            items.append((str(k), fv))
+    items.sort(key=lambda kv: kv[1], reverse=True)
+    return items[:n]
+
+
+def _dominant_mechanism(pct: Dict[str, Any]) -> str:
+    top = _top_pct_items(pct, 1)
+    return top[0][0] if top else ""
+
+
+def format_session_results_lines(
+    report: Dict[str, Any],
+    *,
+    compare: Optional[Dict[str, Any]] = None,
+    benchmark: Optional[Dict[str, Any]] = None,
+    verify_status: str = "",
+) -> List[str]:
+    """Human-readable session performance lines for Overview results panel."""
+    lines: List[str] = []
+    n = int(report.get("cycles") or 0)
+    explore = report.get("explore_ratio")
+    explore_s = f"{100.0 * float(explore):.1f}%" if explore is not None else "—"
+    flow_m = report.get("flow_metrics") or {}
+    viol_n = flow_m.get("violation_cycle_count", 0)
+    lines.append(
+        f"session {n} cycles · explore {explore_s} · "
+        f"goals {report.get('goal_reached_count', 0)} · "
+        f"spikes {report.get('spike_count', 0)} · "
+        f"viol {viol_n}"
+    )
+    err_line = format_early_late(
+        "error",
+        report.get("error_early_median"),
+        report.get("error_late_median"),
+    )
+    dist_e = report.get("dist_early_median")
+    dist_l = report.get("dist_late_median")
+    if dist_e is not None or dist_l is not None:
+        lines.append(format_early_late("dist", dist_e, dist_l))
+    lines.append(err_line)
+
+    action_m = report.get("action_metrics") or {}
+    mech_pct = action_m.get("mechanism_pct") or {}
+    mech_top = _top_pct_items(mech_pct, 3)
+    if mech_top:
+        lines.append(
+            "mechanism: " + " · ".join(f"{k} {v:.0f}%" for k, v in mech_top)
+        )
+
+    phase_pct = report.get("phase_budget_pct") or {}
+    phase_top = _top_pct_items(phase_pct, 3)
+    if phase_top:
+        lines.append(
+            "phase: " + " · ".join(f"{k} {v:.0f}%" for k, v in phase_top)
+        )
+
+    if compare:
+        cmp_bits: List[str] = []
+        prev_err = compare.get("error_late_median")
+        cur_err = report.get("error_late_median")
+        if prev_err is not None and cur_err is not None:
+            delta = float(cur_err) - float(prev_err)
+            cmp_bits.append(f"Δerr {delta:+.2g}")
+        prev_ex = compare.get("explore_ratio")
+        if prev_ex is not None and explore is not None:
+            cmp_bits.append(f"Δexplore {100.0 * (float(explore) - float(prev_ex)):+.1f}pp")
+        prev_m = _dominant_mechanism((compare.get("action_metrics") or {}).get("mechanism_pct") or {})
+        cur_m = _dominant_mechanism(mech_pct)
+        if prev_m and cur_m and prev_m != cur_m:
+            cmp_bits.append(f"mech {prev_m}→{cur_m}")
+        if cmp_bits:
+            lines.append("vs prev: " + " · ".join(cmp_bits))
+
+    if benchmark:
+        overall = benchmark.get("overall_phi_iq")
+        if overall is not None:
+            lines.append(f"Φ-IQ benchmark overall {float(overall):.3f}")
+        results = benchmark.get("results") or []
+        lvl = []
+        for r in results[:4]:
+            lvl.append(f"L{r.get('level', '?')}={float(r.get('phi_iq', 0.0)):.2f}")
+        if lvl:
+            lines.append("  " + " · ".join(lvl))
+
+    if verify_status:
+        lines.append(f"verify: {verify_status} · close window to exit")
+    else:
+        lines.append("review mode · scrub transport · close window to exit")
+    return lines

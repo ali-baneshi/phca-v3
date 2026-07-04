@@ -661,6 +661,30 @@ def test_camera_provider_cycle_id(qt_app):
     assert ov._camera_badge(schematic=False) == "SYNC?"
 
 
+def test_overview_session_results_panel(qt_app):
+    from PyQt5 import QtGui
+
+    from phca.monitoring.qt_dashboard import OverviewAgentView, PANEL_BG
+
+    ov = OverviewAgentView()
+    ov.resize(640, 480)
+    ov.set_frame(_reacher_frame(cycle_id=99))
+    ov.set_session_results([
+        "session 100 cycles · explore 8.0%",
+        "error 12→6 ↘",
+        "verify: PASS · close window to exit",
+    ])
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    ov._draw(p)
+    p.end()
+    assert ov._review_mode
+    c = pm.toImage().pixelColor(20, 80)
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert c.red() + c.green() + c.blue() > bg_lum + 10
+
+
 def test_grid_overview_hides_camera_label(qt_app):
     """GridWorld uses the painted grid body, not the camera QLabel fallback."""
     ov = OverviewAgentView()

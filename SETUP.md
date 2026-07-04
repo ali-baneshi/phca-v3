@@ -98,12 +98,51 @@ by another import path. Recreate the venv from `requirements.txt`.
 
 ### Session integrity after a live run
 
+Post-run verify and `session_report.json` run **by default** when recording completes.
+Use `--no-verify` to skip.
+
 ```bash
 PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
 ```
 
-The Observatory prints a one-line `Session OK:` summary when recording completes;
-use `--verify` on `phca_observatory.py` to run the same check inline.
+The Observatory prints a structured `=== Session summary ===` block with verify
+status and report path; a one-line `Session OK:` precedes it when recording health matches.
+
+**By default the window stays open** after the run so you can scrub all tabs and
+read the Overview session-results panel. Close the window when done, or pass
+`--close-at-end` for CI/headless auto-exit.
+
+Optional comparison context:
+
+```bash
+PYTHONPATH=python python scripts/phca_observatory.py \
+  --env reacher --cycles=100 --mlp --camera live \
+  --compare-report logs/sessions/<prev>/session_report.json
+```
+
+Φ-IQ benchmark context (read-only from `logs/benchmark_report.json` by default;
+use `--no-benchmark-display` to hide):
+
+```bash
+PYTHONPATH=python python scripts/phca_observatory.py \
+  --env reacher --cycles=100 --mlp --benchmark-report logs/benchmark_report.json
+```
+
+### Reacher live run (Manjaro / Wayland)
+
+```bash
+# Quiet Qt decoration noise on KDE/Wayland:
+QT_QPA_PLATFORM=xcb PYTHONPATH=python python scripts/phca_observatory.py \
+  --env reacher --cycles=3000 --mlp --camera live
+
+# Default (may print harmless libdecor-gtk plugin noise):
+PYTHONPATH=python python scripts/phca_observatory.py \
+  --env reacher --cycles=3000 --mlp --camera live
+
+# After run (automatic unless --no-verify):
+ls logs/sessions/<ts>/session_report.json
+PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
+```
 
 ## Benchmarks
 

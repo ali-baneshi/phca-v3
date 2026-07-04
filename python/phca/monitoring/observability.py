@@ -409,6 +409,9 @@ class ObservabilityFrame:
         has_grid = grid is not None
         has_rgb = hasattr(env, "render_rgb")
         env_kind = "grid" if has_grid else ("mujoco_rgb" if has_rgb else "continuous")
+        if env_kind != "grid":
+            agent_pos = None
+            goal_pos = None
         is_cont = bool(getattr(cycle, "_is_continuous", False))
         action_kind = "continuous" if is_cont else "discrete"
         space = getattr(cycle, "action_space", None)
@@ -692,6 +695,9 @@ class ObservabilityFrame:
                           if self.agent_pos is not None else None)
         d["goal_pos"] = ([int(v) for v in self.goal_pos]
                          if self.goal_pos is not None else None)
+        if str(getattr(self, "env_kind", "") or "") != "grid":
+            d["agent_pos"] = None
+            d["goal_pos"] = None
         d["grid"] = self.grid.tolist() if self.grid is not None else None
         d["predicted_state"] = (self.predicted_state.tolist()
                                 if self.predicted_state is not None else None)

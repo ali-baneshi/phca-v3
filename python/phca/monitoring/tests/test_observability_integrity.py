@@ -42,6 +42,36 @@ def _frame(**kw) -> ObservabilityFrame:
     return f
 
 
+def test_mujoco_jsonl_omits_grid_stubs():
+    """Non-grid env_kind must not serialize misleading agent_pos [0,0]."""
+    f = _frame(env_kind="mujoco_rgb", agent_pos=(0, 0), goal_pos=(1, 1))
+    f.obs_vector = np.zeros(11, dtype=np.float32)
+    d = f.to_json()
+    assert d.get("env_kind") == "mujoco_rgb"
+    assert d.get("agent_pos") is None
+    assert d.get("goal_pos") is None
+
+
+def test_data_contract_live_and_replay_strings():
+    from phca.monitoring.cognitive_panels import data_contract_text
+
+    live = data_contract_text("overview", replay=False)
+    replay = data_contract_text("overview", replay=True)
+    assert live.startswith("LIVE —")
+    assert replay.startswith("REPLAY —")
+    assert "obs_vector" in live
+
+
+def test_decimate_frames_for_history():
+    from phca.monitoring.cognitive_panels import decimate_frames_for_history
+
+    frames = [_frame(cycle_id=i) for i in range(5000)]
+    out = decimate_frames_for_history(frames, 2000)
+    assert len(out) <= 2001
+    assert out[0].cycle_id == 0
+    assert out[-1].cycle_id == 4999
+
+
 def test_rbta_time_bound_ms_normalization():
     bounds = {"ASI": {"time": 0.005}}
     assert rbta_time_bound_ms("sanitize", bounds) == pytest.approx(5.0)

@@ -121,7 +121,7 @@ def test_playback_clock_seek_uses_rolling_window_prefix():
     ]
 
 
-def test_dashboard_controller_scrub_rebuilds_all_panels(qt_app):
+def test_dashboard_controller_scrub_rebuilds_visible_tab(qt_app):
     from phca.monitoring.qt_dashboard import ObservatoryWindow
 
     frames = [_rich_frame(i) for i in range(12)]
@@ -133,18 +133,33 @@ def test_dashboard_controller_scrub_rebuilds_all_panels(qt_app):
 
     clock.seek(9)
     assert len(win.overview._err_hist) == 10
+    win._tabs.setCurrentIndex(1)
+    win.controller.on_tab_changed(1)
     assert len(win.flow.heat) == 10
+    win._tabs.setCurrentIndex(2)
+    win.controller.on_tab_changed(2)
     assert len(win.cand.score_hist) == 10
+    win._tabs.setCurrentIndex(3)
+    win.controller.on_tab_changed(3)
     assert len(win.traj.trail) == 10
+    win._tabs.setCurrentIndex(4)
+    win.controller.on_tab_changed(4)
     assert len(win.retention.m3) == 10
     assert len(win.rbta_bounds._hist["G':time"]) == 10
+    win._tabs.setCurrentIndex(5)
+    win.controller.on_tab_changed(5)
     assert win.memory.frame is frames[9]
+    win._tabs.setCurrentIndex(6)
+    win.controller.on_tab_changed(6)
     assert len(win.goals.drive_hist) == 10
 
+    win._tabs.setCurrentIndex(4)
     before = len(win.retention.m3)
     clock.step()
+    win.controller.on_tab_changed(4)
     assert len(win.retention.m3) == before + 1
     clock.seek(3)
+    win.controller.on_tab_changed(4)
     assert len(win.retention.m3) == 4
     assert list(win.retention.m3) == [0, 1, 2, 3]
 
@@ -167,9 +182,44 @@ def test_dashboard_controller_scrub_500_jsonl_frames_no_mutation(qt_app):
         clock.seek(idx)
         qt_app.processEvents()
 
-    assert raw_frames == raw_before
-    assert frames[0].to_json() == frame_zero_before
-    assert frames[-1].to_json() == frame_last_before
+    win._tabs.setCurrentIndex(4)
+    win.controller.on_tab_changed(4)
     assert len(win.retention.m3) == 11
     assert list(win.retention.m3) == list(range(11))
     assert len(win.rbta_bounds._hist["G':time"]) == 11
+    assert raw_frames == raw_before
+    assert frames[0].to_json() == frame_zero_before
+    assert frames[-1].to_json() == frame_last_before
+
+
+def test_scrub_3000_frames_under_budget(qt_app):
+    import time
+
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(3000)]
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="replay")
+    clock.set_frames(frames)
+    clock.on_update = lambda f, rolling, err: win.controller.update(f, rolling, err)
+    win._transport = type("_T", (), {"clock": clock})()
+
+    t0 = time.monotonic()
+    for idx in (0, 1500, 2999, 500):
+        clock.seek(idx)
+        qt_app.processEvents()
+    elapsed = time.monotonic() - t0
+    assert elapsed < 2.0, f"scrub took {elapsed:.2f}s (budget 2s)"
+
+
+def test_rebuild_all_histories_populates_all_tabs(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(12)]
+    win = ObservatoryWindow()
+    win.controller.rebuild_all_histories(frames)
+    assert len(win.overview._err_hist) == 12
+    assert len(win.flow.heat) == 12
+    assert len(win.cand.score_hist) == 12
+    assert len(win.retention.m3) == 12
+    assert len(win.goals.drive_hist) == 12

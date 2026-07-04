@@ -26,7 +26,39 @@ Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fi
 |------|---------|
 | `meta.json` | Run metadata; `cycles` = **requested** run length; `recorded_cycles` written on recorder close |
 | `timeseries.jsonl` | One compact JSON object per cycle (~2 KB) |
-| `session_report.json` | Offline aggregate (rebuild with `write_session_report()` — do not trust stale files) |
+| `session_report.json` | Offline aggregate; **written automatically** after live runs (unless `--no-verify`) |
+
+### Post-run trust (live launcher)
+
+After a recorded session, `phca_observatory.py` prints a structured summary:
+
+```text
+=== Session summary ===
+  dir:      logs/sessions/<ts>
+  cycles:   N / N
+  verify:   PASS (contiguous cycle_id, schema v1)
+  report:   logs/sessions/<ts>/session_report.json
+=== Exit 0 ===
+```
+
+Verify runs `phca_replay.py --check` by default; use `--no-verify` to skip. Non-zero
+exit if verify or report write fails.
+
+**Review mode (default):** the window stays open after completion — transport scrub
+works, Overview shows a session-results panel (early/late metrics, mechanism mix,
+optional cross-session + Φ-IQ context). Close the window to exit; use `--close-at-end`
+for CI auto-close.
+
+## Dashboard coordination (Phase 10)
+
+- **Session status strip** — env, `env_kind`, camera mode, cycle/lag, schema, JSONL count.
+- **LIVE / REPLAY data-contract banners** — shared strings in `cognitive_panels.py`.
+- **Cross-tab moment badges** — tab titles suffix `• SPIKE` / `VIOL` / `DECISION` when active.
+- **Mechanism rollup** — Retention tab rolling 256-cycle histogram (parity with `session_report`).
+- **Overview session results** — post-run panel from `session_report.json` with optional `--compare-report` and `--benchmark-report`.
+- **Review mode** — window stays open after run (default); `--close-at-end` for CI.
+- **MuJoCo JSONL honesty** — non-grid sessions omit misleading `agent_pos`/`goal_pos`.
+- **Scrub perf (Phase 11 starter)** — decimated rolling rebuild + lazy per-tab rebuild on seek.
 | `session.mp4` / `.gif` | Optional dashboard video (not in JSONL) |
 
 ## JSONL schema
@@ -181,11 +213,12 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**232 tests** (2026-07-03). Key modules:
+**242 tests** (2026-07-04). Key modules:
 
 | Module | Coverage |
 |--------|----------|
-| `test_playback_store.py` | Seek/rebuild semantics, 500-frame scrub immutability |
+| `test_playback_store.py` | Seek/rebuild semantics, lazy tab rebuild, 3000-frame scrub budget |
+| `test_observatory_launcher.py` | Post-run verify + session_report pipeline |
 | `test_observability_integrity.py` | RBTA units, `--check`, schema governance, report parity, JSON immutability |
 | `test_*_dashboard.py` | Per-panel smoke, replay banners, scrub rebuild |
 | `test_cognitive_panels.py` | Shared helper contracts |
@@ -197,7 +230,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | Gap | Target phase |
 |-----|--------------|
 | Offline report does not cover every dashboard subview | Phase 10 |
-| Large sessions (3000+ cycles) may lag on scrub rebuild | Phase 11 |
+| Large sessions (3000+ cycles) may lag on scrub rebuild | Phase 11 (decimated + lazy rebuild shipped) |
 | Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated |
 | `meta.cycles` is requested count; compare with `recorded_cycles` via `--check` | Ongoing |
 | GridWorld overview hides camera QLabel; grid body is the camera substitute | By design |

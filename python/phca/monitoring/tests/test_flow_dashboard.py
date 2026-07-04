@@ -116,7 +116,7 @@ def test_flow_phase_strip_luminance(qt_app):
     p = QtGui.QPainter(pm)
     ov._draw(p)
     p.end()
-    c = pm.toImage().pixelColor(80, 65)
+    c = pm.toImage().pixelColor(80, 81)
     lum = c.red() + c.green() + c.blue()
     bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
     assert lum > bg_lum + 10

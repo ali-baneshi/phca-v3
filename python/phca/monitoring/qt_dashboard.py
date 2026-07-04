@@ -51,6 +51,7 @@ from .playback import _Smoother, freeze_sig
 from .render import _prediction_heatmap
 from .cognitive_panels import (
     MOMENT_COLORS,
+    OBSERVATORY_TAB_LABELS,
     PIPELINE_LABEL,
     RBTA_TO_FLOW,
     action_status_extras,
@@ -59,13 +60,20 @@ from .cognitive_panels import (
     belief_reference,
     build_moment_series,
     cognitive_moment,
+    data_contract_text,
+    decimate_frames_for_history,
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
+    mechanism_histogram,
+    mechanism_pct,
+    moment_tab_badge,
     pipeline_time_budget_ms,
     rbta_bound_for_module,
     rbta_time_bound_ms,
+    session_status_text,
 )
+from phca.monitoring.observability import OBSERVABILITY_SCHEMA_VERSION
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
@@ -178,6 +186,7 @@ def _heatmap_cell_color(ms: float, col_vals: List[float]) -> QtGui.QColor:
 
 
 _FLOW_REPLAY_Y0 = 16
+_CONTRACT_BANNER_Y0 = 16
 _FLOW_HDR_CAPTION_Y = 74
 _FLOW_HDR_CAPTION_H = 14
 
@@ -190,7 +199,7 @@ _ACTION_CTX_BAND_H = 28
 
 def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[str, Any]:
     """Reserve header, graph, and heatmap bands so they do not overlap."""
-    y0 = _FLOW_REPLAY_Y0 if replay else 0
+    y0 = _CONTRACT_BANNER_Y0
     header_h = _FLOW_HDR_CAPTION_Y + _FLOW_HDR_CAPTION_H + 2 + y0
     margin = 6
     label_w = 36 if w < 520 else 44
@@ -217,7 +226,7 @@ def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[s
 
 def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     """Explicit left/right stack geometry for Action Selection."""
-    y0 = _ACTION_REPLAY_Y0 if replay else 0
+    y0 = _CONTRACT_BANNER_Y0
     header_h = _ACTION_CHIPS_Y + _ACTION_CHIPS_H + y0
     ctx_top = header_h + 4
     ctx_band_h = _ACTION_CTX_BAND_H
@@ -1818,6 +1827,54 @@ def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
         p.setPen(DIM_COL); p.drawText(rect, 0x84, "World (collecting…)")
 
 
+def _draw_data_contract_banner(
+    p: QtGui.QPainter,
+    w: int,
+    *,
+    replay: bool,
+    panel_key: str,
+    y: int = 2,
+) -> int:
+    """Draw LIVE (muted) or REPLAY (blue) data-contract strip; returns y offset."""
+    text = data_contract_text(panel_key, replay=replay)
+    if not text:
+        return 0
+    if replay:
+        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
+        p.setBrush(QtGui.QColor(52, 152, 219, 40))
+    else:
+        p.setPen(QtGui.QPen(QtGui.QColor(90, 90, 100), 1))
+        p.setBrush(QtGui.QColor(40, 40, 48, 120))
+    p.drawRoundedRect(8, y, w - 16, 14, 3, 3)
+    p.setPen(DIM_COL if not replay else TEXT_COL)
+    p.setFont(_F_AXIS)
+    p.drawText(12, y + 11, text)
+    return 16
+
+
+def _overview_grid_chip(
+    p: QtGui.QPainter,
+    f: ObservabilityFrame,
+    cx: int,
+    cy: int,
+) -> int:
+    """GRID N/A for non-grid envs; kinematics chip for Reacher."""
+    kind = (getattr(f, "env_kind", "") or "").lower()
+    if kind == "grid" and f.agent_pos is not None:
+        ap = tuple(f.agent_pos)
+        return cx + _overview_chip(p, cx, cy, f"GRID {ap[0]},{ap[1]}",
+                                   QtGui.QColor(149, 165, 166))
+    if kind != "grid":
+        kin = _reacher_kinematics_from_obs(
+            f.obs_vector if f.obs_vector is not None else f.sanitized_state)
+        if kin is not None:
+            return cx + _overview_chip(
+                p, cx, cy, f"tip {kin['dist']:.2f}",
+                QtGui.QColor(52, 152, 219))
+        return cx + _overview_chip(p, cx, cy, "GRID N/A", QtGui.QColor(90, 90, 100))
+    return cx
+
+
 def _overview_chip(p: QtGui.QPainter, x: int, y: int, text: str,
                    col: QtGui.QColor) -> int:
     p.setFont(QtGui.QFont("Monospace", 8, QtGui.QFont.Bold))
@@ -1831,7 +1888,8 @@ def _overview_chip(p: QtGui.QPainter, x: int, y: int, text: str,
 
 def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.QRect,
                           drive_change: Optional[Tuple[int, int]] = None,
-                          flags: Optional[Dict[str, Any]] = None) -> None:
+                          flags: Optional[Dict[str, Any]] = None,
+                          session_complete: bool = False) -> None:
     r = f.action_rationale or {}
     gid = _overview_goal_id(f)
     goal_lbl = DRIVE_NAMES.get(gid, _drive_short(gid)) if gid is not None else "—"
@@ -1849,6 +1907,7 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
     cx += _overview_chip(p, cx, cy,
                          "RBTA " + ("OK" if rbta_ok else f"{f.violations_count}V"),
                          QtGui.QColor(46, 204, 113) if rbta_ok else QtGui.QColor(231, 76, 60))
+    cx = _overview_grid_chip(p, f, cx, cy)
     if getattr(f, "goal_reached", False):
         cx += _overview_chip(p, cx, cy, "GOAL", QtGui.QColor(241, 196, 15))
     ms = getattr(f, "meta_stable", None) or {}
@@ -1867,6 +1926,28 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
         cx += _overview_chip(p, cx, cy, nb_lbl, _to_qcolor(MOMENT_COLORS["near_bound"]))
     if flags.get("violation"):
         cx += _overview_chip(p, cx, cy, "VIOL", _to_qcolor(MOMENT_COLORS["spike"]))
+    if session_complete:
+        _overview_chip(p, cx, cy, "SESSION COMPLETE", QtGui.QColor(46, 204, 113))
+
+
+def _draw_session_results_panel(
+    p: QtGui.QPainter,
+    lines: List[str],
+    rect: QtCore.QRect,
+) -> None:
+    """Post-run performance summary (replaces narrative + event log in review)."""
+    p.setPen(QtGui.QPen(QtGui.QColor(46, 204, 113, 120), 1))
+    p.setBrush(QtGui.QColor(46, 204, 113, 20))
+    p.drawRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), 4, 4)
+    p.setPen(TEXT_COL)
+    p.setFont(_F_LABEL_B)
+    p.drawText(rect.x() + 8, rect.y() + 12, "Session results")
+    p.setFont(_F_AXIS)
+    y = rect.y() + 24
+    for line in lines[:8]:
+        p.setPen(DIM_COL if line.startswith("  ") else TEXT_COL)
+        p.drawText(rect.x() + 8, y, line)
+        y += 11
 
 
 _DECISION_SHIFT_THRESHOLD = 0.20
@@ -2607,6 +2688,17 @@ class OverviewAgentView(_BaseCanvas):
         self._moment_series: List[Dict[str, Any]] = []
         self._prev_drive_id: Optional[int] = None
         self._replay: bool = False
+        self._session_results: Optional[List[str]] = None
+        self._review_mode: bool = False
+
+    def set_session_results(self, lines: Optional[List[str]]) -> None:
+        self._session_results = list(lines) if lines else None
+        self._review_mode = bool(lines)
+        self._dirty = True
+
+    def set_review_mode(self, on: bool) -> None:
+        self._review_mode = bool(on)
+        self._dirty = True
 
     def _current_moment(self, f: ObservabilityFrame) -> Dict[str, Any]:
         if self._moment_series:
@@ -3040,31 +3132,33 @@ class OverviewAgentView(_BaseCanvas):
         mind_rect = QtCore.QRect(m, top, mind_w, main_h)
         body_rect = QtCore.QRect(m * 2 + mind_w, top, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
-        y0 = 16 if self._replay else 0
-        if self._replay:
-            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-            p.setBrush(QtGui.QColor(52, 152, 219, 40))
-            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — grid/state/metrics from JSONL; camera and bulk memory are live-only")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="overview")
         if f is not None:
             flags = self._current_moment(f)
             flags = _overview_moment_flags(f, self._err_hist, moment=flags)
             _draw_overview_header(p, f, QtCore.QRect(
                 header_rect.x(), header_rect.y() + y0,
-                header_rect.width(), header_rect.height()), self._drive_change, flags)
+                header_rect.width(), header_rect.height()), self._drive_change, flags,
+                session_complete=self._review_mode)
             _draw_overview_phase_strip(
                 p, f, QtCore.QRect(
                     phase_rect.x(), phase_rect.y() + y0,
                     phase_rect.width(), phase_rect.height()),
                 learn_burst=bool(flags.get("learn_burst")))
-            _draw_overview_narrative(p, f, QtCore.QRect(
+            results_rect = QtCore.QRect(
                 narrative_rect.x(), narrative_rect.y() + y0,
-                narrative_rect.width(), narrative_rect.height()),
-                self._err_hist, self._dist_hist)
-            _draw_overview_event_log(p, self.visible_event_lines(), QtCore.QRect(
-                event_rect.x(), event_rect.y() + y0,
-                event_rect.width(), event_rect.height()))
+                narrative_rect.width(),
+                narrative_rect.height() + event_rect.height())
+            if self._session_results:
+                _draw_session_results_panel(p, self._session_results, results_rect)
+            else:
+                _draw_overview_narrative(p, f, QtCore.QRect(
+                    narrative_rect.x(), narrative_rect.y() + y0,
+                    narrative_rect.width(), narrative_rect.height()),
+                    self._err_hist, self._dist_hist)
+                _draw_overview_event_log(p, self.visible_event_lines(), QtCore.QRect(
+                    event_rect.x(), event_rect.y() + y0,
+                    event_rect.width(), event_rect.height()))
             p.setPen(QtGui.QPen(GRID_COL, 1))
             p.drawLine(mind_rect.right(), mind_rect.y(), mind_rect.right(), mind_rect.bottom())
             cx = mind_rect.x() + mind_rect.width() // 2
@@ -3956,14 +4050,8 @@ class CognitiveFlowView(_BaseCanvas):
         return pos, (cx, cy), R
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
-        if not self._replay:
-            return
-        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-        p.setBrush(QtGui.QColor(52, 152, 219, 40))
-        p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, y + 11,
-                   "REPLAY — module_timings + rbta_bounds recorded; PEU details are live-only")
+        _draw_data_contract_banner(p, self.width(), replay=self._replay,
+                                   panel_key="flow", y=y)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -4596,14 +4684,8 @@ class CandidateScoreView(_BaseCanvas):
             p.drawText(int(x), bot + 0, f"{float(ro.get('score',0)):.2f}")
 
     def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
-        if not self._replay:
-            return
-        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-        p.setBrush(QtGui.QColor(52, 152, 219, 40))
-        p.drawRoundedRect(8, 2, self.width() - 16, 14, 3, 3)
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, 11,
-                   "REPLAY — scores/rationale recorded · rollouts live-only (candidate_rollouts)")
+        _draw_data_contract_banner(p, self.width(), replay=self._replay,
+                                   panel_key="action")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5020,13 +5102,8 @@ class TrajectoryView(_BaseCanvas):
             p.setPen(QtGui.QPen(col, 1)); p.drawLine(cx, cy, ex, ey)
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
-        if not self._replay:
-            return
-        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-        p.setBrush(QtGui.QColor(52, 152, 219, 40))
-        p.drawRoundedRect(8, y, self.width() - 16, 14, 3, 3)
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(12, y + 11, "REPLAY — state/prediction/goal_ref recorded; rollouts/live goal vectors unavailable")
+        _draw_data_contract_banner(p, self.width(), replay=self._replay,
+                                   panel_key="phase", y=y)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5034,8 +5111,7 @@ class TrajectoryView(_BaseCanvas):
         if f is None:
             self._empty(p, "Phase space…"); return
         lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", self.is_grid)
-        y0 = 16 if self._replay else 0
-        self._draw_replay_banner(p)
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="phase")
         status = _phase_status_line(
             f, replay=self._replay, is_grid=self.is_grid, proj=self.proj,
             show_radar=lay["show_radar"])
@@ -5675,6 +5751,21 @@ class RetentionView(_BaseCanvas):
         self._leak_smooth = _Smoother(0.08)
         self.frame: Optional[ObservabilityFrame] = None
         self._replay: bool = False
+        self._mech_frames: List[ObservabilityFrame] = []
+
+    def _mechanism_line(self) -> str:
+        if not self._mech_frames:
+            return ""
+        counts = mechanism_histogram(self._mech_frames, window=256)
+        pct = mechanism_pct(counts)
+        top = sorted(pct.items(), key=lambda kv: kv[1], reverse=True)[:4]
+        if not top:
+            return ""
+        parts = [f"{k} {v}%" for k, v in top]
+        return f"mechanism (last {len(self._mech_frames)}): " + " · ".join(parts)
+
+    def _sync_mechanism_window(self, frames: List[ObservabilityFrame]) -> None:
+        self._mech_frames = list(frames[-256:])
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.m3.clear()
@@ -5712,6 +5803,7 @@ class RetentionView(_BaseCanvas):
             prev_m4 = fact_count
         if frames:
             self.frame = frames[-1]
+        self._sync_mechanism_window(frames)
         self._dirty = True
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
@@ -5721,6 +5813,10 @@ class RetentionView(_BaseCanvas):
         if histories_done:
             self._dirty = True
             return
+        if not self._mech_frames or self._mech_frames[-1] is not f:
+            self._mech_frames.append(f)
+            if len(self._mech_frames) > 256:
+                self._mech_frames = self._mech_frames[-256:]
         if not self.m3:
             self.cycle_base = int(f.cycle_id)
         prev_m3 = self.m3[-1] if self.m3 else None
@@ -5760,23 +5856,21 @@ class RetentionView(_BaseCanvas):
         w, h = self.width(), self.height()
         if not self.m3:
             self._empty(p, "Retention…"); return
-        y0 = 16 if self._replay else 0
-        if self._replay:
-            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-            p.setBrush(QtGui.QColor(52, 152, 219, 40))
-            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — counts/caps/RSS/latency recorded; bulk M3/M4 lists live-only")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="retention")
         leak = self._leak_smooth.value(self._leak_rate())
         # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
         self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15 + y0)
-        self._envelope_gauge(p, 10, 24 + y0, w - 20, 46, env_seg, env_ok)
-        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=76 + y0)
+        mech = self._mechanism_line()
+        if mech:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(10, 28 + y0, mech)
+        self._envelope_gauge(p, 10, 34 + y0, w - 20, 46, env_seg, env_ok)
+        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=86 + y0)
         # v8: demoted the triplicate M3/M4/resources panels to ONE RSS+lat
         # sparkline (the envelope gauge already shows M3/M4 engagement; prune
         # events are covered by the violation table + envelope segments).
-        self._resources_panel(p, 86 + y0, h - 8)
+        self._resources_panel(p, 96 + y0, h - 8)
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -6061,13 +6155,7 @@ class RBTABoundsView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "RBTA bounds…"); return
-        y0 = 16 if self._replay else 0
-        if self._replay:
-            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-            p.setBrush(QtGui.QColor(52, 152, 219, 40))
-            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — rbta_bounds + module_timings recorded in JSONL")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="rbta")
         bounds = getattr(f, "rbta_bounds", None) or {}
         btypes = [("time", "B_time (ms)", QtGui.QColor(52, 152, 219)),
                   ("mem", "B_mem (B)", QtGui.QColor(155, 89, 182)),
@@ -6187,13 +6275,7 @@ class MemoryBeliefView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Memory & belief…"); return
-        y0 = 16 if self._replay else 0
-        if self._replay:
-            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-            p.setBrush(QtGui.QColor(52, 152, 219, 40))
-            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — G′ uncertainty + M3 top-error recorded; bulk memory/diff live-only")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="memory")
         # ---- v7 focal: belief geography map (full width, top) ----
         self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
         self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
@@ -6490,13 +6572,7 @@ class GoalsMotivationView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Goals & motivation…"); return
-        y0 = 16 if self._replay else 0
-        if self._replay:
-            p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
-            p.setBrush(QtGui.QColor(52, 152, 219, 40))
-            p.drawRoundedRect(8, 2, w - 16, 14, 3, 3)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(12, 11, "REPLAY — drive_goals radial inset is live-only in JSONL")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="goals")
         levels = f.drive_levels or []
         targets = f.drive_targets or []
         nd = _n_drives(f, list(levels))
@@ -6870,6 +6946,91 @@ class DashboardController:
         # v6 flicker-free: skip the whole widget update when the frame is the
         # same cycle as the last one we rendered (idle/no-new-data → 0 repaints).
         self._last_cycle: int = -1
+        self._last_rolling: Optional[List[ObservabilityFrame]] = None
+        self._pending_tab_rebuilds: set = set()
+
+    def on_tab_changed(self, tab_idx: int) -> None:
+        """Lazy rebuild: finish history rebuild when user switches to a tab."""
+        if tab_idx not in self._pending_tab_rebuilds or not self._last_rolling:
+            return
+        self._rebuild_tab_histories(self._last_rolling, tab_idx)
+        self._pending_tab_rebuilds.discard(tab_idx)
+
+    def _rebuild_tab_histories(
+        self,
+        rolling: List[ObservabilityFrame],
+        tab_idx: int,
+    ) -> None:
+        """Rebuild rolling histories for one tab (+ shared overview/proj)."""
+        self.w.overview.rebuild_histories(rolling)
+        self.w.proj.rebuild_from_frames(rolling)
+        if tab_idx == 1:
+            self.w.flow.rebuild_histories(rolling)
+        elif tab_idx == 2:
+            self.w.cand.rebuild_histories(rolling)
+        elif tab_idx == 3:
+            self.w.traj.rebuild_histories(rolling)
+            self.w.radar.rebuild_histories(rolling)
+            self.w.perdim.rebuild_histories(rolling)
+        elif tab_idx == 4:
+            self.w.retention.rebuild_histories(rolling)
+            self.w.rbta_bounds.rebuild_histories(rolling)
+            self.w.viol.rebuild_from_frames(rolling)
+        elif tab_idx == 5:
+            self.w.memory.rebuild_histories(rolling)
+        elif tab_idx == 6:
+            self.w.goals.rebuild_histories(rolling)
+
+    def rebuild_all_histories(self, rolling: List[ObservabilityFrame]) -> None:
+        """Rebuild all tab histories (post-run review mode)."""
+        if len(rolling) > 2000:
+            rolling = decimate_frames_for_history(rolling, 2000)
+        self.w.proj.rebuild_from_frames(rolling)
+        self.w.overview.rebuild_histories(rolling)
+        self.w.flow.rebuild_histories(rolling)
+        self.w.cand.rebuild_histories(rolling)
+        self.w.traj.rebuild_histories(rolling)
+        self.w.radar.rebuild_histories(rolling)
+        self.w.perdim.rebuild_histories(rolling)
+        self.w.retention.rebuild_histories(rolling)
+        self.w.rbta_bounds.rebuild_histories(rolling)
+        self.w.viol.rebuild_from_frames(rolling)
+        self.w.memory.rebuild_histories(rolling)
+        self.w.goals.rebuild_histories(rolling)
+        self._pending_tab_rebuilds.clear()
+        self._last_rolling = rolling
+        if not rolling:
+            return
+        f = rolling[-1]
+        replay = bool(
+            getattr(self.w, "_transport", None) is not None
+            and getattr(self.w._transport, "clock", None) is not None
+            and self.w._transport.clock.mode == "replay"
+        )
+        self.w.overview.set_frame(f, histories_done=True, replay=replay)
+        self.w.flow.set_frame(f, histories_done=True, replay=replay)
+        self.w.cand.set_frame(f, histories_done=True, replay=replay)
+        self.w._last_frame = f
+        self.w._apply_phase_layout(f)
+        self.w.traj.set_frame(f, histories_done=True, replay=replay)
+        self.w.radar.set_frame(f, histories_done=True, replay=replay)
+        self.w.perdim.set_frame(f, histories_done=True, replay=replay)
+        self.w.dim_selector.refresh()
+        self.w.retention.set_frame(f, histories_done=True, replay=replay)
+        self.w.rbta_bounds.set_frame(f, histories_done=True, replay=replay)
+        self.w.viol.rebuild_from_frames(rolling)
+        self.w._viol_summary.setText(self.w.viol.summary())
+        self.w.memory.set_frame(f, replay=replay)
+        self.w.goals.set_frame(f, histories_done=True, replay=replay)
+
+    def _update_tab_badges(self, flags: Dict[str, Any]) -> None:
+        badge = moment_tab_badge(flags)
+        tabs = self.w._tabs
+        bases = self.w._tab_base_labels
+        for i, base in enumerate(bases):
+            label = f"{base} • {badge}" if badge else base
+            if tabs.tabText(i) != label:
+                tabs.setTabText(i, label)
 
     def update(self, frame: Optional[ObservabilityFrame],
                rolling: Optional[List[ObservabilityFrame]] = None,
@@ -6885,29 +7046,27 @@ class DashboardController:
                 return
             self._last_cycle = cid
             if rolling:
-                self.w.proj.rebuild_from_frames(rolling)
+                if len(rolling) > 2000:
+                    rolling = decimate_frames_for_history(rolling, 2000)
+                tab_idx = self.w._tabs.currentIndex()
+                self._rebuild_tab_histories(rolling, tab_idx)
+                all_tabs = set(range(len(self.w._tab_base_labels)))
+                self._pending_tab_rebuilds = all_tabs - {tab_idx}
+                self._last_rolling = rolling
             else:
                 self.w.proj.update(f)
                 v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
                 self.w.proj.push_history(self.w.proj.project(v))
+                self._pending_tab_rebuilds.clear()
+                self._last_rolling = None
             histories_done = bool(rolling)
-            if rolling:
-                self.w.overview.rebuild_histories(rolling)
-                self.w.flow.rebuild_histories(rolling)
-                self.w.cand.rebuild_histories(rolling)
-                self.w.traj.rebuild_histories(rolling)
-                self.w.radar.rebuild_histories(rolling)
-                self.w.perdim.rebuild_histories(rolling)
-                self.w.retention.rebuild_histories(rolling)
-                self.w.rbta_bounds.rebuild_histories(rolling)
-                self.w.viol.rebuild_from_frames(rolling)
-                self.w.goals.rebuild_histories(rolling)
-                self.w.memory.rebuild_histories(rolling)
             replay = bool(
                 getattr(self.w, "_transport", None) is not None
                 and getattr(self.w._transport, "clock", None) is not None
                 and self.w._transport.clock.mode == "replay"
             )
+            flags = _overview_moment_flags(f, deque())
+            self._update_tab_badges(flags)
             self.w.overview.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.flow.set_frame(f, histories_done=histories_done, replay=replay)
             self.w.cand.set_frame(f, histories_done=histories_done, replay=replay)
@@ -6997,9 +7156,20 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._top_layout = QtWidgets.QHBoxLayout(self._top_frame)
         self._top_layout.setContentsMargins(0, 0, 0, 0)
         cv.addWidget(self._top_frame)
+        self._status_strip = QtWidgets.QLabel("")
+        self._status_strip.setFixedHeight(22)
+        self._status_strip.setStyleSheet(
+            "color:#a0a0b0; font-family:monospace; font-size:11px; padding:2px 8px;"
+            "background:#1a1a22; border-bottom:1px solid #333;"
+        )
+        cv.addWidget(self._status_strip)
         cv.addWidget(tabs, 1)
         self.setCentralWidget(central)
         self._tabs = tabs
+        self._tab_base_labels = list(OBSERVATORY_TAB_LABELS)
+        self._session_ctx: Dict[str, Any] = {}
+        self._verify_status = ""
+        self._review_mode = False
 
         # shared dimension-agnostic projection (World / Phase-Space / Action)
         self.proj = BeliefProjection(window=256)
@@ -7065,12 +7235,71 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.goals, "Goals & Motivation")
 
         self.controller = DashboardController(self)
+        self._tabs.currentChanged.connect(self.controller.on_tab_changed)
         self._camera_provider: Optional[Callable[[], Any]] = None
         self._camera_debug: bool = False
         # v8: calm-render pacer (repaints the visible tab's dirty canvases at
         # ~6 Hz). Constructed here; started by the launcher via start_render.
         self.render_pacer = RenderPacer(self, render_hz=6.0)
         self._transport: Optional[_TransportBar] = None
+
+    def set_session_context(self, ctx: Dict[str, Any]) -> None:
+        self._session_ctx = dict(ctx or {})
+
+    def set_verify_status(self, status: str) -> None:
+        self._verify_status = str(status or "")
+
+    def update_session_strip(
+        self,
+        frame: Optional[ObservabilityFrame],
+        *,
+        jsonl_count: int = 0,
+        clock_cursor: int = 0,
+    ) -> None:
+        ctx = self._session_ctx
+        cid = int(getattr(frame, "cycle_id", 0) or 0) if frame is not None else 0
+        target = int(ctx.get("target_cycles", 0) or 0)
+        live_lag = max(0, cid - int(clock_cursor))
+        ek = str(getattr(frame, "env_kind", "") or "") if frame is not None else ""
+        text = session_status_text(
+            env=str(ctx.get("env", "") or ""),
+            env_kind=ek,
+            camera=str(ctx.get("camera", "") or ""),
+            cycle_id=cid,
+            total=target,
+            live_lag=live_lag,
+            schema_version=OBSERVABILITY_SCHEMA_VERSION,
+            jsonl_count=jsonl_count,
+            recording=bool(ctx.get("recording", True)),
+            verify_status=self._verify_status,
+        )
+        if self._status_strip.text() != text:
+            self._status_strip.setText(text)
+
+    def enter_review_mode(self, *, verify_status: str = "") -> None:
+        """Pause production; keep transport + render alive for post-run scrub."""
+        self._review_mode = True
+        if verify_status:
+            self.set_verify_status(verify_status)
+        self.overview.set_review_mode(True)
+        self.setWindowTitle(
+            "PHCA Cognitive Observatory — review (close window to exit)")
+        transport = self._transport
+        if transport is not None and getattr(transport, "clock", None) is not None:
+            transport.clock.follow_live()
+            transport.clock.set_paused(True)
+            transport.play_btn.setChecked(True)
+            transport.play_btn.setText("Review")
+            transport._sync_slider()
+        self.overview.mark_dirty()
+        for cv in self.findChildren(_BaseCanvas):
+            try:
+                cv.mark_dirty()
+            except Exception:
+                pass
+
+    def set_session_results(self, lines: Optional[List[str]]) -> None:
+        self.overview.set_session_results(lines)
 
     def set_camera_provider(self, provider: Optional[Callable[[], Any]],
                             *, debug: bool = False,

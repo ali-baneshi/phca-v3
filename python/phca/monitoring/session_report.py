@@ -13,6 +13,7 @@ import numpy as np
 from phca.monitoring.observability import ObservabilityFrame, normalize_observability_json
 from phca.monitoring.cognitive_panels import (
     build_moment_series,
+    classify_action_mechanism,
     count_moments,
     flow_near_bound_modules,
     goal_id_from_frame,
@@ -160,19 +161,6 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
         "other": 0,
     }
 
-    def _classify_action_mechanism(rationale: Dict[str, Any]) -> str:
-        if rationale.get("explored"):
-            return "explore"
-        if rationale.get("greedy_fallback"):
-            return "greedy_fallback"
-        if rationale.get("continuous"):
-            return "continuous"
-        if rationale.get("goal_id") == 5 or rationale.get("note") == "D5 energy: STAY":
-            return "stay"
-        if rationale.get("best_score") is not None or rationale.get("k_candidates"):
-            return "prediction"
-        return "other"
-
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
         all_errors.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -184,7 +172,7 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             all_dists.append(float(kin["dist"]))
 
         r = dict(getattr(f, "action_rationale", {}) or {})
-        mechanism_counts[_classify_action_mechanism(r)] += 1
+        mechanism_counts[classify_action_mechanism(r)] += 1
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
 
