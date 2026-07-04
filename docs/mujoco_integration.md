@@ -1,122 +1,124 @@
 # MuJoCo Integration
 
-Erasmus can drive physics simulation environments through MuJoCo, enabling cognitive-cycle-controlled robotics tasks.
+PHCA drives physics simulation environments through MuJoCo via gymnasium. As of
+Phase 6/7, **Pendulum-v1** and **Reacher-v5** use true **continuous actions**
+with a prediction-driven MPC selector; **Cartpole** remains discrete.
 
-> **Status:** 🟡 Experimental. All actions discretised. Continuous action support in development.
+> **Status:** Validated on three envs. Opt-in via `requirements-mujoco.txt`.
+> Headless: `export MUJOCO_GL=disabled`.
 
 ---
 
 ## Supported Environments
 
-| Environment | State Dim | Discrete Actions | Action Map |
-|---|---|---|---|
-| `InvertedPendulum-v5` (Cartpole) | 4 | 3 | PUSH_LEFT (-3), STAY (0), PUSH_RIGHT (+3) |
-| `Pendulum-v1` | 3 | 3 | TORQUE_LEFT (-2), STAY (0), TORQUE_RIGHT (+2) |
-| `Reacher-v5` (2-DOF) | ≤ 11 | 5 | MOVE_SW, MOVE_NW, STAY, MOVE_NE, MOVE_SE |
+| Environment | Gym ID | Action space | State dim | Selector |
+|---|---|---|---|---|
+| Cartpole | `InvertedPendulum-v5` | Discrete (3: push L / stay / push R) | 4 | Discrete argmax |
+| Pendulum | `Pendulum-v1` | **Continuous** torque ∈ [-2, 2], dim 1 | 3 | MPC (K=8 samples) |
+| Reacher | `Reacher-v5` | **Continuous** actuator ∈ [-1, 1]², dim 2 | 10 | MPC (K=8 samples) |
+
+100-cycle reference (MLP, D-107): Pendulum ~7 ms mean, error 29.6→0.68; Reacher
+~4.4 ms mean, error 105.7→8.4; Cartpole discrete, 0 violations.
 
 ---
 
 ## Installation
 
 ```bash
-pip install gymnasium[mujoco]
-```
-
-For headless servers (CI, remote training):
-```bash
-export MUJOCO_GL=egl    # GPU headless (requires EGL support)
-# OR
-export MUJOCO_GL=osmesa  # CPU headless (requires libosmesa)
+pip install -r requirements-mujoco.txt
+export MUJOCO_GL=disabled   # headless CI / servers
 ```
 
 ---
 
 ## Usage
 
-### Build a Cognitive Cycle for MuJoCo
-
 ```python
 from phca.core.cycle import CognitiveCycle
 
-# Cartpole (recommended starting point)
+# Continuous Pendulum (prediction-driven MPC)
 cycle = CognitiveCycle.build_for_mujoco(
-    env_name="InvertedPendulum-v5",
+    env_name="Pendulum-v1",
     seed=42,
-    use_mlp=True,       # MLP world model (recommended)
+    use_mlp=True,
 )
-```
 
-MuJoCo environments default to MLP mode with:
-- Lower learning rate (0.05) for smooth continuous targets
-- Higher G' time bound (0.080s) for physics simulation overhead
-- Higher action time bound (0.050s) for MuJoCo step() overhead
-
-### Run Cognitive Cycles
-
-```python
 for i in range(100):
     metrics = cycle.step()
-    if i % 20 == 0:
-        print(f"Cycle {i:3d}: latency={metrics.latency_ms:.0f}ms, "
-              f"error={metrics.prediction_error:.3f}, "
-              f"reward info in env")
 ```
+
+MuJoCo builds use lower learning rate (0.05), higher G′ time bound (0.080s), and
+higher action bound (0.050s) for physics step overhead.
 
 ---
 
 ## Benchmark
 
 ```bash
-# Quick benchmark (100 cycles, Cartpole)
-PYTHONPATH=python python scripts/benchmark_mujoco.py \
-    --env=InvertedPendulum-v5 --cycles=100 --output=logs/cartpole.json
+# Unified benchmark CLI (preferred)
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py \
+  --env pendulum --use-mlp --cycles=100
 
-# Pendulum
-PYTHONPATH=python python scripts/benchmark_mujoco.py \
-    --env=Pendulum-v1 --cycles=100 --output=logs/pendulum.json
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py \
+  --env cartpole --use-mlp --cycles=100
+
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py \
+  --env reacher --use-mlp --cycles=100
+
+# Nightly MuJoCo gate
+make nightly-mujoco
 ```
+
+MuJoCo benchmarks report latency, prediction-error trend, and RBTA violations —
+**not** GridWorld Φ-IQ (no goal_reached metric on physics tasks).
+
+Gate criteria: finite errors, violations < 10%, error improves or late < 1.0.
 
 ---
 
-## How It Works
+## Continuous MPC Action Selection (Phase 6/7)
 
-The `MuJoCoSimpleEnv` wrapper (`phca/environments/mujoco_env.py`) bridges the gymnasium MuJoCo API to Erasmus's `EnvironmentProtocol`:
+For `ContinuousSpace` environments, `_select_continuous_action()` in
+`phca/core/cycle.py`:
 
-1. **Continuous → Discrete**: Each environment's continuous action space is discretised into 3–5 bins
-2. **No grid assumption**: `get_goal_position()` returns `None`, so distance-gain falls back to 0.5 (neutral)
-3. **State normalisation**: Raw MuJoCo observations pass through directly (Phase 1 — running normalisation deferred)
-4. **Observation caching**: `_get_observation()` returns the last observation from `step()` or `reset()`, since MuJoCo only produces observations on `step()`
+1. Sample K=8 candidate actions ~ Uniform(low, high) (A1-capped)
+2. Predict next state for each via G′
+3. Score: `0.4·confidence + 0.5·goal_ref_alignment + 0.1·PGA`
+4. Pick best candidate (ε-greedy exploration)
 
-### Observation Flow
+No reward function, value network, or policy gradient — prediction/goal-driven.
+This path is where **A4 is measured** (see `assumption_validation.py`).
+
+Details: [action_selection.md](action_selection.md).
+
+---
+
+## Observation Flow
 
 ```
 Cycle N:
-  _get_observation() → obs_N    (cached from previous step)
-  sanitize(obs_N) → store in M2
+  _get_observation() → obs_N       (cached from previous step)
+  sanitize(obs_N) → M2
   predict(obs_N) → predicted_N+1
-  select_action(predicted_N+1)
-  env.step(action) → obs_N+1    (new observation)
+  select_action (discrete or MPC)
+  env.step(action) → obs_N+1
   PEU: compare obs_N+1 vs predicted_N+1
   learn(obs_N, action, obs_N+1)
-
-Cycle N+1:
-  _get_observation() → obs_N+1  (cached from env.step)
-  ...
 ```
 
-This is a standard temporal-difference learning setup — predictions are always one step ahead of observations.
+Standard one-step-ahead prediction learning.
 
 ---
 
 ## Limitations
 
-| Limitation | Detail | Workaround |
-|---|---|---|
-| Discrete actions only | 3–5 bins per environment | Finer discretisation possible via custom `_ACTION_MAPS` |
-| No continuous actions | Action dimension discretised to single integer | Phase 4 scope |
-| Limited environment set | Only 3 tested | Add action maps for new gymnasium envs |
-| No observation normalisation | Raw observations pass through | Add `_normalise_observation()` for MLP mode |
-| Cartpole may not balance | ~50ms cycle may be too slow for balancing | Use `--use-mlp --cycles=500` for more learning |
+| Limitation | Detail |
+|---|---|
+| Task success not gated | Benchmarks measure error↓, not pole-upright or reach-target success |
+| Cartpole balancing | ~10–17 ms cycle may be slow for classic balance task |
+| Raw observations | No running normalisation layer (Phase 1 deferral) |
+| Limited env set | 3 envs validated; extending requires `EnvironmentProtocol` hooks |
+| Camera frames | Observability-only; not fed to G′ |
 
 ---
 
@@ -124,36 +126,16 @@ This is a standard temporal-difference learning setup — predictions are always
 
 | Problem | Solution |
 |---|---|
-| `ModuleNotFoundError: No module named 'gymnasium'` | `pip install gymnasium[mujoco]` |
-| `mujoco.FatalError: an OpenGL platform library is not found` | Set `MUJOCO_GL=egl` or `MUJOCO_GL=osmesa` |
-| State dimension mismatch | Always use `build_for_mujoco()` (not `build_for_env()`) for MuJoCo |
-| Predictions are near-zero | Use `use_mlp=True` — discrete G' cannot model continuous observations |
-| Slow cycles (>200ms) | MuJoCo physics sim adds ~1-5ms/step. Increase RBTA bounds |
+| `ModuleNotFoundError: gymnasium` | `pip install -r requirements-mujoco.txt` |
+| OpenGL errors | `MUJOCO_GL=disabled` or `egl` / `osmesa` |
+| State dim mismatch | Use `build_for_mujoco()`, not `build_for_env()` |
+| Near-zero predictions | Use `use_mlp=True` for continuous obs |
 
 ---
 
 ## Related
 
-- [Quickstart Guide](quickstart.md) — General installation and usage
-- [Φ-IQ Metric](phi_iq_metric.md) — Benchmark interpretation
-- [Limitations](limitations.md) — System constraints
-- [Architecture Overview](architecture.md) — Cognitive cycle details
-
----
-
-## Review Notes (Pass 1 — Accuracy)
-- Action maps verified from mujoco_env.py `_ACTION_MAPS` dict.
-- State dims verified from mujoco_integration_plan.md Appendix A.
-- Build parameters verified from cycle.py `build_for_mujoco()` method.
-- Observation flow verified by reading cycle.py `step()` method.
-- Reacher is experimental (no action map for Reacher in current code — only _REACHER_ACTIONS fallback).
-
-## Review Notes (Pass 2 — Clarity)
-- Each environment has clear state dim and action count.
-- Observation flow diagram explains the TD learning setup.
-- Troubleshooting table covers all known issues.
-
-## Review Notes (Pass 3 — Completeness)
-- Covers: supported envs, installation, usage, benchmark, how it works, limitations, troubleshooting.
-- Links to all related documentation.
-- Clearly marks MuJoCo as experimental.
+- [action_selection.md](action_selection.md)
+- [architecture.md](architecture.md)
+- [reproducibility.md](reproducibility.md)
+- [limitations.md](limitations.md)

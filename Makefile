@@ -107,7 +107,7 @@ pre-gate-1:
 	@echo "6. Decision log check..."
 	@python3 -c "d = [l.split('##')[1] for l in open('DECISIONS.md') if '## Decision D-' in l]; print(f'   {len(d)} decisions logged:'); [print(f'      {x.strip()}') for x in d]"
 	@echo ""
-	@echo "   P-Stream navigation: python -m phca.benchmarks.runner --level=2 (Phase 3.2)"
+	@echo "   P-Stream navigation: PYTHONPATH=python python scripts/benchmark.py --levels=2 (Phase 3.2+)"
 	@echo "   RBTA enforcement:    pytest tests/test_acceptance.py::test_rbta_detection -v"
 	@echo "   Code coverage:       pytest python/ --cov=python/phca/ --cov-report=term"
 	@echo ""
@@ -145,7 +145,7 @@ nightly: nightly-mujoco
 	    python scripts/nightly_stress.py --output=logs/nightly_stress.json
 	@echo "[6/6] Causal behavior gate (level2+level3, 200cyc × 5 seeds)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
-	    --levels level2,level3 --cycles 200 --seeds 5 --gate \
+	    --levels level2,level3 --cycles 200 --seeds 5 --use-mlp --gate \
 	    --output logs/phca_causal_eval_nightly.json
 	@echo "============================================"
 	@echo "  Nightly hardening: ALL PASS"

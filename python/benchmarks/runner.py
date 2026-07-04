@@ -1,6 +1,10 @@
 """
 PHCA v3.0 — Φ-IQ Benchmark Suite Runner.
 
+DEPRECATED (AD-3): Use ``scripts/benchmark.py`` as the canonical entry point.
+This module remains for backward compatibility only and may drift from the
+primary script.
+
 CLI for running benchmark levels 0-3.
 Implements the Φ-Intelligence composite metric and multi-level benchmark suite
 from the Phase 3.3 specification, ported from scripts/benchmark.py.
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import json
 import sys
+import warnings
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -520,6 +525,12 @@ def run_all_levels(
 
 
 if __name__ == "__main__":
+    warnings.warn(
+        "python -m phca.benchmarks.runner is deprecated; use "
+        "PYTHONPATH=python python scripts/benchmark.py instead (AD-3).",
+        DeprecationWarning,
+        stacklevel=1,
+    )
     import argparse
     parser = argparse.ArgumentParser(description="PHCA Φ-IQ Benchmark Runner")
     parser.add_argument("--level", type=int, default=0, help="Benchmark level (0-3)")

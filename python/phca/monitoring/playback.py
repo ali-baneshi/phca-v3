@@ -172,6 +172,7 @@ class PlaybackClock:
         self.on_update: Optional[Callable] = None
         self.on_end: Optional[Callable] = None
         self._last_emitted: Optional[int] = None
+        self.review_mode: bool = False
 
     # --- buffer -------------------------------------------------------------
     def push(self, f) -> None:
@@ -278,11 +279,12 @@ class PlaybackClock:
             rebuild = False
         else:
             rebuild = i != self._last_emitted + 1
-        lo = max(0, i - 200)
-        rolling = self._frames[lo:i + 1] if rebuild else None
-        if rolling is not None and len(rolling) > 2000:
-            from phca.monitoring.cognitive_panels import decimate_frames_for_history
-            rolling = decimate_frames_for_history(rolling, 2000)
+        if rebuild:
+            from phca.monitoring.cognitive_panels import rolling_prefix
+            rolling = rolling_prefix(
+                self._frames, i, review_mode=self.review_mode)
+        else:
+            rolling = None
         try:
             self.on_update(f, rolling, self.error)
             self._last_emitted = i

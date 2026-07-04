@@ -1,0 +1,46 @@
+name: PHCA Nightly Hardening
+
+on:
+  schedule:
+    # Daily at 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install -r requirements-mujoco.txt
+
+      - name: Run nightly hardening suite
+        env:
+          MUJOCO_GL: disabled
+        run: make nightly NIGHTLY_CYCLES=10000
+
+      - name: Upload nightly artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-logs
+          path: |
+            logs/nightly_static.json
+            logs/nightly_stress.json
+            logs/nightly_ood.json
+            logs/nightly_assumptions.json
+            logs/phca_causal_eval_nightly.json
+            logs/nightly_mujoco_pendulum.json
+            logs/nightly_mujoco_cartpole.json
+            logs/nightly_mujoco_reacher.json

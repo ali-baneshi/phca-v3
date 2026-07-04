@@ -314,7 +314,8 @@ This was fixed in gap-closure issue A-001/A-004 (D-036).
 ## Up-to-Date Reference
 
 - See `DECISIONS.md` (D-001 through D-107+) for the complete design decision history.
-- See `docs/phase6_completion_report.md` for the Phase 6 sign-off.
-- See `docs/phase4_gap_closure_report.md` for the Phase 4 gap-closure execution summary.
-- See `docs/phase5_completion_report.md` for the Phase 5 sign-off.
+- See `docs/archive/phase6_completion_report.md` for the Phase 6 sign-off (historical).
+- See `docs/archive/phase4_gap_closure_report.md` for the Phase 4 gap-closure summary.
+- See `docs/archive/phase5_completion_report.md` for the Phase 5 sign-off (historical).
+- See [DOCUMENTATION_MAP.md](../DOCUMENTATION_MAP.md) for living vs archived docs.
 - See `STATUS.md` for the audit progress and issue registry.

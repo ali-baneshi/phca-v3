@@ -48,13 +48,15 @@ Reviewers must check:
 
 ## Monitoring / Observatory changes
 
-Dashboard, replay, and session-report PRs must pass the full monitoring suite (225 tests):
+Dashboard, replay, and session-report PRs must pass the full monitoring suite (**232 tests**):
 
 ```bash
 mkdir -p .tmp
 TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
+
+Test counts: see [STATUS.md](STATUS.md) (**560 total** = 524 core + 36 MuJoCo).
 
 Scrub/rebuild behavior is guarded by `test_playback_store.py` (including 500-frame JSON
 immutability). Replay banner changes need coverage in the relevant `test_*_dashboard.py` module.

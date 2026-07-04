@@ -534,7 +534,7 @@ def print_report(report: BenchmarkReport) -> None:
     print(f"{'='*60}\n")
 
 
-def save_report(report: BenchmarkReport, path: str) -> None:
+def save_report(report: BenchmarkReport, path: str, multi_seed: Optional[Dict[str, Any]] = None) -> None:
     """Save benchmark report to JSON."""
     data = {
         "config": asdict(report.config),
@@ -544,9 +544,79 @@ def save_report(report: BenchmarkReport, path: str) -> None:
         "duration_s": report.duration_s,
         "pass_criteria": report.pass_criteria,
     }
+    if multi_seed is not None:
+        data["multi_seed"] = multi_seed
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(data, indent=2, default=str))
     print(f"Report saved to {path}")
+
+
+def run_multiseed(
+    levels: List[int],
+    config: BenchmarkConfig,
+    n_seeds: int,
+) -> Tuple[BenchmarkReport, Dict[str, Any]]:
+    """Run benchmark across multiple seeds; return last report + aggregate stats."""
+    base_seed = config.seed
+    overall_scores: List[float] = []
+    per_level: Dict[int, List[float]] = {level: [] for level in levels}
+    last_report: Optional[BenchmarkReport] = None
+
+    for i in range(n_seeds):
+        seed = base_seed + i
+        run_config = BenchmarkConfig(
+            n_cycles=config.n_cycles,
+            warmup=config.warmup,
+            seed=seed,
+            grid_size=config.grid_size,
+            use_continuous=config.use_continuous,
+            use_mlp=config.use_mlp,
+            diagnose_level=config.diagnose_level,
+            dynamic_goals=config.dynamic_goals,
+            dynamic_goals_every=config.dynamic_goals_every,
+            weights=config.weights.copy(),
+        )
+        print(f"\n{'#'*60}\n  Seed {seed} ({i + 1}/{n_seeds})\n{'#'*60}")
+        runner = BenchmarkRunner(run_config)
+        report = runner.run_all(levels)
+        last_report = report
+        overall_scores.append(report.overall_phi_iq)
+        for r in report.results:
+            per_level[r.level].append(r.phi_iq)
+
+    assert last_report is not None
+    level_stats = {
+        str(level): {
+            "mean": float(np.mean(scores)),
+            "std": float(np.std(scores)) if len(scores) > 1 else 0.0,
+            "min": float(np.min(scores)),
+            "max": float(np.max(scores)),
+            "n": len(scores),
+            "values": scores,
+        }
+        for level, scores in per_level.items()
+        if scores
+    }
+    multi_seed = {
+        "n_seeds": n_seeds,
+        "base_seed": base_seed,
+        "overall_phi_iq": {
+            "mean": float(np.mean(overall_scores)),
+            "std": float(np.std(overall_scores)) if len(overall_scores) > 1 else 0.0,
+            "min": float(np.min(overall_scores)),
+            "max": float(np.max(overall_scores)),
+            "values": overall_scores,
+        },
+        "per_level_phi_iq": level_stats,
+    }
+    print(f"\n{'='*60}")
+    print(f"  Multi-seed summary ({n_seeds} seeds, base={base_seed})")
+    print(f"  Overall Φ-IQ: {multi_seed['overall_phi_iq']['mean']:.4f} "
+          f"± {multi_seed['overall_phi_iq']['std']:.4f}")
+    for level, stats in level_stats.items():
+        print(f"  L{level}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+    print(f"{'='*60}\n")
+    return last_report, multi_seed
 
 
 def _run_mujoco(env_name: str, n_cycles: int, use_mlp: bool, output: str) -> dict:
@@ -623,6 +693,9 @@ def main() -> None:
                         help="L2 curriculum: static goal, then relocate every --dynamic-goals-every cycles")
     parser.add_argument("--dynamic-goals-every", type=int, default=100,
                         help="L2 goal-relocation cadence in cycles (default 100; Phase 5 / D-094)")
+    parser.add_argument("--seeds", type=int, default=1,
+                        help="Number of seeds to run (base seed 42, increments by 1). "
+                             "Aggregates mean±std when > 1.")
     args = parser.parse_args()
 
     if args.quick:
@@ -646,12 +719,18 @@ def main() -> None:
                              diagnose_level=args.diagnose_level,
                              dynamic_goals=args.dynamic_goals,
                              dynamic_goals_every=args.dynamic_goals_every)
-    runner = BenchmarkRunner(config)
-    report = runner.run_all(levels)
-    print_report(report)
+    multi_seed_data: Optional[Dict[str, Any]] = None
+    if args.seeds > 1:
+        report, multi_seed_data = run_multiseed(levels, config, args.seeds)
+        print_report(report)
+    else:
+        runner = BenchmarkRunner(config)
+        report = runner.run_all(levels)
+        print_report(report)
 
-    output = args.output or "logs/benchmark_report.json"
-    save_report(report, output)
+    output = args.output or ("logs/benchmark_multiseed.json" if args.seeds > 1
+                             else "logs/benchmark_report.json")
+    save_report(report, output, multi_seed=multi_seed_data)
 
     # Return exit code based on pass/fail
     if not all(report.pass_criteria.values()):

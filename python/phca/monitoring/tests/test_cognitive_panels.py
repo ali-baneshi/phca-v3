@@ -218,6 +218,7 @@ def test_data_contract_all_panels():
     for key in ("overview", "flow", "action", "phase", "retention", "memory", "goals"):
         assert data_contract_text(key, replay=False).startswith("LIVE —")
         assert data_contract_text(key, replay=True).startswith("REPLAY —")
+        assert data_contract_text(key, replay=False, review=True).startswith("REVIEW —")
 
 
 def test_format_early_late():

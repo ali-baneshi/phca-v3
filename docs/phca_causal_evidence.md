@@ -63,10 +63,17 @@ This rule is deliberately not tuned to force a pass.
 
 ## Current Measurement
 
-Command:
+Command (Gaussian G', default):
 
 ```bash
-PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
+PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output logs/phca_causal_eval.json
+```
+
+**Recommended deployment mode** (MLP world model, matches Φ-IQ benchmark):
+
+```bash
+PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --use-mlp --gate \
+  --output logs/phca_causal_eval_mlp.json
 ```
 
 Measured on 2026-07-04 (post P0 gap-closure + L3 coverage fix, D-112):

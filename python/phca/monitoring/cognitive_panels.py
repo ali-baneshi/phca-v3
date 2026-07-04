@@ -429,10 +429,24 @@ DATA_CONTRACT_LIVE: Dict[str, str] = {
     "goals": "drive_levels + active_drive recorded",
 }
 
+DATA_CONTRACT_REVIEW: Dict[str, str] = {
+    "overview": "session complete · scrub prefix 0..cursor · results panel active",
+    "flow": "full-session prefix rebuild on scrub · module_timings from JSONL",
+    "action": "full prefix on scrub · scores/rationale from recorded session",
+    "phase": "belief projection rebuilt from prefix 0..cursor on scrub",
+    "retention": "M3/M4/RSS/latency series aligned to scrub cursor",
+    "rbta": "bound envelope sparklines aligned to scrub cursor",
+    "memory": "belief geography at cursor · M3/M4 lists from recorded frame",
+    "goals": "tanks at cursor · deficit heatmap from prefix 0..cursor",
+}
 
-def data_contract_text(panel_key: str, *, replay: bool) -> str:
+
+def data_contract_text(panel_key: str, *, replay: bool, review: bool = False) -> str:
     """Return the data-contract banner string for a tab panel."""
     key = str(panel_key)
+    if review:
+        body = DATA_CONTRACT_REVIEW.get(key, "")
+        return f"REVIEW — {body}" if body else ""
     if replay:
         body = DATA_CONTRACT_REPLAY.get(key, "")
         return f"REPLAY — {body}" if body else ""
@@ -498,6 +512,29 @@ def decimate_frames_for_history(
     if out and out[-1] is not frames[-1]:
         out.append(frames[-1])
     return out
+
+
+def rolling_prefix(
+    frames: List[Any],
+    cursor: int,
+    *,
+    review_mode: bool = False,
+    window: int = 200,
+    max_points: int = 2000,
+) -> List[Any]:
+    """Return the rolling prefix for scrub/review history rebuild.
+
+    Review mode uses frames[0:cursor+1] (full session prefix).
+    Replay/live scrub uses a trailing window of ``window`` frames.
+    Long prefixes are decimated to ``max_points``."""
+    if not frames:
+        return []
+    i = int(max(0, min(cursor, len(frames) - 1)))
+    lo = 0 if review_mode else max(0, i - window)
+    rolling = frames[lo:i + 1]
+    if len(rolling) > max_points:
+        rolling = decimate_frames_for_history(rolling, max_points)
+    return rolling
 
 
 OBSERVATORY_TAB_LABELS: Tuple[str, ...] = (

@@ -1,5 +1,12 @@
 # PHCA v3.0 — Implementation & Validation Blueprint
 
+> **DOCUMENT STATUS — HISTORICAL / MOSTLY SUPERSEDED**  
+> This blueprint was approved for execution in June 2026 but **many components were
+> removed or deferred** during Phase 3.3 simplification (P-Stream only, no Rust,
+> no VSA ensemble, no M5, Φ-IQ L0–L3 only). Treat this as an **engineering history
+> document**, not a description of the current tree. See
+> [IMPLEMENTATION_STATUS.md](../../IMPLEMENTATION_STATUS.md) for the live matrix.
+
 **Document Type:** Engineering Implementation Plan & Validation Specification  
 **Status:** FINAL — APPROVED FOR EXECUTION  
 **Reference Spec:** PHCA v3.0 Formal Patch & Audit Closure (`09-phca-v3-patch.md`)  

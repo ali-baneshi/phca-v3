@@ -88,7 +88,7 @@
 
 | ID | Issue | Target phase | Owner |
 |----|-------|--------------|-------|
-| AD-3 | Unify benchmark entry points | 4.1 | — |
+| AD-3 | Unify benchmark entry points | 4.1 | **Done** — `runner.py` deprecated; use `scripts/benchmark.py` |
 | AD-4 | M5 procedural memory | 4.3 | — |
 | AD-5 | EnvironmentProtocol goal distance hook | 4.1 | — |
 | SC-2 | Pareto over config vectors | 4.1 | — |

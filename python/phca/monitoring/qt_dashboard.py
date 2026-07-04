@@ -274,6 +274,9 @@ def _phase_layout(w: int, h: int, env_kind: str, is_grid: bool,
     pager_h = 0 if is_grid else 28
     perdim_h = 0 if is_grid else max(120, int(h * 0.38))
     traj_h = max(140, h - perdim_h - pager_h - 8)
+    if not is_grid and h < 500:
+        traj_h = max(60, traj_h)
+        perdim_h = max(100, min(perdim_h, max(h - traj_h - pager_h - 8, 100)))
     show_perdim = not is_grid
     tw = tab_w if tab_w is not None else w
     show_radar = (not is_grid) and tw >= 900
@@ -295,6 +298,8 @@ def _phase_status_line(
     f: ObservabilityFrame,
     *,
     replay: bool = False,
+    review: bool = False,
+    prefix_len: int = 0,
     is_grid: bool = False,
     proj: Optional["BeliefProjection"] = None,
     show_radar: bool = True,
@@ -309,6 +314,8 @@ def _phase_status_line(
     pe = float(getattr(f, "prediction_error", 0.0) or 0.0)
     gk = getattr(f, "gprime_kind", None) or "g′"
     parts = [f"Phase: {mode}", f"err={pe:.2f}", gk]
+    if review and prefix_len > 0:
+        parts.append(f"cycle={int(f.cycle_id)} · prefix={prefix_len}")
     if proj is not None and not is_grid:
         ve = proj.variance_explained()
         if ve is not None:
@@ -1833,20 +1840,24 @@ def _draw_data_contract_banner(
     *,
     replay: bool,
     panel_key: str,
+    review: bool = False,
     y: int = 2,
 ) -> int:
-    """Draw LIVE (muted) or REPLAY (blue) data-contract strip; returns y offset."""
-    text = data_contract_text(panel_key, replay=replay)
+    """Draw LIVE/REVIEW/REPLAY data-contract strip; returns y offset."""
+    text = data_contract_text(panel_key, replay=replay, review=review)
     if not text:
         return 0
-    if replay:
+    if review:
+        p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 1))
+        p.setBrush(QtGui.QColor(155, 89, 182, 40))
+    elif replay:
         p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219), 1))
         p.setBrush(QtGui.QColor(52, 152, 219, 40))
     else:
         p.setPen(QtGui.QPen(QtGui.QColor(90, 90, 100), 1))
         p.setBrush(QtGui.QColor(40, 40, 48, 120))
     p.drawRoundedRect(8, y, w - 16, 14, 3, 3)
-    p.setPen(DIM_COL if not replay else TEXT_COL)
+    p.setPen(TEXT_COL if (review or replay) else DIM_COL)
     p.setFont(_F_AXIS)
     p.drawText(12, y + 11, text)
     return 16
@@ -2688,6 +2699,7 @@ class OverviewAgentView(_BaseCanvas):
         self._moment_series: List[Dict[str, Any]] = []
         self._prev_drive_id: Optional[int] = None
         self._replay: bool = False
+        self._review: bool = False
         self._session_results: Optional[List[str]] = None
         self._review_mode: bool = False
 
@@ -2853,9 +2865,11 @@ class OverviewAgentView(_BaseCanvas):
         self._dirty = True
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.set_state(f, None)
         self._replay = replay
+        if review:
+            self._review_mode = True
         if not histories_done:
             self._conf_hist.append(float(f.prediction_confidence))
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
@@ -3132,7 +3146,8 @@ class OverviewAgentView(_BaseCanvas):
         mind_rect = QtCore.QRect(m, top, mind_w, main_h)
         body_rect = QtCore.QRect(m * 2 + mind_w, top, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="overview")
+        y0 = _draw_data_contract_banner(
+            p, w, replay=self._replay, review=self._review_mode, panel_key="overview")
         if f is not None:
             flags = self._current_moment(f)
             flags = _overview_moment_flags(f, self._err_hist, moment=flags)
@@ -3962,6 +3977,7 @@ class CognitiveFlowView(_BaseCanvas):
         self._link_smooth: Dict[str, _Smoother] = {}
         self._topo_sig: tuple = ()
         self._replay: bool = False
+        self._review: bool = False
         self._moment_series: List[Dict[str, Any]] = []
         self._moment_err_hist: Deque[float] = deque(maxlen=80)
         self._prev_drive_id: Optional[int] = None
@@ -3998,9 +4014,10 @@ class CognitiveFlowView(_BaseCanvas):
                 pass
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         self.cycle_id = int(f.cycle_id)
         if not histories_done:
             self.heat.append(dict(f.module_timings))
@@ -4051,7 +4068,7 @@ class CognitiveFlowView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   panel_key="flow", y=y)
+                                   review=self._review, panel_key="flow", y=y)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -4480,6 +4497,7 @@ class CandidateScoreView(_BaseCanvas):
         self._rank_names: List[str] = []
         self._rank_pareto: set = set()
         self._replay: bool = False
+        self._review: bool = False
         self._last_scores_cycle: int = -1
         self._rollout_cache = _RolloutCloudCache()
         self._moment_series: List[Dict[str, Any]] = []
@@ -4533,9 +4551,10 @@ class CandidateScoreView(_BaseCanvas):
         self._score_scale.reset()
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         r = f.action_rationale or {}
         if not histories_done:
             if r:
@@ -4685,7 +4704,7 @@ class CandidateScoreView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   panel_key="action")
+                                   review=self._review, panel_key="action")
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -4956,6 +4975,7 @@ class TrajectoryView(_BaseCanvas):
         self.frame: Optional[ObservabilityFrame] = None
         self.proj: Optional[BeliefProjection] = None
         self._replay: bool = False
+        self._review: bool = False
         self._low_conf: bool = False
         self._rollout_cache = _RolloutCloudCache()
         self._last_cycle_id: int = -1
@@ -4963,6 +4983,7 @@ class TrajectoryView(_BaseCanvas):
         self._moment_series: List[Dict[str, Any]] = []
         self._prev_drive_id: Optional[int] = None
         self._prev_best_score: Optional[float] = None
+        self._prefix_len: int = 0
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
@@ -5026,13 +5047,14 @@ class TrajectoryView(_BaseCanvas):
             self._prev_best_score = _best_score(frames[-1])
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         cid = int(getattr(f, "cycle_id", -1))
         if cid != self._last_cycle_id:
             self._clear_rollout_cache()
             self._last_cycle_id = cid
         self.frame = f
         self._replay = replay
+        self._review = review
         if f.grid is not None and f.agent_pos is not None:
             if not histories_done:
                 self._apply_grid_frame(f)
@@ -5103,7 +5125,7 @@ class TrajectoryView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   panel_key="phase", y=y)
+                                   review=self._review, panel_key="phase", y=y)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5111,9 +5133,11 @@ class TrajectoryView(_BaseCanvas):
         if f is None:
             self._empty(p, "Phase space…"); return
         lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", self.is_grid)
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="phase")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
+                                        panel_key="phase")
         status = _phase_status_line(
-            f, replay=self._replay, is_grid=self.is_grid, proj=self.proj,
+            f, replay=self._replay, review=self._review, prefix_len=self._prefix_len,
+            is_grid=self.is_grid, proj=self.proj,
             show_radar=lay["show_radar"])
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 26 + y0, status)
@@ -5279,6 +5303,7 @@ class DriveRadarView(_BaseCanvas):
         self._active: int = 0
         self.frame: Optional[ObservabilityFrame] = None
         self._replay: bool = False
+        self._review: bool = False
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.hist.clear()
@@ -5288,9 +5313,10 @@ class DriveRadarView(_BaseCanvas):
                 self.hist.append([float(x) for x in lv])
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         if not histories_done:
             lv = list(f.drive_levels or [])
             if lv:
@@ -5457,6 +5483,7 @@ class _PhasePortraitView(_BaseCanvas):
         self._offender_t: float = 0.0
         self._offender_errs: Optional[np.ndarray] = None
         self._replay: bool = False
+        self._review: bool = False
         self._ref_prefer_goal: bool = False
         self._moment_series: List[Dict[str, Any]] = []
         self._ref_chip_rect: Optional[QtCore.QRect] = None
@@ -5514,9 +5541,10 @@ class _PhasePortraitView(_BaseCanvas):
                             self.page = self._offenders[0] // self.page_size
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         if not histories_done:
             self._append_trends(f)
         self._dirty = True
@@ -5751,7 +5779,9 @@ class RetentionView(_BaseCanvas):
         self._leak_smooth = _Smoother(0.08)
         self.frame: Optional[ObservabilityFrame] = None
         self._replay: bool = False
+        self._review: bool = False
         self._mech_frames: List[ObservabilityFrame] = []
+        self._prefix_len: int = 0
 
     def _mechanism_line(self) -> str:
         if not self._mech_frames:
@@ -5762,7 +5792,10 @@ class RetentionView(_BaseCanvas):
         if not top:
             return ""
         parts = [f"{k} {v}%" for k, v in top]
-        return f"mechanism (last {len(self._mech_frames)}): " + " · ".join(parts)
+        line = f"mechanism (last {len(self._mech_frames)}): " + " · ".join(parts)
+        if self._review and self.frame is not None:
+            line += f" · through cycle {int(self.frame.cycle_id)}"
+        return line
 
     def _sync_mechanism_window(self, frames: List[ObservabilityFrame]) -> None:
         self._mech_frames = list(frames[-256:])
@@ -5807,9 +5840,10 @@ class RetentionView(_BaseCanvas):
         self._dirty = True
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         if histories_done:
             self._dirty = True
             return
@@ -5856,21 +5890,23 @@ class RetentionView(_BaseCanvas):
         w, h = self.width(), self.height()
         if not self.m3:
             self._empty(p, "Retention…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="retention")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
+                                        panel_key="retention")
         leak = self._leak_smooth.value(self._leak_rate())
-        # v7 focal: "inside envelope?" gauge across M3/M4/RSS/latency vs caps/bounds
         env_ok, env_seg = self._envelope_status()
-        self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=15 + y0)
         mech = self._mechanism_line()
+        row_y = 14 + y0
         if mech:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(10, 28 + y0, mech)
-        self._envelope_gauge(p, 10, 34 + y0, w - 20, 46, env_seg, env_ok)
-        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend", y=86 + y0)
-        # v8: demoted the triplicate M3/M4/resources panels to ONE RSS+lat
-        # sparkline (the envelope gauge already shows M3/M4 engagement; prune
-        # events are covered by the violation table + envelope segments).
-        self._resources_panel(p, 96 + y0, h - 8)
+            p.drawText(10, row_y, mech)
+            row_y += 14
+        self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=row_y)
+        gauge_y = row_y + 18
+        self._envelope_gauge(p, 10, gauge_y, w - 20, 46, env_seg, env_ok)
+        caption_y = gauge_y + 52
+        self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend",
+                      y=caption_y)
+        self._resources_panel(p, caption_y + 10, h - 8)
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -6107,6 +6143,7 @@ class RBTABoundsView(_BaseCanvas):
         self._hist: Dict[str, Deque[float]] = {}
         self._smooth: Dict[str, _Smoother] = {}
         self._replay: bool = False
+        self._review: bool = False
 
     def _measured(self, f: ObservabilityFrame, flow: str, btype: str) -> float:
         if btype == "time":
@@ -6143,9 +6180,10 @@ class RBTABoundsView(_BaseCanvas):
         self._dirty = True
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
         if not histories_done:
             self._append_bounds_sample(f)
         self._dirty = True
@@ -6155,7 +6193,8 @@ class RBTABoundsView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "RBTA bounds…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="rbta")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
+                                        panel_key="rbta")
         bounds = getattr(f, "rbta_bounds", None) or {}
         btypes = [("time", "B_time (ms)", QtGui.QColor(52, 152, 219)),
                   ("mem", "B_mem (B)", QtGui.QColor(155, 89, 182)),
@@ -6249,10 +6288,29 @@ class MemoryBeliefView(_BaseCanvas):
         self._m4_cache: List[dict] = []
         self._diff_smooth = _Smoother(0.2)
         self._replay: bool = False
+        self._review: bool = False
 
-    def set_frame(self, f: ObservabilityFrame, *, replay: bool = False) -> None:
+    def _diff_max(self, f: ObservabilityFrame) -> Optional[float]:
+        raw = f.obs_vector
+        san = f.sanitized_state
+        if raw is None or san is None:
+            return None
+        raw = np.asarray(raw, dtype=np.float32).reshape(-1)
+        san = np.asarray(san, dtype=np.float32).reshape(-1)
+        d = min(len(raw), len(san))
+        if d == 0:
+            return None
+        return float(np.abs(san[:d] - raw[:d]).max())
+
+    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
+                  replay: bool = False, review: bool = False) -> None:
         self.frame = f
         self._replay = replay
+        self._review = review
+        if not histories_done:
+            mx = self._diff_max(f)
+            if mx is not None:
+                self._diff_smooth.value(mx)
         self._dirty = True
 
     def _memory_live_empty(self, f: ObservabilityFrame) -> bool:
@@ -6266,6 +6324,10 @@ class MemoryBeliefView(_BaseCanvas):
         self._m3_cache = []
         self._m4_cache = []
         self._diff_smooth.reset()
+        for f in frames:
+            mx = self._diff_max(f)
+            if mx is not None:
+                self._diff_smooth.value(mx)
         if frames:
             self.frame = frames[-1]
         self._dirty = True
@@ -6275,7 +6337,8 @@ class MemoryBeliefView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Memory & belief…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="memory")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
+                                        panel_key="memory")
         # ---- v7 focal: belief geography map (full width, top) ----
         self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
         self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
@@ -6519,8 +6582,8 @@ class GoalsMotivationView(_BaseCanvas):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.drive_hist: Deque[List[float]] = deque(maxlen=120)
-        self.goal_hist: Deque[int] = deque(maxlen=120)
+        self.drive_hist: Deque[List[float]] = deque(maxlen=TREND_WINDOW)
+        self.goal_hist: Deque[int] = deque(maxlen=TREND_WINDOW)
         self.temp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         self.emp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         # v7: EMA-smoothed per-drive deficit + snapped trend scales.
@@ -6528,6 +6591,8 @@ class GoalsMotivationView(_BaseCanvas):
         self._temp_scale = ScaleState(contract=0.05, head=0.06)
         self._emp_scale = ScaleState(contract=0.05, head=0.06)
         self._replay: bool = False
+        self._review: bool = False
+        self._prefix_len: int = 0
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.drive_hist.clear()
@@ -6546,8 +6611,9 @@ class GoalsMotivationView(_BaseCanvas):
             self._def_smooth.append(_Smoother(0.2))
 
     def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False) -> None:
+                  replay: bool = False, review: bool = False) -> None:
         self._replay = replay
+        self._review = review
         if not histories_done:
             if f.drive_deficits is not None:
                 defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
@@ -6572,7 +6638,8 @@ class GoalsMotivationView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Goals & motivation…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, panel_key="goals")
+        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
+                                        panel_key="goals")
         levels = f.drive_levels or []
         targets = f.drive_targets or []
         nd = _n_drives(f, list(levels))
@@ -6582,7 +6649,7 @@ class GoalsMotivationView(_BaseCanvas):
         pareto = {int(x) for x in (getattr(f, "pareto_front", None) or [])}
         active = int(getattr(f, "active_drive_id", 0) or 0)
         # ---- v7 focal: homeostasis tanks (top, full width) ----
-        tank_h = h // 3
+        tank_h = max(h // 3, 80)
         self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active",
                     x=8, y=14 + y0)
         self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint",
@@ -6590,20 +6657,28 @@ class GoalsMotivationView(_BaseCanvas):
         self._tanks(p, levels, targets, defs, pareto, active, 8, 32, w - 16, tank_h)
         # ---- bottom-left: goal stack tree + goal_history step-strip ----
         by = tank_h + 40
-        lw = w // 2 - 8
+        lw = max(w // 2 - 8, 120)
         self._title(p, "Goal stack (tree, deepest active first)", x=8, y=by)
         stack = getattr(f, "goal_stack", None) or []
         gy = by + 12
         gy = self._goal_tree(p, stack, 8, gy, lw)
-        # goal_history step-strip under the stack
         self._goal_history_strip(p, 8, gy + 6, lw, 26)
         # ---- bottom-right: drive_goals radial inset + heatmap + trends ----
         rx = lw + 16
-        rw = w - rx - 8
-        self._drive_goals_inset(p, f, rx, by, 130, 130)
+        rw = max(w - rx - 8, 160)
+        heatmap_w = max(80, rw - 140)
+        heatmap_h = max(48, h // 4)
+        self._drive_goals_inset(p, f, rx, by, min(130, rw), min(130, heatmap_h + 80))
         self._title(p, "Drive deficit history heatmap", x=rx + 140, y=by)
-        self._heatmap(p, rx + 140, by + 12, rw - 140, h // 4)
-        self._trend_pair(p, rx, by + h // 4 + 24, rw, h - by - h // 4 - 30)
+        self._heatmap(p, rx + 140, by + 12, heatmap_w, heatmap_h)
+        trend_y = by + heatmap_h + 24
+        trend_h = max(48, h - trend_y - 8)
+        if trend_h >= 48:
+            self._trend_pair(p, rx, trend_y, rw, trend_h)
+        if self._review and self._prefix_len > 0:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(rx + 140, by + heatmap_h + 22,
+                       f"cycle {int(f.cycle_id)} · {self._prefix_len} prefix samples")
 
     def _tanks(self, p, levels, targets, defs, pareto, active, x, y, w, h) -> None:
         """v7 focal: vertical homeostasis tanks (dim-agnostic N drives)."""
@@ -6949,6 +7024,29 @@ class DashboardController:
         self._last_rolling: Optional[List[ObservabilityFrame]] = None
         self._pending_tab_rebuilds: set = set()
 
+    def _contract_flags(self) -> Tuple[bool, bool]:
+        review = bool(getattr(self.w, "_review_mode", False))
+        transport = getattr(self.w, "_transport", None)
+        clock = getattr(transport, "clock", None) if transport else None
+        replay = bool(clock is not None and clock.mode == "replay" and not review)
+        return review, replay
+
+    def _repaint_visible_tab(self) -> None:
+        tab = self.w._tabs.currentWidget()
+        if tab is None:
+            return
+        for cv in tab.findChildren(_BaseCanvas):
+            try:
+                cv.repaint_if_dirty()
+            except Exception:
+                pass
+
+    def _set_prefix_len(self, prefix_len: int) -> None:
+        for attr in ("traj", "retention", "goals"):
+            view = getattr(self.w, attr, None)
+            if view is not None:
+                setattr(view, "_prefix_len", int(prefix_len))
+
     def on_tab_changed(self, tab_idx: int) -> None:
         """Lazy rebuild: finish history rebuild when user switches to a tab."""
         if tab_idx not in self._pending_tab_rebuilds or not self._last_rolling:
@@ -7002,26 +7100,23 @@ class DashboardController:
         if not rolling:
             return
         f = rolling[-1]
-        replay = bool(
-            getattr(self.w, "_transport", None) is not None
-            and getattr(self.w._transport, "clock", None) is not None
-            and self.w._transport.clock.mode == "replay"
-        )
-        self.w.overview.set_frame(f, histories_done=True, replay=replay)
-        self.w.flow.set_frame(f, histories_done=True, replay=replay)
-        self.w.cand.set_frame(f, histories_done=True, replay=replay)
+        review, replay = self._contract_flags()
+        self._set_prefix_len(len(rolling))
+        self.w.overview.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.flow.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.cand.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w._last_frame = f
         self.w._apply_phase_layout(f)
-        self.w.traj.set_frame(f, histories_done=True, replay=replay)
-        self.w.radar.set_frame(f, histories_done=True, replay=replay)
-        self.w.perdim.set_frame(f, histories_done=True, replay=replay)
+        self.w.traj.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.radar.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.perdim.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w.dim_selector.refresh()
-        self.w.retention.set_frame(f, histories_done=True, replay=replay)
-        self.w.rbta_bounds.set_frame(f, histories_done=True, replay=replay)
+        self.w.retention.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.rbta_bounds.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w.viol.rebuild_from_frames(rolling)
         self.w._viol_summary.setText(self.w.viol.summary())
-        self.w.memory.set_frame(f, replay=replay)
-        self.w.goals.set_frame(f, histories_done=True, replay=replay)
+        self.w.memory.set_frame(f, histories_done=True, replay=replay, review=review)
+        self.w.goals.set_frame(f, histories_done=True, replay=replay, review=review)
 
     def _update_tab_badges(self, flags: Dict[str, Any]) -> None:
         badge = moment_tab_badge(flags)
@@ -7048,6 +7143,16 @@ class DashboardController:
             if rolling:
                 if len(rolling) > 2000:
                     rolling = decimate_frames_for_history(rolling, 2000)
+                if self.w._review_mode:
+                    self.rebuild_all_histories(rolling)
+                    review, replay = self._contract_flags()
+                    flags = _overview_moment_flags(f, deque())
+                    self._update_tab_badges(flags)
+                    title = (f"PHCA Cognitive Observatory — review cycle {f.cycle_id}"
+                             if review else f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
+                    self.w.setWindowTitle(title)
+                    self._repaint_visible_tab()
+                    return
                 tab_idx = self.w._tabs.currentIndex()
                 self._rebuild_tab_histories(rolling, tab_idx)
                 all_tabs = set(range(len(self.w._tab_base_labels)))
@@ -7060,29 +7165,27 @@ class DashboardController:
                 self._pending_tab_rebuilds.clear()
                 self._last_rolling = None
             histories_done = bool(rolling)
-            replay = bool(
-                getattr(self.w, "_transport", None) is not None
-                and getattr(self.w._transport, "clock", None) is not None
-                and self.w._transport.clock.mode == "replay"
-            )
+            review, replay = self._contract_flags()
+            if rolling:
+                self._set_prefix_len(len(rolling))
             flags = _overview_moment_flags(f, deque())
             self._update_tab_badges(flags)
-            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay)
-            self.w.flow.set_frame(f, histories_done=histories_done, replay=replay)
-            self.w.cand.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.flow.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.cand.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w._last_frame = f
             self.w._apply_phase_layout(f)
-            self.w.traj.set_frame(f, histories_done=histories_done, replay=replay)
-            self.w.radar.set_frame(f, histories_done=histories_done, replay=replay)
-            self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.traj.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.radar.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w.dim_selector.refresh()
-            self.w.retention.set_frame(f, histories_done=histories_done, replay=replay)
-            self.w.rbta_bounds.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.retention.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.rbta_bounds.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             if not histories_done:
                 self.w.viol.add_frame(f)
             self.w._viol_summary.setText(self.w.viol.summary())
-            self.w.memory.set_frame(f, replay=replay)
-            self.w.goals.set_frame(f, histories_done=histories_done, replay=replay)
+            self.w.memory.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            self.w.goals.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
         else:
             self.w.overview.set_state(None, cycle_error)
@@ -7286,6 +7389,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
             "PHCA Cognitive Observatory — review (close window to exit)")
         transport = self._transport
         if transport is not None and getattr(transport, "clock", None) is not None:
+            transport.clock.review_mode = True
             transport.clock.follow_live()
             transport.clock.set_paused(True)
             transport.play_btn.setChecked(True)

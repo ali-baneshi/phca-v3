@@ -4,6 +4,11 @@
 
 This repository contains a rigorous, first-principles investigation into the foundations of artificial intelligence systems beyond LLM-based architectures. It is designed to serve as a structured knowledge foundation for a future intelligence architecture (Phase 2+).
 
+> **Note:** This tree is **Phase 1 theory only** (no executable code). The running
+> PHCA implementation lives in `python/phca/`. See
+> [DOCUMENTATION_MAP.md](../DOCUMENTATION_MAP.md) and
+> [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for the code ↔ spec mapping.
+
 ## File Structure
 
 ```

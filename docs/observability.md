@@ -52,7 +52,7 @@ for CI auto-close.
 ## Dashboard coordination (Phase 10)
 
 - **Session status strip** — env, `env_kind`, camera mode, cycle/lag, schema, JSONL count.
-- **LIVE / REPLAY data-contract banners** — shared strings in `cognitive_panels.py`.
+- **LIVE / REPLAY / REVIEW data-contract banners** — shared strings in `cognitive_panels.py`.
 - **Cross-tab moment badges** — tab titles suffix `• SPIKE` / `VIOL` / `DECISION` when active.
 - **Mechanism rollup** — Retention tab rolling 256-cycle histogram (parity with `session_report`).
 - **Overview session results** — post-run panel from `session_report.json` with optional `--compare-report` and `--benchmark-report`.
@@ -106,7 +106,9 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 | **live** | `push()` appends frames | Cursor catches tail at `speed`; `follow_live()` re-attaches to newest |
 | **replay** | `set_frames()` fixed list | Linear advance at `speed` frames per heartbeat |
 
-**Seek / jump:** `seek(i)` sets `scrubbing=True` and emits with `force_rebuild=True`. The controller passes a rolling prefix `frames[max(0, i-200) : i+1]` (up to 201 frames) to every panel's `rebuild_histories()`.
+**Seek / jump (JSONL replay):** `seek(i)` sets `scrubbing=True` and emits with `force_rebuild=True`. The controller passes a rolling prefix `frames[max(0, i-200) : i+1]` (up to 201 frames) to the visible tab's `rebuild_histories()`; other tabs rebuild lazily on tab switch.
+
+**Seek / jump (post-run review):** when `ObservatoryWindow._review_mode` and `PlaybackClock.review_mode` are set, scrub uses the full prefix `frames[0 : i+1]` (decimated to 2000 points) and `DashboardController.rebuild_all_histories()` refreshes **all seven tabs** on every seek so Phase Space, Retention, Memory, and Goals stay coherent.
 
 **Sequential step:** when the cursor advances by exactly one frame, `rebuild=False` — panels append to local history only.
 

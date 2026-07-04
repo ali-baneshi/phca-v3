@@ -118,7 +118,7 @@ Phase 8 delivered seek/scrub replay, panel history rebuild, transport controls, 
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phase 7–8 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, 225 monitoring tests.
+**Phase 7–8 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, replay banners, **232 monitoring tests** (560 total — [STATUS.md](../STATUS.md)).
 
 ---
 

@@ -1,5 +1,12 @@
 # PHCA: A Rigorous Formal Specification for a Bounded, Autonomous Cognitive Architecture
 
+> **DOCUMENT STATUS — ASPIRATIONAL / PARTIAL IMPLEMENTATION**  
+> This whitepaper is the **formal design specification** for PHCA v3.0. The running
+> codebase implements a **simplified subset** (~12 active cognitive-cycle steps).
+> For what is actually built and measured, see
+> [IMPLEMENTATION_STATUS.md](../../IMPLEMENTATION_STATUS.md) and [STATUS.md](../../STATUS.md).
+> Success criteria in §1.3 are **design targets**; not all have corresponding benchmarks.
+
 **Document Type:** Formal Scientific Whitepaper + Recursive Self-Review
 **Status:** PEER-REVIEWED (Internal) — Version 2.0
 **Cross-refs:** All prior outputs [01]–[06]

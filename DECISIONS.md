@@ -985,7 +985,7 @@ Every entry must reference the v3.0 specification section it affects.
 - **Alternatives:** Reduce `train_steps` 8→4 to attack `gprime_learn` directly (rejected — learning-dynamics change with regression risk, deferred to Phase 5); tighten `metrics_history` to 5000 max (rejected — marginal, current cap proven sufficient).
 - **Rationale:** The low-risk optimisations were largely already in place or marginal; the one real lever (`gprime_learn` via `train_steps`) carries learning-dynamics risk and is correctly a Phase 5 item. Empowerment 8→4 is a safe, measurable win. The profile + longrun together confirm A1 holds and identify the Phase 5 optimisation target.
 - **v3.0 trace:** A1 (resource boundedness — latency/RSS bounded), A4 (MLP learning intact).
-- **Tests/Validation:** 322 passed 0 errors; Φ-IQ 0.7333 gate PASS; `logs/benchmark_emp4.json`, `logs/profile.json`, `logs/longrun_probe.json`. Final readiness report: [docs/phase4_readiness_report.md](docs/phase4_readiness_report.md).
+- **Tests/Validation:** 322 passed 0 errors; Φ-IQ 0.7333 gate PASS; `logs/benchmark_emp4.json`, `logs/profile.json`, `logs/longrun_probe.json`. Final readiness report: [docs/archive/phase4_readiness_report.md](docs/archive/phase4_readiness_report.md).
 
 ---
 

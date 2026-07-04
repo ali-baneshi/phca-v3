@@ -49,7 +49,7 @@ make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency
 ```
 
-**Headless Observatory tests** (PyQt offscreen, 225 tests):
+**Headless Observatory tests** (PyQt offscreen, **232 tests** — see [STATUS.md](../STATUS.md)):
 
 ```bash
 mkdir -p .tmp
