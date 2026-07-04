@@ -251,6 +251,9 @@ class ObservabilityFrame:
     """Immutable snapshot of one cognitive cycle's world + mind state."""
     schema_version: int = OBSERVABILITY_SCHEMA_VERSION
     cycle_id: int = 0
+    agent_id: int = 0
+    agent_label: str = ""
+    timeline_step: int = -1  # shared step when aligned; -1 = legacy/single-agent
     # External world
     agent_pos: Optional[Tuple[int, int]] = None
     goal_pos: Optional[Tuple[int, int]] = None
@@ -586,8 +589,15 @@ class ObservabilityFrame:
         m4_relevant = mem.get("m4_relevant", [])
         m4_top = mem.get("m4_top", [])
 
+        agent_id = int(getattr(cycle, "observability_agent_id", 0) or 0)
+        agent_label = str(getattr(cycle, "observability_agent_label", "") or "")
+        timeline_step = int(getattr(cycle, "observability_timeline_step", -1) or -1)
+
         return cls(
             cycle_id=cycle.cycle_count,
+            agent_id=agent_id,
+            agent_label=agent_label,
+            timeline_step=timeline_step,
             agent_pos=tuple(agent_pos) if agent_pos is not None else None,
             goal_pos=tuple(goal_pos) if goal_pos is not None else None,
             grid=grid,
@@ -793,6 +803,12 @@ def normalize_observability_json(obj: Dict[str, Any]) -> Dict[str, Any]:
         )
     out = json.loads(json.dumps(obj))
     out["schema_version"] = version
+    if "agent_id" not in out:
+        out["agent_id"] = 0
+    if "agent_label" not in out:
+        out["agent_label"] = ""
+    if "timeline_step" not in out:
+        out["timeline_step"] = -1
     return out
 
 
@@ -826,12 +842,13 @@ class ObservabilityStore:
                 next(it)
             return [next(it) for _ in range(k)]
 
-    def frames_after(self, cycle_id: int) -> List[ObservabilityFrame]:
-        """Return all retained frames newer than ``cycle_id`` in ring order."""
+    def frames_after(self, cycle_id: int, agent_id: int = 0) -> List[ObservabilityFrame]:
+        """Return retained frames newer than ``cycle_id`` for ``agent_id``."""
         with self._lock:
             return [
                 f for f in self._deque
-                if int(getattr(f, "cycle_id", -1)) > int(cycle_id)
+                if int(getattr(f, "agent_id", 0)) == int(agent_id)
+                and int(getattr(f, "cycle_id", -1)) > int(cycle_id)
             ]
 
     def __len__(self) -> int:
@@ -858,6 +875,42 @@ class SessionRecorder:
         self._count = 0
         self._error: Optional[str] = None
 
+    @staticmethod
+    def _utc_now() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    def _latest_pointer_path(self) -> Path:
+        return self.root / ".latest"
+
+    def _write_latest_pointer(self) -> None:
+        if self.session_dir is None:
+            return
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            self._latest_pointer_path().write_text(str(self.session_dir.resolve()))
+        except Exception:
+            pass
+
+    def _clear_latest_pointer(self) -> None:
+        try:
+            p = self._latest_pointer_path()
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+
+    def _patch_meta(self, patch: Dict[str, Any]) -> None:
+        if self.session_dir is None or not self.enabled:
+            return
+        meta_p = self.session_dir / "meta.json"
+        try:
+            meta = json.loads(meta_p.read_text()) if meta_p.exists() else {}
+            meta.update(patch)
+            meta_p.write_text(json.dumps(meta, indent=2))
+        except Exception:
+            pass
+
     def start(self, meta: Dict[str, Any]) -> Optional[Path]:
         if not self.enabled:
             return None
@@ -869,9 +922,12 @@ class SessionRecorder:
             **meta,
             "fps": self.fps,
             "observability_schema_version": OBSERVABILITY_SCHEMA_VERSION,
+            "status": "running",
+            "started_at": self._utc_now(),
         }
         (self.session_dir / "meta.json").write_text(json.dumps(meta, indent=2))
         self._jsonl = open(self.session_dir / "timeseries.jsonl", "w", encoding="utf-8")
+        self._write_latest_pointer()
         return self.session_dir
 
     def record(self, frame: ObservabilityFrame, fig: Any = None) -> None:
@@ -901,22 +957,42 @@ class SessionRecorder:
     def error(self) -> Optional[str]:
         return self._error
 
-    def close(self) -> None:
+    def _finalize_jsonl(self) -> None:
         if self._jsonl is not None:
             try:
                 self._jsonl.close()
             except Exception:
                 pass
             self._jsonl = None
+
+    def close(self) -> None:
+        self.flush()
+        self._finalize_jsonl()
         if self.session_dir is not None and self.enabled:
-            meta_p = self.session_dir / "meta.json"
-            try:
-                if meta_p.exists():
-                    meta = json.loads(meta_p.read_text())
-                    meta["recorded_cycles"] = self._count
-                    meta_p.write_text(json.dumps(meta, indent=2))
-            except Exception:
-                pass
+            self._patch_meta({
+                "status": "complete",
+                "recorded_cycles": self._count,
+                "closed_at": self._utc_now(),
+            })
+            self._clear_latest_pointer()
+
+    def abort(self, reason: str = "abnormal") -> None:
+        """Best-effort finalize after crash or early exit (main thread only)."""
+        self.flush()
+        self._finalize_jsonl()
+        if self.session_dir is None or not self.enabled:
+            return
+        if self._count > 0:
+            status = "incomplete"
+        else:
+            status = "empty"
+        self._patch_meta({
+            "status": status,
+            "recorded_cycles": self._count,
+            "closed_at": self._utc_now(),
+            "recovery_reason": reason,
+        })
+        self._clear_latest_pointer()
 
 
 class VideoRecorder:

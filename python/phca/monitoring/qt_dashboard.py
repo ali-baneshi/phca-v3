@@ -69,8 +69,37 @@ from .cognitive_panels import (
 )
 from phca.monitoring.observability import OBSERVABILITY_SCHEMA_VERSION
 from phca.monitoring.action_explain import build_explain_chain
+from phca.monitoring.belief_projection import (
+    BeliefProjection,
+    ScaleState,
+    _AUTOSCALE_FROZEN,
+    set_autoscale_frozen,
+)
+from phca.monitoring.overview_narrative import (
+    TREND_WINDOW,
+    _OVERVIEW_PHASE_STEPS,
+    _action_score_margin,
+    _action_status_line,
+    _flow_bottleneck_key,
+    _flow_pipe_ms,
+    _flow_status_line,
+    _overview_evidence_line,
+    _overview_goal_id,
+    _overview_goal_intent_line,
+    _overview_moment_flags,
+    _overview_new_events,
+    _overview_outcome_line,
+    _overview_phase_ms,
+    _overview_spike,
+    _phase_frame_is_grid,
+    _phase_ms,
+    _phase_status_line,
+    _reacher_kinematics_from_obs,
+)
 
 from PyQt5 import QtWidgets, QtCore, QtGui
+
+_apply_decision_shift = apply_decision_shift
 
 # ----- shared constants ------------------------------------------------------
 
@@ -83,7 +112,6 @@ DRIVE_COLORS = {
     1: "#d62728", 2: "#ff7f0e", 3: "#2ca02c", 4: "#9467bd",
     5: "#1f77b4", 6: "#17becf",
 }
-TREND_WINDOW = 200
 PIPELINE = ["sanitize", "memory_write", "prediction", "peu", "tspl",
             "action_selection", "rbta"]
 SIDE_MODULES = ["gprime_learn", "mdim", "attn", "hpm", "cr", "consolidation"]
@@ -94,61 +122,12 @@ GRID_ACTIONS = ["MOVE_N", "MOVE_S", "MOVE_E", "MOVE_W", "STAY"]
 _FLOW_ALL_MODULES = PIPELINE + SIDE_MODULES
 
 # Real execution order (matches cycle.py and Overview phase strip).
-EXECUTION_PHASE_STEPS = (
-    ("prediction", "Predict"),
-    ("action_selection", "Act"),
-    ("peu", "Error"),
-    ("gprime_learn", "Learn"),
-    (("mdim", "tspl"), "Decide"),
-    ("rbta", "Safe"),
-)
+EXECUTION_PHASE_STEPS = _OVERVIEW_PHASE_STEPS
 
 
 def _flow_bound_for(mod: str, bounds: dict) -> Optional[float]:
     """RBTA time bound in seconds (legacy alias)."""
     return rbta_bound_for_module(mod, bounds)
-
-
-def _flow_pipe_ms(f: ObservabilityFrame) -> float:
-    timings = dict(getattr(f, "module_timings", {}) or {})
-    return sum(float(timings.get(m, 0.0) or 0.0) for m in PIPELINE)
-
-
-def _flow_bottleneck_key(f: ObservabilityFrame) -> str:
-    timings = dict(getattr(f, "module_timings", {}) or {})
-    if not timings:
-        return ""
-    best = max(_FLOW_ALL_MODULES, key=lambda m: float(timings.get(m, 0.0) or 0.0))
-    return best if float(timings.get(best, 0.0) or 0.0) > 0 else ""
-
-
-def _flow_status_line(f: ObservabilityFrame, *, active_idx: Optional[int] = None) -> str:
-    """One-line Flow tab status from module_timings + RBTA fields."""
-    timings = dict(getattr(f, "module_timings", {}) or {})
-    bn_key = _flow_bottleneck_key(f)
-    bn_lbl = PIPELINE_LABEL.get(bn_key, bn_key) if bn_key else "—"
-    pipe_ms = _flow_pipe_ms(f)
-    vcount = int(getattr(f, "violations_count", 0) or 0)
-    viol_mods: set = set()
-    for v in getattr(f, "rbta_violations", []) or []:
-        mid = RBTA_TO_FLOW.get(v.get("module_id", v.get("module", "")),
-                               v.get("module_id", v.get("module", "")))
-        if mid:
-            viol_mods.add(PIPELINE_LABEL.get(mid, mid))
-    if active_idx is not None and 0 <= active_idx < len(PIPELINE):
-        active_lbl = PIPELINE_LABEL.get(PIPELINE[active_idx], PIPELINE[active_idx])
-    elif timings:
-        dom = max(PIPELINE, key=lambda m: float(timings.get(m, 0.0) or 0.0))
-        active_lbl = PIPELINE_LABEL.get(dom, dom)
-    else:
-        active_lbl = "—"
-    viol_s = f"{vcount}V" if vcount else "OK"
-    if viol_mods:
-        viol_s += f" ({','.join(sorted(viol_mods))})"
-    base = (f"Flow: bottleneck={bn_lbl} · Σpipe={pipe_ms:.1f}ms · "
-            f"violations={viol_s} · Δ={active_lbl}")
-    extras = flow_status_extras(f)
-    return f"{base} · {extras}" if extras else base
 
 
 def _heatmap_cell_alpha(ms: float, rmax: float) -> int:
@@ -285,10 +264,6 @@ def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     }
 
 
-def _phase_frame_is_grid(f: ObservabilityFrame) -> bool:
-    return f.grid is not None and f.agent_pos is not None
-
-
 def _phase_layout(w: int, h: int, env_kind: str, is_grid: bool,
                   *, tab_w: Optional[int] = None) -> Dict[str, Any]:
     """Explicit geometry for Phase Space tab regions."""
@@ -343,52 +318,6 @@ def _traj_canvas_layout(w: int, h: int, y0: int, *, is_grid: bool) -> Dict[str, 
         "axis_y": axis_y,
         "spark_w": spark_w,
     }
-
-
-def _phase_status_line(
-    f: ObservabilityFrame,
-    *,
-    replay: bool = False,
-    review: bool = False,
-    prefix_len: int = 0,
-    is_grid: bool = False,
-    proj: Optional["BeliefProjection"] = None,
-    show_radar: bool = True,
-) -> str:
-    """One-line Phase Space status from frame fields."""
-    if is_grid:
-        mode = "grid"
-    elif proj is not None and getattr(proj, "_raw2d", False):
-        mode = "raw-2D"
-    else:
-        mode = "PCA"
-    pe = float(getattr(f, "prediction_error", 0.0) or 0.0)
-    gk = getattr(f, "gprime_kind", None) or "g′"
-    parts = [f"Phase: {mode}", f"err={pe:.2f}", gk]
-    if review and prefix_len > 0:
-        parts.append(f"cycle={int(f.cycle_id)} · prefix={prefix_len}")
-    if proj is not None and not is_grid:
-        ve = proj.variance_explained()
-        if ve is not None:
-            parts.append(f"PCA={ve:.0f}%")
-    rollouts = list(getattr(f, "candidate_rollouts", []) or [])
-    if replay:
-        parts.append("rollouts=0(replay)")
-        if f.goal_target is None:
-            parts.append("goal=—(replay)")
-        if f.sanitized_state is None:
-            parts.append("anchor=obs_vector")
-    elif rollouts:
-        parts.append(f"rollouts={len(rollouts)}")
-    did = int(getattr(f, "active_drive_id", 0) or 0)
-    if did:
-        parts.append(f"drive={_drive_short(did)}")
-    if not show_radar:
-        lv = list(getattr(f, "drive_levels", []) or [])
-        if lv:
-            levels_str = ",".join(f"{v:.2f}" for v in lv[:6])
-            parts.append(f"drives=[{levels_str}]")
-    return " · ".join(parts)
 
 
 def _phase_grid_caption(*, low_conf: bool = False) -> str:
@@ -698,43 +627,6 @@ def _action_candidate_label(idx: int, names: List[str], is_continuous: bool) -> 
     return f"τ cand {idx}" if is_continuous else f"a{idx}"
 
 
-def _action_score_margin(scores: List[float]) -> Optional[float]:
-    if len(scores) < 2:
-        return None
-    ordered = sorted(scores, reverse=True)
-    return float(ordered[0] - ordered[1])
-
-
-def _action_status_line(
-    f: ObservabilityFrame,
-    scores: List[float],
-    chosen: int,
-    *,
-    replay: bool = False,
-    review: bool = False,
-    prefix_len: int = 0,
-    moment: Optional[Dict[str, Any]] = None,
-) -> str:
-    """One-line Action tab status from action_rationale + candidate fields."""
-    r = f.action_rationale or {}
-    mode = "EXPLORE" if r.get("explored") else "EXPLOIT"
-    eps = r.get("eps")
-    eps_s = f"{float(eps):.3f}" if isinstance(eps, (int, float)) else "—"
-    k = r.get("k_candidates")
-    k_s = str(int(k)) if isinstance(k, (int, float)) else "—"
-    bs = r.get("best_score")
-    bs_s = f"{float(bs):.3f}" if isinstance(bs, (int, float)) else "—"
-    margin = _action_score_margin(scores)
-    margin_s = f"{margin:+.3f}" if margin is not None else "—"
-    rollouts = list(getattr(f, "candidate_rollouts", []) or [])
-    base = (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
-            f"Δ2nd={margin_s} · rollouts={len(rollouts)}")
-    extras = action_status_extras(
-        f, scores, chosen, replay=replay, review=review,
-        prefix_len=prefix_len, moment=moment)
-    return f"{base} · {extras}" if extras else base
-
-
 def _draw_moment_ticks(
     p: QtGui.QPainter,
     x0: int,
@@ -870,19 +762,6 @@ def _drive_name(did: int) -> str:
     return DRIVE_NAMES.get(did, f"Drive {did}")
 
 
-def _overview_goal_id(f: ObservabilityFrame) -> Optional[int]:
-    """Single goal source for Overview header + glyph head."""
-    r = f.action_rationale or {}
-    gid = r.get("goal_id")
-    if gid is not None:
-        try:
-            return int(gid)
-        except (TypeError, ValueError):
-            pass
-    active = int(getattr(f, "active_drive_id", 0) or 0)
-    return active if active > 0 else None
-
-
 def _limb_line_start(cx: int, cy: int, cr: int, ang: float
                      ) -> Tuple[int, int, int, int]:
     """Limb segment from core edge outward (never through the conf disc)."""
@@ -917,74 +796,6 @@ def _dim_arrow_label(indices: List[int], dim_names: Optional[List[str]] = None) 
     return "/".join(parts)
 
 
-class ScaleState:
-    """Stable autoscale bounds with hysteresis + EMA contraction.
-
-    Eliminates per-frame scale jitter: bounds expand *immediately* when a new
-    extreme appears, but contract *slowly* (EMA toward the rolling min/max at
-    ``contract`` per update) so the y-axis / projection range never twitches
-    frame-to-frame. Add ``head`` fractional headroom on top. Pure read on
-    frames; never mutates the cycle.
-
-    v8: ``_AUTOSCALE_FROZEN`` (set by the transport on pause/scrub) freezes the
-    bounds so the eye doesn't re-anchor while inspecting a frozen moment.
-    """
-
-    __slots__ = ("lo", "hi", "_ema_lo", "_ema_hi", "contract", "head", "_have",
-                 "_last_rlo", "_last_rhi")
-
-    def __init__(self, contract: float = 0.05, head: float = 0.05):
-        self.lo: float = 0.0
-        self.hi: float = 1.0
-        self._ema_lo: float = 0.0
-        self._ema_hi: float = 1.0
-        self.contract = contract
-        self.head = head
-        self._have: bool = False
-        self._last_rlo: Optional[float] = None
-        self._last_rhi: Optional[float] = None
-
-    def reset(self) -> None:
-        """Clear autoscale state (e.g. after replay seek rebuild)."""
-        self.lo = 0.0
-        self.hi = 1.0
-        self._ema_lo = 0.0
-        self._ema_hi = 1.0
-        self._have = False
-        self._last_rlo = None
-        self._last_rhi = None
-
-    def update(self, rlo: float, rhi: float) -> Tuple[float, float]:
-        if _AUTOSCALE_FROZEN:
-            # v8: hold bounds while paused/scrubbing — return current without
-            # recomputing so axes don't twitch during inspection.
-            return self.lo, self.hi
-        rlo_f, rhi_f = float(rlo), float(rhi)
-        if (self._have and self._last_rlo is not None and self._last_rhi is not None
-                and abs(rlo_f - self._last_rlo) < 1e-12
-                and abs(rhi_f - self._last_rhi) < 1e-12):
-            return self.lo, self.hi
-        self._last_rlo = rlo_f
-        self._last_rhi = rhi_f
-        if not self._have:
-            self._ema_lo = rlo_f; self._ema_hi = rhi_f
-            self.lo = rlo_f; self.hi = rhi_f
-            self._have = True
-        else:
-            # EMA of the rolling extremes (smoothed target).
-            self._ema_lo += (rlo_f - self._ema_lo) * 0.2
-            self._ema_hi += (rhi_f - self._ema_hi) * 0.2
-            # Expand immediately to real extremes; contract slowly toward EMA.
-            self.lo = min(rlo_f, self.lo + (self._ema_lo - self.lo) * self.contract)
-            self.hi = max(rhi_f, self.hi + (self._ema_hi - self.hi) * self.contract)
-        span = (self.hi - self.lo) or 1.0
-        self.lo -= span * self.head
-        self.hi += span * self.head
-        if self.hi - self.lo < 1e-9:
-            self.hi = self.lo + 1.0
-        return self.lo, self.hi
-
-
 def _qss() -> str:
     """Dark stylesheet — kills the default 'prototype' Qt look."""
     return """
@@ -1017,16 +828,6 @@ def _cost_color(ms: float) -> str:
     if ms < 20.0:
         return "#ff7f0e"
     return "#d62728"
-
-
-# v8: global autoscale-freeze flag — set by the transport on pause/scrub so all
-# ScaleState instances hold their bounds (no eye re-anchoring while inspecting).
-_AUTOSCALE_FROZEN: bool = False
-
-
-def set_autoscale_frozen(frozen: bool) -> None:
-    global _AUTOSCALE_FROZEN
-    _AUTOSCALE_FROZEN = bool(frozen)
 
 
 def _to_qcolor(hex_or_rgb: Any) -> "QtGui.QColor":
@@ -1105,230 +906,6 @@ def _draw_measured_sparkline(p: QtGui.QPainter, x: int, y: int, w: int, h: int,
         y0 = y + h - (vals[i - 1] - lo) / (hi - lo) * h
         y1 = y + h - (vals[i] - lo) / (hi - lo) * h
         p.drawLine(int(x0), int(y0), int(x1), int(y1))
-
-
-# ----- Dimension-agnostic state-space projection (v4 scaling heart) ----------
-
-class BeliefProjection:
-    """Rolling PCA 2-D projection of the state space — the single abstraction
-    that makes every spatial tab work for grid, 2-D, 3-D and arbitrary-dim
-    continuous environments.
-
-    Maintains a rolling window of observation/sanitized-state vectors and fits a
-    2-component PCA via SVD on the centered window. For ``state_dim > 64`` the
-    top-32 variance dims are kept first (so SVD stays cheap). Falls back to the
-    top-2 variance dims if SVD fails. For ``state_dim <= 3`` the raw first two
-    dims are used (no PCA) so low-dim envs keep their natural geometry.
-
-    Shared across the World / Phase-Space / Action tabs so the projection is
-    consistent. Pure read on frames — never mutates the cycle.
-    """
-
-    def __init__(self, window: int = 256):
-        self.window = window
-        self._buf: Deque[np.ndarray] = deque(maxlen=window)
-        self._mean: Optional[np.ndarray] = None
-        self._comp: Optional[np.ndarray] = None      # (2, d') basis
-        self._top_dims: Optional[np.ndarray] = None
-        self._fallback: Tuple[int, int] = (0, min(1, 0))
-        self._raw2d: bool = False
-        self._hist: Deque[Tuple[float, float]] = deque(maxlen=window)
-        # stable per-axis bounds (no per-frame rescale jitter on projection views)
-        self._bx = ScaleState(contract=0.04, head=0.08)
-        self._by = ScaleState(contract=0.04, head=0.08)
-        # v7: cache singular values + previous basis for variance-% and a
-        # basis-stability flag (so views can badge "PCA re-fit" instead of
-        # letting the portrait silently drift as the window slides).
-        self._sing: Optional[np.ndarray] = None
-        self._prev_comp: Optional[np.ndarray] = None
-        self._basis_changed: bool = False
-
-    def update(self, f: ObservabilityFrame) -> None:
-        v = f.sanitized_state
-        if v is None:
-            v = f.obs_vector
-        if v is None:
-            return
-        try:
-            v = np.asarray(v, dtype=np.float32).reshape(-1)
-        except Exception:
-            return
-        if v.size == 0 or not np.all(np.isfinite(v)):
-            return
-        self._buf.append(v)
-        if len(self._buf) >= 4:
-            self._recompute()
-
-    def _recompute(self) -> None:
-        M = np.array(list(self._buf), dtype=np.float64)
-        d = M.shape[1]
-        mean = M.mean(axis=0)
-        if d <= 3:
-            self._raw2d = True
-            self._mean = mean
-            self._comp = None
-            self._top_dims = None
-            return
-        self._raw2d = False
-        X = M - mean
-        top = None
-        if d > 64:
-            var = X.var(axis=0)
-            top = np.argsort(var)[-32:]
-            X = X[:, top]
-        try:
-            U, S, Vt = np.linalg.svd(X, full_matrices=False)
-            if Vt.shape[0] >= 2:
-                new_comp = Vt[:2].astype(np.float64)
-                # v7: basis-stability flag — did the principal directions flip/rotate?
-                if self._prev_comp is not None and self._prev_comp.shape == new_comp.shape:
-                    diff = float(np.max(np.abs(np.abs(new_comp) - np.abs(self._prev_comp))))
-                    self._basis_changed = diff > 0.25
-                else:
-                    self._basis_changed = True
-                self._prev_comp = new_comp
-                self._comp = new_comp
-                self._sing = np.asarray(S, dtype=np.float64)
-                self._top_dims = top
-                self._mean = mean
-                return
-        except Exception:
-            pass
-        # Fallback: top-2 variance dims of the full vector.
-        var = (M - mean).var(axis=0)
-        idx = np.argsort(var)[-2:]
-        self._fallback = (int(idx[0]), int(idx[1]))
-        self._comp = None
-        self._top_dims = None
-        self._mean = mean
-        self._sing = None
-
-    def variance_explained(self) -> Optional[float]:
-        """v7: % of variance captured by PC1+PC2 (None if no SVD basis)."""
-        if self._sing is None or self._sing.size == 0:
-            return None
-        tot = float(self._sing.sum())
-        if tot <= 0:
-            return None
-        return float(self._sing[:2].sum() / tot * 100.0)
-
-    @property
-    def basis_changed(self) -> bool:
-        """v7: True on the frame the PCA basis rotated/flipped (for a re-fit badge)."""
-        return self._basis_changed
-
-    def project(self, v: Optional[np.ndarray]) -> Optional[Tuple[float, float]]:
-        if v is None:
-            return None
-        try:
-            v = np.asarray(v, dtype=np.float64).reshape(-1)
-        except Exception:
-            return None
-        if v.size == 0 or not np.all(np.isfinite(v)):
-            return None
-        if self._raw2d:
-            return (float(v[0]), float(v[1]) if v.size > 1 else 0.0)
-        if self._mean is None:
-            return None
-        x = v - self._mean
-        if self._comp is not None:
-            if self._top_dims is not None and x.size > self._top_dims.size:
-                x = x[self._top_dims]
-            if x.size != self._comp.shape[1]:
-                return None
-            c = x @ self._comp.T
-            return (float(c[0]), float(c[1]))
-        # fallback dims
-        i0, i1 = self._fallback
-        if i1 >= v.size:
-            i1 = 0
-        return (float(v[i0] - self._mean[i0]), float(v[i1] - self._mean[i1]))
-
-    def push_history(self, pt: Optional[Tuple[float, float]]) -> None:
-        if pt is not None:
-            self._hist.append(pt)
-
-    def rebuild_from_frames(self, frames: List[ObservabilityFrame]) -> None:
-        """Rebuild PCA buffer + trajectory from a rolling window (scrub-safe)."""
-        self._buf.clear()
-        self._hist.clear()
-        self._mean = None
-        self._comp = None
-        self._top_dims = None
-        self._raw2d = False
-        self._sing = None
-        self._basis_changed = False
-        self._bx = ScaleState(contract=0.04, head=0.08)
-        self._by = ScaleState(contract=0.04, head=0.08)
-        for f in frames:
-            v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
-            if v is None:
-                continue
-            try:
-                v = np.asarray(v, dtype=np.float32).reshape(-1)
-            except Exception:
-                continue
-            if v.size == 0 or not np.all(np.isfinite(v)):
-                continue
-            self._buf.append(v)
-        if len(self._buf) >= 4:
-            self._recompute()
-        elif self._buf:
-            M = np.array(list(self._buf), dtype=np.float64)
-            self._mean = M.mean(axis=0)
-            if M.shape[1] <= 3:
-                self._raw2d = True
-                self._comp = None
-        for f in frames:
-            v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
-            self.push_history(self.project(v))
-
-    @property
-    def history(self) -> List[Tuple[float, float]]:
-        return list(self._hist)
-
-    def bounds(self) -> Tuple[float, float, float, float]:
-        """Stable autoscale bounds (ScaleState per axis — no per-frame jumps)."""
-        pts = self._hist
-        if not pts:
-            return (-1.0, 1.0, -1.0, 1.0)
-        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-        xlo, xhi = self._bx.update(float(min(xs)), float(max(xs)))
-        ylo, yhi = self._by.update(float(min(ys)), float(max(ys)))
-        return (xlo, xhi, ylo, yhi)
-
-    def uncertainty_ellipse(self, per_dim_std: Optional[np.ndarray]
-                            ) -> Optional[Tuple[Tuple[float, float], float]]:
-        """Project the diagonal posterior covariance into the 2-D plane.
-
-        Returns ((axis0_std, axis1_std), angle_deg) or None if no basis.
-        """
-        if per_dim_std is None or self._raw2d:
-            if per_dim_std is None:
-                return None
-            std = np.asarray(per_dim_std, dtype=np.float64).reshape(-1)
-            if std.size >= 2:
-                return ((float(std[0]), float(std[1])), 0.0)
-            return None
-        if self._comp is None:
-            return None
-        std = np.asarray(per_dim_std, dtype=np.float64).reshape(-1)
-        if self._top_dims is not None and std.size > self._top_dims.size:
-            std = std[self._top_dims]
-        if std.size != self._comp.shape[1]:
-            return None
-        cov2 = (self._comp * (std ** 2)) @ self._comp.T
-        try:
-            eigval, eigvec = np.linalg.eigh(cov2)
-        except Exception:
-            return None
-        order = np.argsort(eigval)[::-1]
-        eigval = eigval[order]; eigvec = eigvec[:, order]
-        import math
-        axes = (float(np.sqrt(max(eigval[0], 0.0))),
-                float(np.sqrt(max(eigval[1], 0.0))))
-        angle = math.degrees(math.atan2(eigvec[1, 0], eigvec[0, 0]))
-        return (axes, angle)
 
 
 def _map_pt(pt: Tuple[float, float], bounds: Tuple[float, float, float, float],
@@ -1695,30 +1272,6 @@ _REACHER_L2 = 0.38
 _REACHER_TRAIL_MAX = 80
 
 
-def _reacher_kinematics_from_obs(obs: Any) -> Optional[dict]:
-    """Fingertip/goal workspace coords from Reacher-v5 cos/sin observation."""
-    import math
-    if obs is None:
-        return None
-    arr = np.asarray(obs, dtype=np.float32).reshape(-1)
-    if arr.size < 4 or not np.all(np.isfinite(arr)):
-        return None
-    a0 = math.atan2(float(arr[1]), float(arr[0]))
-    a1 = math.atan2(float(arr[3]), float(arr[2]))
-    ex = _REACHER_L1 * math.cos(a0)
-    ey = _REACHER_L1 * math.sin(a0)
-    fx = ex + _REACHER_L2 * math.cos(a0 + a1)
-    fy = ey + _REACHER_L2 * math.sin(a0 + a1)
-    rel_x = float(arr[-2]) if arr.size >= 2 else 0.0
-    rel_y = float(arr[-1]) if arr.size >= 1 else 0.0
-    tx = fx - rel_x
-    ty = fy - rel_y
-    return {
-        "ex": ex, "ey": ey, "fx": fx, "fy": fy, "tx": tx, "ty": ty,
-        "dist": math.hypot(rel_x, rel_y),
-    }
-
-
 def _draw_reacher_schematic(p: QtGui.QPainter, f: ObservabilityFrame,
                             rect: QtCore.QRect,
                             trail: Optional[Deque[Tuple[float, float]]] = None) -> bool:
@@ -2069,10 +1622,13 @@ def _draw_data_contract_banner(
     replay: bool,
     panel_key: str,
     review: bool = False,
+    multi_agent: bool = False,
     y: int = 2,
 ) -> int:
     """Draw LIVE/REVIEW/REPLAY data-contract strip; returns y offset."""
-    text = data_contract_text(panel_key, replay=replay, review=review)
+    text = data_contract_text(
+        panel_key, replay=replay, review=review, multi_agent=multi_agent,
+    )
     if not text:
         return 0
     if review:
@@ -2192,61 +1748,6 @@ def _draw_session_results_panel(
         y += 11
 
 
-_DECISION_SHIFT_THRESHOLD = 0.20
-
-
-def _apply_decision_shift(prev_score: Optional[float],
-                          cur_score: Optional[float]) -> bool:
-    """True when best_score jumps more than the Overview decision threshold."""
-    return apply_decision_shift(prev_score, cur_score)
-
-
-def _overview_spike(err_hist: Deque[float], cur_err: float,
-                    env_kind: str = "") -> bool:
-    errs = list(err_hist)
-    prev_err = float(errs[-2]) if len(errs) >= 2 else None
-    if prev_err is None or prev_err <= 1e-6:
-        return False
-    kind = (env_kind or "").lower()
-    if kind == "mujoco_rgb":
-        if cur_err > 3.0 * prev_err:
-            return True
-        return abs(cur_err - prev_err) > 5.0
-    return cur_err > 2.0 * prev_err
-
-
-def _overview_moment_flags(
-    f: ObservabilityFrame,
-    err_hist: Deque[float],
-    *,
-    moment: Optional[Dict[str, Any]] = None,
-    prev_drive_id: Optional[int] = None,
-    prev_best_score: Optional[float] = None,
-) -> Dict[str, Any]:
-    """Compact live diagnostics for the overview narrative/chips."""
-    if moment is None:
-        moment = cognitive_moment(
-            f, err_hist, prev_drive_id=prev_drive_id, prev_best_score=prev_best_score)
-    r = f.action_rationale or {}
-    score = r.get("best_score")
-    score_v = float(score) if isinstance(score, (int, float)) else None
-    return {
-        **moment,
-        "score": score_v,
-        "explored": bool(r.get("explored", False)),
-    }
-
-
-def _phase_ms(timings: Dict[str, Any], key) -> float:
-    if isinstance(key, tuple):
-        return sum(float(timings.get(k, 0.0) or 0.0) for k in key)
-    return float(timings.get(key, 0.0) or 0.0)
-
-
-def _overview_phase_ms(timings: Dict[str, Any], key) -> float:
-    return _phase_ms(timings, key)
-
-
 def _execution_phase_segments(f: ObservabilityFrame) -> List[Tuple[str, float]]:
     timings = dict(getattr(f, "module_timings", {}) or {})
     return [(label, _phase_ms(timings, key)) for key, label in EXECUTION_PHASE_STEPS]
@@ -2332,87 +1833,6 @@ def _overview_plain_story(f: ObservabilityFrame, flags: Dict[str, Any],
     if getattr(f, "goal_reached", False):
         parts.append("goal reached")
     return " · ".join(parts)
-
-
-def _overview_goal_intent_line(f: ObservabilityFrame, flags: Dict[str, Any]) -> str:
-    """Intent line: what the agent is trying to do now."""
-    r = f.action_rationale or {}
-    mode = "EXPLORE" if flags.get("explored") else "EXPLOIT"
-    gid = _overview_goal_id(f)
-    goal_s = _drive_short(gid) if gid else "—"
-    score_s = f"{flags['score']:.2f}" if flags["score"] is not None else "—"
-    why = "sampling alternatives" if flags.get("explored") else "best-score selection"
-    if r.get("note"):
-        why = str(r.get("note"))
-    extras: List[str] = []
-    eps = r.get("eps")
-    if isinstance(eps, (int, float)):
-        extras.append(f"eps={float(eps):.2f}")
-    k_cand = r.get("k_candidates")
-    if isinstance(k_cand, (int, float)):
-        extras.append(f"k={int(k_cand)}")
-    extra_s = (" · " + " · ".join(extras)) if extras else ""
-    return f"Intent: {mode} · goal={goal_s} · score={score_s}{extra_s} · why={why}"
-
-
-def _overview_evidence_line(f: ObservabilityFrame, flags: Dict[str, Any],
-                            err_hist: Deque[float],
-                            dist_hist: Optional[Deque[float]] = None) -> str:
-    """Evidence line: key cognitive evidence supporting current intent."""
-    errs = list(err_hist)
-    err_arrow = ""
-    if len(errs) >= 2:
-        err_arrow = "↘" if errs[-1] <= errs[-2] else "↗"
-    dominant = _overview_dominant_phase(f) or "—"
-    learn_s = f"{flags['learn_ms']:.1f}ms" if flags["learn_ms"] > 0.0 else "—"
-    spike_s = "yes" if flags.get("spike") else "no"
-    decision_s = "yes" if flags.get("decision_shift") else "no"
-    dist_s = "—"
-    if dist_hist is not None and len(dist_hist) >= 2:
-        dist_s = "toward" if dist_hist[-1] <= dist_hist[-2] else "away"
-    peu_s = f" · PEŪ={flags['peu_mean']:.2f}" if flags.get("peu_mean") is not None else ""
-    return (f"Evidence: phase={dominant} · err={f.prediction_error:.2f}{err_arrow}"
-            f" · learn={learn_s} · spike={spike_s} · decision_shift={decision_s}"
-            f" · motion={dist_s}{peu_s}")
-
-
-def _overview_outcome_line(f: ObservabilityFrame, flags: Dict[str, Any],
-                           err_hist: Deque[float],
-                           dist_hist: Optional[Deque[float]] = None) -> str:
-    """Outcome line: physical/behavioral delta this cycle (not cognitive narrative)."""
-    parts: List[str] = []
-    kin = _reacher_kinematics_from_obs(
-        f.obs_vector if f.obs_vector is not None else f.sanitized_state)
-    if kin is not None:
-        dist_s = f"{kin['dist']:.3f}"
-        if dist_hist is not None and len(dist_hist) >= 2:
-            dist_s += "↘" if dist_hist[-1] <= dist_hist[-2] else "↗"
-        parts.append(f"dist={dist_s}")
-    elif dist_hist is not None and len(dist_hist) >= 1:
-        dist_s = f"{dist_hist[-1]:.3f}"
-        if len(dist_hist) >= 2:
-            dist_s += "↘" if dist_hist[-1] <= dist_hist[-2] else "↗"
-        parts.append(f"dist={dist_s}")
-    ca = getattr(f, "continuous_action", None)
-    if ca is not None:
-        vec = np.asarray(ca, dtype=np.float32).reshape(-1)
-        if vec.size == 2:
-            parts.append(f"action=τ=[{vec[0]:.2f},{vec[1]:.2f}]")
-        elif vec.size:
-            parts.append(f"action|τ|={float(np.linalg.norm(vec)):.2f}")
-    elif getattr(f, "action_name", None):
-        parts.append(f"action={f.action_name}")
-    parts.append("goal=yes" if getattr(f, "goal_reached", False) else "goal=no")
-    rbta = getattr(f, "rbta_action", None) or "CONTINUE"
-    vcount = int(getattr(f, "violations_count", 0) or 0)
-    if rbta != "CONTINUE" or vcount > 0:
-        rbta_s = f"rbta={rbta}"
-        if vcount:
-            rbta_s += f"({vcount}V)"
-        parts.append(rbta_s)
-    else:
-        parts.append("rbta=OK")
-    return "Outcome: " + " · ".join(parts) if parts else "Outcome: —"
 
 
 def _overview_metrics_line(f: ObservabilityFrame, flags: Dict[str, Any],
@@ -2646,6 +2066,7 @@ class _BaseCanvas(QtWidgets.QWidget):
         self._dirty: bool = True            # paint at least once on show
         self._bg_cache: Optional[QtGui.QPixmap] = None
         self._bg_cache_key: tuple = ()
+        self._multi_agent: bool = False
 
     def set_frame(self, f: ObservabilityFrame) -> None:
         """Feed state; do NOT repaint. Mark dirty so the RenderPacer picks it up."""
@@ -2839,7 +2260,6 @@ _OVERVIEW_MARGIN = 8
 _OVERVIEW_HZ = 4.0
 _OVERVIEW_LEARN_MS_MIN = 5.0
 _OVERVIEW_EVENT_HOLD = 5
-_OVERVIEW_PHASE_STEPS = EXECUTION_PHASE_STEPS
 
 
 class CameraCaptureTimer(QtCore.QObject):
@@ -3385,7 +2805,8 @@ class OverviewAgentView(_BaseCanvas):
         body_rect = QtCore.QRect(m * 2 + mind_w, top, body_w, main_h)
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
         y0 = _draw_data_contract_banner(
-            p, w, replay=self._replay, review=self._review_mode, panel_key="overview")
+            p, w, replay=self._replay, review=self._review_mode, panel_key="overview",
+            multi_agent=self._multi_agent)
         if f is not None:
             flags = self._current_moment(f)
             flags = _overview_moment_flags(f, self._err_hist, moment=flags)
@@ -4306,7 +3727,8 @@ class CognitiveFlowView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="flow", y=y)
+                                   review=self._review, panel_key="flow", y=y,
+                                   multi_agent=self._multi_agent)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5006,7 +4428,8 @@ class CandidateScoreView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="action")
+                                   review=self._review, panel_key="action",
+                                   multi_agent=self._multi_agent)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5483,7 +4906,8 @@ class TrajectoryView(_BaseCanvas):
 
     def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="phase", y=y)
+                                   review=self._review, panel_key="phase", y=y,
+                                   multi_agent=self._multi_agent)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5491,7 +4915,7 @@ class TrajectoryView(_BaseCanvas):
         if f is None:
             self._empty(p, "Phase space…"); return
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="phase")
+                                        panel_key="phase", multi_agent=self._multi_agent)
         show_radar = (not self.is_grid) and w >= 900
         status = _phase_status_line(
             f, replay=self._replay, review=self._review, prefix_len=self._prefix_len,
@@ -5999,7 +5423,8 @@ class _PhasePortraitView(_BaseCanvas):
         if f is None or f.predicted_state is None:
             self._empty(p, "Phase portrait (collecting…)"); return
         y0 = _draw_data_contract_banner(
-            p, w, replay=self._replay, review=self._review, panel_key="phase")
+            p, w, replay=self._replay, review=self._review, panel_key="phase",
+            multi_agent=self._multi_agent)
         pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
         ref_a, ref_src = belief_reference(f, prefer_goal=self._ref_prefer_goal)
         if ref_a is None:
@@ -6373,7 +5798,7 @@ class RetentionView(_BaseCanvas):
         if not self.m3:
             self._empty(p, "Retention…"); return
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="retention")
+                                        panel_key="retention", multi_agent=self._multi_agent)
         leak = self._leak_smooth.value(self._leak_rate())
         env_ok, env_seg = self._envelope_status()
         mech = self._mechanism_line()
@@ -6688,7 +6113,7 @@ class RBTABoundsView(_BaseCanvas):
         if f is None:
             self._empty(p, "RBTA bounds…"); return
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="rbta")
+                                        panel_key="rbta", multi_agent=self._multi_agent)
         bounds = getattr(f, "rbta_bounds", None) or {}
         btypes = [("time", "B_time (ms)", QtGui.QColor(52, 152, 219)),
                   ("mem", "B_mem (B)", QtGui.QColor(155, 89, 182)),
@@ -6841,7 +6266,7 @@ class MemoryBeliefView(_BaseCanvas):
         if f is None:
             self._empty(p, "Memory & belief…"); return
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="memory")
+                                        panel_key="memory", multi_agent=self._multi_agent)
         # ---- v7 focal: belief geography map (full width, top) ----
         self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
         self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
@@ -7142,7 +6567,7 @@ class GoalsMotivationView(_BaseCanvas):
         if f is None:
             self._empty(p, "Goals & motivation…"); return
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="goals")
+                                        panel_key="goals", multi_agent=self._multi_agent)
         levels = f.drive_levels or []
         targets = f.drive_targets or []
         nd = _n_drives(f, list(levels))
@@ -7395,9 +6820,15 @@ class _TransportBar(QtWidgets.QFrame):
         super().__init__(parent)
         self.clock = clock
         self.pacer = pacer
+        self._on_agent_change = None
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(8, 4, 8, 4)
         lay.setSpacing(8)
+        self.agent_combo = QtWidgets.QComboBox()
+        self.agent_combo.setMinimumWidth(120)
+        self.agent_combo.hide()
+        self.agent_combo.currentIndexChanged.connect(self._on_agent_combo)
+        lay.addWidget(self.agent_combo, 0)
         self.play_btn = QtWidgets.QToolButton()
         self.play_btn.setText("⏸ Pause"); self.play_btn.setCheckable(True)
         self.step_btn = QtWidgets.QToolButton(); self.step_btn.setText("⏭ Step")
@@ -7433,6 +6864,36 @@ class _TransportBar(QtWidgets.QFrame):
             self.freeze_view.hide()
         else:
             self.freeze_view.toggled.connect(self._on_freeze_view)
+
+    def setup_agent_selector(
+        self,
+        labels: List[str],
+        on_change: Callable[[int], None],
+    ) -> None:
+        """Show agent picker for multi-agent sessions."""
+        self._on_agent_change = on_change
+        self.agent_combo.blockSignals(True)
+        self.agent_combo.clear()
+        for i, lbl in enumerate(labels):
+            text = lbl or f"agent_{i}"
+            self.agent_combo.addItem(f"{i}: {text}", i)
+        self.agent_combo.blockSignals(False)
+        self.agent_combo.show()
+
+    def _on_agent_combo(self, index: int) -> None:
+        if self._on_agent_change is None or index < 0:
+            return
+        aid = self.agent_combo.itemData(index)
+        if aid is not None:
+            self._on_agent_change(int(aid))
+
+    def set_agent_index(self, agent_id: int) -> None:
+        for i in range(self.agent_combo.count()):
+            if int(self.agent_combo.itemData(i)) == int(agent_id):
+                self.agent_combo.blockSignals(True)
+                self.agent_combo.setCurrentIndex(i)
+                self.agent_combo.blockSignals(False)
+                break
 
     # --- speed slider log mapping ------------------------------------------
     def _speed_to_int(self, s: float) -> int:
@@ -7522,6 +6983,7 @@ class DashboardController:
         # v6 flicker-free: skip the whole widget update when the frame is the
         # same cycle as the last one we rendered (idle/no-new-data → 0 repaints).
         self._last_cycle: int = -1
+        self._last_agent_id: int = -1
         self._last_rolling: Optional[List[ObservabilityFrame]] = None
         self._pending_tab_rebuilds: set = set()
 
@@ -7683,9 +7145,11 @@ class DashboardController:
             # v6 flicker-free: drop redundant updates for an unchanged cycle
             # (heartbeat emitting the same cursor frame while production stalls).
             cid = int(getattr(f, "cycle_id", -1))
-            if cycle_error is None and cid == self._last_cycle and not rolling:
+            aid = int(getattr(f, "agent_id", 0) or 0)
+            if cycle_error is None and cid == self._last_cycle and aid == self._last_agent_id and not rolling:
                 return
             self._last_cycle = cid
+            self._last_agent_id = aid
             if rolling:
                 if len(rolling) > 2000:
                     rolling = decimate_frames_for_history(rolling, 2000)
@@ -7911,6 +7375,93 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         # ~6 Hz). Constructed here; started by the launcher via start_render.
         self.render_pacer = RenderPacer(self, render_hz=6.0)
         self._transport: Optional[_TransportBar] = None
+        self._multi_agent: bool = False
+        self._agent_ids: List[int] = [0]
+        self._agent_labels: Dict[int, str] = {0: ""}
+        self._selected_agent_id: int = 0
+        self._all_frames: List[ObservabilityFrame] = []
+
+    def init_multi_agent(self, count: int, labels: List[str]) -> None:
+        """Configure multi-agent UI (agent selector + per-agent projection)."""
+        self._multi_agent = int(count) > 1
+        self._agent_ids = list(range(int(count)))
+        self._agent_labels = {i: labels[i] for i in range(int(count))}
+        self._selected_agent_id = 0
+        for cv in self.findChildren(_BaseCanvas):
+            cv._multi_agent = self._multi_agent
+        if self._transport is not None:
+            self._transport.setup_agent_selector(labels, self.select_agent)
+
+    def append_observability_frames(self, frames: List[ObservabilityFrame]) -> None:
+        """Accumulate interleaved frames during live multi-agent runs."""
+        if frames:
+            self._all_frames.extend(frames)
+
+    def load_multi_agent_frames(
+        self,
+        frames: List[ObservabilityFrame],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Load replay frames and configure agent selector when needed."""
+        from phca.monitoring.multi_agent import is_multi_agent_session, session_agent_ids
+
+        self._all_frames = list(frames)
+        if is_multi_agent_session(meta, frames=frames):
+            self._multi_agent = True
+            self._agent_ids = session_agent_ids(frames)
+            self._agent_labels = {}
+            for f in frames:
+                aid = int(getattr(f, "agent_id", 0) or 0)
+                lbl = str(getattr(f, "agent_label", "") or "")
+                if aid not in self._agent_labels and lbl:
+                    self._agent_labels[aid] = lbl
+            labels = [
+                self._agent_labels.get(aid, f"agent_{aid}") for aid in self._agent_ids
+            ]
+            self.init_multi_agent(len(self._agent_ids), labels)
+        self._apply_agent_projection(rebuild=False)
+
+    def project_frames_for_agent(
+        self,
+        frames: List[ObservabilityFrame],
+    ) -> List[ObservabilityFrame]:
+        """Return frames for the currently selected agent."""
+        if not self._multi_agent:
+            return list(frames)
+        from phca.monitoring.multi_agent import frames_for_agent
+        return frames_for_agent(frames, self._selected_agent_id)
+
+    def select_agent(self, agent_id: int) -> None:
+        """Switch dashboard to another agent's timeline."""
+        aid = int(agent_id)
+        if aid == self._selected_agent_id:
+            return
+        self._selected_agent_id = aid
+        self.controller._last_cycle = -1
+        self.controller._last_agent_id = -1
+        if self._transport is not None:
+            self._transport.set_agent_index(aid)
+        self._apply_agent_projection(rebuild=True)
+
+    def _apply_agent_projection(self, *, rebuild: bool = True) -> None:
+        from phca.monitoring.multi_agent import frames_for_agent
+
+        projected = (
+            frames_for_agent(self._all_frames, self._selected_agent_id)
+            if self._all_frames else []
+        )
+        transport = self._transport
+        if transport is None or transport.clock is None:
+            return
+        cursor = min(transport.clock.cursor_int, max(0, len(projected) - 1))
+        transport.clock.set_frames(projected)
+        if projected:
+            transport.clock.seek(cursor)
+        transport.set_range(len(projected))
+        transport._sync_slider()
+        if rebuild and projected:
+            prefix = projected[: cursor + 1]
+            self.controller.rebuild_all_histories(prefix)
 
     def set_session_context(self, ctx: Dict[str, Any]) -> None:
         self._session_ctx = dict(ctx or {})
@@ -7930,6 +7481,9 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         target = int(ctx.get("target_cycles", 0) or 0)
         live_lag = max(0, cid - int(clock_cursor))
         ek = str(getattr(frame, "env_kind", "") or "") if frame is not None else ""
+        agent_count = int(ctx.get("agent_count", 1) or 1)
+        agent_id = int(getattr(frame, "agent_id", self._selected_agent_id) or 0) if frame else self._selected_agent_id
+        agent_label = str(getattr(frame, "agent_label", "") or "") if frame else self._agent_labels.get(agent_id, "")
         text = session_status_text(
             env=str(ctx.get("env", "") or ""),
             env_kind=ek,
@@ -7941,6 +7495,9 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
             jsonl_count=jsonl_count,
             recording=bool(ctx.get("recording", True)),
             verify_status=self._verify_status,
+            agent_id=agent_id,
+            agent_count=agent_count,
+            agent_label=agent_label,
         )
         if self._status_strip.text() != text:
             self._status_strip.setText(text)
@@ -8063,6 +7620,11 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._top_frame.show()
         if isinstance(bar, _TransportBar):
             self._transport = bar
+            if self._multi_agent:
+                labels = [
+                    self._agent_labels.get(aid, f"agent_{aid}") for aid in self._agent_ids
+                ]
+                bar.setup_agent_selector(labels, self.select_agent)
 
     def keyPressEvent(self, ev: QtCore.QEvent) -> None:
         """v8 keyboard transport: Space=pause, Left/Right=step, Home=seek 0,

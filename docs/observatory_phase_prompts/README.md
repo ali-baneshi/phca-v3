@@ -1,6 +1,6 @@
 # Observatory Phase Prompts (Phases 13–20)
 
-Copy-paste **one English prompt** into a **new Cursor chat** to plan and implement each remaining Observatory phase. Phases 7–12 are complete; see [STATUS.md](../../STATUS.md).
+Copy-paste **one English prompt** into a **new Cursor chat** to plan and implement each remaining Observatory phase. Phases 7–15 are complete; see [STATUS.md](../../STATUS.md). Stable public API: [observability_api.md](../observability_api.md).
 
 ## How to use
 
@@ -13,7 +13,7 @@ Copy-paste **one English prompt** into a **new Cursor chat** to plan and impleme
 ## Recommended order
 
 ```
-Phase 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20
+Phase 16 → 17 → 18 → 19 → 20
 ```
 
 Phases 13–16 deepen single-agent observability; 17–18 add advanced analysis; 19–20 are scientific validation and sign-off. Run Phase 20 only after 13–19 are complete (or consciously deferred).
@@ -37,6 +37,8 @@ Phases 13–16 deepen single-agent observability; 17–18 add advanced analysis;
 |------------|----------|
 | Spike / moment flags | `python/phca/monitoring/cognitive_panels.py` |
 | Session report metrics | `python/phca/monitoring/session_report.py` |
+| Public API (`__all__`) | `python/phca/monitoring/__init__.py`, [observability_api.md](../observability_api.md) |
+| CSV scalar export | `python/phca/monitoring/export.py` |
 | `action_rationale` in JSONL | `python/phca/core/cycle.py`, Action tab in `qt_dashboard.py` |
 | Integrity gate | `scripts/phca_replay.py --check` |
 | Multi-session compare | `compare_session_reports()` (Phase 12) |

@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phases 8–14 complete:** PyQt `--qt` replay with seek/scrub, rolling-window history rebuild across all panels, transport controls, honest replay banners, `schema_version` governance (Phase 9), Overview report parity (Phase 10), large-session scrub performance (Phase 11), multi-session `--compare` (Phase 12), session anomaly detection (Phase 13), and action explainability (Phase 14). Phases 15–20 are backlog — see [STATUS.md](../STATUS.md).
+**Phases 8–16 complete:** PyQt replay/scrub (Phases 8–12), anomaly detection (13), action explainability (14), stable `phca.monitoring` API (15 — [observability_api.md](observability_api.md)), subprocess supervisor + crash recovery (16 — § Production operations). **Phase 17 complete:** multi-agent `agent_id` on frames, aligned local runner, per-agent dashboard timeline, per-agent reports (§ Multi-agent sessions). Phases 18–20 are backlog — see [STATUS.md](../STATUS.md).
 
 ## Thread model
 
@@ -24,10 +24,21 @@ Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fi
 
 | File | Purpose |
 |------|---------|
-| `meta.json` | Run metadata; `cycles` = **requested** run length; `recorded_cycles` written on recorder close |
+| `meta.json` | Run metadata; `cycles` = **requested** run length; `status` lifecycle; `recorded_cycles` on close |
 | `timeseries.jsonl` | One compact JSON object per cycle (~2 KB) |
-| `session_report.json` | Offline aggregate; **written automatically** after live runs (unless `--no-verify`) |
+| `session_report.json` | Offline aggregate; written after live runs or recovery |
 | `session.mp4` / `.gif` | Optional dashboard video (not in JSONL) |
+| `<record-root>/.latest` | Pointer to active session dir while `status=running` |
+
+#### `meta.json` lifecycle fields (Phase 16)
+
+| Field | Values | When set |
+|-------|--------|----------|
+| `status` | `running`, `complete`, `incomplete`, `empty`, `corrupt` | `start()` → `running`; normal `close()` → `complete`; crash/early exit → `incomplete`/`empty` |
+| `started_at` | ISO-8601 UTC | `start()` |
+| `closed_at` | ISO-8601 UTC | `close()`, `abort()`, or `finalize_session()` |
+| `recorded_cycles` | int | Actual JSONL lines written |
+| `recovery_reason` | string | `abort()`, supervisor recover, or manual `--recover` |
 
 ### Post-run trust (live launcher)
 
@@ -91,7 +102,22 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 
 ### Recorded fields (replay/report)
 
-`schema_version`, scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
+`schema_version`, `agent_id`, `agent_label`, `timeline_step`, scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `agent_id` | `0` | Agent index within a session (legacy single-agent = 0) |
+| `agent_label` | `""` | Optional human label (`grid_a`, `agent_1`, …) |
+| `timeline_step` | `-1` | Shared step index when agents run aligned; `-1` = legacy/single-agent |
+
+#### Multi-agent sessions (Phase 17)
+
+- **Recording layout:** one `timeseries.jsonl` with interleaved lines (`agent_id` per line). Not per-agent subdirectories.
+- **Aligned runner:** `phca_observatory.py --agents N` steps N independent cycles in lockstep on one coordinator thread; each logical step writes N JSONL lines sharing `timeline_step`.
+- **`meta.json`:** `agent_count`, `agents[]` (`agent_id`, `label`, `recorded_cycles`), `timeline_mode: aligned`, `recording_layout: single_jsonl`. `meta.cycles` / `recorded_cycles` = total JSONL lines (agents × cycles-per-agent).
+- **`--check`:** per-agent `cycle_id` contiguous `0..n-1` (not global line index). Single-agent sessions keep the legacy global contiguous check.
+- **Dashboard:** transport agent selector; scrub/replay cursor indexes the **selected agent's** timeline. Banners note camera/bulk memory are per-agent live-only.
+- **Reports:** `session_report.json` includes `agents: {"0": {...}, "1": {...}}` for multi-agent sessions; top-level scalars mirror agent 0 for backward compatibility. `compare_session_reports(..., agent_id=0)` selects a bucket; `compare_all_agents()` compares every agent.
 
 #### `action_rationale` (Phase 14 extension — no schema_version bump)
 
@@ -186,6 +212,10 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<new>/ --compare l
 # Matplotlib legacy reconstruct (deprecated for full review)
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --from-jsonl
 
+# Multi-agent aligned run (Phase 17 — local, 2 agents default via wrapper)
+PYTHONPATH=python python scripts/phca_observatory.py --agents 2 --cycles 100 --env gridworld
+PYTHONPATH=python python scripts/phca_multi_observatory.py --cycles 100 --no-record
+
 # Play recorded video only
 PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/
 ```
@@ -206,7 +236,7 @@ Fails unless:
 
 1. JSONL is non-empty
 2. Line count equals `meta.cycles` (unless `--allow-incomplete`)
-3. `cycle_id` is contiguous `0..N-1`
+3. `cycle_id` contiguous `0..N-1` per agent (multi-agent) or globally (single-agent)
 4. All lines parse; `frame_from_json` smoke on first/mid/last
 5. Video (if present) is non-zero; `ffprobe` validates stream when available
 6. `schema_version` is supported; mixed versions fail unless `--allow-incomplete`
@@ -273,6 +303,59 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 PYTHONPATH=python python scripts/phca_replay.py --check --anomaly-strict logs/sessions/<latest>/
 ```
 
+## Production operations / crash recovery (Phase 16)
+
+### Subprocess supervisor (recommended for CI)
+
+Run the Observatory in an isolated child process. On crash or incomplete session, the supervisor finalizes `meta.json`, writes `session_report.json`, and optionally runs `phca_replay --check` with `--allow-incomplete`.
+
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
+  python scripts/phca_observatory_supervisor.py \
+  --record-dir logs/sessions \
+  -- python scripts/phca_observatory.py --cycles=200 --mlp --close-at-end
+```
+
+Supervisor flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--supervisor-log PATH` | JSONL event log (default `logs/supervisor/<ts>.jsonl`) |
+| `--record-dir DIR` | Session root (default: parse from child `--record-dir` or `logs/sessions`) |
+| `--no-recover` | Do not finalize partial sessions |
+| `--no-verify` | Skip `phca_replay --check` after recovery |
+| `--strict-verify` | Fail if strict `--check` fails (default recovery uses `--allow-incomplete`) |
+
+Structured log events: `supervisor_start`, `child_spawn`, `child_exit`, `recover_start`, `recover_done`, `verify_result`.
+
+### Manual recovery
+
+```bash
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --recover
+PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --recover --allow-incomplete
+```
+
+### Abnormal exit runbook
+
+| Situation | Expected artifacts | Strict `--check` | Forensic `--check --allow-incomplete` |
+|-----------|-------------------|------------------|---------------------------------------|
+| Normal completion | `status=complete`, full JSONL | PASS | PASS |
+| User closes window early | `status=incomplete`, partial JSONL + report | FAIL | PASS (if lines parse) |
+| SIGKILL / segfault | partial JSONL, no `close()` | FAIL | PASS after `--recover` |
+| Empty JSONL | `status=empty` | FAIL | FAIL |
+
+Early window close and SIGTERM (graceful) trigger `stop_flag`; the cycle thread still owns M3 SQLite close. SIGTERM does not close M3 from the signal handler.
+
+### Headless CI vs desktop
+
+| Environment | Recommendation |
+|-------------|----------------|
+| CI / headless | `QT_QPA_PLATFORM=offscreen` + supervisor + `--close-at-end` |
+| Desktop Linux | Interactive review (default); optional `--close-at-end` |
+| Wayland (KDE/GNOME) | Cosmetic `libdecor-gtk` noise — see [SETUP.md](../SETUP.md); use `QT_QPA_PLATFORM=xcb` to silence |
+
+Implementation: [`session_recovery.py`](../python/phca/monitoring/session_recovery.py), [`phca_observatory_supervisor.py`](../scripts/phca_observatory_supervisor.py).
+
 ## Dashboard / report parity
 
 Shared helpers in [`python/phca/monitoring/cognitive_panels.py`](python/phca/monitoring/cognitive_panels.py):
@@ -314,6 +397,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 |--------|----------|
 | `test_playback_store.py` | Seek/rebuild semantics, lazy tab rebuild, 3000-frame scrub budget |
 | `test_observatory_launcher.py` | Post-run verify + session_report pipeline |
+| `test_session_recovery.py` | Session recovery, supervisor crash simulation, strict vs `--allow-incomplete` |
 | `test_observability_integrity.py` | RBTA units, `--check`, schema governance, report parity, JSON immutability |
 | `test_*_dashboard.py` | Per-panel smoke, replay banners, scrub rebuild |
 | `test_cognitive_panels.py` | Shared helper contracts |

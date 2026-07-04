@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from .observability import ObservabilityFrame, normalize_observability_json
+from .session_io import frame_from_json
 
 DRIVE_NAMES = {
     1: "D1 PredErr", 2: "D2 Critical", 3: "D3 Compet",
@@ -386,25 +387,3 @@ def update_dashboard(handle: DashboardHandle, f: ObservabilityFrame) -> None:
     _update_attention(handle, f)
     _update_status(handle, f)
     _update_action(handle, f)
-
-
-def frame_from_json(obj: Dict[str, Any]) -> ObservabilityFrame:
-    """Reconstruct an ObservabilityFrame from a JSONL line (for replay)."""
-    obj = normalize_observability_json(obj)
-    f = ObservabilityFrame()
-    array_fields = {
-        "predicted_state", "obs_vector", "goal_ref", "continuous_action",
-        "sanitized_state", "state_precision", "goal_target",
-        "prediction_precision", "gprime_uncertainty", "per_dim_peu",
-        "attention_weights", "last_action_vector",
-    }
-    for k, v in obj.items():
-        if k == "grid" and v is not None:
-            setattr(f, k, np.asarray(v, dtype=np.int32))
-        elif k in array_fields and v is not None:
-            setattr(f, k, np.asarray(v, dtype=np.float32))
-        elif isinstance(v, (dict, list)):
-            setattr(f, k, copy.deepcopy(v))
-        else:
-            setattr(f, k, v)
-    return f

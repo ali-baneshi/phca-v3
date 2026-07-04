@@ -20,9 +20,9 @@ from phca.monitoring.cognitive_panels import (
 )
 from phca.monitoring.session_anomalies import detect_session_anomalies
 from phca.monitoring.action_explain import explain_anchor_bundle, infer_decision_reason
-from phca.monitoring.qt_dashboard import (
+from phca.monitoring.belief_projection import BeliefProjection
+from phca.monitoring.overview_narrative import (
     TREND_WINDOW,
-    BeliefProjection,
     _OVERVIEW_PHASE_STEPS,
     _action_score_margin,
     _action_status_line,
@@ -39,7 +39,7 @@ from phca.monitoring.qt_dashboard import (
     _overview_phase_ms,
     _reacher_kinematics_from_obs,
 )
-from phca.monitoring.render import frame_from_json
+from phca.monitoring.session_io import frame_from_json
 
 
 def _track_drive_change(
@@ -99,6 +99,31 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
             continue
         frames.append(frame_from_json(normalize_observability_json(json.loads(ln))))
 
+    from phca.monitoring.multi_agent import (
+        frames_for_agent,
+        is_multi_agent_session,
+        session_agent_ids,
+    )
+    if is_multi_agent_session(meta, frames=frames):
+        aids = session_agent_ids(frames)
+        agent_reports = {
+            str(aid): _build_agent_report_from_frames(
+                meta, frames_for_agent(frames, aid), agent_id=aid,
+            )
+            for aid in aids
+        }
+        primary = agent_reports.get("0") or agent_reports[str(aids[0])]
+        return {**primary, "agents": agent_reports}
+    return _build_agent_report_from_frames(meta, frames)
+
+
+def _build_agent_report_from_frames(
+    meta: Dict[str, Any],
+    frames: List[ObservabilityFrame],
+    *,
+    agent_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Aggregate Overview-aligned metrics for one agent's frame sequence."""
     n = len(frames)
     err_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
     dist_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
@@ -408,6 +433,9 @@ def build_session_report(meta: Dict[str, Any], lines: List[str]) -> Dict[str, An
 
     return {
         "meta": dict(meta),
+        "agent_id": agent_id if agent_id is not None else int(
+            getattr(frames[0], "agent_id", 0) if frames else 0
+        ),
         "cycles": n,
         "explore_ratio": round(explore_count / n, 4) if n else 0.0,
         "spike_count": spike_count,
@@ -606,8 +634,20 @@ def _metric_delta(current: Any, baseline: Any) -> Optional[float]:
 def compare_session_reports(
     current: Dict[str, Any],
     baseline: Dict[str, Any],
+    *,
+    agent_id: int = 0,
 ) -> Dict[str, Any]:
     """Phase 12: structured deltas between two session reports."""
+    cur_agents = current.get("agents") or {}
+    base_agents = baseline.get("agents") or {}
+    aid = str(agent_id)
+    if aid in cur_agents and aid in base_agents:
+        current = cur_agents[aid]
+        baseline = base_agents[aid]
+    elif aid in cur_agents or aid in base_agents:
+        current = cur_agents.get(aid, current)
+        baseline = base_agents.get(aid, baseline)
+
     cur_meta = current.get("meta") or {}
     base_meta = baseline.get("meta") or {}
     cur_flow = current.get("flow_metrics") or {}
@@ -620,11 +660,13 @@ def compare_session_reports(
             "session": cur_meta.get("session_id") or cur_meta.get("env"),
             "env": cur_meta.get("env"),
             "cycles": current.get("cycles"),
+            "agent_id": current.get("agent_id", agent_id),
         },
         "baseline": {
             "session": base_meta.get("session_id") or base_meta.get("env"),
             "env": base_meta.get("env"),
             "cycles": baseline.get("cycles"),
+            "agent_id": baseline.get("agent_id", agent_id),
         },
         "deltas": {
             "error_late_median": _metric_delta(
@@ -660,7 +702,26 @@ def compare_session_reports(
                 ) > 0
             ),
         },
+        "agent_id": agent_id,
     }
+
+
+def compare_all_agents(
+    current: Dict[str, Any],
+    baseline: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Per-agent deltas when both reports include ``agents`` buckets."""
+    cur_agents = current.get("agents") or {}
+    base_agents = baseline.get("agents") or {}
+    if not cur_agents and not base_agents:
+        return {"agents": {}, "summary": compare_session_reports(current, baseline)}
+    aids = sorted(set(cur_agents) | set(base_agents), key=lambda x: int(x))
+    per_agent: Dict[str, Any] = {}
+    for aid in aids:
+        cur = cur_agents.get(aid, current)
+        base = base_agents.get(aid, baseline)
+        per_agent[aid] = compare_session_reports(cur, base, agent_id=int(aid))
+    return {"agents": per_agent}
 
 
 def print_session_compare(compare: Dict[str, Any], *, stream=None) -> None:

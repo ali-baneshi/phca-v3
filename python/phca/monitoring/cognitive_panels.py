@@ -474,17 +474,30 @@ DATA_CONTRACT_REVIEW: Dict[str, str] = {
 }
 
 
-def data_contract_text(panel_key: str, *, replay: bool, review: bool = False) -> str:
+def data_contract_text(
+    panel_key: str,
+    *,
+    replay: bool,
+    review: bool = False,
+    multi_agent: bool = False,
+) -> str:
     """Return the data-contract banner string for a tab panel."""
     key = str(panel_key)
     if review:
         body = DATA_CONTRACT_REVIEW.get(key, "")
-        return f"REVIEW — {body}" if body else ""
-    if replay:
+        prefix = "REVIEW — "
+    elif replay:
         body = DATA_CONTRACT_REPLAY.get(key, "")
-        return f"REPLAY — {body}" if body else ""
-    body = DATA_CONTRACT_LIVE.get(key, "")
-    return f"LIVE — {body}" if body else ""
+        prefix = "REPLAY — "
+    else:
+        body = DATA_CONTRACT_LIVE.get(key, "")
+        prefix = "LIVE — "
+    if not body:
+        return ""
+    text = f"{prefix}{body}"
+    if multi_agent:
+        text += " · multi-agent: camera/bulk memory are per-agent live-only"
+    return text
 
 
 def classify_action_mechanism(rationale: Dict[str, Any]) -> str:
@@ -614,9 +627,15 @@ def session_status_text(
     jsonl_count: int = 0,
     recording: bool = True,
     verify_status: str = "",
+    agent_id: int = 0,
+    agent_count: int = 1,
+    agent_label: str = "",
 ) -> str:
     """One-line global session strip (all tabs share this context)."""
     parts: List[str] = []
+    if agent_count > 1:
+        lbl = f" {agent_label}" if agent_label else ""
+        parts.append(f"agent {agent_id + 1}/{agent_count}{lbl}")
     if env:
         ek = env_kind or "?"
         parts.append(f"{env} · {ek}")

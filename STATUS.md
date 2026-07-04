@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
 **Last updated:** 2026-07-04  
-**Phase:** 14 COMPLETE — Observatory action explainability (Phases 7–14; D-108–D-117); Phases 15–20 backlog  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-117)
+**Phase:** 16 COMPLETE — Observatory production hardening (Phases 7–16; D-108–D-119); Phases 17–20 backlog  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-119)
 
 ---
 
@@ -24,6 +24,8 @@
 | 12 | Phase 12 multi-session comparison | Complete |
 | 13 | Phase 13 anomaly detection | Complete |
 | 14 | Phase 14 action explainability | Complete |
+| 15 | Phase 15 observability API | Complete |
+| 16 | Phase 16 production hardening | Complete |
 
 ---
 
@@ -111,13 +113,28 @@
 |----|-------|--------|------------|
 | P14-1 | Action explainability (`action_rationale` + Explain band) | ✅ Done | `_finalize_action_rationale()`, `action_explain.py`, Action tab explain band, `explain_metrics` in session_report (D-117) |
 
-### Observatory Phases 15–20 — Backlog
+### Phase 15 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P15-1 | Stable `phca.monitoring` public API + schema doc + CSV export | ✅ Done | `__init__.py` `__all__`, `session_io.py`, `export.py`, `docs/observability_api.md`, Qt-free `overview_narrative` + `belief_projection` extraction (D-118) |
+
+### Phase 16 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P16-1 | Subprocess supervisor + crash recovery + session integrity | ✅ Done | `phca_observatory_supervisor.py`, `session_recovery.py`, `meta.status` lifecycle, `.latest` pointer, `phca_replay --recover`, `test_session_recovery.py` (D-119) |
+
+### Phase 17 — Complete
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| P17-1 | Multi-agent Observatory (`agent_id` + synced timeline) | ✅ Done | `agent_id`/`agent_label`/`timeline_step` on frames; single JSONL interleaved recording; `--agents` aligned runner; dashboard agent selector + per-agent scrub; per-agent `session_report` + `compare_all_agents`; `phca_replay --check` per-agent contiguity; `test_multi_agent.py` (D-120) |
+
+### Observatory Phases 18–20 — Backlog
 
 | Phase | Focus | Gate / deliverable |
 |-------|-------|-------------------|
-| **15** | Observability API | stable `phca.monitoring` export + schema doc |
-| **16** | Production hardening | subprocess Observatory + crash recovery test |
-| **17** | Multi-agent Observatory | `agent_id` on frames + synced timeline |
 | **18** | Interactive analysis | `phca_query.py` CLI + dashboard filters |
 | **19** | Scientific validation | `make reproduce` one-command manifest |
 | **20** | Research maturity sign-off | Phase 20 archive report; all gates green |

@@ -1365,3 +1365,36 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Explanations serialize only cycle-computed data; legacy sessions without new keys still load/replay with infer fallback; shared helper keeps dashboard, report, and check aligned.
 - **v3.0 trace:** A2 (honest action-selection audit trail), A4 (continuous MPC parity).
 - **Tests/Validation:** `TestActionRationaleEnrichment`; `test_action_explain.py`; monitoring 311 passed; total 656 passed.
+
+## Decision D-118: Observatory Phase 15 stable observability API
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 15)
+- **Problem:** Observatory capabilities were scattered across internal modules (`render.py`, `qt_dashboard.py`, submodule imports). `session_report.py` imported PyQt5 transitively via `qt_dashboard`, blocking a Qt-free public package surface. No documented stability boundary or analytical export helper for external tools.
+- **Option chosen:** (1) Curated `phca.monitoring.__all__` re-exporting schema, frame I/O, session report, cognitive moments, and playback basics. (2) `session_io.py` as canonical `frame_from_json` / session loaders; `render.frame_from_json` kept as shim. (3) Extract `belief_projection.py` + `overview_narrative.py` so `session_report` and `import phca.monitoring` do not load PyQt5. (4) `export_session_csv()` (stdlib CSV) for per-cycle scalars. (5) `docs/observability_api.md` documenting stable vs internal modules and versioning policy.
+- **Rationale:** CSV avoids new deps (no pandas/pyarrow). Existing script submodule imports unchanged. `qt_dashboard.py` and `render.py` remain internal with no stability guarantee.
+- **v3.0 trace:** A2 (programmatic audit/export), Observatory Phase 15 gate.
+- **Tests/Validation:** `test_public_api.py` (import smoke, `__all__` stability, no-PyQt5 import, CSV round-trip); monitoring 311 passed.
+
+## Decision D-119: Observatory Phase 16 production hardening
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 16)
+- **Problem:** `phca_observatory.py` runs Qt and the cognitive cycle in-process; crashes or early exits left partial sessions without `recorded_cycles`, verify, or `session_report.json`. CI operators had no subprocess isolation or structured recovery path.
+- **Option chosen:** (1) `SessionRecorder` lifecycle metadata (`status`, `started_at`, `closed_at`, `.latest` pointer, `abort()`). (2) Qt-free `session_recovery.py` with `detect_session_state`, `finalize_session`, `recover_session`. (3) `phca_observatory_supervisor.py` subprocess wrapper with JSONL supervisor log. (4) `phca_replay.py --recover` for manual ops. (5) Launcher hooks: early `_on_close` finalize, SIGTERM → `stop_flag` only (M3 close stays in cycle thread).
+- **Rationale:** Recovery uses forensic `--allow-incomplete` by default after crash; strict `--check` remains the gate for complete sessions. Threading model unchanged.
+- **v3.0 trace:** A1 (crash isolation), A2 (honest partial-session artifacts).
+- **Tests/Validation:** `test_session_recovery.py` (detect/finalize, strict vs allow-incomplete, supervisor crash stub); monitoring suite green.
+
+## Decision D-120: Observatory Phase 17 multi-agent Observatory
+
+- **Date:** 2026-07-04
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 17)
+- **Problem:** Single-agent Observatory could not compare or replay multiple local agents in one session; `cycle_id` and scrub semantics assumed one timeline.
+- **Option chosen:** (1) Additive `agent_id` / `agent_label` / `timeline_step` on `ObservabilityFrame` (default `agent_id=0`). (2) **Single interleaved JSONL** per session dir (not per-agent subdirs). (3) Aligned lockstep coordinator in `phca_observatory.py --agents N` (one thread, N cycles). (4) Dashboard agent selector projects per-agent timelines for scrub/replay. (5) `session_report.json` `agents{}` buckets + `compare_all_agents()`. (6) `phca_replay --check` validates per-agent `cycle_id` contiguity.
+- **Rationale:** One session dir preserves Phase 16 recovery/supervisor tooling. Per-agent projection in the UI avoids breaking single-agent scrub UX. Legacy JSONL/fixtures unchanged when `agent_id` omitted.
+- **v3.0 trace:** Multi-agent observation gate (Phase 17).
+- **Tests/Validation:** `test_multi_agent.py` (fixture, `--check`, scrub immutability, reports, aligned runner smoke); monitoring 333 passed.

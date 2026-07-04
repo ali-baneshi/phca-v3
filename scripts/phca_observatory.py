@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -211,24 +212,40 @@ def _read_latest_camera_packet(cycle_holder: dict) -> Any:
         }
 
 
-def _build_cycle(args, store: ObservabilityStore, *, enable_camera: bool = False) -> CognitiveCycle:
+def _build_cycle(
+    args,
+    store: ObservabilityStore,
+    *,
+    seed_offset: int = 0,
+    enable_camera: bool = False,
+) -> CognitiveCycle:
+    base_seed = args.seed + 2 + int(seed_offset)
     if args.env == "gridworld":
-        rng = np.random.RandomState(args.seed + 2)
+        rng = np.random.RandomState(base_seed)
         obstacles = []
         gap_row = rng.randint(0, args.grid_size)
         for r in range(args.grid_size):
             if r != gap_row and args.grid_size >= 5:
                 obstacles.append((r, max(1, args.grid_size // 2)))
         return CognitiveCycle.build_for_env(
-            size=args.grid_size, seed=args.seed + 2, use_mlp=args.mlp,
+            size=args.grid_size, seed=base_seed, use_mlp=args.mlp,
             use_continuous=True, obstacles=obstacles,
             observability_store=store,
         )
     return CognitiveCycle.build_for_mujoco(
-        args.env, seed=args.seed, use_mlp=args.mlp,
+        args.env, seed=base_seed, use_mlp=args.mlp,
         observability_store=store,
         enable_camera=enable_camera,
     )
+
+
+def _parse_agent_labels(raw: str, n: int) -> list[str]:
+    if raw and str(raw).strip():
+        parts = [p.strip() for p in str(raw).split(",")]
+        while len(parts) < n:
+            parts.append(f"agent_{len(parts)}")
+        return parts[:n]
+    return [f"agent_{i}" for i in range(n)]
 
 
 class _VideoPipe:
@@ -336,7 +353,20 @@ def main() -> None:
                         help="optional offline Φ-IQ benchmark JSON for Overview context (skip if missing)")
     parser.add_argument("--no-benchmark-display", action="store_true",
                         help="do not show Φ-IQ benchmark lines in Overview results")
+    parser.add_argument(
+        "--agents",
+        type=int,
+        default=int(os.environ.get("PHCA_OBSERVATORY_AGENTS", "1")),
+        help="number of local agents (aligned lockstep); default 1",
+    )
+    parser.add_argument(
+        "--agent-labels",
+        default=os.environ.get("PHCA_OBSERVATORY_AGENT_LABELS", ""),
+        help="comma-separated labels for each agent (optional)",
+    )
     args = parser.parse_args()
+    args.agents = max(1, int(args.agents))
+    args.agent_labels_list = _parse_agent_labels(args.agent_labels, args.agents)
 
     if args.env == "cartpole":
         args.env = "InvertedPendulum-v5"
@@ -357,13 +387,16 @@ def main() -> None:
         args.heartbeat_hz = 4.0
         args.render_hz = 3.0
 
-    store_maxlen = max(1000, args.cycles)
+    store_maxlen = max(1000, args.cycles * args.agents)
     store = ObservabilityStore(maxlen=store_maxlen)
+    total_jsonl_lines = args.cycles * args.agents
     recorder = SessionRecorder(root=args.record_dir, fps=args.record_fps,
                                record=not args.no_record)
-    session_dir = recorder.start({
+    start_meta = {
         "env": args.env, "seed": args.seed,
-        "cycles": args.cycles, "grid_size": args.grid_size,
+        "cycles": total_jsonl_lines if args.agents > 1 else args.cycles,
+        "cycles_per_agent": args.cycles,
+        "grid_size": args.grid_size,
         "mlp": args.mlp, "record_fps": args.record_fps,
         "renderer": "qt",
         "profile": args.profile,
@@ -371,7 +404,16 @@ def main() -> None:
         "heartbeat_hz": args.heartbeat_hz,
         "render_hz": args.render_hz,
         "camera_hz": args.camera_hz,
-    })
+    }
+    if args.agents > 1:
+        start_meta["agent_count"] = args.agents
+        start_meta["agents"] = [
+            {"agent_id": i, "label": args.agent_labels_list[i], "recorded_cycles": 0}
+            for i in range(args.agents)
+        ]
+        start_meta["timeline_mode"] = "aligned"
+        start_meta["recording_layout"] = "single_jsonl"
+    session_dir = recorder.start(start_meta)
     if session_dir:
         print(f"Recording session -> {session_dir}")
 
@@ -393,6 +435,11 @@ def main() -> None:
     # Cognitive cycle (incl. M3 SQLite) MUST be built+run in ONE thread.
     stop_flag = threading.Event()
     cycle_holder: dict = {}
+
+    def _on_sigterm(signum, frame) -> None:
+        stop_flag.set()
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
     want_live_camera = args.camera in ("live", "auto") and args.env != "gridworld"
     cycle_ready = threading.Event()
     pacer = CyclePacer()  # v6: optional cycle throttle/pause (no-op at full speed)
@@ -403,72 +450,90 @@ def main() -> None:
 
     def _run_cycle():
         try:
-            cycle = _build_cycle(args, store, enable_camera=want_live_camera)
-            cycle_holder["cycle"] = cycle
+            if args.agents <= 1:
+                cycle = _build_cycle(args, store, enable_camera=want_live_camera)
+                cycles = [cycle]
+            else:
+                cycles = [
+                    _build_cycle(
+                        args, store,
+                        seed_offset=aid * 7,
+                        enable_camera=want_live_camera and aid == 0,
+                    )
+                    for aid in range(args.agents)
+                ]
+            cycle_holder["cycles"] = cycles
+            cycle_holder["cycle"] = cycles[0]
             next_capture_t = time.monotonic()
             cooldown_until_t = 0.0
             fail_streak = 0
             cap_period = _camera_capture_period(args.camera_hz)
             fail_cooldown = max(float(args.camera_fail_cooldown_ms), 0.0) / 1000.0
+            primary = cycles[0]
             if want_live_camera:
-                ok = _camera_self_test(cycle.env)
+                ok = _camera_self_test(primary.env)
                 cycle_holder["camera_ok"] = ok
                 if ok:
                     cycle_holder["camera_lock"] = threading.Lock()
                     cycle_holder["camera_frame"] = None
             else:
                 cycle_holder["camera_ok"] = False
-            cycle_holder["cycle"] = cycle
             cycle_ready.set()
-            for _ in range(args.cycles):
+            labels = args.agent_labels_list
+            for step in range(args.cycles):
                 if stop_flag.is_set():
                     break
-                cycle_id_for_step = cycle.cycle_count
-                pacer.wait()       # v6: additive; no-op unless throttling/paused
-                cycle.step()
-                if want_live_camera and cycle_holder.get("camera_ok"):
-                    now_t = time.monotonic()
-                    if not _can_capture_live_camera(
-                        now_t,
-                        next_capture_t=next_capture_t,
-                        cooldown_until_t=cooldown_until_t,
-                    ):
-                        continue
-                    try:
-                        frame = cycle.env.render_rgb()
-                    except Exception:
-                        frame = None
-                    if frame is not None:
-                        fail_streak = 0
-                        next_capture_t = now_t + cap_period
-                        with cycle_holder["camera_lock"]:
-                            cycle_holder["camera_frame"] = np.asarray(
-                                frame, dtype=np.uint8).copy()
-                            cycle_holder["camera_cycle_id"] = cycle_id_for_step
-                    else:
-                        fail_streak += 1
-                        next_capture_t = now_t + cap_period
-                        if fail_streak >= 3:
-                            cooldown_until_t = now_t + fail_cooldown
+                for aid, cycle in enumerate(cycles):
+                    if stop_flag.is_set():
+                        break
+                    cycle.observability_agent_id = aid
+                    cycle.observability_agent_label = labels[aid]
+                    cycle.observability_timeline_step = step
+                    cycle_id_for_step = cycle.cycle_count
+                    pacer.wait()
+                    cycle.step()
+                    if want_live_camera and aid == 0 and cycle_holder.get("camera_ok"):
+                        now_t = time.monotonic()
+                        if not _can_capture_live_camera(
+                            now_t,
+                            next_capture_t=next_capture_t,
+                            cooldown_until_t=cooldown_until_t,
+                        ):
+                            continue
+                        try:
+                            frame = cycle.env.render_rgb()
+                        except Exception:
+                            frame = None
+                        if frame is not None:
                             fail_streak = 0
+                            next_capture_t = now_t + cap_period
+                            with cycle_holder["camera_lock"]:
+                                cycle_holder["camera_frame"] = np.asarray(
+                                    frame, dtype=np.uint8).copy()
+                                cycle_holder["camera_cycle_id"] = cycle_id_for_step
+                        else:
+                            fail_streak += 1
+                            next_capture_t = now_t + cap_period
+                            if fail_streak >= 3:
+                                cooldown_until_t = now_t + fail_cooldown
+                                fail_streak = 0
         except Exception as e:
             cycle_holder["error"] = str(e)
             print(f"[cycle thread] error: {e}", file=sys.stderr)
         finally:
-            # Close M3's SQLite connection IN THIS THREAD (else __del__ at
-            # interpreter shutdown runs in the main thread -> SIGABRT).
-            try:
-                m3 = getattr(getattr(cycle_holder.get("cycle", None),
-                                     "consolidation", None), "m3", None)
-                if m3 is not None:
-                    m3.close()
-            except Exception:
-                pass
-            try:
-                if "cycle" in cycle_holder:
-                    cycle_holder["cycle"].env.close()
-            except Exception:
-                pass
+            for cycle in cycle_holder.get("cycles", [cycle_holder.get("cycle")]):
+                if cycle is None:
+                    continue
+                try:
+                    m3 = getattr(getattr(cycle, "consolidation", None), "m3", None)
+                    if m3 is not None:
+                        m3.close()
+                except Exception:
+                    pass
+                try:
+                    cycle.env.close()
+                except Exception:
+                    pass
             stop_flag.set()
 
     ct = threading.Thread(target=_run_cycle, daemon=True)
@@ -497,7 +562,11 @@ def main() -> None:
         "target_cycles": args.cycles,
         "session_dir": str(session_dir) if session_dir else "",
         "recording": not args.no_record,
+        "agent_count": args.agents,
+        "agent_labels": args.agent_labels_list,
     })
+    if args.agents > 1:
+        win.init_multi_agent(args.agents, args.agent_labels_list)
     ctrl = win.controller
     camera_wired = False
 
@@ -595,7 +664,8 @@ def main() -> None:
                            win.width(), win.height())
         print(f"Video -> {video.path}")
 
-    last_recorded_cycle = -1
+    last_recorded_by_agent = {aid: -1 for aid in range(args.agents)}
+    expected_jsonl = total_jsonl_lines
     record_interval = 1.0 / max(args.record_fps, 0.1)
     last_grab = -record_interval
     target = args.cycles
@@ -610,23 +680,43 @@ def main() -> None:
     user_tab = {"i": tabs.currentIndex()}  # remember user's tab when not auto-cycling
 
     def _tick():
-        nonlocal last_recorded_cycle, last_grab, last_tab_switch
+        nonlocal last_recorded_by_agent, last_grab, last_tab_switch
         try:
             _wire_camera_if_ready()
-            # Drain new frames: JSONL every cycle (always); push into the
-            # playback buffer so the heartbeat clock + scrubber can reach them.
-            new = store.frames_after(last_recorded_cycle)
-            if new:
-                for f in new:
+            new_frames = []
+            for aid in range(args.agents):
+                new = store.frames_after(last_recorded_by_agent[aid], agent_id=aid)
+                if new:
+                    new_frames.extend(new)
+                    last_recorded_by_agent[aid] = new[-1].cycle_id
+            if new_frames:
+                for f in new_frames:
                     recorder.record(f)
-                    clock.push(f)
-                last_recorded_cycle = new[-1].cycle_id
+                if args.agents > 1:
+                    win.append_observability_frames(new_frames)
+                    projected = win.project_frames_for_agent(win._all_frames)
+                    transport.clock.set_frames(projected)
+                    if projected:
+                        transport.clock._cursor = float(len(projected) - 1)
+                    transport.set_range(len(projected))
+                    transport._sync_slider()
+                else:
+                    for f in new_frames:
+                        clock.push(f)
             err = cycle_holder.get("error")
             if err:
                 clock.error = err
                 ctrl.update(store.latest(), None, err)
                 _on_run_complete(); return
-            done = stop_flag.is_set() and len(store) >= target
+            from phca.monitoring.multi_agent import frames_for_agent
+            snap = store.snapshot()
+            if args.agents <= 1:
+                done = stop_flag.is_set() and len(snap) >= target
+            else:
+                done = stop_flag.is_set() and all(
+                    len(frames_for_agent(snap, aid)) >= target
+                    for aid in range(args.agents)
+                )
             if done:
                 _on_run_complete(); return
             if video is not None:
@@ -636,7 +726,7 @@ def main() -> None:
                     cur = tabs.currentIndex()
                     tabs.setCurrentIndex((cur + 1) % n_tabs)
                     last_tab_switch = now
-                if now - last_grab >= record_interval and last_recorded_cycle >= 0:
+                if now - last_grab >= record_interval and recorder.count > 0:
                     video.grab(win)
                     last_grab = now
         except Exception as e:
@@ -674,18 +764,46 @@ def main() -> None:
     post_run_exit = 0
     run_completed = False
 
+    def _finalize_early_session() -> None:
+        if args.no_record or session_dir is None:
+            return
+        try:
+            from phca.monitoring.session_recovery import finalize_session
+            finalize_session(session_dir, reason="user_close", write_report=True)
+        except Exception as exc:
+            print(f"[recover] early finalize failed: {exc}", file=sys.stderr)
+
     def _on_run_complete() -> None:
-        nonlocal last_recorded_cycle, post_run_exit, run_completed
+        nonlocal last_recorded_by_agent, post_run_exit, run_completed
         if run_completed:
             return
         run_completed = True
         _stop_production_timers()
-        snap = store.frames_after(last_recorded_cycle)
-        if snap:
-            for f in snap:
+        new_frames = []
+        for aid in range(args.agents):
+            snap_new = store.frames_after(last_recorded_by_agent[aid], agent_id=aid)
+            if snap_new:
+                new_frames.extend(snap_new)
+                last_recorded_by_agent[aid] = snap_new[-1].cycle_id
+        if new_frames:
+            for f in new_frames:
                 recorder.record(f)
-                clock.push(f)
-            last_recorded_cycle = snap[-1].cycle_id
+            if args.agents > 1:
+                win.append_observability_frames(new_frames)
+                projected = win.project_frames_for_agent(win._all_frames)
+                transport.clock.set_frames(projected)
+                if projected:
+                    transport.clock._cursor = float(len(projected) - 1)
+                transport.set_range(len(projected))
+                transport._sync_slider()
+            else:
+                for f in new_frames:
+                    clock.push(f)
+        if args.agents > 1:
+            from phca.monitoring.multi_agent import multi_agent_meta_patch
+            patch = multi_agent_meta_patch(store.snapshot(), timeline_mode="aligned")
+            if patch:
+                recorder._patch_meta(patch)
         recorder.flush()
         recorder.close()
         if video is not None:
@@ -694,7 +812,7 @@ def main() -> None:
                + (f"; {video.frames} video frames" if video else "") + ".")
         print(msg)
         win.enter_review_mode(resync_only=True)
-        rolling = store.snapshot()
+        rolling = win.project_frames_for_agent(store.snapshot())
         if rolling:
             ctrl.rebuild_all_histories(rolling)
         ctrl._repaint_visible_tab(force_sync=True)
@@ -705,12 +823,12 @@ def main() -> None:
             nonlocal post_run_exit
             verify_status = ""
             if not args.no_record:
-                _session_summary(session_dir, recorder.count, args.cycles)
+                _session_summary(session_dir, recorder.count, expected_jsonl)
                 if session_dir is not None:
                     post_run_exit, verify_status, _ = _post_run_pipeline(
                         session_dir,
                         n_lines=recorder.count,
-                        expected=args.cycles,
+                        expected=expected_jsonl,
                         verify=not args.no_verify,
                         warnings=startup_warnings,
                     )
@@ -750,9 +868,13 @@ def main() -> None:
         if not run_completed:
             try:
                 recorder.flush()
-                recorder.close()
+                if recorder.count < expected_jsonl:
+                    recorder.abort("user_close")
+                else:
+                    recorder.close()
                 if video is not None:
                     video.close()
+                _finalize_early_session()
             except Exception:
                 pass
         ev.accept()

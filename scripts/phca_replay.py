@@ -59,6 +59,7 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
     print(f"Session: {session_dir}")
     print(f"  meta       : env={meta.get('env')} cycles={meta.get('cycles')} "
           f"recorded={meta.get('recorded_cycles', '?')} "
+          f"agents={meta.get('agent_count', 1)} "
           f"obs_schema={meta.get('observability_schema_version', '?')} "
           f"record_fps={meta.get('record_fps')} mlp={meta.get('mlp')}")
     print(f"  jsonl      : {len(lines)} lines")
@@ -107,14 +108,60 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
             print(f"  [FAIL] mixed schema_version values: {versions}")
             ok = False
     if parsed and not allow_incomplete:
-        for i, obj in enumerate(parsed):
-            cid = obj.get("cycle_id", i)
-            if int(cid) != i:
-                print(f"  [FAIL] line {i + 1}: cycle_id={cid} expected {i}")
+        from phca.monitoring.multi_agent import (
+            is_multi_agent_session,
+            validate_agent_cycle_contiguity,
+            validate_aligned_timeline,
+        )
+        multi = is_multi_agent_session(meta, parsed=parsed)
+        if multi:
+            print(f"  agents     : multi-agent session")
+            ok_contig, err = validate_agent_cycle_contiguity(parsed)
+            if ok_contig:
+                agent_ids = sorted({
+                    int(o.get("agent_id", 0) or 0) for o in parsed
+                })
+                print(
+                    f"  [PASS] per-agent cycle_id contiguous "
+                    f"(agents {agent_ids})"
+                )
+            else:
+                print(f"  [FAIL] {err}")
                 ok = False
-                break
+            ok_align, align_err = validate_aligned_timeline(parsed)
+            if ok_align:
+                if any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+                    print("  [PASS] aligned timeline_step sets complete")
+            elif align_err:
+                print(f"  [FAIL] {align_err}")
+                ok = False
+            meta_agents = meta.get("agents")
+            if isinstance(meta_agents, list) and meta_agents:
+                from collections import Counter
+                counts = Counter(
+                    int(o.get("agent_id", 0) or 0) for o in parsed
+                )
+                for entry in meta_agents:
+                    aid = int(entry.get("agent_id", -1))
+                    expected_n = int(entry.get("recorded_cycles", -1))
+                    actual_n = counts.get(aid, 0)
+                    if expected_n >= 0 and actual_n != expected_n:
+                        print(
+                            f"  [FAIL] agent_id={aid}: JSONL count {actual_n} "
+                            f"!= meta recorded_cycles {expected_n}"
+                        )
+                        ok = False
+                if ok:
+                    print("  [PASS] per-agent JSONL counts match meta.agents[]")
         else:
-            print(f"  [PASS] cycle_id contiguous 0..{len(parsed) - 1}")
+            for i, obj in enumerate(parsed):
+                cid = obj.get("cycle_id", i)
+                if int(cid) != i:
+                    print(f"  [FAIL] line {i + 1}: cycle_id={cid} expected {i}")
+                    ok = False
+                    break
+            else:
+                print(f"  [PASS] cycle_id contiguous 0..{len(parsed) - 1}")
     if parsed:
         try:
             from phca.monitoring.render import frame_from_json
@@ -301,14 +348,23 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
         print("No JSONL frames to replay.", file=sys.stderr)
         return 1
     frames = [frame_from_json(json.loads(ln)) for ln in lines]
-    n = len(frames)
 
     app = make_app()
     win = ObservatoryWindow(title=f"PHCA Observatory — replay {Path(session_dir).name}")
+    win.set_session_context({
+        "env": str(meta.get("env", "")),
+        "target_cycles": int(meta.get("cycles_per_agent", meta.get("cycles", len(frames))) or len(frames)),
+        "agent_count": int(meta.get("agent_count", 1) or 1),
+        "recording": False,
+    })
+    win.load_multi_agent_frames(frames, meta)
+    projected = win.project_frames_for_agent(frames)
+    n = len(projected)
+
     ctrl = win.controller
     # v6: unified transport. heartbeat = fps; speed dial multiplies it.
     clock = PlaybackClock(heartbeat_hz=max(fps, 0.5), mode="replay")
-    clock.set_frames(frames)
+    clock.set_frames(projected)
     ended = {"v": False}
 
     def _on_update(f, rolling, err):
@@ -389,6 +445,21 @@ def _compare(session_dir: str, baseline_dir: str, *, output: Optional[str] = Non
     return 0
 
 
+def _recover(session_dir: str, *, verify: bool = True,
+             allow_incomplete: bool = False) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
+    from phca.monitoring.session_recovery import print_recover_summary, recover_session
+    rc, summary = recover_session(
+        session_dir,
+        write_report=True,
+        verify=verify,
+        allow_incomplete=allow_incomplete,
+        reason="manual_recover",
+    )
+    print_recover_summary(summary)
+    return rc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA session replay tool")
     parser.add_argument("session", nargs="?", help="session dir (logs/sessions/<ts>/)")
@@ -400,6 +471,10 @@ def main() -> None:
                         help="with --check, exit 1 on critical anomaly flags (leak)")
     parser.add_argument("--report", action="store_true",
                         help="build session_report.json from JSONL and print summary")
+    parser.add_argument("--recover", action="store_true",
+                        help="finalize partial session meta/report and optionally verify")
+    parser.add_argument("--no-verify", action="store_true",
+                        help="with --recover, skip phca_replay --check")
     parser.add_argument("--compare", metavar="BASELINE_SESSION",
                         help="compare session_report metrics vs another session dir (Phase 12)")
     parser.add_argument("--compare-output", metavar="JSON",
@@ -419,6 +494,12 @@ def main() -> None:
         sys.exit(_compare(args.session, args.compare, output=args.compare_output))
     if not args.session:
         parser.error("session dir required")
+    if args.recover:
+        sys.exit(_recover(
+            args.session,
+            verify=not args.no_verify,
+            allow_incomplete=args.allow_incomplete,
+        ))
     if args.check:
         sys.exit(_check(args.session, allow_incomplete=args.allow_incomplete,
                         anomaly_strict=args.anomaly_strict))

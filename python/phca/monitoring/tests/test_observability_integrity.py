@@ -185,6 +185,7 @@ def test_session_recorder_stamps_schema_version_in_meta(tmp_path):
     meta = json.loads((session_dir / "meta.json").read_text())
     assert meta["observability_schema_version"] == OBSERVABILITY_SCHEMA_VERSION
     assert meta["recorded_cycles"] == 1
+    assert meta["status"] == "complete"
 
 
 def test_frame_from_json_legacy_v0_missing_schema_supported():
