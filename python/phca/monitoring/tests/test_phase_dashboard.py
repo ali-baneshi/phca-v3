@@ -11,6 +11,7 @@ from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.qt_dashboard import (
     PANEL_BG,
     BeliefProjection,
+    DriveRadarView,
     ObservatoryWindow,
     TrajectoryView,
     _PhasePortraitView,
@@ -403,10 +404,13 @@ def test_portrait_peu_layer_pixel(qt_app):
     view._draw(p)
     p.end()
     found_grey = False
-    for x in range(30, 200, 4):
-        c = pm.toImage().pixelColor(x, 120)
-        if 100 < c.red() < 180 and c.alpha() > 50:
-            found_grey = True
+    for y in range(70, 200, 4):
+        for x in range(30, 200, 4):
+            c = pm.toImage().pixelColor(x, y)
+            if 100 < c.red() < 180 and c.alpha() > 50:
+                found_grey = True
+                break
+        if found_grey:
             break
     assert found_grey
 
@@ -497,3 +501,114 @@ def test_trajectory_moment_ticks_on_pca(qt_app):
     view._draw(p)
     p.end()
     assert len(view._moment_series) >= 8
+
+
+def test_phase_tab_status_strip(qt_app):
+    from phca.monitoring.cognitive_panels import phase_tab_status_line
+
+    w = ObservatoryWindow()
+    f = _reacher_frame(cycle_id=42)
+    f.action_rationale = {"chosen_idx": 2}
+    f.candidate_rollouts = [{"predicted": f.obs_vector, "score": 0.5, "chosen": True}]
+    w.update_phase_tab_status(f, review=True, prefix_len=120)
+    line = phase_tab_status_line(f, w.proj, review=True, prefix_len=120)
+    assert "prefix=120" in line
+    assert w._ps_tab._phase_status.text()
+    assert "prefix=120" in w._ps_tab._phase_status.text()
+
+
+def test_phase_perdim_review_banner(qt_app):
+    from PyQt5 import QtGui
+
+    view = _PhasePortraitView()
+    view.resize(640, 280)
+    view._review = True
+    view._prefix_len = 88
+    view.set_frame(_reacher_frame(cycle_id=10))
+    pm = QtGui.QPixmap(640, 280)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    c = pm.toImage().pixelColor(40, 8)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 15
+
+
+def test_traj_score_legend_smoke(qt_app):
+    from PyQt5 import QtGui
+
+    view = TrajectoryView()
+    view.resize(640, 400)
+    proj = BeliefProjection(window=16)
+    for i in range(8):
+        f = _reacher_frame(cycle_id=i)
+        proj.update(f)
+        proj.push_history(proj.project(f.obs_vector))
+    view.set_projection(proj)
+    f = _reacher_frame(cycle_id=8)
+    f.candidate_rollouts = [
+        {"predicted": f.obs_vector + 0.1, "score": 0.3, "chosen": False},
+        {"predicted": f.obs_vector + 0.2, "score": 0.7, "chosen": True},
+    ]
+    view.set_frame(f)
+    pm = QtGui.QPixmap(640, 400)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+
+
+def test_phase_layout_overlap_regression():
+    f = _reacher_frame()
+    line = _phase_status_line(f, review=True, prefix_len=50, is_grid=False)
+    assert "prefix=50" in line
+    assert "deficits=" not in line.split("·")[0]
+
+
+def test_traj_pred_err_spark_smoke(qt_app):
+    from PyQt5 import QtGui
+
+    view = TrajectoryView()
+    view.resize(640, 400)
+    proj = BeliefProjection(window=16)
+    frames = []
+    for i in range(8):
+        f = _reacher_frame(cycle_id=i, prediction_error=0.05 * i)
+        proj.update(f)
+        proj.push_history(proj.project(f.obs_vector))
+        frames.append(f)
+    view.rebuild_histories(frames)
+    view.set_projection(proj)
+    view.set_frame(frames[-1], histories_done=True)
+    pm = QtGui.QPixmap(640, 400)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._pred_err_spark(p, 540, 20, 90, 22)
+    p.end()
+    assert len(view._pred_err_hist) >= 2
+
+
+def test_phase_review_prefix_on_perdim_status():
+    f = _reacher_frame(cycle_id=55)
+    line = _phase_status_line(f, review=True, prefix_len=88, is_grid=False)
+    assert "prefix=88" in line
+    assert "cycle=55" in line
+
+
+def test_radar_review_footer_caption(qt_app):
+    from PyQt5 import QtGui
+
+    view = DriveRadarView()
+    view.resize(200, 200)
+    f = _reacher_frame()
+    f.drive_levels = [0.3, 0.5, 0.4, 0.6, 0.2, 0.7]
+    view.rebuild_histories([f])
+    view._prefix_len = 150
+    view.set_frame(f, histories_done=True, review=True)
+    pm = QtGui.QPixmap(200, 200)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()

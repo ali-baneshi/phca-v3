@@ -686,12 +686,6 @@ def main() -> None:
                 recorder.record(f)
                 clock.push(f)
             last_recorded_cycle = snap[-1].cycle_id
-            try:
-                ctrl.update(snap[-1], snap, cycle_holder.get("error"))
-                if video is not None:
-                    video.grab(win)
-            except Exception:
-                pass
         recorder.flush()
         recorder.close()
         if video is not None:
@@ -699,38 +693,49 @@ def main() -> None:
         msg = (f"Done. {len(store)} cycles; {recorder.count} JSONL lines"
                + (f"; {video.frames} video frames" if video else "") + ".")
         print(msg)
-        verify_status = ""
-        if not args.no_record:
-            _session_summary(session_dir, recorder.count, args.cycles)
-            if session_dir is not None:
-                post_run_exit, verify_status, _ = _post_run_pipeline(
-                    session_dir,
-                    n_lines=recorder.count,
-                    expected=args.cycles,
-                    verify=not args.no_verify,
-                    warnings=startup_warnings,
-                )
-                report = _load_optional_json(str(session_dir / "session_report.json"))
-                compare = _load_optional_json(args.compare_report)
-                benchmark = None
-                if not args.no_benchmark_display:
-                    benchmark = _load_optional_json(args.benchmark_report)
-                if report:
-                    lines = format_session_results_lines(
-                        report,
-                        compare=compare,
-                        benchmark=benchmark,
-                        verify_status=verify_status,
-                    )
-                    win.set_session_results(lines)
+        win.enter_review_mode(resync_only=True)
         rolling = store.snapshot()
         if rolling:
             ctrl.rebuild_all_histories(rolling)
-        win.enter_review_mode(verify_status=verify_status)
-        print("Review mode: window stays open — scrub tabs and close when done.",
-              file=sys.stderr)
-        if args.close_at_end:
-            win.close()
+        ctrl._repaint_visible_tab(force_sync=True)
+        app.processEvents()
+        win.refresh_session_strip(jsonl_count=recorder.count)
+
+        def _deferred_post_run() -> None:
+            nonlocal post_run_exit
+            verify_status = ""
+            if not args.no_record:
+                _session_summary(session_dir, recorder.count, args.cycles)
+                if session_dir is not None:
+                    post_run_exit, verify_status, _ = _post_run_pipeline(
+                        session_dir,
+                        n_lines=recorder.count,
+                        expected=args.cycles,
+                        verify=not args.no_verify,
+                        warnings=startup_warnings,
+                    )
+                    report = _load_optional_json(
+                        str(session_dir / "session_report.json"))
+                    compare = _load_optional_json(args.compare_report)
+                    benchmark = None
+                    if not args.no_benchmark_display:
+                        benchmark = _load_optional_json(args.benchmark_report)
+                    if report:
+                        lines = format_session_results_lines(
+                            report,
+                            compare=compare,
+                            benchmark=benchmark,
+                            verify_status=verify_status,
+                        )
+                        win.set_session_results(lines)
+            if verify_status:
+                win.set_verify_status(verify_status)
+            print("Review mode: window stays open — scrub tabs and close when done.",
+                  file=sys.stderr)
+            if args.close_at_end:
+                win.close()
+
+        QtCore.QTimer.singleShot(0, _deferred_post_run)
 
     timer = QtCore.QTimer(win)
     timer.timeout.connect(_tick)

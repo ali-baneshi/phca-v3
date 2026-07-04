@@ -338,3 +338,221 @@ def test_rebuild_all_histories_populates_all_tabs(qt_app):
     assert len(win.cand.score_hist) == 12
     assert len(win.retention.m3) == 12
     assert len(win.goals.drive_hist) == 12
+
+
+def test_enter_review_resyncs_transport_range(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow, _TransportBar
+
+    frames = [_rich_frame(i) for i in range(50)]
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="live")
+    clock.set_frames(frames)
+    transport = _TransportBar(clock)
+    win.install_transport(transport)
+    win.enter_review_mode(resync_only=True)
+    assert transport.slider.maximum() == 49
+    assert clock.cursor_int == 49
+    assert clock.review_mode is True
+
+
+def test_enter_review_resync_no_emit(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow, _TransportBar
+
+    frames = [_rich_frame(i) for i in range(10)]
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="live")
+    clock.set_frames(frames)
+    calls = []
+    clock.on_update = lambda f, r, e: calls.append(1)
+    transport = _TransportBar(clock)
+    win.install_transport(transport)
+    win.enter_review_mode(resync_only=True)
+    assert calls == []
+
+
+def test_rebuild_all_histories_once_in_review_flow(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(20)]
+    win = ObservatoryWindow()
+    win._review_mode = True
+    counts = {"n": 0}
+    orig = win.controller.rebuild_all_histories
+
+    def spy(rolling):
+        counts["n"] += 1
+        return orig(rolling)
+
+    win.controller.rebuild_all_histories = spy  # type: ignore[method-assign]
+    win.enter_review_mode(resync_only=True)
+    win.controller.rebuild_all_histories(frames)
+    assert counts["n"] == 1
+
+
+def test_retention_draw_small_height_no_paint_error(qt_app):
+    from phca.monitoring.qt_dashboard import RetentionView
+
+    view = RetentionView()
+    view.resize(400, 100)
+    frames = [_rich_frame(i) for i in range(5)]
+    view.rebuild_histories(frames)
+    view.set_frame(frames[-1], histories_done=True)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1
+
+
+def test_trajectory_draw_small_height_no_paint_error(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow, TrajectoryView
+
+    frames = [_rich_frame(i) for i in range(8)]
+    win = ObservatoryWindow()
+    win.proj.rebuild_from_frames(frames)
+    view = TrajectoryView()
+    view.set_projection(win.proj)
+    f = frames[-1]
+    f.env_kind = "reacher"
+    f.grid = None
+    f.agent_pos = None
+    view.set_frame(f, review=True)
+    view.resize(200, 80)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1
+
+
+def test_trajectory_chart_rect_within_widget(qt_app):
+    from phca.monitoring.qt_dashboard import _traj_canvas_layout
+
+    for h in (120, 180, 240):
+        cl = _traj_canvas_layout(400, h, y0=16, is_grid=False)
+        assert cl["chart_bot"] <= h
+        assert cl["chart_top"] < cl["chart_bot"]
+        assert cl["legend_y"] <= h
+        assert cl["axis_y"] < cl["legend_y"]
+
+
+def test_map_pt_clamps_to_chart(qt_app):
+    from phca.monitoring.qt_dashboard import _map_pt
+
+    bounds = (0.0, 1.0, 0.0, 1.0)
+    x, y = _map_pt((2.5, -1.0), bounds, 10, 20, 110, 120)
+    assert 10 <= x <= 110
+    assert 20 <= y <= 120
+
+
+def test_perdim_draw_small_height_no_paint_error(qt_app):
+    from phca.monitoring.qt_dashboard import _PhasePortraitView
+
+    frames = [_rich_frame(i) for i in range(12)]
+    view = _PhasePortraitView()
+    view.rebuild_histories(frames)
+    view.set_frame(frames[-1], histories_done=True)
+    view.resize(400, 180)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1
+
+
+def test_on_tab_changed_skips_lazy_rebuild_in_review(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(30)]
+    win = ObservatoryWindow()
+    win._review_mode = True
+    win.controller._pending_tab_rebuilds = {6}
+    win.controller._last_rolling = frames[:5]
+    calls = {"n": 0}
+    orig = win.controller._rebuild_tab_histories
+
+    def spy(rolling, tab_idx):
+        calls["n"] += 1
+        return orig(rolling, tab_idx)
+
+    win.controller._rebuild_tab_histories = spy  # type: ignore[method-assign]
+    win.controller.on_tab_changed(6)
+    assert calls["n"] == 0
+    assert len(win.goals.drive_hist) == 0
+
+
+def test_rebuild_all_histories_sets_last_cycle(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(20)]
+    win = ObservatoryWindow()
+    win._review_mode = True
+    win.controller.rebuild_all_histories(frames)
+    assert win.controller._last_cycle == 19
+
+
+def test_rbta_bounds_small_height_no_paint_error(qt_app):
+    from phca.monitoring.qt_dashboard import RBTABoundsView
+
+    view = RBTABoundsView()
+    view.resize(400, 80)
+    frames = [_rich_frame(i) for i in range(5)]
+    view.rebuild_histories(frames)
+    view.set_frame(frames[-1], histories_done=True)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1
+
+
+def test_rbta_bounds_narrow_width_no_paint_error(qt_app):
+    from phca.monitoring.qt_dashboard import RBTABoundsView
+
+    view = RBTABoundsView()
+    view.resize(400, 180)
+    frames = [_rich_frame(i) for i in range(5)]
+    view.rebuild_histories(frames)
+    view.set_frame(frames[-1], histories_done=True)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1
+
+
+def test_footer_labels_within_widget_bounds(qt_app):
+    from phca.monitoring.qt_dashboard import (
+        RetentionView, TrajectoryView, _PhasePortraitView,
+    )
+
+    frames = [_rich_frame(i) for i in range(8)]
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+    win = ObservatoryWindow()
+    win.proj.rebuild_from_frames(frames)
+    traj = TrajectoryView()
+    traj.set_projection(win.proj)
+    f = frames[-1]
+    f.env_kind = "reacher"
+    f.grid = None
+    f.agent_pos = None
+    traj.set_frame(f, review=True)
+    traj.resize(320, 140)
+    traj.show()
+    perdim = _PhasePortraitView()
+    perdim.rebuild_histories(frames)
+    perdim.set_frame(frames[-1], histories_done=True)
+    perdim.resize(400, 200)
+    perdim.show()
+    ret = RetentionView()
+    ret.rebuild_histories(frames)
+    ret.set_frame(frames[-1], histories_done=True, review=True)
+    ret.resize(320, 180)
+    ret.show()
+    qt_app.processEvents()
+    assert traj.repaint_count >= 1
+    assert perdim.repaint_count >= 1
+    assert ret.repaint_count >= 1
+
+
+def test_caption_elide_does_not_overflow_rect(qt_app):
+    from phca.monitoring.qt_dashboard import RetentionView
+
+    view = RetentionView()
+    view.resize(320, 200)
+    frames = [_rich_frame(i) for i in range(8)]
+    view.rebuild_histories(frames)
+    view.set_frame(frames[-1], histories_done=True, review=True)
+    view.show()
+    qt_app.processEvents()
+    assert view.repaint_count >= 1

@@ -65,10 +65,12 @@ from .cognitive_panels import (
     flow_action_link_line,
     flow_near_bound_modules,
     flow_status_extras,
+    classify_action_mechanism,
     mechanism_histogram,
     mechanism_pct,
     moment_tab_badge,
     pipeline_time_budget_ms,
+    phase_tab_status_line,
     rbta_bound_for_module,
     rbta_time_bound_ms,
     session_status_text,
@@ -190,11 +192,17 @@ _CONTRACT_BANNER_Y0 = 16
 _FLOW_HDR_CAPTION_Y = 74
 _FLOW_HDR_CAPTION_H = 14
 
-_ACTION_REPLAY_Y0 = 16
-_ACTION_STATUS_Y = 28
-_ACTION_CHIPS_Y = 40
-_ACTION_CHIPS_H = 14
-_ACTION_CTX_BAND_H = 28
+_ACTION_TITLE_H = 18
+_ACTION_STATUS_H = 14
+_ACTION_CHIPS_H = 16
+_ACTION_DECISION_H = 28
+_ACTION_CTX_H = 28
+_ACTION_MECH_H = 16
+_ACTION_SPARK_W = 62
+_ACTION_SPARK_H = 28
+_ACTION_SPARK_GAP = 4
+_ACTION_FOOTER_H = 28
+_ACTION_EPSILON_H = 32
 
 
 def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[str, Any]:
@@ -225,27 +233,37 @@ def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[s
 
 
 def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
-    """Explicit left/right stack geometry for Action Selection."""
+    """Explicit row-based geometry for Action Selection (no band overlap)."""
     y0 = _CONTRACT_BANNER_Y0
-    header_h = _ACTION_CHIPS_Y + _ACTION_CHIPS_H + y0
-    ctx_top = header_h + 4
-    ctx_band_h = _ACTION_CTX_BAND_H
-    body_top = ctx_top + ctx_band_h
+    title_y = y0 + 2
+    status_y = title_y + _ACTION_TITLE_H
+    chips_y = status_y + _ACTION_STATUS_H
+    decision_y = chips_y + _ACTION_CHIPS_H
+    ctx_y = decision_y + _ACTION_DECISION_H
+    mech_y = ctx_y + _ACTION_CTX_H
+    body_top = mech_y + _ACTION_MECH_H + 4
     margin = 8
-    epsilon_h = 32
+    spark_gutter = 3 * _ACTION_SPARK_W + 2 * _ACTION_SPARK_GAP + 12
     body_h = max(100, h - body_top - margin)
     left_w = max(160, w // 2 - 10)
     right_x = left_w + 16
     right_w = max(120, w - right_x - margin)
-    cloud_h = max(80, int((body_h - epsilon_h) * 0.55))
+    footer_h = _ACTION_FOOTER_H
+    epsilon_h = _ACTION_EPSILON_H
+    cloud_h = max(60, body_h - epsilon_h - footer_h)
     tau_slot_h = 44
     tau_slot_y = body_top + body_h - tau_slot_h
     list_h = body_h - tau_slot_h - 6
+    spark_x0 = w - spark_gutter
+    spark_y0 = title_y
     return {
-        "header_h": header_h,
         "y0": y0,
-        "ctx_top": ctx_top,
-        "ctx_band_h": ctx_band_h,
+        "title_y": title_y,
+        "status_y": status_y,
+        "chips_y": chips_y,
+        "decision_y": decision_y,
+        "ctx_y": ctx_y,
+        "mech_y": mech_y,
         "body_top": body_top,
         "body_h": body_h,
         "left_x": margin,
@@ -258,8 +276,16 @@ def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
         "right_w": right_w,
         "cloud_top": body_top,
         "cloud_h": cloud_h,
-        "epsilon_y": body_top + body_h - epsilon_h,
+        "cloud_bot": body_top + cloud_h,
+        "footer_y": body_top + cloud_h,
+        "footer_h": footer_h,
+        "epsilon_y": body_top + cloud_h + footer_h,
         "epsilon_h": epsilon_h,
+        "spark_x0": spark_x0,
+        "spark_y0": spark_y0,
+        "spark_w": _ACTION_SPARK_W,
+        "spark_h": _ACTION_SPARK_H,
+        "status_w": max(80, spark_x0 - margin - 4),
     }
 
 
@@ -291,6 +317,35 @@ def _phase_layout(w: int, h: int, env_kind: str, is_grid: bool,
         "radar_w": radar_w,
         "chart_top": header_h + 4,
         "chart_bot": header_h + traj_h - 8,
+    }
+
+
+def _traj_canvas_layout(w: int, h: int, y0: int, *, is_grid: bool) -> Dict[str, Any]:
+    """Widget-local chart geometry for TrajectoryView (not the full Phase Space tab)."""
+    spark_w = 96
+    footer_h = 18 if is_grid else 36
+    title_y = y0 + (12 if is_grid else 28)
+    caption_y = y0 + (38 if is_grid else 42)
+    chart_top = caption_y + 6
+    max_bot = h - footer_h
+    avail = max(0, max_bot - chart_top - 4)
+    min_h = 24 if is_grid else 24
+    chart_h = min(avail, max(min_h, avail)) if avail >= min_h else avail
+    chart_bot = min(max_bot, chart_top + chart_h, h - 4)
+    legend_y = h - 8
+    axis_y = legend_y - 14
+    return {
+        "chart_top": chart_top,
+        "chart_bot": chart_bot,
+        "footer_h": footer_h,
+        "footer_top": chart_bot + 4,
+        "header_top": title_y,
+        "header_bot": chart_top - 4,
+        "title_y": title_y,
+        "caption_y": caption_y,
+        "legend_y": legend_y,
+        "axis_y": axis_y,
+        "spark_w": spark_w,
     }
 
 
@@ -382,7 +437,11 @@ def _draw_belief_rollout_cloud(
     is_continuous: bool = False,
     draw_anchor_label: bool = True,
 ) -> bool:
-    """Score-colored rollout cloud in the shared PCA plane. Returns True if drawn."""
+    """Score-colored rollout cloud in the shared PCA plane. Returns True if drawn.
+
+    Callers must set a QPainter clip rect on the chart body before calling
+    (Action Selection rollout cloud and Phase Space trajectory both do).
+    """
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
     if not rollouts or proj is None or not proj.history:
         return False
@@ -454,6 +513,155 @@ def _draw_belief_rollout_cloud(
     return True
 
 
+def _draw_rollout_score_legend(
+    p: QtGui.QPainter, x: int, y: int, w: int, h: int = 10,
+) -> None:
+    """3-stop mini gradient bar clarifying rollout dot score coloring."""
+    if w < 24 or h < 4:
+        return
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    p.drawText(x, y - 2, "low")
+    p.drawText(x + w - 22, y - 2, "high score")
+    for i in range(w):
+        t = i / max(w - 1, 1)
+        col = QtGui.QColor(int(231 - 180 * t), int(60 + 140 * t), int(60 + 60 * t))
+        p.setPen(col)
+        p.drawLine(x + i, y, x + i, y + h - 1)
+
+
+_MECH_BAR_COLORS: Dict[str, QtGui.QColor] = {
+    "explore": QtGui.QColor(52, 152, 219),
+    "prediction": QtGui.QColor(46, 204, 113),
+    "continuous": QtGui.QColor(155, 89, 182),
+    "stay": QtGui.QColor(127, 140, 141),
+    "greedy_fallback": QtGui.QColor(230, 126, 34),
+    "other": QtGui.QColor(100, 100, 110),
+}
+
+
+def _draw_mechanism_stacked_bar(
+    p: QtGui.QPainter,
+    frames: List[ObservabilityFrame],
+    x: int, y: int, w: int, h: int,
+) -> None:
+    """Horizontal stacked bar of action mechanism mix (last N frames)."""
+    if w < 40 or h < 6 or not frames:
+        return
+    counts = mechanism_histogram(frames, window=256)
+    pct = mechanism_pct(counts)
+    if not pct:
+        return
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    p.drawText(x, y - 2, f"mechanism mix (last {len(frames)})")
+    bar_y = y + 2
+    bar_h = max(h - 4, 6)
+    cx = x
+    for key, val in sorted(pct.items(), key=lambda kv: kv[1], reverse=True):
+        if val <= 0:
+            continue
+        seg_w = int(w * val / 100.0)
+        if seg_w < 1:
+            continue
+        col = _MECH_BAR_COLORS.get(key, _MECH_BAR_COLORS["other"])
+        p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+        p.fillRect(cx, bar_y, seg_w, bar_h, col)
+        if val >= 8 and seg_w >= 18:
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(cx + 2, bar_y + bar_h - 2, f"{key[:6]} {val}%")
+        cx += seg_w
+
+
+def _draw_action_decision_card(
+    p: QtGui.QPainter,
+    f: ObservabilityFrame,
+    scores: List[float],
+    chosen: int,
+    moment: Optional[Dict[str, Any]],
+    pareto: set,
+    x: int, y: int, w: int, h: int,
+) -> None:
+    """Two-column decision summary inset."""
+    r = f.action_rationale or {}
+    mech = classify_action_mechanism(r)
+    gid = r.get("goal_id") or getattr(f, "active_drive_id", None)
+    lvls = list(getattr(f, "drive_levels", []) or [])
+    lvl_s = ""
+    if gid and lvls and 0 < int(gid) <= len(lvls):
+        lvl_s = f"{lvls[int(gid) - 1]:.2f}"
+    emp = float(getattr(f, "empowerment", 0.0) or 0.0)
+    peu = (moment or {}).get("peu_mean")
+    if peu is None and getattr(f, "per_dim_peu", None) is not None:
+        arr = np.asarray(f.per_dim_peu, dtype=np.float32).reshape(-1)
+        if arr.size:
+            peu = float(np.mean(arr))
+    eps = r.get("eps")
+    eps_s = f"{float(eps):.3f}" if isinstance(eps, (int, float)) else "—"
+    k = r.get("k_candidates")
+    k_s = str(int(k)) if isinstance(k, (int, float)) else "—"
+    bs = r.get("best_score")
+    bs_s = f"{float(bs):.3f}" if isinstance(bs, (int, float)) else "—"
+    margin = _action_score_margin(scores)
+    margin_s = f"{margin:+.3f}" if margin is not None else "—"
+    cr_t = float(getattr(f, "cr_temperature", 0.0) or 0.0)
+    n_par = len(pareto)
+    n_sc = len(scores)
+    p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+    p.drawRoundedRect(x, y, w, h, 4, 4)
+    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+    mid = x + w // 2
+    left = f"mech={mech}  goal={gid}  lvl={lvl_s or '—'}"
+    if emp > 0:
+        left += f"  emp={emp:.2f}"
+    if peu is not None:
+        left += f"  PEŪ={peu:.2f}"
+    right = (f"ε={eps_s}  k={k_s}  score={bs_s}  Δ2nd={margin_s}"
+             f"  Pareto {n_par}/{n_sc}  cr_T={cr_t:.2f}")
+    p.drawText(x + 6, y + 12, _elide_line(p, left, mid - x - 8))
+    p.drawText(mid + 4, y + 12, _elide_line(p, right, x + w - mid - 8))
+    p.drawText(x + 6, y + h - 6, _elide_line(p, flow_action_link_line(f), w - 12))
+
+
+def _draw_score_proxy_cloud(
+    p: QtGui.QPainter,
+    f: ObservabilityFrame,
+    proj: "BeliefProjection",
+    px0: int, py0: int, px1: int, py1: int,
+    scores: List[float],
+    chosen_idx: int,
+) -> bool:
+    """Score-ranked radial proxy when candidate_rollouts are unavailable."""
+    import math
+    if not scores or proj is None or not proj.history:
+        return False
+    bounds = proj.bounds()
+    cur_v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+    cur = proj.project(cur_v) if cur_v is not None else None
+    if cur is None:
+        return False
+    cx, cy = _map_pt(cur, bounds, px0, py0, px1, py1)
+    smin, smax = min(scores), max(scores)
+    srange = (smax - smin) or 1.0
+    R = min(px1 - px0, py1 - py0) * 0.38
+    n = len(scores)
+    p.setBrush(ACCENT)
+    p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
+    p.drawEllipse(cx - 3, cy - 3, 6, 6)
+    for i, s in enumerate(scores):
+        ang = -math.pi / 2 + 2 * math.pi * i / max(n, 1)
+        t = (float(s) - smin) / srange
+        rad = (0.2 + 0.8 * t) * R
+        rx = int(cx + rad * math.cos(ang))
+        ry = int(cy + rad * math.sin(ang))
+        tt = t
+        col = QtGui.QColor(int(231 - 180 * tt), int(60 + 140 * tt), int(60 + 60 * tt))
+        is_ch = (i == chosen_idx)
+        p.setBrush(col)
+        p.setPen(QtGui.QPen(ACCENT if is_ch else col.darker(140), 2 if is_ch else 1))
+        p.drawEllipse(rx - (6 if is_ch else 4), ry - (6 if is_ch else 4),
+                      12 if is_ch else 8, 12 if is_ch else 8)
+    return True
+
+
 def _flow_update_active_idx(
     prev_heat: Dict[str, float],
     cur_heat: Dict[str, float],
@@ -507,6 +715,8 @@ def _action_status_line(
     chosen: int,
     *,
     replay: bool = False,
+    review: bool = False,
+    prefix_len: int = 0,
     moment: Optional[Dict[str, Any]] = None,
 ) -> str:
     """One-line Action tab status from action_rationale + candidate fields."""
@@ -523,7 +733,9 @@ def _action_status_line(
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
     base = (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
             f"Δ2nd={margin_s} · rollouts={len(rollouts)}")
-    extras = action_status_extras(f, scores, chosen, replay=replay, moment=moment)
+    extras = action_status_extras(
+        f, scores, chosen, replay=replay, review=review,
+        prefix_len=prefix_len, moment=moment)
     return f"{base} · {extras}" if extras else base
 
 
@@ -600,6 +812,8 @@ CHIP_FILL_ALPHA = 120
 GRID_COL = QtGui.QColor(60, 60, 70)
 TEXT_COL = QtGui.QColor(210, 210, 220)
 DIM_COL = QtGui.QColor(150, 150, 160)
+_CAPTION_COL = QtGui.QColor(175, 175, 188)
+_FOOTER_COL = QtGui.QColor(190, 190, 200)
 ACCENT = QtGui.QColor(241, 196, 15)
 
 # v5: cached QFont instances (no per-frame QFont construction → stable metrics).
@@ -607,8 +821,14 @@ _F_TITLE = QtGui.QFont("Sans", 10, QtGui.QFont.Bold)
 _F_AXIS = QtGui.QFont("Sans", 7)
 _F_LABEL = QtGui.QFont("Sans", 8)
 _F_LABEL_B = QtGui.QFont("Sans", 8, QtGui.QFont.Bold)
-_F_CAPTION = QtGui.QFont("Sans", 7)
+_F_CAPTION = QtGui.QFont("Sans", 8)
 _F_DIMSEL = QtGui.QFont("Sans", 8, QtGui.QFont.Bold)
+
+
+def _elide_line(p: QtGui.QPainter, text: str, max_w: int) -> str:
+    if max_w <= 0:
+        return text
+    return p.fontMetrics().elidedText(text, QtCore.Qt.ElideRight, max_w)
 
 
 def _dim_label(i: int, f: Optional[ObservabilityFrame]) -> str:
@@ -1121,7 +1341,19 @@ def _map_pt(pt: Tuple[float, float], bounds: Tuple[float, float, float, float],
     xr = (xhi - xlo) or 1.0; yr = (yhi - ylo) or 1.0
     x = px0 + (pt[0] - xlo) / xr * (px1 - px0)
     y = py1 - (pt[1] - ylo) / yr * (py1 - py0)
-    return (int(x), int(y))
+    x = int(max(px0, min(px1, x)))
+    y = int(max(py0, min(py1, y)))
+    return (x, y)
+
+
+def _ellipse_pixel_axes(cur_pt: Tuple[float, float], ax_p: float, ay_p: float,
+                        bounds: Tuple[float, float, float, float],
+                        px0: int, py0: int, px1: int, py1: int) -> Tuple[int, int, float, float]:
+    """Map belief-space σ axes to pixel radii for uncertainty ellipse."""
+    cx, cy = _map_pt(cur_pt, bounds, px0, py0, px1, py1)
+    px_ax, _ = _map_pt((cur_pt[0] + ax_p, cur_pt[1]), bounds, px0, py0, px1, py1)
+    _, py_ay = _map_pt((cur_pt[0], cur_pt[1] + ay_p), bounds, px0, py0, px1, py1)
+    return cx, cy, max(1.0, abs(float(px_ax - cx))), max(1.0, abs(float(py_ay - cy)))
 
 
 def _draw_qimage(p: QtGui.QPainter, frame: np.ndarray, x: int, y: int,
@@ -1953,8 +2185,11 @@ def _draw_session_results_panel(
     p.setPen(TEXT_COL)
     p.setFont(_F_LABEL_B)
     p.drawText(rect.x() + 8, rect.y() + 12, "Session results")
-    p.setFont(_F_AXIS)
-    y = rect.y() + 24
+    p.setFont(_F_CAPTION)
+    p.setPen(_CAPTION_COL)
+    note = _elide_line(p, "scrub prefix decimated to 2000 pts", rect.width() - 16)
+    p.drawText(rect.x() + 8, rect.y() + 22, note)
+    y = rect.y() + 34
     for line in lines[:8]:
         p.setPen(DIM_COL if line.startswith("  ") else TEXT_COL)
         p.drawText(rect.x() + 8, y, line)
@@ -2468,8 +2703,15 @@ class _BaseCanvas(QtWidgets.QWidget):
 
     def _caption(self, p: QtGui.QPainter, text: str, y: int = 28, x: int = 10) -> None:
         """One-line dim 'what this tells you' under a title."""
-        p.setPen(DIM_COL); p.setFont(_F_CAPTION)
-        p.drawText(x, y, text)
+        p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+        p.drawText(x, y, _elide_line(p, text, self.width() - x - 8))
+
+    def _footer_caption(self, p: QtGui.QPainter, text: str, *,
+                        y: Optional[int] = None, x: int = 10) -> None:
+        if y is None:
+            y = self.height() - 10
+        p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+        p.drawText(x, y, _elide_line(p, text, self.width() - x - 8))
 
     def _legend(self, p: QtGui.QPainter, items: List[Tuple[str, QtGui.QColor]],
                 x: int = 10, y: Optional[int] = None) -> None:
@@ -4505,9 +4747,25 @@ class CandidateScoreView(_BaseCanvas):
         self._margin_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
         self._prev_drive_id: Optional[int] = None
         self._prev_best_score: Optional[float] = None
+        self._prefix_len: int = 0
+        self._mech_frames: List[ObservabilityFrame] = []
 
     def set_projection(self, proj: BeliefProjection) -> None:
         self.proj = proj
+
+    def _mechanism_line(self) -> str:
+        if not self._mech_frames:
+            return ""
+        counts = mechanism_histogram(self._mech_frames, window=256)
+        pct = mechanism_pct(counts)
+        top = sorted(pct.items(), key=lambda kv: kv[1], reverse=True)[:4]
+        if not top:
+            return ""
+        parts = [f"{k} {v}%" for k, v in top]
+        return f"mechanism (last {len(self._mech_frames)}): " + " · ".join(parts)
+
+    def _sync_mechanism_window(self, frames: List[ObservabilityFrame]) -> None:
+        self._mech_frames = list(frames[-256:])
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.eps_hist.clear()
@@ -4520,6 +4778,7 @@ class CandidateScoreView(_BaseCanvas):
         self._prev_drive_id = None
         self._prev_best_score = None
         self._moment_series = build_moment_series(frames)
+        self._sync_mechanism_window(frames)
         for f in frames:
             r = f.action_rationale or {}
             if r:
@@ -4584,6 +4843,11 @@ class CandidateScoreView(_BaseCanvas):
             self.last_continuous = f.continuous_action
         elif getattr(f, "last_action_vector", None) is not None:
             self.last_continuous = f.last_action_vector
+        if not histories_done:
+            if not self._mech_frames or self._mech_frames[-1] is not f:
+                self._mech_frames.append(f)
+                if len(self._mech_frames) > 256:
+                    self._mech_frames = self._mech_frames[-256:]
         self._dirty = True
 
     def _action_context_band(self, p: QtGui.QPainter, f: ObservabilityFrame,
@@ -4609,55 +4873,35 @@ class CandidateScoreView(_BaseCanvas):
             p.drawText(x, y + 12, fm.elidedText(link, QtCore.Qt.ElideRight, w))
 
     def _rollout_cloud(self, p: QtGui.QPainter, f: ObservabilityFrame,
-                       x0: int, top: int, x1: int, bot: int, is_continuous: bool,
+                       x0: int, top: int, x1: int, cloud_bot: int,
+                       footer_y: int, footer_h: int,
+                       is_continuous: bool,
                        *, has_scores: bool = False) -> None:
-        """Render candidate rollouts in the shared PCA plane.
-
-        Discrete: per-action predicted-next thumbnails (dot per action, colored
-        by score, chosen circled). Continuous: MPC K-candidate trajectory cloud
-        (each candidate's predicted next state, chosen highlighted). Falls back
-        to a per-action predicted-bar mini when no projection basis yet.
-        v7: takes an explicit left edge (x0) so it sits beside the ranked list,
-        and labels PCA variance-explained when the projection exposes it.
-        """
+        """Render candidate rollouts or score-proxy cloud in the shared PCA plane."""
         rollouts = list(getattr(f, "candidate_rollouts", []) or [])
+        scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+        chosen_idx = _action_chosen_idx(f, scores)
         label = ("MPC candidate cloud (chosen solid · alts faded)" if is_continuous
                  else "per-action predicted-next (chosen solid · alts faded)")
         varexp_fn = getattr(self.proj, "variance_explained", None)
         varexp = varexp_fn() if callable(varexp_fn) else None
         if varexp:
             label += f"  PCA {varexp:.0f}%"
-        scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
-        chosen_idx = _action_chosen_idx(f, scores)
         if chosen_idx >= 0:
             label += f" · chosen=#{chosen_idx}"
-        self._title(p, label, y=top + 12, x=x0)
-        if not rollouts:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            r = f.action_rationale or {}
-            if bool(r.get("explored")):
-                p.drawText(x0, top + 30,
-                           "ε-greedy — sampling τ · rollouts not computed")
-            elif has_scores:
-                if self._replay:
-                    msg = "scores=OK · rollouts=REPLAY (live-only: candidate_rollouts)"
-                else:
-                    msg = "scores=OK · rollouts=LIVE (needs projection basis)"
-                p.drawText(x0, top + 30, msg)
-            else:
-                p.drawText(x0, top + 30,
-                           "scores=MISSING · (explore/D5 branch)")
-            return
-        if self.proj is not None and self.proj.history:
-            px0, py0, px1, py1 = x0, top + 20, x1, bot - 4
-            p.setPen(QtGui.QPen(GRID_COL, 1))
-            p.drawRect(px0, py0, px1 - px0, py1 - py0)
-            _draw_belief_rollout_cloud(
+        self._title(p, label, y=top + 10, x=x0)
+        chart_top = top + 22
+        chart_bot = cloud_bot - 2
+        px0, py0, px1, py1 = x0 + 4, chart_top, x1 - 4, chart_bot
+        p.setPen(QtGui.QPen(GRID_COL, 1))
+        p.drawRect(px0, py0, px1 - px0, py1 - py0)
+        drawn = False
+        if rollouts and self.proj is not None and self.proj.history:
+            p.save()
+            p.setClipRect(px0, py0, px1 - px0, py1 - py0)
+            drawn = _draw_belief_rollout_cloud(
                 p, f, self.proj, px0, py0, px1, py1, self._rollout_cache,
                 replay=self._replay, is_continuous=is_continuous)
-            if getattr(self.proj, "basis_changed", False):
-                p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
-                p.drawText(px0 + 4, py1 - 6, "⟳ PCA re-fit")
             tau = f.continuous_action if f.continuous_action is not None else self.last_continuous
             if tau is None and getattr(f, "last_action_vector", None) is not None:
                 tau = f.last_action_vector
@@ -4677,30 +4921,66 @@ class CandidateScoreView(_BaseCanvas):
                                int(tcy - float(tv[1]) * sc))
                     p.setPen(DIM_COL); p.setFont(_F_AXIS)
                     p.drawText(tcx + 4, tcy - 4, "τ")
+            p.restore()
+        elif has_scores and self.proj is not None and self.proj.history:
+            p.save()
+            p.setClipRect(px0, py0, px1 - px0, py1 - py0)
+            drawn = _draw_score_proxy_cloud(
+                p, f, self.proj, px0, py0, px1, py1, scores, chosen_idx)
+            p.restore()
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(px0 + 4, py0 + 12, "score proxy cloud (rollouts pending)")
+        elif not rollouts:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            r = f.action_rationale or {}
+            if bool(r.get("explored")):
+                p.drawText(px0 + 4, py0 + 14,
+                           "ε-greedy — sampling τ · rollouts not computed")
+            elif has_scores and self._replay:
+                p.drawText(px0 + 4, py0 + 14,
+                           "scores=OK · rollouts=replay-only")
+                self._draw_score_bars_fallback(
+                    p, f, scores, chosen_idx, px0, py0, px1, py1, is_continuous)
+            elif has_scores:
+                p.drawText(px0 + 4, py0 + 14,
+                           "scores=OK · awaiting projection basis")
+            else:
+                p.drawText(px0 + 4, py0 + 14,
+                           "scores=MISSING · (explore/D5 branch)")
+        if drawn:
+            if getattr(self.proj, "basis_changed", False):
+                p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
+                p.drawText(px0 + 4, py1 - 4, "⟳ PCA re-fit")
+        fy = footer_y + 2
+        _draw_rollout_score_legend(p, px0, fy + 2, px1 - px0, 14)
+        p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+        p.drawText(px0, fy + 18,
+                   _elide_line(p, "shared PCA plane with Phase Space · window ≤256",
+                               px1 - px0))
+
+    def _draw_score_bars_fallback(
+        self, p: QtGui.QPainter, f: ObservabilityFrame,
+        scores: List[float], chosen_idx: int,
+        x0: int, y0: int, x1: int, y1: int, is_continuous: bool,
+    ) -> None:
+        """Mini ranked score bars when replay has scores but no rollouts."""
+        n = len(scores)
+        if n == 0:
             return
-        # Fallback: per-action predicted-bar mini (no projection basis yet).
-        n = len(rollouts)
-        names = list(getattr(f, "action_names", []) or [])
-        bw = (x1 - x0 - 20) / max(n, 1)
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x0 + 10, bot - 6, x1 - 10, bot - 6)
-        for i, ro in enumerate(rollouts):
-            pred = ro.get("predicted")
-            if pred is None:
-                continue
-            head = np.asarray(pred, dtype=np.float32).reshape(-1)[:12]
-            mx = float(np.max(np.abs(head))) or 1.0
-            x = x0 + 10 + i * bw
-            for j, val in enumerate(head):
-                bh = int(abs(float(val)) / mx * (bot - top - 30))
-                col = QtGui.QColor(52, 152, 219, 180)
-                if ro.get("chosen") or i == chosen_idx:
-                    col = QtGui.QColor(241, 196, 15, 220)
-                p.fillRect(int(x + j * 2), int(bot - 6 - bh), 2, bh, col)
-            nm = names[i] if i < len(names) else str(i)
-            p.setPen(ACCENT if (ro.get("chosen") or i == chosen_idx) else DIM_COL)
-            p.setFont(QtGui.QFont("Sans", 7))
-            p.drawText(int(x), bot - 14, nm[:6])
-            p.drawText(int(x), bot + 0, f"{float(ro.get('score',0)):.2f}")
+        order = sorted(range(n), key=lambda i: scores[i], reverse=True)
+        smax = max(scores)
+        smin = min(scores)
+        rng = (smax - smin) or 1.0
+        bh = max(4, (y1 - y0 - 20) // max(n, 1))
+        bw = x1 - x0 - 16
+        for rank, idx in enumerate(order[:min(n, 8)]):
+            ry = y0 + 18 + rank * bh
+            frac = (scores[idx] - smin) / rng
+            col = ACCENT if idx == chosen_idx else QtGui.QColor(52, 152, 219, 200)
+            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
+            p.fillRect(x0 + 8, ry, int(bw * frac), bh - 2, col)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x0 + 8 + int(bw * frac) + 4, ry + bh - 4, f"#{idx} {scores[idx]:.2f}")
 
     def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
@@ -4732,21 +5012,44 @@ class CandidateScoreView(_BaseCanvas):
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
             hdr += f"  score={bs:.3f}"
-        self._title(p, hdr, y=12 + y0)
-        kind = "continuous τ" if is_continuous else "discrete"
+        self._title(p, hdr, y=lay["title_y"])
         moment = self._moment_series[-1] if self._moment_series else None
-        status = _action_status_line(f, scores, chosen, replay=self._replay, moment=moment)
-        status += f" · {kind} · pareto={len(pareto)}"
+        status = _action_status_line(
+            f, scores, chosen, replay=self._replay, review=self._review,
+            prefix_len=self._prefix_len, moment=moment)
+        kind = "continuous τ" if is_continuous else "discrete"
+        status += f" · {kind} · pareto={len(pareto)}/{len(scores)}"
         if note:
             status += f" · {note}"
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(10, _ACTION_STATUS_Y + y0, status)
-        _draw_moment_chips(p, 10, _ACTION_CHIPS_Y + y0, moment)
-        self._best_score_spark(p, w - 190, 6 + y0, 88, 26)
-        self._margin_spark(p, w - 96, 6 + y0, 86, 26)
+        p.drawText(10, lay["status_y"] + 10,
+                   _elide_line(p, status, lay["status_w"]))
+        chip_x = _draw_moment_chips(p, 10, lay["chips_y"], moment)
+        mech = classify_action_mechanism(r)
+        if mech != "prediction":
+            col = QtGui.QColor(52, 152, 219) if mech == "explore" else DIM_COL
+            lbl = mech[:10]
+            tw = 8 + len(lbl) * 6
+            p.setPen(QtGui.QPen(col, 1))
+            p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), CHIP_FILL_ALPHA))
+            p.drawRoundedRect(chip_x + 4, lay["chips_y"], tw, 14, 3, 3)
+            p.setPen(col); p.setFont(_F_AXIS)
+            p.drawText(chip_x + 8, lay["chips_y"] + 11, lbl)
+        sx = lay["spark_x0"]
+        sy = lay["spark_y0"]
+        sw, sh, sg = lay["spark_w"], lay["spark_h"], _ACTION_SPARK_GAP
+        self._best_score_spark(p, sx, sy, sw, sh)
+        self._margin_spark(p, sx + sw + sg, sy, sw, sh)
+        self._pred_err_spark(p, sx + 2 * (sw + sg), sy, sw, sh)
+        _draw_action_decision_card(
+            p, f, scores, chosen, moment, pareto,
+            lay["left_x"], lay["decision_y"], w - lay["left_x"] - 8, _ACTION_DECISION_H)
+        self._action_context_band(p, f, lay["left_x"], lay["ctx_y"] + 10, lay["left_w"])
+        _draw_mechanism_stacked_bar(
+            p, self._mech_frames, lay["left_x"], lay["mech_y"],
+            w - lay["left_x"] - 8, _ACTION_MECH_H)
         list_x, list_y = lay["left_x"], lay["left_y"]
         list_w, list_h = lay["left_w"], lay["left_h"]
-        self._action_context_band(p, f, list_x, lay["ctx_top"] + 10, list_w)
         rx0, right_w = lay["right_x"], lay["right_w"]
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(list_x - 4, list_y - 4, list_w + 8, list_h + lay["tau_slot_h"] + 10, 6, 6)
@@ -4783,12 +5086,13 @@ class CandidateScoreView(_BaseCanvas):
         if is_continuous and tau_vec is not None:
             self._action_heatmap(p, tau_vec, list(getattr(f, "dim_names", []) or []),
                                  list_x, lay["tau_slot_y"], list_w - 10, lay["tau_slot_h"])
-        cloud_bot = lay["cloud_top"] + lay["cloud_h"]
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(rx0 - 4, lay["cloud_top"] - 4, right_w + 8,
                           lay["body_h"] + 8, 6, 6)
-        self._rollout_cloud(p, f, rx0, lay["cloud_top"], rx0 + right_w, cloud_bot,
-                            is_continuous, has_scores=bool(scores))
+        self._rollout_cloud(
+            p, f, rx0, lay["cloud_top"], rx0 + right_w, lay["cloud_bot"],
+            lay["footer_y"], lay["footer_h"],
+            is_continuous, has_scores=bool(scores))
         self._epsilon_strip(p, rx0, lay["epsilon_y"], right_w, lay["epsilon_h"])
 
     def _ranked_list(self, p: QtGui.QPainter, scores: List[float], chosen: int,
@@ -4832,6 +5136,10 @@ class CandidateScoreView(_BaseCanvas):
             p.drawText(x + 4, ry + rh - 8, f"#{rank + 1}")
             p.setPen(TEXT_COL)
             p.setFont(_F_LABEL_B if is_chosen else _F_AXIS)
+            if is_continuous:
+                name = f"τ[{idx}]"
+            else:
+                name = _action_candidate_label(idx, names, is_continuous)
             p.drawText(x + 34, ry + rh - 8, str(name)[:14])
             bar_x = x + 110; bar_w = w - 110 - 78
             frac = max(0.0, min(1.0, (s - lo) / rng))
@@ -4850,6 +5158,13 @@ class CandidateScoreView(_BaseCanvas):
             if is_chosen:
                 p.setPen(ACCENT); p.setFont(_F_LABEL_B)
                 p.drawText(x + w - 14, ry + rh - 8, "►")
+            dim_names = list(getattr(self.frame, "dim_names", []) or []) if self.frame else []
+            if is_chosen and is_continuous and idx < len(dim_names) and dim_names[idx]:
+                p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                p.drawText(x + w - 96, ry + rh - 8, f"{str(dim_names[idx])[:10]}")
+            elif is_pareto:
+                p.setPen(QtGui.QColor(155, 89, 182)); p.setFont(_F_AXIS)
+                p.drawEllipse(x + w - 22, ry + 4, 10, 10)
 
     def _action_heatmap(self, p: QtGui.QPainter, vec: np.ndarray,
                         dim_names: List[str], x: int, y: int, w: int, h: int) -> None:
@@ -4878,12 +5193,13 @@ class CandidateScoreView(_BaseCanvas):
                 p.fillRect(bx + 1, mid - bh, max(int(bw) - 2, 1), bh, col)
             else:
                 p.fillRect(bx + 1, mid, max(int(bw) - 2, 1), bh, col)
-        # dim labels (every k-th to avoid crowding)
+        # dim labels inside chart area (avoid overflow below panel)
         step = max(1, n // 12)
+        label_y = min(gy + chart_h - 2, y + h - 4)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         for i in range(0, n, step):
             lbl = dim_names[i] if i < len(dim_names) else str(i)
-            p.drawText(int(x + i * bw), gy + h + 8, lbl[:6])
+            p.drawText(int(x + 4 + i * bw), label_y, lbl[:6])
 
     def _best_score_spark(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
         """v7: best-score-over-cycles sparkline (wires up the previously-dead
@@ -4929,6 +5245,29 @@ class CandidateScoreView(_BaseCanvas):
             (path.moveTo if i == 0 else path.lineTo)(px, py)
         p.drawPath(path)
 
+    def _pred_err_spark(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
+        """Prediction-error sparkline on Action tab."""
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 4, 4)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 4, y + 10, "pred err")
+        vals = list(self._pred_err_hist)
+        if len(vals) < 2:
+            p.setPen(DIM_COL); p.drawText(x + 4, y + h - 4, "—"); return
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9:
+            hi = lo + 1.0
+        n = len(vals)
+        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 2))
+        path = QtGui.QPainterPath()
+        for i, v in enumerate(vals):
+            px = x + 4 + i * (w - 8) / max(n - 1, 1)
+            py = (y + h - 3) - (v - lo) / (hi - lo) * (h - 16)
+            (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.drawPath(path)
+        ms = self._moment_series[-n:] if self._moment_series else []
+        _draw_moment_ticks(p, x + 4, y + 10, x + w - 4, y + h - 2, ms)
+
     def _epsilon_strip(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
         """v7: reserved ε-decay + explore/exploit strip (moved out of the cloud
         region so nothing collides)."""
@@ -4956,11 +5295,7 @@ class CandidateScoreView(_BaseCanvas):
             p.setBrush(c); p.setPen(QtGui.QPen(c.darker(120), 1))
             p.drawEllipse(xx - 3, base_y + 2, 6, 6)
         ms = self._moment_series[-n:] if self._moment_series else []
-        for i, m in enumerate(ms):
-            if m.get("learn_burst"):
-                xx = int(x + 4 + i * (w - 8) / max(n - 1, 1))
-                p.setPen(QtGui.QPen(_to_qcolor(MOMENT_COLORS["learn_burst"]), 2))
-                p.drawLine(xx, chart_top, xx, chart_top + 8)
+        _draw_moment_ticks(p, x + 4, chart_top, x + w - 4, base_y, ms)
 
 
 # ----- Phase Space tab -------------------------------------------------------
@@ -5132,23 +5467,43 @@ class TrajectoryView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Phase space…"); return
-        lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", self.is_grid)
         y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
                                         panel_key="phase")
+        show_radar = (not self.is_grid) and w >= 900
         status = _phase_status_line(
             f, replay=self._replay, review=self._review, prefix_len=self._prefix_len,
             is_grid=self.is_grid, proj=self.proj,
-            show_radar=lay["show_radar"])
+            show_radar=show_radar)
+        cl = _traj_canvas_layout(w, h, y0, is_grid=self.is_grid)
+        spark_w = cl.get("spark_w", 96)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(10, 26 + y0, status)
+        p.drawText(10, 26 + y0, _elide_line(p, status, w - spark_w - 20))
+        if len(self._pred_err_hist) >= 2:
+            self._pred_err_spark(p, w - spark_w - 6, 20 + y0, spark_w, 22)
+        else:
+            sx, sy, sw, sh = w - spark_w - 6, 20 + y0, spark_w, 22
+            p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+            p.drawRoundedRect(sx, sy, sw, sh, 3, 3)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(sx + 4, sy + 14, "pred err —")
         if self.is_grid:
             n = self.grid_n or 5
-            chart_top = lay["chart_top"] + y0
+            chart_top = cl["chart_top"]
             diag_h = 56
             footer_h = 18
-            max_grid_h = int((lay["chart_bot"] - chart_top) * 0.4)
-            chart_h = min(lay["chart_bot"] - chart_top - footer_h - diag_h, max_grid_h)
-            chart_h = max(int(chart_h), 60)
+            avail = cl["chart_bot"] - chart_top - footer_h - diag_h
+            chart_h = min(avail, int((cl["chart_bot"] - chart_top) * 0.4))
+            chart_h = max(int(chart_h), min(60, max(0, avail)))
+            emax = float(self.errmap.max()) if self.errmap is not None else 0.0
+            tl = list(self.trail)
+            self._title(p, f"GridWorld trajectory + G′ cell error map  trail={len(tl)}  max err={emax:.2f}",
+                        y=cl["title_y"])
+            self._caption(p, _phase_grid_caption(low_conf=self._low_conf) +
+                          " · spatial view → Overview", y=cl["caption_y"])
+            if chart_h < 24:
+                p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+                p.drawText(10, chart_top + 12, "chart area too small — widen window")
+                return
             rect = QtCore.QRect(10, chart_top, w - 20, chart_h)
             p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
             p.drawRoundedRect(rect.x() - 2, rect.y() - 2, rect.width() + 4, rect.height() + 4, 6, 6)
@@ -5170,41 +5525,64 @@ class TrajectoryView(_BaseCanvas):
                 p.drawRoundedRect(rect.x() + 4, rect.y() + 4, min(rect.width() - 8, 220), 16, 3, 3)
                 p.setPen(TEXT_COL); p.setFont(_F_AXIS)
                 p.drawText(rect.x() + 8, rect.y() + 16, "low confidence — err heat decaying")
-            emax = float(self.errmap.max()) if self.errmap is not None else 0.0
-            tl = list(self.trail)
-            self._title(p, f"GridWorld trajectory + G′ cell error map  trail={len(tl)}  max err={emax:.2f}",
-                        y=12 + y0)
-            self._caption(p, _phase_grid_caption(low_conf=self._low_conf) +
-                          " · spatial view → Overview", y=38 + y0)
             diag_y = chart_top + chart_h + 6
-            self._draw_pred_diag_strip(p, 10, diag_y, w - 20, diag_h)
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(10, lay["chart_bot"] + y0 - 4, _grid_err_summary_line(self.errmap, self.trail))
+            if diag_y + diag_h <= h - 6:
+                self._draw_pred_diag_strip(p, 10, diag_y, w - 20, diag_h)
+            p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+            p.drawText(10, min(cl["chart_bot"] - 4, h - 6),
+                       _grid_err_summary_line(self.errmap, self.trail))
         else:
             n_hist = len(self.proj.history) if self.proj is not None else 0
             if self.proj is None or n_hist < 4:
                 self._draw_warming(p, n_hist, y0); return
-            px0 = 20
-            py0 = lay["chart_top"] + y0
-            px1, py1 = w - 20, lay["chart_bot"]
-            p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
-            p.drawRoundedRect(px0 - 4, py0 - 4, px1 - px0 + 8, py1 - py0 + 8, 6, 6)
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawRect(px0, py0, px1 - px0, py1 - py0)
             bounds = self.proj.bounds()
             varexp = self.proj.variance_explained()
             raw2d = bool(getattr(self.proj, "_raw2d", False))
+            kind = getattr(f, "gprime_kind", None) or "g′"
+            ve_txt = f"  PCA {varexp:.0f}%" if varexp else ""
+            proj_lbl = "raw-2D" if raw2d else "PCA-2D"
+            rollouts = list(getattr(f, "candidate_rollouts", []) or [])
+            r = f.action_rationale or {}
+            ci = r.get("chosen_idx")
+            chosen_s = (f" · chosen=#{int(ci)}"
+                        if rollouts and isinstance(ci, (int, float)) else "")
+            self._title(p, f"Belief-space projection ({proj_lbl}, dim={f.state_dim or '?'}) + {kind}{ve_txt}{chosen_s}",
+                        y=cl["title_y"])
+            cap = "belief trajectory · ellipse = G′ σ · score-colored rollouts"
+            if self._replay and not rollouts:
+                cap += " · rollouts unavailable in replay"
+            self._caption(p, cap, y=cl["caption_y"])
+            if getattr(f, "goal_ref", None) is not None:
+                ref_lbl = "sanitized" if f.sanitized_state is not None else "obs_vector"
+                chip_x, chip_y = w - 128, cl["title_y"] - 2
+                p.setPen(QtGui.QPen(DIM_COL, 1))
+                p.setBrush(QtGui.QColor(28, 28, 38, 180))
+                p.drawRoundedRect(chip_x, chip_y, 118, 16, 3, 3)
+                p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+                p.drawText(chip_x + 4, chip_y + 12, f"ref={ref_lbl}|goal_ref")
+            px0 = 20
+            py0 = cl["chart_top"]
+            px1 = w - 20
+            py1 = cl["chart_bot"]
+            chart_w, chart_h = px1 - px0, py1 - py0
+            if chart_w <= 8 or chart_h < 24:
+                p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+                p.drawText(px0, py0 + 12, "chart area too small — widen window")
+                return
+            p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+            p.drawRoundedRect(px0 - 4, py0 - 4, chart_w + 8, chart_h + 8, 6, 6)
+            p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawRect(px0, py0, chart_w, chart_h)
             dim_names = list(getattr(f, "dim_names", []) or [])
+            ax_x = dim_names[0] if (raw2d and dim_names) else "PC1"
+            ax_y = dim_names[1] if (raw2d and dim_names and len(dim_names) > 1) else "PC2"
+            p.save()
+            p.setClipRect(px0, py0, chart_w, chart_h)
             for frac in (0.25, 0.5, 0.75):
                 tx = int(px0 + frac * (px1 - px0))
                 ty = int(py0 + frac * (py1 - py0))
-                p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(tx, py1, tx, py1 + 3)
-                p.drawLine(px0, ty, px0 - 3, ty)
-            ax_x = dim_names[0] if (raw2d and dim_names) else "PC1"
-            ax_y = dim_names[1] if (raw2d and dim_names and len(dim_names) > 1) else "PC2"
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(px1 - 26, py1 + 14, ax_x)
-            p.drawText(px0 - 14, py0 + 4, ax_y)
-            rollouts = list(getattr(f, "candidate_rollouts", []) or [])
+                p.setPen(QtGui.QPen(GRID_COL, 1))
+                p.drawLine(tx, py1, tx, py1 - 3)
+                p.drawLine(px0, ty, px0 + 3, ty)
             is_cont = bool((f.action_rationale or {}).get("continuous", False))
             drawn = _draw_belief_rollout_cloud(
                 p, f, self.proj, px0, py0, px1, py1,
@@ -5216,6 +5594,14 @@ class TrajectoryView(_BaseCanvas):
             if not drawn and self._replay:
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
                 p.drawText(px0 + 6, py0 + 14, "rollout cloud unavailable (JSONL replay)")
+            elif not drawn:
+                sc = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+                ci = r.get("chosen_idx")
+                cidx = int(ci) if isinstance(ci, (int, float)) else (
+                    int(np.argmax(sc)) if sc else -1)
+                if sc:
+                    _draw_score_proxy_cloud(
+                        p, f, self.proj, px0, py0, px1, py1, sc, cidx)
             tl = list(self.proj.history)
             for i in range(1, len(tl)):
                 a, b = tl[i - 1], tl[i]
@@ -5238,15 +5624,16 @@ class TrajectoryView(_BaseCanvas):
             ell = None
             if f.gprime_uncertainty is not None and len(f.gprime_uncertainty):
                 ell = self.proj.uncertainty_ellipse(np.asarray(f.gprime_uncertainty, dtype=np.float32))
-            if ell is not None and ell[0] is not None:
+            if ell is not None and ell[0] is not None and cur is not None:
                 axes, ang = ell
                 ax_p, ay_p = axes
-                if ax_p > 0 and ay_p > 0 and cur is not None:
-                    cx, cy = _map_pt(cur, bounds, px0, py0, px1, py1)
+                if ax_p > 0 and ay_p > 0:
+                    cx, cy, pix_ax, pix_ay = _ellipse_pixel_axes(
+                        cur, ax_p, ay_p, bounds, px0, py0, px1, py1)
                     p.setBrush(QtGui.QColor(52, 152, 219, 40))
                     p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 160), 1))
                     p.translate(cx, cy); p.rotate(ang)
-                    p.drawEllipse(QtCore.QRectF(-ax_p, -ay_p, ax_p * 2, ay_p * 2))
+                    p.drawEllipse(QtCore.QRectF(-pix_ax, -pix_ay, pix_ax * 2, pix_ay * 2))
                     p.resetTransform()
             if pred is not None:
                 pxp, pyp = _map_pt(pred, bounds, px0, py0, px1, py1)
@@ -5263,18 +5650,6 @@ class TrajectoryView(_BaseCanvas):
                 cx, cy = _map_pt(cur, bounds, px0, py0, px1, py1)
                 p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
                 p.drawEllipse(cx - 4, cy - 4, 8, 8)
-            kind = getattr(f, "gprime_kind", None) or "g′"
-            ve_txt = f"  PCA {varexp:.0f}%" if varexp else ""
-            proj_lbl = "raw-2D" if raw2d else "PCA-2D"
-            r = f.action_rationale or {}
-            ci = r.get("chosen_idx")
-            chosen_s = f" · chosen=#{int(ci)}" if isinstance(ci, (int, float)) else ""
-            self._title(p, f"Belief-space projection ({proj_lbl}, dim={f.state_dim or '?'}) + {kind}{ve_txt}{chosen_s}",
-                        y=12 + y0)
-            cap = "belief trajectory · ellipse = G′ σ · score-colored rollouts"
-            if self._replay and not rollouts:
-                cap += " · rollouts unavailable in replay"
-            self._caption(p, cap, y=38 + y0)
             if varexp is not None and not raw2d:
                 p.setPen(QtGui.QColor(52, 152, 219)); p.setFont(_F_LABEL_B)
                 p.drawText(px0 + 6, py0 + 14, f"PCA {varexp:.0f}% var")
@@ -5285,10 +5660,40 @@ class TrajectoryView(_BaseCanvas):
             if self._moment_series:
                 _draw_moment_ticks(p, px0, py0, px1, py1,
                                    self._moment_series[-len(tl):])
+            p.restore()
+            if drawn or rollouts:
+                _draw_rollout_score_legend(p, px0 + 4, py1 - 16, chart_w - 8, 14)
+            p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+            p.drawText(px0, cl["axis_y"], ax_y)
+            p.drawText(px1 - 26, cl["axis_y"], ax_x)
             self._legend(p, [("● current", ACCENT), ("● predicted next", QtGui.QColor(46, 204, 113)),
                              ("○ goal", ACCENT), ("◐ candidates", QtGui.QColor(150, 150, 160)),
                              ("◯ ±σ ellipse", QtGui.QColor(52, 152, 219))],
-                         y=h - 14)
+                         y=cl["legend_y"])
+
+
+    def _pred_err_spark(self, p: QtGui.QPainter, x: int, y: int, w: int, h: int) -> None:
+        """Compact pred-error sparkline in the trajectory header band."""
+        p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
+        p.drawRoundedRect(x, y, w, h, 3, 3)
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(x + 3, y + 9, "pred err")
+        vals = list(self._pred_err_hist)
+        if len(vals) < 2:
+            p.setPen(DIM_COL); p.drawText(x + 3, y + h - 3, "—"); return
+        lo, hi = min(vals), max(vals)
+        if hi - lo < 1e-9:
+            hi = lo + 1.0
+        n = len(vals)
+        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 1))
+        path = QtGui.QPainterPath()
+        for i, v in enumerate(vals):
+            px = x + 3 + i * (w - 6) / max(n - 1, 1)
+            py = (y + h - 2) - (v - lo) / (hi - lo) * (h - 12)
+            (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.drawPath(path)
+        ms = self._moment_series[-n:] if self._moment_series else []
+        _draw_moment_ticks(p, x + 3, y + 8, x + w - 3, y + h - 1, ms)
 
 
 class DriveRadarView(_BaseCanvas):
@@ -5304,6 +5709,7 @@ class DriveRadarView(_BaseCanvas):
         self.frame: Optional[ObservabilityFrame] = None
         self._replay: bool = False
         self._review: bool = False
+        self._prefix_len: int = 0
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         self.hist.clear()
@@ -5334,6 +5740,15 @@ class DriveRadarView(_BaseCanvas):
         hist = list(self.hist)
         if not hist:
             self._empty(p, "Drive radar (collecting…)"); return
+        if self._review and self._prefix_len > 0:
+            p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+            p.drawText(8, 14, f"drive radar · prefix {self._prefix_len} · window ≤200")
+        f = self.frame
+        if f is not None:
+            gid = (f.action_rationale or {}).get("goal_id") or getattr(f, "active_drive_id", None)
+            if gid:
+                p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                p.drawText(8, 26, f"active drive D{int(gid)} (Action tab goal link)")
         n = len(hist[-1])
         n = max(3, n)
         pts = []
@@ -5487,6 +5902,7 @@ class _PhasePortraitView(_BaseCanvas):
         self._ref_prefer_goal: bool = False
         self._moment_series: List[Dict[str, Any]] = []
         self._ref_chip_rect: Optional[QtCore.QRect] = None
+        self._prefix_len: int = 0
 
     def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
         if (self._ref_chip_rect is not None
@@ -5559,6 +5975,8 @@ class _PhasePortraitView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None or f.predicted_state is None:
             self._empty(p, "Phase portrait (collecting…)"); return
+        y0 = _draw_data_contract_banner(
+            p, w, replay=self._replay, review=self._review, panel_key="phase")
         pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
         ref_a, ref_src = belief_reference(f, prefer_goal=self._ref_prefer_goal)
         if ref_a is None:
@@ -5594,13 +6012,15 @@ class _PhasePortraitView(_BaseCanvas):
                 std_s = std[idx]
         n = len(idx)
         bw = (w - 40) / max(n, 1)
-        top, bot = 44, max(h // 2, h - 72)
+        hdr = y0 + 2
+        top, bot = hdr + 52, min(max(h // 2, h - 72), h - 28)
         kind = getattr(f, "gprime_kind", "g′") or "g′"
         mi = getattr(f, "gprime_mutual_info", None)
         mi_txt = f"  mi={float(mi):.3f}" if mi is not None else ""
-        self._title(p, f"Phase portrait  |pred−{ref_src}| ▮ + {kind} ±σ ░  dims {n}/{d}{mi_txt}")
+        self._title(p, f"Phase portrait  |pred−{ref_src}| ▮ + {kind} ±σ ░  dims {n}/{d}{mi_txt}",
+                    y=hdr + 14)
         if getattr(f, "goal_ref", None) is not None:
-            chip_x, chip_y = w - 118, 6
+            chip_x, chip_y = w - 118, hdr + 2
             chip_w, chip_h = 108, 16
             self._ref_chip_rect = QtCore.QRect(chip_x, chip_y, chip_w, chip_h)
             active = self._ref_prefer_goal
@@ -5611,12 +6031,15 @@ class _PhasePortraitView(_BaseCanvas):
             p.drawText(chip_x + 4, chip_y + 12, f"ref={'goal_ref' if active else ref_src}")
         else:
             self._ref_chip_rect = None
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(10, 28, _phase_status_line(f, replay=self._replay, is_grid=False))
+        st_line = _phase_status_line(
+            f, replay=self._replay, review=self._review,
+            prefix_len=self._prefix_len, is_grid=False)
         defs = list(getattr(f, "drive_deficits", []) or [])
         if defs:
             ds = ",".join(f"{v:.2f}" for v in defs[:6])
-            p.drawText(w - 200, 28, f"deficits=[{ds}]")
+            st_line += f" · deficits=[{ds}]"
+        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.drawText(10, hdr + 30, _elide_line(p, st_line, w - 20))
         cap = "red = prediction error · blue whisker = ±σ · ▒ = PEU when live"
         if peu_a is None and not self._replay:
             cap += " · stable order (no re-sort)"
@@ -5624,12 +6047,12 @@ class _PhasePortraitView(_BaseCanvas):
             cap += " · replay"
         else:
             cap += " · PEU layer active"
-        self._caption(p, cap, y=40)
+        self._caption(p, cap, y=hdr + 44)
         if (self._replay
                 and (f.gprime_uncertainty is None
                      or len(np.asarray(f.gprime_uncertainty).reshape(-1)) == 0)):
             p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_AXIS)
-            p.drawText(w - 148, 16, "σ unavailable (replay)")
+            p.drawText(w - 148, hdr + 16, "σ unavailable (replay)")
         chart_x, chart_w = 16, w - 32
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(chart_x - 4, top - 8, chart_w + 8, bot - top + 16, 6, 6)
@@ -5641,12 +6064,14 @@ class _PhasePortraitView(_BaseCanvas):
             raw_max = max(raw_max, float(band_top))
         _, mx = self._scale.update(0.0, float(raw_max if raw_max > 1e-6 else 1.0))
         mx = mx if mx > 1e-6 else 1.0
+        p.save()
+        p.setClipRect(chart_x, top, chart_w, bot - top)
+        r = f.action_rationale or {}
+        ci = r.get("chosen_idx")
+        chosen_dim = int(ci) if isinstance(ci, (int, float)) else -1
         for i in range(n):
             x = 20 + i * bw
             eh = int(errs_s[i] / mx * (bot - top))
-            # v7: σ whisker brackets the error bar (error-σ .. error+σ), drawn as
-            # a thin vertical band centred on the error height — semantically
-            # "the model's error is this, ± this much uncertainty".
             if std_s is not None and i < len(std_s):
                 y_e = bot - eh
                 s_pix = float(std_s[i]) / mx * (bot - top)
@@ -5654,17 +6079,27 @@ class _PhasePortraitView(_BaseCanvas):
                 p.drawLine(int(x + bw / 2), int(y_e - s_pix), int(x + bw / 2), int(y_e + s_pix))
                 p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
                 p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
+            is_chosen_dim = (int(idx[i]) == chosen_dim and chosen_dim >= 0)
+            if is_chosen_dim:
+                p.setPen(QtGui.QPen(ACCENT, 2))
+                p.setBrush(QtGui.QColor(241, 196, 15, CHIP_FILL_ALPHA))
+                p.drawRoundedRect(int(x), int(bot - eh - 2), int(bw - 4), eh + 4, 2, 2)
             p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
             if peu_a is not None and int(idx[i]) < len(peu_a):
                 pe = float(peu_a[int(idx[i])])
                 ph = int(pe / mx * (bot - top) * 0.5)
                 p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
                            QtGui.QColor(150, 150, 160, 140))
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            lbl = _dim_label(int(idx[i]), f)
-            p.drawText(int(x), bot + 11, lbl if n <= 24 else str(int(idx[i])))
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(20, h - 4, f"scale 0..{mx:.3g}  (named dims · pager below)")
+        p.restore()
+        if bot + 14 <= h - 14:
+            p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+            for i in range(n):
+                x = 20 + i * bw
+                lbl = _dim_label(int(idx[i]), f)
+                p.drawText(int(x), min(bot + 11, h - 18), lbl if n <= 24 else str(int(idx[i])))
+        p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+        scale_y = h - 14 if d > 8 else h - 4
+        p.drawText(20, scale_y, f"scale 0..{mx:.3g}  (named dims · pager below)")
         # v8: top-K offenders inset — recompute at most every ~0.5 s (was every
         # frame → the inset re-sorted per heartbeat). Use the cached offenders +
         # errs between recompute ticks.
@@ -5673,21 +6108,37 @@ class _PhasePortraitView(_BaseCanvas):
             self._offender_t = now
             self._offenders = [int(x) for x in np.argsort(-errs)[:5]]
             self._offender_errs = errs
-        self._offenders_inset(p, self._offender_errs if self._offender_errs is not None else errs,
-                              f, w - 150, 40, 140, h // 2 - 44)
+        inset_h = h // 2 - 44
+        if h >= 120 and inset_h >= 24:
+            off_title = "top error dims"
+            if self._review and self._prefix_len > 0 and self.frame is not None:
+                off_title += f" · cycle {int(self.frame.cycle_id)}"
+            self._offenders_inset(p, self._offender_errs if self._offender_errs is not None else errs,
+                                  f, w - 150, top + 4, 140, inset_h, title=off_title)
+        if self._review and self._prefix_len > 0 and self.frame is not None:
+            self._footer_caption(
+                p, f"top error dims · through cycle {int(self.frame.cycle_id)}",
+                y=h - 2)
         self._legend(p, [("▮ error", QtGui.QColor(231, 76, 60)),
                          ("├─┤ ±σ whisker", QtGui.QColor(52, 152, 219))],
                      y=h // 2 + 4, x=20)
         # mutual-info / belief-entropy trend strip (lower half, v7: ScaleState)
         t_top, t_bot = h // 2 + 22, h - 16
-        self._trend(p, self.mi_hist, t_top, t_bot, QtGui.QColor(155, 89, 182),
-                    "mutual_info trend", left=40, right=w // 2 - 6, scale=self._mi_scale)
-        self._trend(p, self.be_hist, t_top, t_bot, QtGui.QColor(46, 204, 113),
-                    "belief-entropy trend", left=w // 2 + 6, right=w - 16, scale=self._be_scale)
+        if t_bot > t_top + 8:
+            self._trend(p, self.mi_hist, t_top, t_bot, QtGui.QColor(155, 89, 182),
+                        "mutual_info trend", left=40, right=w // 2 - 6, scale=self._mi_scale)
+            self._trend(p, self.be_hist, t_top, t_bot, QtGui.QColor(46, 204, 113),
+                        "belief-entropy trend", left=w // 2 + 6, right=w - 16, scale=self._be_scale)
+            if self._moment_series:
+                ms = self._moment_series[-len(self.mi_hist):] if self.mi_hist else []
+                _draw_moment_ticks(p, 40, t_top, w // 2 - 6, t_bot, ms)
+                _draw_moment_ticks(p, w // 2 + 6, t_top, w - 16, t_bot, ms)
         # v8 B4: parallel-coords strip for high-dim residual (pred−actual)
         if d > 8:
             pc_top, pc_bot = t_bot + 8, h - 4
-            self._parallel_residual(p, pred[:d], ref[:d], f, 20, pc_top, w - 40, pc_bot - pc_top)
+            pc_h = pc_bot - pc_top
+            if pc_h >= 16 and pc_bot <= h - 4:
+                self._parallel_residual(p, pred[:d], ref[:d], f, 20, pc_top, w - 40, pc_h)
 
     def _parallel_residual(self, p: QtGui.QPainter, pred: np.ndarray, ref: np.ndarray,
                            f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
@@ -5709,17 +6160,25 @@ class _PhasePortraitView(_BaseCanvas):
             px = x + i * step
             py = y + h - frac * (h - 4) - 2
             (path.moveTo if i == 0 else path.lineTo)(px, py)
+        p.save()
+        p.setClipRect(x, y, w, h)
         p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60, 200), 1))
         p.drawPath(path)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+        p.restore()
+        p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
         for i in range(0, n, max(1, n // 8)):
-            p.drawText(int(x + i * step) - 8, y + h + 10, _dim_label(i, f)[:5])
+            lx = int(x + i * step) - 8
+            ly = min(y + h + 10, y + h - 2)
+            p.drawText(lx, ly, _dim_label(i, f)[:5])
 
     def _offenders_inset(self, p: QtGui.QPainter, errs: np.ndarray,
-                         f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
+                         f: ObservabilityFrame, x: int, y: int, w: int, h: int,
+                         *, title: str = "top error dims") -> None:
+        if w < 1 or h < 1:
+            return
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT); p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-        p.drawText(x + 4, y + 12, "top error dims")
+        p.drawText(x + 4, y + 12, title[:28])
         mx = float(errs.max()) if errs.size else 1.0
         mx = mx if mx > 1e-6 else 1.0
         ry = y + 18
@@ -5897,16 +6356,27 @@ class RetentionView(_BaseCanvas):
         mech = self._mechanism_line()
         row_y = 14 + y0
         if mech:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(10, row_y, mech)
+            p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+            p.drawText(10, row_y, _elide_line(p, mech, w - 20))
             row_y += 14
         self._title(p, f"Retention & resources   RSS leak-rate ≈ {leak:+.1f} B/cyc", y=row_y)
+        gauge_h = 36 if h < 220 else 46
         gauge_y = row_y + 18
-        self._envelope_gauge(p, 10, gauge_y, w - 20, 46, env_seg, env_ok)
-        caption_y = gauge_y + 52
+        self._envelope_gauge(p, 10, gauge_y, w - 20, gauge_h, env_seg, env_ok)
+        caption_y = gauge_y + gauge_h + 6
         self._caption(p, "focal: inside-envelope? M3·M4·RSS·lat vs caps · below: RSS (orange) + latency (green) trend",
                       y=caption_y)
-        self._resources_panel(p, caption_y + 10, h - 8)
+        spark_top = caption_y + 10
+        footer_h = 14
+        min_spark_h = 48
+        spark_bot = min(h - 8, spark_top + min_spark_h + footer_h)
+        if spark_bot - spark_top >= min_spark_h:
+            self._resources_panel(p, spark_top, spark_bot - footer_h)
+            self._footer_caption(p, "shared 0..1 normalised scale · stable bounds",
+                                 y=spark_bot - 4)
+        else:
+            p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+            p.drawText(10, spark_top + 12, "sparkline needs more height — widen window")
 
     def _envelope_status(self) -> Tuple[bool, List[Tuple[str, float, bool]]]:
         """v7: per-resource engagement vs cap/bound → (all_ok, [(label, ratio, over)])."""
@@ -5936,7 +6406,7 @@ class RetentionView(_BaseCanvas):
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
         p.drawRoundedRect(x, y, w, h, 4, 4)
         p.setPen(TEXT_COL if ok else QtGui.QColor(231, 76, 60)); p.setFont(_F_LABEL_B)
-        p.drawText(x + 6, y + h - 8, "inside envelope?" + ("" if ok else "  ✗ OVER"))
+        p.drawText(x + 6, y + 14, "inside envelope?" + ("" if ok else "  ✗ OVER"))
         gx = x + 150; gw = w - 160
         segw = gw // max(len(segs), 1)
         for i, (lbl, ratio, over) in enumerate(segs):
@@ -5947,8 +6417,8 @@ class RetentionView(_BaseCanvas):
             col = QtGui.QColor(231, 76, 60) if over else QtGui.QColor(46, 204, 113)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             p.fillRect(sx, y + 6, fw, h - 12, col)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(sx + 2, y + h - 8, f"{lbl} {ratio*100:.0f}%")
+            p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+            p.drawText(sx + 2, y + h - 6, f"{lbl} {ratio*100:.0f}%")
 
     def _resources_panel(self, p: QtGui.QPainter, top: int, bot: int) -> None:
         """Consolidated resources panel: RSS + latency on one shared stable
@@ -5956,18 +6426,21 @@ class RetentionView(_BaseCanvas):
         — replaces the separate RSS line + latency histogram panels. v7: adds a
         stacked resource breakdown from the runtime/memory/energy logs."""
         w = self.width()
-        left, right = 60, w - 180
+        left = 60
+        right = min(w - 10, max(left + 80, w - 180))
         self._title(p, "Resources — RSS (B, orange) + latency (ms, green)", y=top + 12)
         rss = list(self.rss); lat = list(self.lat)
         if not rss and not lat:
             return
-        # dual labels (right-aligned)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        rss_txt = f"RSS now={rss[-1]/1e6:.1f}MB" if rss else "RSS —"
-        lat_txt = f"lat now={lat[-1]:.1f}ms med={float(np.median(lat)):.1f}ms" if lat else "lat —"
-        p.drawText(right - 90, top + 12, rss_txt)
-        p.drawText(right - 90, top + 24, lat_txt)
+        if w >= 420:
+            p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+            rss_txt = f"RSS now={rss[-1]/1e6:.1f}MB" if rss else "RSS —"
+            lat_txt = f"lat now={lat[-1]:.1f}ms med={float(np.median(lat)):.1f}ms" if lat else "lat —"
+            p.drawText(right - 90, top + 12, rss_txt)
+            p.drawText(right - 90, top + 24, lat_txt)
         pt0, pt1 = top + 30, bot - 6
+        if pt1 <= pt0 + 4:
+            return
         # gridlines
         for g in range(1, 3):
             y = pt0 + g * (pt1 - pt0) // 3
@@ -6003,10 +6476,8 @@ class RetentionView(_BaseCanvas):
             p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
             p.drawLine(xi, pt0, xi, pt1)
         if self.m3_events or self.m4_events:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
             p.drawText(left, top + 38, "│ prune: M3 blue · M4 purple")
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(left, bot - 1, "shared 0..1 normalised scale · stable bounds")
 
 
 class ViolationTable(QtWidgets.QTableWidget):
@@ -6210,6 +6681,7 @@ class RBTABoundsView(_BaseCanvas):
                       y=26 + y0)
         col_w = w // max(len(btypes), 1)
         top, bot = 40 + y0, h - 8
+        min_row = 24
         for ci, (bt, blbl, bcol) in enumerate(btypes):
             cx = ci * col_w + 8
             p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
@@ -6234,8 +6706,16 @@ class RBTABoundsView(_BaseCanvas):
             order = {k: i for i, k in enumerate(PIPELINE)}
             items.sort(key=lambda r: (order.get(r[1], 999), r[0]))
             n = len(items)
-            rowh = (bot - top - 8) / max(n, 1)
-            bw_max = col_w - 170
+            if bot - top < 48 or n * min_row > bot - top:
+                p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+                p.drawText(cx, top + 14, "panel too small — widen window")
+                continue
+            rowh = max(min_row, (bot - top - 8) / max(n, 1))
+            bw_max = max(8, col_w - 170)
+            if col_w < 120 or bw_max < 8:
+                p.setPen(_CAPTION_COL); p.setFont(_F_CAPTION)
+                p.drawText(cx, top + 14, "panel too small — widen window")
+                continue
             for i, (mid, flow, meas, b, key) in enumerate(items):
                 y = top + int(i * rowh)
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
@@ -6648,15 +7128,17 @@ class GoalsMotivationView(_BaseCanvas):
                 for i in range(nd)]
         pareto = {int(x) for x in (getattr(f, "pareto_front", None) or [])}
         active = int(getattr(f, "active_drive_id", 0) or 0)
+        footer_top = h - 18
         # ---- v7 focal: homeostasis tanks (top, full width) ----
-        tank_h = max(h // 3, 80)
+        tank_h = max(min(h // 3, footer_top - 120), 80)
         self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active",
                     x=8, y=14 + y0)
         self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint",
                       x=8, y=26 + y0)
-        self._tanks(p, levels, targets, defs, pareto, active, 8, 32, w - 16, tank_h)
+        tank_y = max(40 + y0, 32)
+        self._tanks(p, levels, targets, defs, pareto, active, 8, tank_y, w - 16, tank_h)
         # ---- bottom-left: goal stack tree + goal_history step-strip ----
-        by = tank_h + 40
+        by = tank_y + tank_h + 20
         lw = max(w // 2 - 8, 120)
         self._title(p, "Goal stack (tree, deepest active first)", x=8, y=by)
         stack = getattr(f, "goal_stack", None) or []
@@ -6672,13 +7154,9 @@ class GoalsMotivationView(_BaseCanvas):
         self._title(p, "Drive deficit history heatmap", x=rx + 140, y=by)
         self._heatmap(p, rx + 140, by + 12, heatmap_w, heatmap_h)
         trend_y = by + heatmap_h + 24
-        trend_h = max(48, h - trend_y - 8)
-        if trend_h >= 48:
+        trend_h = max(48, min(footer_top - trend_y, h - trend_y - 8))
+        if trend_h >= 48 and trend_y + trend_h <= footer_top:
             self._trend_pair(p, rx, trend_y, rw, trend_h)
-        if self._review and self._prefix_len > 0:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(rx + 140, by + heatmap_h + 22,
-                       f"cycle {int(f.cycle_id)} · {self._prefix_len} prefix samples")
 
     def _tanks(self, p, levels, targets, defs, pareto, active, x, y, w, h) -> None:
         """v7 focal: vertical homeostasis tanks (dim-agnostic N drives)."""
@@ -6732,10 +7210,10 @@ class GoalsMotivationView(_BaseCanvas):
                 p.drawEllipse(int(tx) + tw // 2 - 6, y + (h - 18) - lh - 6, 12, 12)
             # labels
             p.setPen(col if is_active else TEXT_COL); p.setFont(_F_LABEL_B)
-            p.drawText(int(tx), y + h - 4, f"{_drive_short(did)} {lvl:.2f}")
+            p.drawText(int(tx), y + h - 14, f"{_drive_short(did)} {lvl:.2f}")
             if tgt is not None:
-                p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(int(tx) + tw - 40, y + h - 4, f"Δ{dfc:.2f}")
+                p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
+                p.drawText(int(tx), y + h - 4, f"Δ{dfc:.2f}")
 
     def _goal_tree(self, p, stack, x, y, w) -> int:
         """v7: indented goal-stack tree with a per-node completion-progress bar."""
@@ -6762,7 +7240,7 @@ class GoalsMotivationView(_BaseCanvas):
             tgt_s = f"|tgt|={float(tnorm):.2f}" if tnorm is not None else "no tgt"
             p.drawText(x + indent, y + 10, f"#{i+1} d{did} {tgt_s}")
             # progress bar
-            bx = x + indent + 150; bw = w - indent - 210
+            bx = x + indent + 150; bw = max(20, w - indent - 210)
             p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
             p.drawRect(bx, y + 3, bw, 8)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
@@ -7031,28 +7509,69 @@ class DashboardController:
         replay = bool(clock is not None and clock.mode == "replay" and not review)
         return review, replay
 
-    def _repaint_visible_tab(self) -> None:
+    def _repaint_visible_tab(self, *, force_sync: bool = False) -> None:
         tab = self.w._tabs.currentWidget()
         if tab is None:
             return
         for cv in tab.findChildren(_BaseCanvas):
             try:
-                cv.repaint_if_dirty()
+                if force_sync:
+                    cv.mark_dirty()
+                    cv.repaint()
+                else:
+                    cv.repaint_if_dirty()
+            except Exception:
+                pass
+
+    def _mark_all_tabs_dirty(self) -> None:
+        for i in range(self.w._tabs.count()):
+            tab = self.w._tabs.widget(i)
+            if tab is None:
+                continue
+            for cv in tab.findChildren(_BaseCanvas):
+                cv.mark_dirty()
+
+    def _activate_review_tab(self, tab_idx: int) -> None:
+        f = getattr(self.w, "_last_frame", None)
+        if tab_idx == 2 and f is not None:
+            try:
+                self.w.cand.mark_dirty()
+                self.w.cand.repaint()
+            except Exception:
+                pass
+        if tab_idx == 3 and f is not None:
+            self.w._apply_phase_layout(f)
+            self.w.dim_selector.refresh()
+            review, _ = self._contract_flags()
+            plen = getattr(self.w.cand, "_prefix_len", 0)
+            self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
+        tab = self.w._tabs.widget(tab_idx)
+        if tab is None:
+            return
+        for cv in tab.findChildren(_BaseCanvas):
+            try:
+                cv.mark_dirty()
+                cv.repaint()
             except Exception:
                 pass
 
     def _set_prefix_len(self, prefix_len: int) -> None:
-        for attr in ("traj", "retention", "goals"):
+        for attr in ("traj", "cand", "perdim", "radar", "retention", "goals"):
             view = getattr(self.w, attr, None)
             if view is not None:
                 setattr(view, "_prefix_len", int(prefix_len))
 
     def on_tab_changed(self, tab_idx: int) -> None:
         """Lazy rebuild: finish history rebuild when user switches to a tab."""
-        if tab_idx not in self._pending_tab_rebuilds or not self._last_rolling:
-            return
-        self._rebuild_tab_histories(self._last_rolling, tab_idx)
-        self._pending_tab_rebuilds.discard(tab_idx)
+        if (not self.w._review_mode
+                and tab_idx in self._pending_tab_rebuilds
+                and self._last_rolling):
+            self._rebuild_tab_histories(self._last_rolling, tab_idx)
+            self._pending_tab_rebuilds.discard(tab_idx)
+        if self.w._review_mode:
+            self._activate_review_tab(tab_idx)
+        else:
+            self._repaint_visible_tab(force_sync=True)
 
     def _rebuild_tab_histories(
         self,
@@ -7107,6 +7626,7 @@ class DashboardController:
         self.w.cand.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w._last_frame = f
         self.w._apply_phase_layout(f)
+        self.w.update_phase_tab_status(f, review=review, prefix_len=len(rolling))
         self.w.traj.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w.radar.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w.perdim.set_frame(f, histories_done=True, replay=replay, review=review)
@@ -7117,6 +7637,9 @@ class DashboardController:
         self.w._viol_summary.setText(self.w.viol.summary())
         self.w.memory.set_frame(f, histories_done=True, replay=replay, review=review)
         self.w.goals.set_frame(f, histories_done=True, replay=replay, review=review)
+        self._last_cycle = int(getattr(f, "cycle_id", -1))
+        self._mark_all_tabs_dirty()
+        self._repaint_visible_tab(force_sync=True)
 
     def _update_tab_badges(self, flags: Dict[str, Any]) -> None:
         badge = moment_tab_badge(flags)
@@ -7151,7 +7674,7 @@ class DashboardController:
                     title = (f"PHCA Cognitive Observatory — review cycle {f.cycle_id}"
                              if review else f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
                     self.w.setWindowTitle(title)
-                    self._repaint_visible_tab()
+                    self._repaint_visible_tab(force_sync=True)
                     return
                 tab_idx = self.w._tabs.currentIndex()
                 self._rebuild_tab_histories(rolling, tab_idx)
@@ -7175,6 +7698,8 @@ class DashboardController:
             self.w.cand.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w._last_frame = f
             self.w._apply_phase_layout(f)
+            plen = len(rolling) if rolling else getattr(self.w.cand, "_prefix_len", 0)
+            self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
             self.w.traj.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w.radar.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay, review=review)
@@ -7230,11 +7755,29 @@ class RenderPacer(QtCore.QObject):
 
 
 class _PhaseSpaceTab(QtWidgets.QWidget):
-    """Phase Space tab — resize drives QWidget layout from _phase_layout."""
+    """Phase Space tab — unified status strip + resize-driven layout."""
 
     def __init__(self, obs_window: "ObservatoryWindow"):
         super().__init__()
         self._obs_window = obs_window
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self._phase_status = QtWidgets.QLabel("")
+        self._phase_status.setFixedHeight(22)
+        self._phase_status.setStyleSheet(
+            "color:#a0a0b0; font-family:monospace; font-size:11px; padding:2px 8px;"
+            "background:#1a1a22; border-bottom:1px solid #333;"
+        )
+        outer.addWidget(self._phase_status)
+        grid_w = QtWidgets.QWidget()
+        self._grid_lay = QtWidgets.QGridLayout(grid_w)
+        self._grid_lay.setContentsMargins(6, 6, 6, 6)
+        self._grid_lay.setSpacing(6)
+        outer.addWidget(grid_w, 1)
+
+    def update_status(self, text: str) -> None:
+        self._phase_status.setText(text)
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -7298,8 +7841,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
 
         # Phase Space & Belief Uncertainty
         ps = _PhaseSpaceTab(self)
-        ps_lay = QtWidgets.QGridLayout(ps)
-        ps_lay.setContentsMargins(6, 6, 6, 6); ps_lay.setSpacing(6)
+        ps_lay = ps._grid_lay
         self.traj = TrajectoryView(); self.traj.set_projection(self.proj)
         self.radar = DriveRadarView()
         # v5: consolidated per-dim error + uncertainty (one view, not two) + pager
@@ -7319,12 +7861,13 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ret_lay.setContentsMargins(6, 6, 6, 6); ret_lay.setSpacing(6)
         self.retention = RetentionView()
         self.rbta_bounds = RBTABoundsView()
+        self.rbta_bounds.setMinimumHeight(160)
         self.rbta_bounds.setMaximumHeight(220)
         self.viol = ViolationTable()
         self._viol_summary = QtWidgets.QLabel("0 violations")
         self._viol_summary.setStyleSheet("color:#e74c3c; font-weight:bold; padding:2px 6px;")
-        ret_lay.addWidget(self.retention)
-        ret_lay.addWidget(self.rbta_bounds)
+        ret_lay.addWidget(self.retention, 3)
+        ret_lay.addWidget(self.rbta_bounds, 0)
         ret_lay.addWidget(self._viol_summary)
         ret_lay.addWidget(self.viol, 1)
         tabs.addTab(ret, "Retention & Resources")
@@ -7379,8 +7922,25 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         if self._status_strip.text() != text:
             self._status_strip.setText(text)
 
-    def enter_review_mode(self, *, verify_status: str = "") -> None:
-        """Pause production; keep transport + render alive for post-run scrub."""
+    def refresh_session_strip(self, *, jsonl_count: Optional[int] = None) -> None:
+        """Refresh status strip after production timers stop (hb_sync no longer runs)."""
+        f = getattr(self, "_last_frame", None)
+        transport = self._transport
+        cursor = 0
+        if transport is not None and getattr(transport, "clock", None) is not None:
+            cursor = transport.clock.cursor_int
+        jcount = jsonl_count
+        if jcount is None:
+            jcount = int(self._session_ctx.get("jsonl_count", 0) or 0)
+        self.update_session_strip(f, jsonl_count=int(jcount), clock_cursor=cursor)
+
+    def enter_review_mode(self, *, verify_status: str = "",
+                          resync_only: bool = False) -> None:
+        """Pause production; keep transport + render alive for post-run scrub.
+
+        When ``resync_only=True`` (post-run entry), sync transport range/cursor
+        without ``follow_live()`` emit — caller runs ``rebuild_all_histories`` once.
+        """
         self._review_mode = True
         if verify_status:
             self.set_verify_status(verify_status)
@@ -7390,7 +7950,13 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         transport = self._transport
         if transport is not None and getattr(transport, "clock", None) is not None:
             transport.clock.review_mode = True
-            transport.clock.follow_live()
+            transport.set_range(transport.clock.n)
+            if resync_only:
+                transport.clock.scrubbing = False
+                if transport.clock.n > 0:
+                    transport.clock._cursor = float(transport.clock.n - 1)
+            else:
+                transport.clock.follow_live()
             transport.clock.set_paused(True)
             transport.play_btn.setChecked(True)
             transport.play_btn.setText("Review")
@@ -7449,10 +8015,20 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
             gl.setRowStretch(2, 2)
             gl.setRowStretch(3, 0)
         if show_radar:
-            radar_h = max(80, min(120, lay["traj_h"] // 3))
+            radar_h = max(100, min(140, lay["traj_h"] // 3))
             self.radar.setFixedSize(lay["radar_w"], radar_h)
         if show_perdim:
             self.dim_selector.setFixedHeight(28)
+
+    def update_phase_tab_status(self, f: ObservabilityFrame, *, review: bool = False,
+                                prefix_len: int = 0) -> None:
+        """Refresh unified Phase Space tab status strip."""
+        ps = getattr(self, "_ps_tab", None)
+        if ps is None or f is None:
+            return
+        line = phase_tab_status_line(
+            f, self.proj, review=review, prefix_len=prefix_len)
+        ps.update_status(line)
 
     def update_phase_panel_visibility(self, f: ObservabilityFrame) -> None:
         """Hide per-dim portrait on GridWorld; compact drive radar on narrow windows."""

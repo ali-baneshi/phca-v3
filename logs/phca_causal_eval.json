@@ -14,7 +14,7 @@
       "greedy_observed",
       "greedy_full_info"
     ],
-    "phca_model": "Gaussian"
+    "phca_model": "MLP"
   },
   "levels": {
     "level1": {
@@ -39,7 +39,7 @@
         "gate_controls": [
           "random"
         ],
-        "phca_model": "Gaussian"
+        "phca_model": "MLP"
       },
       "runs": [
         {
@@ -53,8 +53,8 @@
           "coverage_rate": 0.12,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 12.03,
+          "model": "MLP",
+          "prediction_error_mean": 4.159005515238086,
           "episode_count": 200,
           "fact_count": 22
         },
@@ -105,8 +105,8 @@
           "coverage_rate": 0.16,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 13.97,
+          "model": "MLP",
+          "prediction_error_mean": 4.052522270968282,
           "episode_count": 200,
           "fact_count": 23
         },
@@ -157,8 +157,8 @@
           "coverage_rate": 0.08,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 13.01,
+          "model": "MLP",
+          "prediction_error_mean": 4.157798139861753,
           "episode_count": 200,
           "fact_count": 21
         },
@@ -208,9 +208,9 @@
           "cumulative_reward": 196.97,
           "coverage_rate": 0.16,
           "switch_recovery_cycle": null,
-          "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 14.955,
+          "rbta_violation_rate": 0.005,
+          "model": "MLP",
+          "prediction_error_mean": 4.933098409433832,
           "episode_count": 200,
           "fact_count": 22
         },
@@ -261,8 +261,8 @@
           "coverage_rate": 0.04,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 14.0,
+          "model": "MLP",
+          "prediction_error_mean": 3.776984531240176,
           "episode_count": 200,
           "fact_count": 20
         },
@@ -341,8 +341,8 @@
           "cumulative_reward_mean": 198.182,
           "cumulative_reward_median": 197.98,
           "success_rate": 1.0,
-          "rbta_violation_rate_mean": 0.0,
-          "prediction_error_mean": 13.593,
+          "rbta_violation_rate_mean": 0.001,
+          "prediction_error_mean": 4.215881773348426,
           "episode_count_mean": 200.0,
           "fact_count_mean": 21.6
         },
@@ -500,7 +500,7 @@
           "random",
           "greedy_observed"
         ],
-        "phca_model": "Gaussian"
+        "phca_model": "MLP"
       },
       "runs": [
         {
@@ -514,8 +514,8 @@
           "coverage_rate": 0.36,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 7.460757131555238,
+          "model": "MLP",
+          "prediction_error_mean": 5.017510799549082,
           "episode_count": 200,
           "fact_count": 97
         },
@@ -566,8 +566,8 @@
           "coverage_rate": 0.2,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 8.768953549140678,
+          "model": "MLP",
+          "prediction_error_mean": 5.39587023879793,
           "episode_count": 200,
           "fact_count": 52
         },
@@ -618,8 +618,8 @@
           "coverage_rate": 0.2,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 9.74982133944691,
+          "model": "MLP",
+          "prediction_error_mean": 4.942520516477108,
           "episode_count": 200,
           "fact_count": 40
         },
@@ -670,8 +670,8 @@
           "coverage_rate": 0.36,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 10.771673616648695,
+          "model": "MLP",
+          "prediction_error_mean": 5.140146593329009,
           "episode_count": 200,
           "fact_count": 28
         },
@@ -722,8 +722,8 @@
           "coverage_rate": 0.2,
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 7.54901345226614,
+          "model": "MLP",
+          "prediction_error_mean": 5.805422446053691,
           "episode_count": 200,
           "fact_count": 92
         },
@@ -803,7 +803,7 @@
           "cumulative_reward_median": 133.34,
           "success_rate": 1.0,
           "rbta_violation_rate_mean": 0.0,
-          "prediction_error_mean": 8.860043817811531,
+          "prediction_error_mean": 5.260294118841364,
           "episode_count_mean": 200.0,
           "fact_count_mean": 61.8
         },
@@ -968,7 +968,7 @@
           "random",
           "greedy_observed"
         ],
-        "phca_model": "Gaussian"
+        "phca_model": "MLP"
       },
       "runs": [
         {
@@ -982,8 +982,8 @@
           "coverage_rate": 0.4,
           "switch_recovery_cycle": 4.333333333333333,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 8.116300005087808,
+          "model": "MLP",
+          "prediction_error_mean": 7.015192850306672,
           "episode_count": 200,
           "fact_count": 82
         },
@@ -1034,8 +1034,8 @@
           "coverage_rate": 0.28,
           "switch_recovery_cycle": 8.0,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 8.15450649038163,
+          "model": "MLP",
+          "prediction_error_mean": 7.8393507638374205,
           "episode_count": 200,
           "fact_count": 71
         },
@@ -1086,8 +1086,8 @@
           "coverage_rate": 0.2,
           "switch_recovery_cycle": 51.0,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 8.754629871693298,
+          "model": "MLP",
+          "prediction_error_mean": 7.053412083236328,
           "episode_count": 200,
           "fact_count": 75
         },
@@ -1138,8 +1138,8 @@
           "coverage_rate": 0.36,
           "switch_recovery_cycle": 86.33333333333333,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 8.793940771279965,
+          "model": "MLP",
+          "prediction_error_mean": 6.675986395271383,
           "episode_count": 200,
           "fact_count": 53
         },
@@ -1190,8 +1190,8 @@
           "coverage_rate": 0.48,
           "switch_recovery_cycle": 10.333333333333334,
           "rbta_violation_rate": 0.0,
-          "model": "Gaussian",
-          "prediction_error_mean": 7.706922649024913,
+          "model": "MLP",
+          "prediction_error_mean": 7.86942300710172,
           "episode_count": 200,
           "fact_count": 72
         },
@@ -1283,7 +1283,7 @@
           "switch_recovery_cycle_median": 10.333333333333334,
           "success_rate": 1.0,
           "rbta_violation_rate_mean": 0.0,
-          "prediction_error_mean": 8.305259957493522,
+          "prediction_error_mean": 7.290673019950705,
           "episode_count_mean": 200.0,
           "fact_count_mean": 70.6
         },

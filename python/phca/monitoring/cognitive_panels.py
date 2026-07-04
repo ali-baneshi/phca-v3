@@ -336,10 +336,14 @@ def action_status_extras(
     chosen: int,
     *,
     replay: bool = False,
+    review: bool = False,
+    prefix_len: int = 0,
     moment: Optional[Dict[str, Any]] = None,
 ) -> str:
     parts: List[str] = []
     parts.append(f"cycle={int(getattr(f, 'cycle_id', 0) or 0)}")
+    if review and prefix_len > 0:
+        parts.append(f"prefix={prefix_len}")
     names = list(getattr(f, "action_names", []) or [])
     r = f.action_rationale or {}
     is_cont = bool(r.get("continuous", f.continuous_action is not None))
@@ -374,6 +378,35 @@ def action_status_extras(
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
     if replay and scores and not rollouts:
         parts.append("rollouts=replay")
+    return " · ".join(parts)
+
+
+def phase_tab_status_line(
+    f: ObservabilityFrame,
+    proj: Optional[Any] = None,
+    *,
+    review: bool = False,
+    prefix_len: int = 0,
+) -> str:
+    """Unified Phase Space tab strip (traj + radar + perdim context)."""
+    parts = [f"Phase · cycle={int(getattr(f, 'cycle_id', 0) or 0)}"]
+    if review and prefix_len > 0:
+        parts.append(f"prefix={prefix_len}")
+    if proj is not None:
+        ve = proj.variance_explained()
+        if ve is not None:
+            parts.append(f"PCA={ve:.0f}%")
+    r = f.action_rationale or {}
+    ci = r.get("chosen_idx")
+    rollouts = list(getattr(f, "candidate_rollouts", []) or [])
+    if rollouts and isinstance(ci, (int, float)):
+        parts.append(f"chosen=#{int(ci)}")
+    ref_lbl = "sanitized" if f.sanitized_state is not None else "obs_vector"
+    if getattr(f, "goal_ref", None) is not None:
+        parts.append(f"ref={ref_lbl}|goal_ref")
+    did = int(getattr(f, "active_drive_id", 0) or 0)
+    if did:
+        parts.append(f"drive=D{did}")
     return " · ".join(parts)
 
 
@@ -432,12 +465,12 @@ DATA_CONTRACT_LIVE: Dict[str, str] = {
 DATA_CONTRACT_REVIEW: Dict[str, str] = {
     "overview": "session complete · scrub prefix 0..cursor · results panel active",
     "flow": "full-session prefix rebuild on scrub · module_timings from JSONL",
-    "action": "full prefix on scrub · scores/rationale from recorded session",
-    "phase": "belief projection rebuilt from prefix 0..cursor on scrub",
+    "action": "mechanism mix · prefix 0..cursor · scores window ≤200",
+    "phase": "belief projection rebuilt from prefix 0..cursor · radar/perdim aligned to scrub cursor · traj window ≤256",
     "retention": "M3/M4/RSS/latency series aligned to scrub cursor",
     "rbta": "bound envelope sparklines aligned to scrub cursor",
     "memory": "belief geography at cursor · M3/M4 lists from recorded frame",
-    "goals": "tanks at cursor · deficit heatmap from prefix 0..cursor",
+    "goals": "tanks at cursor · deficit heatmap from prefix 0..cursor · heatmap window ≤200",
 }
 
 
