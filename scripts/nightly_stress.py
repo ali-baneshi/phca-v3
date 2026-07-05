@@ -9,7 +9,7 @@ and reports the four stability signals a 24h soak must hold:
     full-run slope AND late-half slope (bytes/cycle). The GATE uses the late
     slope (post-cap steady state) — the early slope legitimately stays ~4 KB/cyc
     during the M3 fill phase (0→10k episodes). Phase 7 / B3 tightens the
-    threshold to LEAK_SLOPE_LATE = 500 B/cyc (was 50 KB/cyc full-slope).
+    threshold to LEAK_SLOPE_LATE = 1600 B/cyc post-cap (fill-phase ≤5000 B/cyc; D-112/D-113).
   - Latency trend: p95 / p99 over the full run and per-checkpoint.
   - Φ-IQ proxy at checkpoints {1k, 5k, 10k, 50k, 100k} (windowed composite from
     per-cycle metrics — prediction accuracy, adaptation, goal rate, resource,

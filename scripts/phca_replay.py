@@ -112,6 +112,7 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
             is_multi_agent_session,
             validate_agent_cycle_contiguity,
             validate_aligned_timeline,
+            validate_jsonl_step_major_order,
         )
         multi = is_multi_agent_session(meta, parsed=parsed)
         if multi:
@@ -134,6 +135,13 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
                     print("  [PASS] aligned timeline_step sets complete")
             elif align_err:
                 print(f"  [FAIL] {align_err}")
+                ok = False
+            ok_order, order_err = validate_jsonl_step_major_order(parsed)
+            if ok_order:
+                if any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+                    print("  [PASS] step-major JSONL line order")
+            elif order_err:
+                print(f"  [FAIL] {order_err}")
                 ok = False
             meta_agents = meta.get("agents")
             if isinstance(meta_agents, list) and meta_agents:

@@ -42,7 +42,6 @@ from phca.monitoring.qt_dashboard import (
     _overview_outcome_line,
     _overview_new_events,
     _reacher_kinematics_from_obs,
-    make_app,
     set_autoscale_frozen,
 )
 
@@ -83,11 +82,6 @@ def _reacher_frame(cycle_id: int = 1) -> ObservabilityFrame:
     return f
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def test_overview_unified_widget(qt_app):

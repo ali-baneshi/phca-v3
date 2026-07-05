@@ -64,7 +64,7 @@ Rust toolchain is **not** required (workspace removed D-084).
 
 ### Long-run memory growth (Phase 7 workstream)
 
-The nightly stress test uses a **phase-aware late-half RSS slope** gate (D-112, D-113): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=10000`). Measured 10k tail-quarter slope **~1390 B/cyc** (2026-07-04); the prior 500 B/cyc target was aspirational pre-measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
+The nightly stress test uses a **phase-aware late-half RSS slope** gate (D-112, D-113): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=10000`). Measured 10k tail-quarter slope **~1257 B/cyc** (2026-07-05, `logs/nightly_stress_10k.json`); the prior 500 B/cyc target was aspirational pre-measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
 
 ### Discrete GridWorld selector is not purely prediction-driven
 
@@ -82,9 +82,9 @@ The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-
 
 `SemanticFact` in `consolidation/scheduler.py` is pattern matching over episodes, not true semantic memory.
 
-### Observatory limitations (Phases 8–12 shipped)
+### Observatory limitations (Phases 7–20 complete)
 
-Phases 8–12 delivered seek/scrub replay, panel history rebuild, transport controls, honest replay banners, schema versioning, report parity, large-session scrub performance, and multi-session `--compare`. Remaining Observatory limits:
+Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay, schema governance, report parity, large-session scrub performance, multi-session compare, anomaly detection, action explainability, stable API, supervisor/recovery, multi-agent timelines, cognitive-moment query, and scientific reproduction. Remaining Observatory limits:
 
 - **Live-only fields in replay** — camera frames, bulky rollouts, full M3/M4 lists are not in JSONL (by design; banners mark gaps).
 - **`schema_version`** — shipped Phase 9 (`OBSERVABILITY_SCHEMA_VERSION = 1`, D-110); legacy v0 sessions normalize on replay.
@@ -109,9 +109,9 @@ Phases 8–12 delivered seek/scrub replay, panel history rebuild, transport cont
 
 | Item | Status |
 |---|---|
-| M3/M4 retention soak (post-cap late slope ≤ 1600 B/cyc @ 10k) | **Done** (D-113; measured ~1390 B/cyc) |
+| M3/M4 retention soak (post-cap late slope ≤ 1600 B/cyc @ 10k) | **Done** (D-113; measured ~1257 B/cyc) |
 | `schema_version` + JSONL migration | Done (Phase 9 / D-110) |
-| Full offline report ↔ dashboard parity | Done (Phase 10 / D-112) |
+| Full offline report ↔ dashboard parity | Done (Phase 10) |
 | Multi-session comparison (`--compare`) | Done (Phase 12) |
 | Large-session scrub performance (3000+ cycles) | Done (Phase 11) |
 | Grounding adapter (levels 0/2) | Deferred |
@@ -119,7 +119,7 @@ Phases 8–12 delivered seek/scrub replay, panel history rebuild, transport cont
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce — **343 monitoring tests** (699 total with MuJoCo — [STATUS.md](../STATUS.md)).
+**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce — **360 monitoring tests** (715 total with MuJoCo — [STATUS.md](../STATUS.md)).
 
 ---
 
@@ -127,6 +127,6 @@ Phases 8–12 delivered seek/scrub replay, panel history rebuild, transport cont
 
 - [phi_iq_metric.md](phi_iq_metric.md) — benchmark level definitions
 - [architecture.md](architecture.md) — 12-step cycle and module map
-- [observability.md](observability.md) — Cognitive Observatory contracts (Phases 8–12)
+- [observability.md](observability.md) — Cognitive Observatory contracts (Phases 7–20)
 - [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory roadmap
 - [STATUS.md](../STATUS.md) — live issue registry and test status

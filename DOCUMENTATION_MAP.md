@@ -23,7 +23,7 @@ below.
 |---|---|
 | [README.md](README.md) | Project overview, quick start, latest benchmark summary |
 | [STATUS.md](STATUS.md) | **Source of truth** for test counts, gate outcomes, issue registry |
-| [DECISIONS.md](DECISIONS.md) | Design decision log D-001–D-112+ |
+| [DECISIONS.md](DECISIONS.md) | Design decision log D-001–D-127 |
 | [SETUP.md](SETUP.md) | Developer setup, Observatory commands |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | PR workflow, lint/test gates |
 | [docs/architecture.md](docs/architecture.md) | 12-step cycle, module map, invariants |
@@ -31,7 +31,7 @@ below.
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior gate |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay, integrity |
-| [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/) | Copy-paste English prompts for Observatory Phases 13–20 |
+| [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/) | Historical phase prompts (Observatory Phases 13–20; archived) |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix |
 | [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers |
 | [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md) | Canonical log files index |
@@ -104,6 +104,6 @@ not describe the running system verbatim.
 Always cite from [STATUS.md](STATUS.md) and named log files in
 [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md):
 
-- **699 tests** (663 core + 36 MuJoCo)
-- **232 monitoring tests** (subset of phca monitoring suite)
-- **Overall Φ-IQ 0.7403** (MLP, 200 cyc/level, seed 42)
+- **709 tests** (673 core + 36 MuJoCo)
+- **360 monitoring tests** (`pytest python/phca/monitoring/tests/`)
+- **Overall Φ-IQ 0.7323** (MLP, 200 cyc/level, seed 42)

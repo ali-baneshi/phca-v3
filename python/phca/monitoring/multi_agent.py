@@ -93,15 +93,60 @@ def validate_agent_cycle_contiguity(
     return True, None
 
 
+def interleave_frames_for_record(
+    frames: Sequence[ObservabilityFrame],
+) -> List[ObservabilityFrame]:
+    """Sort frames step-major (timeline_step, agent_id) for aligned multi-agent JSONL."""
+    if len(frames) <= 1:
+        return list(frames)
+
+    def sort_key(f: ObservabilityFrame) -> Tuple[int, int]:
+        ts = int(getattr(f, "timeline_step", -1) or -1)
+        if ts < 0:
+            ts = int(getattr(f, "cycle_id", 0) or 0)
+        aid = int(getattr(f, "agent_id", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID)
+        return (ts, aid)
+
+    return sorted(frames, key=sort_key)
+
+
+def validate_jsonl_step_major_order(
+    parsed: Sequence[Dict[str, Any]],
+) -> Tuple[bool, Optional[str]]:
+    """Multi-agent aligned sessions: JSONL lines must be step-major interleaved."""
+    if not is_multi_agent_session(parsed=parsed):
+        return True, None
+    if not any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+        return True, None
+    prev: Optional[Tuple[int, int]] = None
+    for i, obj in enumerate(parsed):
+        ts = int(obj.get("timeline_step", -1) or -1)
+        if ts < 0:
+            continue
+        aid = int(obj.get("agent_id", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID)
+        key = (ts, aid)
+        if prev is not None and key <= prev:
+            return False, (
+                f"line {i}: step-major order violated "
+                f"(timeline_step={ts}, agent_id={aid} after {prev})"
+            )
+        prev = key
+    return True, None
+
+
 def validate_aligned_timeline(
     parsed: Sequence[Dict[str, Any]],
 ) -> Tuple[bool, Optional[str]]:
-    """When timeline_step is set, each step must have one line per agent."""
+    """When timeline_step is set, each step must have one line per agent.
+
+    Lines with ``timeline_step < 0`` are skipped (legacy/single-agent).
+    When no line has a non-negative step, alignment is not applicable (PASS).
+    """
     steps: Dict[int, Dict[int, int]] = defaultdict(dict)
     for obj in parsed:
         ts = obj.get("timeline_step", -1)
         if ts is None or int(ts) < 0:
-            return True, None
+            continue
         aid = int(obj.get("agent_id", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID)
         steps[int(ts)][aid] = int(obj.get("cycle_id", -1))
     if not steps:

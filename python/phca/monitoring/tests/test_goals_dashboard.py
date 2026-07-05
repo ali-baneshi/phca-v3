@@ -4,14 +4,9 @@ from __future__ import annotations
 import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.qt_dashboard import GoalsMotivationView, make_app
+from phca.monitoring.qt_dashboard import GoalsMotivationView
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _goals_frame(**kwargs) -> ObservabilityFrame:
@@ -54,3 +49,27 @@ def test_goals_high_levels_normalized(qt_app):
     disp = min(1.0, levels[0] / scale)
     assert disp == pytest.approx(1.0)
     assert disp > min(1.0, levels[2] / scale)
+
+
+def test_goals_replay_drive_goals_unavailable(qt_app):
+    from PyQt5 import QtGui
+
+    from phca.monitoring.qt_dashboard import PANEL_BG
+
+    view = GoalsMotivationView()
+    view.resize(640, 480)
+    view.set_frame(_goals_frame(), replay=True)
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._drive_goals_inset(p, view.frame, 20, 200, 180, 60)
+    p.end()
+    img = pm.toImage()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    diffs = 0
+    for y in range(200, 260):
+        for x in range(20, 200):
+            c = img.pixelColor(x, y)
+            if c.red() + c.green() + c.blue() != bg_lum:
+                diffs += 1
+    assert diffs > 20

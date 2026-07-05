@@ -26,15 +26,6 @@ _REPO = Path(__file__).resolve().parents[4]
 _SCRIPTS = _REPO / "scripts"
 
 
-@pytest.fixture
-def qt_app():
-    from PyQt5 import QtWidgets
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        app = QtWidgets.QApplication([])
-    return app
-
-
 def _frame(**kw) -> ObservabilityFrame:
     f = ObservabilityFrame()
     for k, v in kw.items():
@@ -273,12 +264,15 @@ def test_replay_check_anomaly_overall_pass(tmp_path, capsys):
 def test_replay_check_explain_warn_legacy(tmp_path, capsys):
     import importlib.util
 
-    fixture = Path(__file__).resolve().parent / "fixtures" / "reacher_short.jsonl"
-    lines = [ln for ln in fixture.read_text().splitlines() if ln.strip()]
+    legacy_line = json.dumps({
+        "cycle_id": 0,
+        "env_kind": "mujoco_rgb",
+        "action_rationale": {"explored": False, "best_score": 0.2},
+    })
     d = tmp_path / "sess_explain_legacy"
     d.mkdir()
-    (d / "meta.json").write_text(json.dumps({"env": "Reacher-v5", "cycles": len(lines)}))
-    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    (d / "meta.json").write_text(json.dumps({"env": "Reacher-v5", "cycles": 1}))
+    (d / "timeseries.jsonl").write_text(legacy_line + "\n")
     spec = importlib.util.spec_from_file_location("phca_replay_explain_legacy", _SCRIPTS / "phca_replay.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -286,6 +280,24 @@ def test_replay_check_explain_warn_legacy(tmp_path, capsys):
     captured = capsys.readouterr()
     assert rc == 0
     assert "explain    : WARN" in captured.out
+
+
+def test_replay_check_explain_pass_on_current_fixture(tmp_path, capsys):
+    import importlib.util
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "reacher_short.jsonl"
+    lines = [ln for ln in fixture.read_text().splitlines() if ln.strip()]
+    d = tmp_path / "sess_explain_pass"
+    d.mkdir()
+    (d / "meta.json").write_text(json.dumps({"env": "Reacher-v5", "cycles": len(lines)}))
+    (d / "timeseries.jsonl").write_text("\n".join(lines) + "\n")
+    spec = importlib.util.spec_from_file_location("phca_replay_explain_pass", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rc = mod._check(str(d))
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "explain    : PASS" in captured.out
 
 
 def test_snap_cache_object_isolation():

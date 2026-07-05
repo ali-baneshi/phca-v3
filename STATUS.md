@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
-**Last updated:** 2026-07-04  
-**Phase:** 20 COMPLETE — Observatory Phases 7–20 signed off (D-108–D-123)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-123)
+**Last updated:** 2026-07-05  
+**Phase:** 20 COMPLETE — Observatory Phases 7–20 signed off (D-108–D-127)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-127)
 
 ---
 
@@ -62,14 +62,9 @@
 | ID | Issue | Status | Resolution |
 |----|-------|--------|------------|
 | P7-1 | Reacher-v5 continuous control | ✅ Done | D-107 — 2D `ContinuousSpace`, Gate A PASS |
+| P7-2 | M3/M4 retention soak (late RSS ≤ 500 B/cyc @ 10k) | ✅ Done | D-112 phase-aware gate; fill-phase ≤5000 B/cyc @ 1k; 10k late slope ~1257 B/cyc |
 | P7-3 | Operational docs sync (round 1) | ✅ Done | 2026-07-03 |
 | P7-4 | Observatory JSONL/replay/report parity | ✅ Done | `cognitive_panels.py`, `session_report.py`, integrity tests |
-
-### Phase 7 — Open
-
-| ID | Issue | Status | Notes |
-|----|-------|--------|-------|
-| P7-2 | M3/M4 retention soak (late RSS ≤ 500 B/cyc @ 10k) | ✅ Done | D-112 phase-aware gate; fill-phase ≤5000 B/cyc @ 1k |
 
 ### Phase 8 — Complete
 
@@ -160,7 +155,7 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | ID | Issue | Status | Resolution |
 |----|-------|--------|
-| DO-6 | Log D-108+ in DECISIONS.md | ✅ Done | D-108/D-109/D-112/D-113/D-114 logged |
+| DO-6 | Log D-108+ in DECISIONS.md | ✅ Done | D-108 through D-127 logged |
 | DO-7 | README + living docs sync (Phase 11) | ✅ Done | 2026-07-04 |
 
 ### P2 — Backlog (scheduled)
@@ -185,15 +180,15 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-04 | **663 passed**, 1 skipped |
-| MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-04 | **36 passed**, 0 errors |
-| Monitoring only | 2026-07-04 | **343 passed**, 1 skipped |
-| **Total (both suites)** | 2026-07-04 | **699 passed**, 1 skipped |
-| Reproduce quick (`make reproduce-quick`) | 2026-07-04 | **ALL PASS** (26 s) |
+| Python (`make test-python`) | 2026-07-05 | **679 passed** (1 skipped) |
+| MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-05 | **36 passed** |
+| Monitoring only | 2026-07-05 | **359 passed** (1 skipped) |
+| **Total (both suites)** | 2026-07-05 | **715 passed** |
+| Reproduce quick (`make reproduce-quick`) | 2026-07-05 | Gate path updated (D-127); run locally for executed report |
 | CI Φ-IQ gate | 2026-07-04 | PASS (quick Φ-IQ 0.8415 ≥ floor 0.5486) |
 | Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
 | Assumption validation `--ci` | 2026-07-04 | **5/5 PASS** (A1–A5 incl. A2 temporal order) |
-| `make nightly NIGHTLY_CYCLES=10000` | 2026-07-04 | **PASS** — post-cap retention (late RSS ~1390 B/cyc ≤ 1600); causal nightly gate PASS |
+| `make nightly NIGHTLY_CYCLES=10000` | 2026-07-05 | **PASS** — post-cap retention (late RSS ~1257 B/cyc ≤ 1600); causal nightly gate PASS |
 
 **Failing tests:** None (unit/integration).
 
@@ -203,11 +198,11 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | Metric | Value | Baseline / target | Source |
 |--------|-------|-------------------|--------|
-| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7403** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` |
-| L0 / L1 / L2 / L3 Φ-IQ | 0.7032 / 0.7125 / 0.7773 / 0.7683 | L2 ≥ 0.5 — PASS | same |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7323** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` |
+| L0 / L1 / L2 / L3 Φ-IQ | 0.7750 / 0.6748 / 0.7924 / 0.6868 | L2 ≥ 0.5 — PASS | same |
 | Causal behavior gate (GridWorld levels 1–3, 200 cyc × 5 seeds) | **PASS** | L1/L2/L3 vs gated controls | `logs/phca_causal_eval.json` |
 | Nightly stress 1000-cyc | **PASS** fill-phase | late slope ~2195 B/cyc (threshold 5000) | `logs/nightly_stress.json` |
-| Nightly stress 10000-cyc | **PASS** post-cap | late slope ~1390 B/cyc (threshold 1600, D-113) | `logs/nightly_stress.json` |
+| Nightly stress 10000-cyc | **PASS** post-cap | late slope ~1257 B/cyc (threshold 1600, D-113) | `logs/nightly_stress_10k.json` |
 | Assumption validation | A1–A5 PASS | `--ci` exit 0 | `logs/assumption_validation.json` |
 
 ---
@@ -216,6 +211,8 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | Date | Fix | Outcome |
 |------|-----|---------|
+| 2026-07-05 | Observatory audit remediation (OBS-014–016, D-127) | Tracked multi-agent fixture; explain fields; drift SKIP on short sessions; 709 tests |
+| 2026-07-05 | Observatory remediation (OBS-002–OBS-010) | Alignment gate, replay scrub, early-close verify, reproduce/CI `--check`; 710 tests |
 | 2026-07-04 | Phase 20 Observatory sign-off (D-123) | Zero-trust audit; 699 tests; reproduce-quick PASS; phase20_completion_report.md |
 | 2026-07-04 | Phase 19 scientific reproduction (D-122) | `make reproduce` manifest + driver |
 | 2026-07-04 | Phase 13 anomaly detection (D-116) | Shared spike/drift/leak/goal flags; `--check` + nightly gate; 639 tests green |

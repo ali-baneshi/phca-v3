@@ -23,16 +23,6 @@ _REPO = Path(__file__).resolve().parents[4]
 _SCRIPTS = _REPO / "scripts"
 
 
-@pytest.fixture
-def qt_app():
-    from PyQt5 import QtWidgets
-
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        app = QtWidgets.QApplication([])
-    return app
-
-
 def _frame(**kw) -> ObservabilityFrame:
     f = ObservabilityFrame()
     for k, v in kw.items():

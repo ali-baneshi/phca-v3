@@ -1,0 +1,23 @@
+{
+  "env": "gridworld",
+  "cycles": 12,
+  "cycles_per_agent": 6,
+  "agent_count": 2,
+  "agents": [
+    {
+      "agent_id": 0,
+      "label": "agent_0",
+      "recorded_cycles": 6
+    },
+    {
+      "agent_id": 1,
+      "label": "agent_1",
+      "recorded_cycles": 6
+    }
+  ],
+  "timeline_mode": "aligned",
+  "recording_layout": "single_jsonl",
+  "recorded_cycles": 12,
+  "observability_schema_version": 1,
+  "status": "complete"
+}

@@ -1431,3 +1431,47 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Phase 20 gate is honesty, not expansion. Observatory maturity is separable from M5/L4–L5/grounding backlog. `reproduce-quick` is the CI-budget audit entry point; full `make reproduce` / `make nightly` for soak validation.
 - **v3.0 trace:** Observatory research maturity gate (Phase 20).
 - **Tests/Validation:** Audit 699 passed (663 core + 36 MuJoCo), 343 monitoring; reproduce-quick ALL PASS; replay --check PASS on fixtures.
+
+## Decision D-124: Live multi-agent transport state preservation
+
+- **Date:** 2026-07-05
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory post–Phase 20 audit fix)
+- **Problem:** Live multi-agent `_tick()` called `PlaybackClock.set_frames()` every poll (~30 ms), clearing `paused`/`scrubbing` and snapping the cursor to the tail — pause/scrub appeared broken (OBS-001).
+- **Option chosen:** Add `PlaybackClock.reload_frames(frames, preserve_transport=True, follow_live=…)`; live poll and agent projection use it instead of bare `set_frames()`. `follow_live` only when not paused/scrubbing.
+- **Rationale:** Single-agent live path already used incremental `push()`; multi-agent needs full projected timeline refresh without resetting user transport state.
+- **v3.0 trace:** Observatory live/replay honesty (transport contract).
+- **Tests/Validation:** `test_reload_frames_*` in `test_playback_store.py`; monitoring 348 passed.
+
+## Decision D-125: Supervisor recovery `crashed` status
+
+- **Date:** 2026-07-05
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory Phase 16 follow-up)
+- **Problem:** `TERMINAL_STATUSES` included `"crashed"` but no writer set it; abnormal child exits were labeled `incomplete` only (OBS-013).
+- **Option chosen:** `phca_observatory_supervisor` passes `status="crashed"` to `recover_session()` when child exit code ≠ 0; `finalize_session()` persists it in `meta.json`.
+- **Rationale:** Distinguishes operator-visible crash recovery from user abort or partial clean shutdown.
+- **v3.0 trace:** Session lifecycle / recovery honesty.
+- **Tests/Validation:** `test_supervisor_recovers_crashed_child` expects `meta.status == "crashed"`.
+
+## Decision D-126: Observatory post-audit remediation (OBS-002–OBS-010)
+
+- **Date:** 2026-07-05
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory integrity + ops honesty)
+- **Problem:** Post–Phase 20 audit found replay scrub tab desync (OBS-002), alignment validation hole (OBS-005), early-close verify skip (OBS-007), supervisor exit masking (OBS-008), missing reproduce/CI `--check` (OBS-010).
+- **Option chosen:** Replay scrub rebuilds all tabs; skip legacy `timeline_step` lines in alignment check; early finalize runs `--check --allow-incomplete`; `--preserve-child-exit` on supervisor; `logs/sessions/fixture_multi/` gate in reproduce/CI; doc sync to 704/348 tests.
+- **Rationale:** Close P1 gaps without new JSONL fields; preserve Phase 11 scrub budget.
+- **v3.0 trace:** Observatory data-contract and production gates.
+- **Tests/Validation:** Expanded `test_multi_agent.py`, `test_playback_store.py`, `test_session_recovery.py`; monitoring suite 352+ passed.
+
+## Decision D-127: Tracked Observatory CI fixture (OBS-014)
+
+- **Date:** 2026-07-05
+- **Author:** Principal Architect
+- **Category:** Tier 2 (Observatory CI / reproduce gates)
+- **Problem:** Post–D-126, `phca_replay --check` in CI/reproduce pointed at `logs/sessions/fixture_multi/`, which is gitignored — fresh clones failed the observatory-check job.
+- **Option chosen:** Commit canonical multi-agent session under `python/phca/monitoring/tests/fixtures/multi_agent_short/` (meta + timeseries.jsonl); repoint `.github/workflows/ci.yml` and `reproduce_manifest.json`; add `test_replay_check_committed_multi_agent_fixture`. Patch JSONL fixtures with Phase-14 `decision_reason`/`mechanism`; add `drift_min_cycles` so short sessions show `drift=SKIP` in `--check`.
+- **Rationale:** Test fixtures belong in-repo; session recording dirs stay gitignored. Keeps `--check` gate honest on clean checkout without committing live runs.
+- **v3.0 trace:** Observatory production gates (Phase 16/19 follow-up).
+- **Tests/Validation:** `test_multi_agent.py`, `test_observability_integrity.py`, `test_session_anomalies.py`; monitoring 354+ passed; CI observatory-check on tracked path.

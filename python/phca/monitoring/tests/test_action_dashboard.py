@@ -15,15 +15,9 @@ from phca.monitoring.qt_dashboard import (
     _action_score_margin,
     _action_status_line,
     _draw_mechanism_stacked_bar,
-    make_app,
 )
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _action_frame(**kwargs) -> ObservabilityFrame:

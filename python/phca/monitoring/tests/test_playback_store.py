@@ -3,20 +3,10 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from phca.monitoring.observability import ObservabilityFrame, ObservabilityStore
 from phca.monitoring.playback import PlaybackClock
 from phca.monitoring.render import frame_from_json
-
-
-@pytest.fixture(scope="module")
-def qt_app():
-    from phca.monitoring.qt_dashboard import make_app
-
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _frame(cycle_id: int) -> ObservabilityFrame:
@@ -168,6 +158,7 @@ def test_review_scrub_full_prefix_rebuilds_all_tabs(qt_app):
 
 
 def test_replay_scrub_keeps_lazy_200_window(qt_app):
+    """OBS-002: replay scrub rebuilds all tabs; Goals history capped at 200."""
     from phca.monitoring.qt_dashboard import ObservatoryWindow
 
     frames = [_rich_frame(i) for i in range(500)]
@@ -181,9 +172,29 @@ def test_replay_scrub_keeps_lazy_200_window(qt_app):
     clock.seek(280)
     qt_app.processEvents()
     assert len(win.proj.history) == 201
-    assert 6 in win.controller._pending_tab_rebuilds
+    assert not win.controller._pending_tab_rebuilds
     win._tabs.setCurrentIndex(6)
     win.controller.on_tab_changed(6)
+    assert win.goals.frame.cycle_id == 280
+    assert len(win.goals.drive_hist) == 200
+
+
+def test_live_scrub_rebuilds_all_tabs(qt_app):
+    """OBS-002: live pause-scrub rebuilds all tabs without tab switch."""
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = [_rich_frame(i) for i in range(500)]
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="live")
+    clock.set_frames(frames)
+    clock.paused = True
+    clock.on_update = lambda f, rolling, err: win.controller.update(f, rolling, err)
+    win._transport = type("_T", (), {"clock": clock})()
+
+    win._tabs.setCurrentIndex(0)
+    clock.seek(280)
+    qt_app.processEvents()
+    assert not win.controller._pending_tab_rebuilds
     assert win.goals.frame.cycle_id == 280
     assert len(win.goals.drive_hist) == 200
 

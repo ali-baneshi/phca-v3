@@ -43,13 +43,13 @@ code .
 ## Running Tests
 
 ```bash
-make test-all         # Core + monitoring (663 tests); MuJoCo files ignored
+make test-all         # Core + monitoring (673 tests); MuJoCo files ignored
 make test-mujoco      # MuJoCo integration only (36 tests); needs gymnasium[mujoco]
 make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency
 ```
 
-**Headless Observatory tests** (PyQt offscreen, **232 tests** — see [STATUS.md](../STATUS.md)):
+**Headless Observatory tests** (PyQt offscreen, **354 tests** — see [STATUS.md](STATUS.md)):
 
 ```bash
 mkdir -p .tmp
@@ -57,7 +57,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-## Cognitive Observatory (Phases 8–12)
+## Cognitive Observatory (Phases 7–20)
 
 ```bash
 # Live run

@@ -8,15 +8,16 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from phca.monitoring.multi_agent import (
     DEFAULT_AGENT_ID,
     frames_for_agent,
+    interleave_frames_for_record,
     is_multi_agent_session,
     session_agent_ids,
     validate_agent_cycle_contiguity,
     validate_aligned_timeline,
+    validate_jsonl_step_major_order,
 )
 from phca.monitoring.observability import (
     ObservabilityFrame,
@@ -31,17 +32,9 @@ from phca.monitoring.session_report import (
 
 _ROOT = Path(__file__).resolve().parents[4]
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+_MULTI_AGENT_FIXTURE = _FIXTURE_DIR / "multi_agent_short"
 _REPLAY = _ROOT / "scripts" / "phca_replay.py"
 _OBS = _ROOT / "scripts" / "phca_observatory.py"
-
-
-@pytest.fixture(scope="module")
-def qt_app():
-    from phca.monitoring.qt_dashboard import make_app
-
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _grid_frame(cycle_id: int, agent_id: int, *, explored: bool = False) -> ObservabilityFrame:
@@ -55,7 +48,12 @@ def _grid_frame(cycle_id: int, agent_id: int, *, explored: bool = False) -> Obse
         goal_pos=(4, 4),
         grid=np.zeros((5, 5), dtype=np.int32),
         prediction_error=0.1 * (cycle_id + 1) * (agent_id + 1),
-        action_rationale={"explored": explored, "best_score": 0.5},
+        action_rationale={
+            "explored": explored,
+            "best_score": 0.5,
+            "decision_reason": "explore" if explored else "prediction",
+            "mechanism": "explore" if explored else "prediction",
+        },
         drive_levels=[0.5] * 6,
     )
     return f
@@ -132,6 +130,37 @@ def test_validate_aligned_timeline():
     assert ok, err
 
 
+def test_validate_aligned_timeline_fail():
+    parsed = [json.loads(ln) for ln in _build_two_agent_jsonl()]
+    parsed.pop(1)
+    ok, err = validate_aligned_timeline(parsed)
+    assert not ok
+    assert "timeline_step=0" in (err or "")
+
+
+def test_interleave_frames_for_record_step_major():
+    batched = [_grid_frame(step, 0) for step in range(3)]
+    batched.extend(_grid_frame(step, 1) for step in range(3))
+    fixed = interleave_frames_for_record(batched)
+    assert [(f.timeline_step, f.agent_id) for f in fixed] == [
+        (0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1),
+    ]
+
+
+def test_validate_jsonl_step_major_order_pass():
+    parsed = [json.loads(ln) for ln in _build_two_agent_jsonl()]
+    ok, err = validate_jsonl_step_major_order(parsed)
+    assert ok, err
+
+
+def test_validate_jsonl_step_major_order_fail():
+    parsed = [json.loads(ln) for ln in _build_two_agent_jsonl()]
+    parsed = [parsed[i] for i in (0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11)]
+    ok, err = validate_jsonl_step_major_order(parsed)
+    assert not ok
+    assert "step-major" in (err or "")
+
+
 def test_replay_check_multi_agent(tmp_path):
     sess = _write_fixture_session(tmp_path)
     env = {**dict(os.environ), "PYTHONPATH": str(_ROOT / "python")}
@@ -143,6 +172,23 @@ def test_replay_check_multi_agent(tmp_path):
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert "per-agent cycle_id contiguous" in r.stdout
+    assert "step-major JSONL line order" in r.stdout
+
+
+def test_replay_check_committed_multi_agent_fixture():
+    """CI/reproduce gate: tracked multi_agent_short session dir."""
+    assert _MULTI_AGENT_FIXTURE.is_dir()
+    env = {**dict(os.environ), "PYTHONPATH": str(_ROOT / "python")}
+    r = subprocess.run(
+        [sys.executable, str(_REPLAY), "--check", str(_MULTI_AGENT_FIXTURE)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "per-agent cycle_id contiguous" in r.stdout
+    assert "step-major JSONL line order" in r.stdout
+    assert "Overall: PASS" in r.stdout
 
 
 def test_replay_check_multi_agent_fail(tmp_path):

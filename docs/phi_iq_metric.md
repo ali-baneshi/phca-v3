@@ -84,13 +84,13 @@ MLP mode needs **≥ 200 cycles per level** to stabilise. See
 
 ### Pass Criteria
 
-| Criterion | Target | Current (2026-07-04) |
+| Pass Criteria | Target | Current (2026-07-05) |
 |---|---|---|
 | Cycle latency | < 500 ms | ~17 ms mean, ~31 ms p95 ✅ |
 | Failure rate | < 10% violations | **0 violations** ✅ |
 | Goal autonomy (L3) | Drive diversity > 0.1 | Achieved ✅ |
-| Overall Φ-IQ | > 0.5 | **0.7403** ✅ |
-| Level 2 Φ-IQ | ≥ 0.5 | **0.7773** ✅ |
+| Overall Φ-IQ | > 0.5 | **0.7323** ✅ |
+| Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ |
 
 Source: [STATUS.md](../STATUS.md), `logs/benchmark_report.json`.
 
@@ -108,18 +108,18 @@ Source: [STATUS.md](../STATUS.md), `logs/benchmark_report.json`.
 
 ## Latest Results
 
-**Date:** 2026-07-04  
+**Date:** 2026-07-05  
 **Configuration:** MLP (hidden 128, ~38,868 params), 200 cycles/level, seed 42, 5×5 GridWorld
 
 ```
-Overall Φ-IQ: 0.7403
+Overall Φ-IQ: 0.7323
 
 Level  Φ-IQ
 ────────────────
-L0     0.7032
-L1     0.7125
-L2     0.7773
-L3     0.7683
+L0     0.7750
+L1     0.6748
+L2     0.7924
+L3     0.6868
 ```
 
 ---

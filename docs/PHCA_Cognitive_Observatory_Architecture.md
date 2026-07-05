@@ -86,7 +86,7 @@ Early phases are usually for building foundational components:
 
 > **Status: Complete (2026-07).** Frame schema, JSONL recording, 7-tab PyQt dashboard,
 > `session_report.py`, shared `cognitive_panels.py` helpers, RBTA unit normalization,
-> and `--check` integrity gate are shipped. **343 monitoring tests** (699 total with MuJoCo).
+> and `--check` integrity gate are shipped. **360 monitoring tests** (715 total with MuJoCo).
 
 Phase 7 means the system must show itself. This phase is the transition from “merely running” to “being understandable.”
 
@@ -108,20 +108,18 @@ In Phase 7 we expect:
 - **Phase 11:** Decimated rolling rebuild + lazy per-tab rebuild; scrub budget ≤2s/≤4s at 3000+ cycles.
 - **Phase 12:** `phca_replay.py --compare` multi-session report comparison (D-115).
 
-### Future Phases (13–20 backlog)
+### Phases 13–20 (complete)
 
-From Phase 13 to 20, the system is expected to move toward greater maturity:
+- **Phase 13:** Anomaly detection (spike, drift, resource leak, unstable goals).
+- **Phase 14:** Action explainability and causal chains.
+- **Phase 15:** Stable observability API for external tools.
+- **Phase 16:** Production hardening (crash isolation, session integrity).
+- **Phase 17:** Multi-agent Observatory with synchronized timelines.
+- **Phase 18:** Interactive analysis (query, filter cognitive moments).
+- **Phase 19:** Scientific validation and one-command reproducibility.
+- **Phase 20:** Research/product maturity sign-off — [phase20_completion_report.md](archive/phase20_completion_report.md).
 
-- Anomaly detection (spike, drift, resource leak, unstable goals).
-- Deeper action explainability and causal chains.
-- Stable observability API for external tools.
-- Production hardening (crash isolation, session integrity).
-- Multi-agent Observatory with synchronized timelines.
-- Interactive analysis (query, filter cognitive moments).
-- Scientific validation and one-command reproducibility.
-- Phase 20 research/product maturity sign-off.
-
-See [STATUS.md](../STATUS.md) for the Observatory Phases 13–20 backlog table.
+See [STATUS.md](../STATUS.md) for the Observatory Phases 7–20 completion table.
 
 ---
 
@@ -767,7 +765,7 @@ Goal:
 
 > **Status: Complete (2026-07).** `session_report.json` shares
 > `format_session_results_lines()` with Overview panel; parity test in
-> `test_session_report.py` (D-112).
+> `test_session_report.py`.
 
 Goal:
 
@@ -793,7 +791,7 @@ Goal:
 Goal:
 
 - Compare multiple sessions.
-- Trend charts across runs.
+- Trend charts across runs *(deferred — structured JSON deltas shipped via `--compare`)*.
 - Regression detection.
 
 ### Phase 13: Anomaly Detection

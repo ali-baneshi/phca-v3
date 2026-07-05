@@ -171,7 +171,7 @@ def test_supervisor_recovers_crashed_child(tmp_path):
     sess = sessions[0]
     meta = json.loads((sess / "meta.json").read_text())
     assert meta["recorded_cycles"] == 3
-    assert meta["status"] in ("incomplete", "complete")
+    assert meta["status"] == "crashed"
     assert (sess / "session_report.json").exists()
     events = [json.loads(ln) for ln in log_path.read_text().splitlines() if ln.strip()]
     kinds = {e["event"] for e in events}
@@ -200,3 +200,39 @@ def test_supervisor_propagates_clean_exit(tmp_path, monkeypatch):
     assert rc == 0
     events = [json.loads(ln) for ln in log_path.read_text().splitlines()]
     assert events[-1]["event"] == "recover_skip"
+
+
+def test_supervisor_preserve_child_exit_masks_recovery_success(tmp_path, monkeypatch):
+    sup = _load_supervisor()
+    log_path = tmp_path / "supervisor.jsonl"
+    record_dir = tmp_path / "sessions"
+    sess = _write_partial_session(tmp_path, n=2, cycles=10, status="running")
+
+    class _Proc:
+        pid = 9999
+
+        def wait(self):
+            return 137
+
+    monkeypatch.setattr(sup.subprocess, "Popen", lambda *a, **k: _Proc())
+    monkeypatch.setattr(sup, "read_latest_pointer", lambda _rd: sess)
+    monkeypatch.setattr(
+        sup,
+        "recover_session",
+        lambda *a, **k: (0, {"status": "incomplete", "jsonl_lines": 2}),
+    )
+    rc_default = sup.run_supervisor(
+        ["--cycles=10"],
+        record_dir=str(record_dir),
+        supervisor_log=log_path,
+        no_verify=True,
+    )
+    assert rc_default == 0
+    rc_preserve = sup.run_supervisor(
+        ["--cycles=10"],
+        record_dir=str(record_dir),
+        supervisor_log=log_path,
+        no_verify=True,
+        preserve_child_exit=True,
+    )
+    assert rc_preserve == 137

@@ -19,17 +19,11 @@ from phca.monitoring.qt_dashboard import (
     RetentionView,
     _overview_moment_flags,
     _overview_new_events,
-    make_app,
 )
 from phca.monitoring.render import frame_from_json
 from phca.monitoring.session_report import build_session_report
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _frame(**kwargs) -> ObservabilityFrame:

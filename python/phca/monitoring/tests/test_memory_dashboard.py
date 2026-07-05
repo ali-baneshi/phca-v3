@@ -5,14 +5,9 @@ import numpy as np
 import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
-from phca.monitoring.qt_dashboard import MemoryBeliefView, make_app
+from phca.monitoring.qt_dashboard import MemoryBeliefView
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _mem_frame(**kwargs) -> ObservabilityFrame:

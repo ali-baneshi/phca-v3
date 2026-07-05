@@ -19,11 +19,13 @@ from phca.monitoring.multi_agent import (
     DEFAULT_AGENT_ID,
     agent_meta_from_frames,
     frames_for_agent,
+    interleave_frames_for_record,
     is_multi_agent_session,
     multi_agent_meta_patch,
     session_agent_ids,
     validate_agent_cycle_contiguity,
     validate_aligned_timeline,
+    validate_jsonl_step_major_order,
 )
 from phca.monitoring.export import export_session_csv
 from phca.monitoring.observability import (
@@ -86,11 +88,13 @@ __all__ = [
     "DEFAULT_AGENT_ID",
     "agent_meta_from_frames",
     "frames_for_agent",
+    "interleave_frames_for_record",
     "is_multi_agent_session",
     "multi_agent_meta_patch",
     "session_agent_ids",
     "validate_agent_cycle_contiguity",
     "validate_aligned_timeline",
+    "validate_jsonl_step_major_order",
     # Export
     "export_session_csv",
     # Session query (Phase 18)

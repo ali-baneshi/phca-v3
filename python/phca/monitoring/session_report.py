@@ -69,6 +69,7 @@ def _slice_early_late(values: List[float], frac: float = 0.10) -> Tuple[List[flo
 
 
 def _anchor_cycle_ids(n: int) -> Dict[str, int]:
+    """Map report anchor keys to frame-list indices (requires contiguous cycle_id 0..n-1)."""
     if n <= 0:
         return {}
     mid = n // 2

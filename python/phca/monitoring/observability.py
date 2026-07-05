@@ -59,12 +59,6 @@ _PROC = psutil.Process() if _HAVE_PSUTIL else None
 _RSS_CACHE: Dict[int, Tuple[float, int]] = {}
 _RSS_TTL_S = 0.25
 
-# Live-only RGB camera frame (MuJoCo). Refresh every observability frame build
-# (TTL=0) so the dashboard always gets the latest capture; deep-copied so MuJoCo
-# cannot overwrite the buffer before Qt paints it.
-_ENV_FRAME_CACHE: Dict[int, Tuple[float, Optional[np.ndarray]]] = {}
-_ENV_FRAME_TTL_S = 0.0
-
 # Heavy memory samples (M3 episodes + M4 facts) are read off the cycle thread
 # at most every 0.5s so the per-cycle frame build stays cheap. These too are
 # live-only (excluded from JSONL).
@@ -109,40 +103,6 @@ def _normalize_rgb_frame(frame: Any) -> Optional[np.ndarray]:
     if arr.dtype != np.uint8:
         arr = np.clip(arr, 0, 255).astype(np.uint8)
     return np.ascontiguousarray(arr)
-
-
-def _cached_env_frame(env: Any) -> Optional[np.ndarray]:
-    """Live RGB camera frame (MuJoCo rgb_array). None if unavailable or rejected."""
-    getter = getattr(env, "render_rgb", None)
-    if not callable(getter):
-        return None
-    pid = os.getpid()
-    now = time.monotonic()
-    ts, val = _ENV_FRAME_CACHE.get(pid, (0.0, None))
-    if val is None or now - ts > _ENV_FRAME_TTL_S:
-        try:
-            frame = getter()
-            if frame is not None:
-                val = _normalize_rgb_frame(frame)
-                if val is not None:
-                    val = val.copy()
-                    from phca.monitoring.camera_render import is_glitchy_rgb_frame
-                    if is_glitchy_rgb_frame(val):
-                        import sys
-                        print("[observability] env_frame rejected (glitch/uniform)",
-                              file=sys.stderr)
-                        val = None
-            else:
-                val = None
-                import sys
-                print("[observability] env_frame unavailable (render returned None)",
-                      file=sys.stderr)
-            _ENV_FRAME_CACHE[pid] = (now, val)
-        except Exception as exc:
-            val = None
-            import sys
-            print(f"[observability] env_frame capture failed: {exc}", file=sys.stderr)
-    return val
 
 
 def _fact_to_dict(f: Any) -> Dict[str, Any]:
@@ -997,6 +957,9 @@ class SessionRecorder:
 
 class VideoRecorder:
     """Captures the live matplotlib figure into ONE encoded video file.
+
+    DEPRECATED for PyQt Observatory: use ``phca_observatory.py`` QPixmap capture
+    instead. Retained for legacy ``phca_visualise.py`` (matplotlib dashboard).
 
     Replaces the per-frame PNG firehose. Uses FFMpegWriter (mp4) when ffmpeg is
     available, falling back to PillowWriter (gif). grab_frame() reuses the

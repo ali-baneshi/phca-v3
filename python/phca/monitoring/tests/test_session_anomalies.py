@@ -45,6 +45,32 @@ def test_reacher_fixture_healthy():
     assert result["flags"]["drift"] is False
     assert result["flags"]["leak"] is False
     assert result["flags"]["goal_instability"] is False
+    assert result["metrics"]["drift_evaluated"] is False
+
+
+def test_short_session_drift_skipped_in_check_output(capsys):
+    """Short fixtures must not emit drift=FAIL in phca_replay --check."""
+    import importlib.util
+
+    frames = _load_fixture_frames()
+    result = detect_session_anomalies(frames)
+    assert result["metrics"]["drift_evaluated"] is False
+    from phca.monitoring.session_anomalies import print_anomaly_summary
+
+    print_anomaly_summary(result, stream=__import__("sys").stdout)
+    captured = capsys.readouterr()
+    assert "drift=SKIP (short session)" in captured.out
+    assert "Anomaly overall: PASS" in captured.out
+
+    d = Path(__file__).resolve().parent / "fixtures" / "multi_agent_short"
+    spec = importlib.util.spec_from_file_location("phca_replay_drift_skip", _SCRIPTS / "phca_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rc = mod._check(str(d))
+    captured2 = capsys.readouterr()
+    assert rc == 0
+    assert "drift=SKIP (short session)" in captured2.out
+    assert "Anomaly overall: PASS" in captured2.out
 
 
 def test_spike_cycle_marker():
@@ -101,6 +127,42 @@ def test_goal_instability_synthetic():
         ))
     result = detect_session_anomalies(frames)
     assert result["flags"]["goal_instability"] is True
+
+
+def test_anomalies_from_report_rolling_goal_parity():
+    """Rolling goal flag must survive report-only re-evaluation (OBS-003)."""
+    from phca.monitoring.session_anomalies import anomalies_from_report
+
+    frames = []
+    for i in range(100):
+        drive = 1
+        if 48 <= i <= 55:
+            drive = 1 + ((i - 48) % 4)
+        frames.append(_frame(
+            cycle_id=i,
+            prediction_error=1.0,
+            action_rationale={"goal_id": drive},
+            active_drive_id=drive,
+        ))
+    frame_result = detect_session_anomalies(frames)
+    assert frame_result["metrics"]["goal_rolling_instability"] is True
+    assert frame_result["flags"]["goal_instability"] is True
+    assert frame_result["metrics"]["drive_switch_rate"] < 0.25
+
+    report = {
+        "cycles": 100,
+        "spike_count": frame_result["metrics"]["spike_count"],
+        "error_early_median": frame_result["metrics"]["error_early_median"],
+        "error_late_median": frame_result["metrics"]["error_late_median"],
+        "drive_switch_count": frame_result["metrics"]["drive_switch_count"],
+        "goals_metrics": {
+            "active_drive_switch_count": frame_result["metrics"]["active_drive_switch_count"],
+        },
+        "anomalies": frame_result,
+    }
+    report_only = anomalies_from_report(report)
+    assert report_only["flags"]["goal_instability"] is True
+    assert report_only["metrics"]["goal_rolling_instability"] is True
 
 
 def test_spike_density_synthetic():

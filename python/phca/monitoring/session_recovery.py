@@ -37,7 +37,12 @@ def count_jsonl_lines(session_dir: PathLike) -> int:
     jsonl_p = Path(session_dir) / "timeseries.jsonl"
     if not jsonl_p.exists():
         return 0
-    return sum(1 for ln in jsonl_p.read_text(encoding="utf-8").splitlines() if ln.strip())
+    n = 0
+    with jsonl_p.open(encoding="utf-8") as fh:
+        for ln in fh:
+            if ln.strip():
+                n += 1
+    return n
 
 
 def _load_meta(session_dir: Path) -> Optional[Dict[str, Any]]:
@@ -58,15 +63,16 @@ def _scan_jsonl(session_dir: Path) -> Tuple[int, int, List[int]]:
     good = 0
     bad = 0
     bad_nums: List[int] = []
-    for i, ln in enumerate(jsonl_p.read_text(encoding="utf-8").splitlines(), start=1):
-        if not ln.strip():
-            continue
-        try:
-            normalize_observability_json(json.loads(ln))
-            good += 1
-        except Exception:
-            bad += 1
-            bad_nums.append(i)
+    with jsonl_p.open(encoding="utf-8") as fh:
+        for i, ln in enumerate(fh, start=1):
+            if not ln.strip():
+                continue
+            try:
+                normalize_observability_json(json.loads(ln))
+                good += 1
+            except Exception:
+                bad += 1
+                bad_nums.append(i)
     return good, bad, bad_nums
 
 
@@ -213,9 +219,11 @@ def recover_session(
     verify: bool = False,
     allow_incomplete: bool = False,
     reason: str = "recover",
+    status: Optional[str] = None,
 ) -> Tuple[int, Dict[str, Any]]:
     """Finalize a partial session and optionally run phca_replay --check."""
-    summary = finalize_session(session_dir, reason=reason, write_report=write_report)
+    summary = finalize_session(
+        session_dir, reason=reason, write_report=write_report, status=status)
     verify_rc = 0
     verify_status = "SKIP"
     if verify:

@@ -191,6 +191,35 @@ class PlaybackClock:
         self.paused = False
         self._last_emitted = None
 
+    def reload_frames(
+        self,
+        frames: List,
+        *,
+        preserve_transport: bool = False,
+        follow_live: bool = False,
+    ) -> None:
+        """Replace buffer contents without disturbing transport when requested.
+
+        ``preserve_transport=False`` resets transport like :meth:`set_frames`.
+        When ``preserve_transport=True``, ``paused``/``scrubbing``/``speed`` are
+        kept; the cursor is clamped to the new length. If ``follow_live`` is set
+        and the clock is not paused/scrubbing, the cursor snaps to the newest
+        frame (live multi-agent poll path).
+        """
+        if not preserve_transport:
+            self.set_frames(frames)
+            return
+        old_cursor = self.cursor_int if self._frames else 0
+        self._frames = list(frames)
+        self._last_emitted = None
+        if not self._frames:
+            self._cursor = 0.0
+            return
+        if follow_live and not self.paused and not self.scrubbing:
+            self._cursor = float(self.n - 1)
+        else:
+            self._cursor = float(min(old_cursor, self.n - 1))
+
     def __len__(self) -> int:
         return len(self._frames)
 

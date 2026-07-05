@@ -25,7 +25,7 @@ All polling-side: read-only on the frame; the cycle thread never touches Qt.
 """
 from __future__ import annotations
 
-import copy
+from dataclasses import replace
 import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
@@ -2554,8 +2554,7 @@ class OverviewAgentView(_BaseCanvas):
             self._tau_sms[0].value(float(vec[0])),
             self._tau_sms[1].value(float(vec[1])),
         ], dtype=np.float32)
-        out = copy.copy(f)
-        out.continuous_action = sm
+        out = replace(f, continuous_action=sm)
         return out
 
     def _camera_badge(self, schematic: bool) -> str:
@@ -3720,11 +3719,6 @@ class CognitiveFlowView(_BaseCanvas):
                         int(cy + (R + 36) * math.sin(ang)))
         return pos, (cx, cy), R
 
-    def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
-        _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="flow", y=y,
-                                   multi_agent=self._multi_agent)
-
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
         w, h = self.width(), self.height()
@@ -3733,7 +3727,9 @@ class CognitiveFlowView(_BaseCanvas):
         active_idx = self._active_idx
         lay = _flow_layout(w, h, len(_FLOW_ALL_MODULES), replay=self._replay)
         y0 = lay["y0"]
-        self._draw_replay_banner(p)
+        _draw_data_contract_banner(p, self.width(), replay=self._replay,
+                                   review=self._review, panel_key="flow", y=2,
+                                   multi_agent=self._multi_agent)
         self._title(p, "Cognitive flow — timing topology + execution phases", y=12 + y0)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 28 + y0, _flow_status_line(f, active_idx=active_idx))
@@ -4421,11 +4417,6 @@ class CandidateScoreView(_BaseCanvas):
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x0 + 8 + int(bw * frac) + 4, ry + bh - 4, f"#{idx} {scores[idx]:.2f}")
 
-    def _draw_replay_banner(self, p: QtGui.QPainter) -> None:
-        _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="action",
-                                   multi_agent=self._multi_agent)
-
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
         if f is None:
@@ -4446,7 +4437,9 @@ class CandidateScoreView(_BaseCanvas):
         cr_t = float(getattr(f, "cr_temperature", 0.0) or 0.0)
         pareto = set(int(x) for x in (getattr(f, "pareto_front", []) or []))
         names = list(getattr(f, "action_names", []) or [])
-        self._draw_replay_banner(p)
+        _draw_data_contract_banner(p, self.width(), replay=self._replay,
+                                   review=self._review, panel_key="action",
+                                   multi_agent=self._multi_agent)
         hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
@@ -4898,11 +4891,6 @@ class TrajectoryView(_BaseCanvas):
             ex = int(cx + r * math.cos(ang)); ey = int(cy + r * math.sin(ang))
             col = _drive_color(i + 1)
             p.setPen(QtGui.QPen(col, 1)); p.drawLine(cx, cy, ex, ey)
-
-    def _draw_replay_banner(self, p: QtGui.QPainter, y: int = 2) -> None:
-        _draw_data_contract_banner(p, self.width(), replay=self._replay,
-                                   review=self._review, panel_key="phase", y=y,
-                                   multi_agent=self._multi_agent)
 
     def _draw(self, p: QtGui.QPainter) -> None:
         f = self.frame
@@ -5697,6 +5685,10 @@ class RetentionView(_BaseCanvas):
         line = f"mechanism (last {len(self._mech_frames)}): " + " · ".join(parts)
         if self._review and self.frame is not None:
             line += f" · through cycle {int(self.frame.cycle_id)}"
+            if self._prefix_len > 256:
+                line += " · window ≤256 (session report uses full session)"
+        elif not self._review:
+            line += " · window ≤256"
         return line
 
     def _sync_mechanism_window(self, frames: List[ObservabilityFrame]) -> None:
@@ -6718,6 +6710,11 @@ class GoalsMotivationView(_BaseCanvas):
         (magnitude of each drive's pull on the goal vector)."""
         import math
         dgs = getattr(f, "drive_goals", None) or []
+        if not dgs and self._replay:
+            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x + 3, y + 11, "drive_goals unavailable (replay)")
+            return
         nd = max(len(dgs), _n_drives(f))
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
@@ -6795,6 +6792,7 @@ class GoalsMotivationView(_BaseCanvas):
 
 
 # ----- Controller + main window ---------------------------------------------
+# NOTE: `_TransportBar` is a candidate for extraction to `qt_transport.py`.
 
 class _TransportBar(QtWidgets.QFrame):
     """v8 transport: pause-stops-the-world (default) + continuous slow-mo +
@@ -7236,9 +7234,9 @@ class DashboardController:
             if rolling:
                 if len(rolling) > 2000:
                     rolling = decimate_frames_for_history(rolling, 2000)
+                review, replay = self._contract_flags()
                 if self.w._review_mode:
                     self.rebuild_all_histories(rolling)
-                    review, replay = self._contract_flags()
                     flags = _overview_moment_flags(f, deque())
                     self._update_tab_badges(flags)
                     title = (f"PHCA Cognitive Observatory — review cycle {f.cycle_id}"
@@ -7246,10 +7244,9 @@ class DashboardController:
                     self.w.setWindowTitle(title)
                     self._repaint_visible_tab(force_sync=True)
                     return
-                tab_idx = self.w._tabs.currentIndex()
-                self._rebuild_tab_histories(rolling, tab_idx)
-                all_tabs = set(range(len(self.w._tab_base_labels)))
-                self._pending_tab_rebuilds = all_tabs - {tab_idx}
+                # OBS-002: scrub/seek rolling update rebuilds all tabs (replay + live).
+                self.rebuild_all_histories(rolling)
+                self._pending_tab_rebuilds.clear()
                 self._last_rolling = rolling
             else:
                 self.w.proj.update(f)
@@ -7586,14 +7583,23 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         transport = self._transport
         if transport is None or transport.clock is None:
             return
-        cursor = min(transport.clock.cursor_int, max(0, len(projected) - 1))
-        transport.clock.set_frames(projected)
-        if projected:
-            transport.clock.seek(cursor)
+        clock = transport.clock
+        cursor = min(clock.cursor_int, max(0, len(projected) - 1))
+        was_paused = clock.paused
+        was_scrubbing = clock.scrubbing
+        clock.reload_frames(
+            projected,
+            preserve_transport=True,
+            follow_live=not was_paused and not was_scrubbing,
+        )
+        if projected and (was_paused or was_scrubbing):
+            clock._cursor = float(cursor)
         transport.set_range(len(projected))
         transport._sync_slider()
+        if projected:
+            clock._emit(force_rebuild=True)
         if rebuild and projected:
-            prefix = projected[: cursor + 1]
+            prefix = projected[: clock.cursor_int + 1]
             self.controller.rebuild_all_histories(prefix)
         self._rebuild_moment_matches()
 

@@ -17,15 +17,9 @@ from phca.monitoring.qt_dashboard import (
     _heatmap_cell_alpha,
     _heatmap_cell_color,
     _heatmap_column_percentile,
-    make_app,
 )
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _flow_frame(**kwargs) -> ObservabilityFrame:
@@ -250,11 +244,25 @@ def test_flow_moment_ticks_on_heatmap(qt_app):
 
 
 def test_flow_replay_banner_text(qt_app):
+    from PyQt5 import QtGui
+
+    from phca.monitoring.cognitive_panels import data_contract_text
+
     view = CognitiveFlowView()
     view.resize(640, 480)
     view.set_frame(_flow_frame(), replay=True)
-    assert "rbta_bounds" in "REPLAY — rbta_bounds detail / live-only timings may differ in JSONL"
-    assert "rollouts" not in "REPLAY — rbta_bounds detail / live-only timings may differ in JSONL"
+    contract = data_contract_text("flow", replay=True)
+    assert "module_timings" in contract
+    assert "PEU" in contract
+    pm = QtGui.QPixmap(640, 480)
+    pm.fill(PANEL_BG)
+    p = QtGui.QPainter(pm)
+    view._draw(p)
+    p.end()
+    c = pm.toImage().pixelColor(40, 8)
+    lum = c.red() + c.green() + c.blue()
+    bg_lum = PANEL_BG.red() + PANEL_BG.green() + PANEL_BG.blue()
+    assert lum > bg_lum + 15
 
 
 def test_flow_moment_series_matches_heat(qt_app):

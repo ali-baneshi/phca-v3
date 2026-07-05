@@ -100,6 +100,7 @@ def run_supervisor(
     no_recover: bool = False,
     no_verify: bool = False,
     strict_verify: bool = False,
+    preserve_child_exit: bool = False,
 ) -> int:
     log = SupervisorLog(supervisor_log)
     cmd = _build_child_cmd(observatory_argv)
@@ -126,12 +127,14 @@ def run_supervisor(
 
     log.event("recover_start", session_dir=str(session_dir), child_rc=child_rc)
     allow_incomplete = not strict_verify
+    recover_status = "crashed" if child_rc != 0 else None
     recover_rc, summary = recover_session(
         session_dir,
         write_report=True,
         verify=not no_verify,
         allow_incomplete=allow_incomplete,
         reason="supervisor_crash",
+        status=recover_status,
     )
     log.event(
         "recover_done",
@@ -151,6 +154,8 @@ def run_supervisor(
 
     if strict_verify and not no_verify:
         return max(child_rc, recover_rc)
+    if preserve_child_exit and child_rc != 0:
+        return child_rc
     if child_rc != 0 and recover_rc == 0 and allow_incomplete:
         return 0
     return child_rc if child_rc != 0 else recover_rc
@@ -177,6 +182,11 @@ def main() -> None:
     parser.add_argument("--strict-verify", action="store_true",
                         help="fail if strict --check fails after recovery")
     parser.add_argument(
+        "--preserve-child-exit",
+        action="store_true",
+        help="return child exit code even when recovery and verify succeed",
+    )
+    parser.add_argument(
         "observatory_args",
         nargs=argparse.REMAINDER,
         help="arguments after -- forwarded to phca_observatory.py",
@@ -201,6 +211,7 @@ def main() -> None:
         no_recover=args.no_recover,
         no_verify=args.no_verify,
         strict_verify=args.strict_verify,
+        preserve_child_exit=args.preserve_child_exit,
     )
     sys.exit(rc)
 

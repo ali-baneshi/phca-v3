@@ -79,3 +79,18 @@ def test_load_optional_json_missing(tmp_path):
     mod = _load_observatory()
     assert mod._load_optional_json(None) is None
     assert mod._load_optional_json(str(tmp_path / "nope.json")) is None
+
+
+def test_run_session_verify_allow_incomplete_flag(tmp_path, monkeypatch):
+    mod = _load_observatory()
+    session = _minimal_session(tmp_path)
+    calls = []
+
+    def fake_run(cmd, env=None):
+        calls.append(list(cmd))
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    rc = mod._run_session_verify(session, allow_incomplete=True)
+    assert rc == 0
+    assert "--allow-incomplete" in calls[0]

@@ -43,7 +43,28 @@ jobs:
           MUJOCO_GL: disabled
         run: |
           PYTHONPATH=python:$PYTHONPATH python -m pytest python/tests/ python/phca/ \
+            --ignore=python/tests/test_mujoco_env.py \
+            --ignore=python/tests/test_cycle_with_mujoco.py \
+            --ignore=python/tests/test_continuous_actions.py \
             -v --tb=short --timeout=30 -x --benchmark-skip
+
+  observatory-check:
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Observatory session integrity gate
+        run: |
+          PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
 
   benchmark-level-0:
     runs-on: ubuntu-latest

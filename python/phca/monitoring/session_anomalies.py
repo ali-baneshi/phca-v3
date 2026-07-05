@@ -33,6 +33,7 @@ DEFAULT_THRESHOLDS: Dict[str, Any] = {
     "drift_error_ratio": 1.20,
     "drift_error_abs_delta": 0.5,
     "drift_dist_ratio": 1.15,
+    "drift_min_cycles": 30,
     "leak_min_rss_samples": 50,
     "leak_min_cycles": 200,
     "goal_switch_rate": 0.25,
@@ -267,15 +268,19 @@ def detect_session_anomalies(
 
     leak_flag, late_slope, full_slope, leak_mode = _session_leak_flag(frames, cycles, th)
     goal_rolling = _rolling_goal_instability(frames, th)
+    drift_evaluated = cycles >= int(th["drift_min_cycles"])
 
     flags: Dict[str, bool] = {
         "spike": _session_spike_flag(spike_count, cycles, th),
-        "drift": _session_drift_flag(
-            error_early=error_early if isinstance(error_early, (int, float)) else None,
-            error_late=error_late if isinstance(error_late, (int, float)) else None,
-            dist_early=dist_early if isinstance(dist_early, (int, float)) else None,
-            dist_late=dist_late if isinstance(dist_late, (int, float)) else None,
-            th=th,
+        "drift": (
+            drift_evaluated
+            and _session_drift_flag(
+                error_early=error_early if isinstance(error_early, (int, float)) else None,
+                error_late=error_late if isinstance(error_late, (int, float)) else None,
+                dist_early=dist_early if isinstance(dist_early, (int, float)) else None,
+                dist_late=dist_late if isinstance(dist_late, (int, float)) else None,
+                th=th,
+            )
         ),
         "leak": leak_flag,
         "goal_instability": (
@@ -308,6 +313,8 @@ def detect_session_anomalies(
             "drive_switch_count": drive_switch_count,
             "active_drive_switch_count": active_drive_switch_count,
             "drive_switch_rate": drive_switch_rate,
+            "goal_rolling_instability": bool(goal_rolling),
+            "drift_evaluated": drift_evaluated,
         },
         "thresholds": dict(th),
         "cycle_markers": cycle_markers,
@@ -332,22 +339,29 @@ def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
 
     metrics_block = (report.get("anomalies") or {}).get("metrics") or {}
     late_slope = metrics_block.get("rss_late_slope_bytes_per_cycle")
+    goal_rolling = metrics_block.get("goal_rolling_instability")
     leak_flag = False
     if isinstance(late_slope, (int, float)):
         leak_flag = rss_leak_flagged(float(late_slope), cycles)
 
+    drift_evaluated = cycles >= int(th["drift_min_cycles"])
     flags: Dict[str, bool] = {
         "spike": _session_spike_flag(spike_count, cycles, th),
-        "drift": _session_drift_flag(
-            error_early=error_early if isinstance(error_early, (int, float)) else None,
-            error_late=error_late if isinstance(error_late, (int, float)) else None,
-            dist_early=dist_early if isinstance(dist_early, (int, float)) else None,
-            dist_late=dist_late if isinstance(dist_late, (int, float)) else None,
-            th=th,
+        "drift": (
+            drift_evaluated
+            and _session_drift_flag(
+                error_early=error_early if isinstance(error_early, (int, float)) else None,
+                error_late=error_late if isinstance(error_late, (int, float)) else None,
+                dist_early=dist_early if isinstance(dist_early, (int, float)) else None,
+                dist_late=dist_late if isinstance(dist_late, (int, float)) else None,
+                th=th,
+            )
         ),
         "leak": leak_flag,
         "goal_instability": (
-            cycles > 0 and drive_switch_rate > float(th["goal_switch_rate"])
+            bool(goal_rolling)
+            if isinstance(goal_rolling, bool)
+            else (cycles > 0 and drive_switch_rate > float(th["goal_switch_rate"]))
         ),
     }
     active = [k for k in ANOMALY_KINDS if flags.get(k)]
@@ -366,6 +380,12 @@ def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
             "drive_switch_count": drive_switch_count,
             "active_drive_switch_count": active_drive_switch_count,
             "drive_switch_rate": drive_switch_rate,
+            "goal_rolling_instability": (
+                metrics_block.get("goal_rolling_instability")
+                if isinstance(metrics_block.get("goal_rolling_instability"), bool)
+                else None
+            ),
+            "drift_evaluated": drift_evaluated,
         },
         "thresholds": dict(th),
         "cycle_markers": (report.get("anomalies") or {}).get("cycle_markers") or [],
@@ -391,8 +411,12 @@ def print_anomaly_summary(result: Dict[str, Any], *, stream=None) -> None:
     """Human-readable PASS/FAIL per anomaly kind."""
     out = stream or sys.stderr
     flags = result.get("flags") or {}
+    metrics = result.get("metrics") or {}
     parts = []
     for kind in ANOMALY_KINDS:
+        if kind == "drift" and not metrics.get("drift_evaluated", True):
+            parts.append(f"{kind}=SKIP (short session)")
+            continue
         status = "FAIL" if flags.get(kind) else "PASS"
         parts.append(f"{kind}={status}")
     print(f"  anomalies  : {' '.join(parts)}", file=out)

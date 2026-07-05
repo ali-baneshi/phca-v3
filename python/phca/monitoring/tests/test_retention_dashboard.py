@@ -9,15 +9,9 @@ from phca.monitoring.qt_dashboard import (
     RetentionView,
     ViolationTable,
     _retention_score,
-    make_app,
 )
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _ret_frame(**kwargs) -> ObservabilityFrame:

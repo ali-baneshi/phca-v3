@@ -8,10 +8,10 @@ Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
 budgets every cycle.
 
 **Observatory Phases 7–20 complete** (cognitive observability, replay, multi-agent,
-interactive query, `make reproduce`; D-108–D-123). See
+interactive query, `make reproduce`; D-108–D-127). See
 [docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
-**699 tests** passing (`make test-python` 663 + `make test-mujoco` 36), 1 skipped.
-Overall Φ-IQ **0.7403** (4-level MLP, 200 cyc, re-measured 2026-07-04).
+**709 tests** passing (`make test-python` 673 + `make test-mujoco` 36).
+Overall Φ-IQ **0.7323** (4-level MLP, 200 cyc, re-measured 2026-07-05).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
 prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
 **measured** (`assumption_validation.py --ci` 5/5 PASS). Causal behavior gate
@@ -55,7 +55,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (663 core + 36 MuJoCo = 699; set MUJOCO_GL=disabled for headless)
+# Run all tests (673 core + 36 MuJoCo = 709; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco
@@ -186,15 +186,15 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
 
-### Latest Results (MLP G', 200 cycles/level, 2026-07-04)
+### Latest Results (MLP G', 200 cycles/level, 2026-07-05)
 
 ```
   PHCA v3.0 — Φ-IQ Benchmark Report (this machine)
-  Overall Φ-IQ (4 levels, MLP): 0.7403   (gate PASS, ≥ 0.5486 floor)
-  L0 Stationary:   0.7032
-  L1 Reactive:     0.7125
-  L2 Goal Pursuit: 0.7773   (goal_rate 0.95)
-  L3 Exploration:  0.7683
+  Overall Φ-IQ (4 levels, MLP): 0.7323   (gate PASS, ≥ 0.5486 floor)
+  L0 Stationary:   0.7750
+  L1 Reactive:     0.6748
+  L2 Goal Pursuit: 0.7924   (goal_rate 0.97)
+  L3 Exploration:  0.6868
 
   Pass Criteria:
     [✓] Cycle latency < 500 ms        (mean ~17 ms, p95 ~31 ms)
@@ -204,7 +204,7 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 
   Causal gate L1/L2/L3: PASS (200 cyc × 5 seeds)
   Assumption validation --ci: 5/5 PASS (A1–A5)
-  Nightly 10k soak: PASS (late RSS ~1390 B/cyc ≤ 1600, D-113)
+  Nightly 10k soak: PASS (late RSS ~1257 B/cyc ≤ 1600, D-113)
 ```
 
 ### Causal Evidence Gate
@@ -316,8 +316,9 @@ they were bad tests, not masked failures.
 3. Assumption validation `--ci`.
 4. OOD calibration (monotonic check).
 5. Nightly stress (`scripts/nightly_stress.py` — RSS leak detector, latency
-   p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations, causal gate).
+   p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations).
 6. Causal behavior gate (`phca_causal_eval.py --gate` on L2+L3 in nightly).
+7. Session anomaly gate (`scripts/nightly_anomaly_gate.py` — synthetic fixtures).
 
 This is a **script+gate target, not a cron job** — schedule it externally
 (GitHub Actions `schedule:` nightly, systemd timer, or cron). 1000-cyc CI run
@@ -337,7 +338,7 @@ compare on top of Phase 8 replay/scrub hardening.
 - Legacy v0 sessions normalize on replay via `normalize_observability_json()`.
 - Unknown or mixed schema versions fail `--check` (fail-closed).
 
-### Phase 10 — Report Parity (D-112)
+### Phase 10 — Report Parity
 
 - `session_report.json` shares `format_session_results_lines()` with the Overview panel.
 - Parity test: `python/phca/monitoring/tests/test_session_report.py`.
@@ -364,13 +365,13 @@ See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 - **Long-run memory growth (Phase 7 retention).** `make nightly` uses a
   **phase-aware** late-half RSS slope gate (D-112, D-113): ≤5000 B/cyc for runs under
   7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
-  `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1390 B/cyc). See
+  `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1257 B/cyc). See
   [docs/limitations.md](docs/limitations.md) and [STATUS.md](STATUS.md).
-- **Observatory Phases 8–12 shipped:** seek/scrub replay, schema versioning,
-  report parity, large-session scrub perf, multi-session `--compare` — see [docs/observability.md](docs/observability.md).
+- **Observatory Phases 7–20 complete:** live PyQt dashboard, JSONL recording, seek/scrub replay, schema governance, report parity, scrub performance, multi-session `--compare`, anomaly detection, action explainability, stable API, supervisor/recovery, multi-agent timelines, cognitive-moment query, and scientific reproduction — see [docs/observability.md](docs/observability.md).
 - **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
   **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
-- **No NLP, vision, multi-agent, or M5 procedural memory.**
+- **No NLP, vision, multi-agent cognition (shared memory / coordination), or M5 procedural memory.**
+  Observatory **display** supports multi-agent replay and per-agent scrub (Phase 17).
 - **Dynamic goals** are experimental at every-75 only.
 - **P-Stream only** (E/S streams removed D-020).
 
@@ -411,7 +412,7 @@ make nightly NIGHTLY_CYCLES=1000
 | [docs/archive/phase5_completion_report.md](docs/archive/phase5_completion_report.md) | Phase 5 sign-off (historical). |
 | [docs/archive/phase4_readiness_report.md](docs/archive/phase4_readiness_report.md) | Phase 4 sign-off (historical). |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-114+). |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-127). |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open backlog items. |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Three-level causal behavior evidence gate (L1–L3). |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay/scrub, integrity checks. |
@@ -454,7 +455,12 @@ make nightly NIGHTLY_CYCLES=1000
 │   ├── longrun_probe.py         # 1000-cycle stability probe (latency creep + RSS)
 │   ├── phca-logs.py             # Structured log viewer
 │   ├── phca_observatory.py      # PyQt Cognitive Observatory (live + JSONL) — canonical UI
+│   ├── phca_observatory_supervisor.py  # Subprocess wrapper + crash recovery (Phase 16)
+│   ├── phca_multi_observatory.py       # Multi-agent aligned runner wrapper
+│   ├── phca_query.py            # Cognitive-moment query CLI (Phase 18)
 │   ├── phca_replay.py           # Session replay + --check integrity gate
+│   ├── reproduce.py             # One-command scientific reproduction (Phase 19)
+│   ├── nightly_anomaly_gate.py  # Nightly session anomaly gate (Phase 13)
 │   ├── phca_visualise.py        # Matplotlib legacy dashboard (deprecated for full review)
 │   └── profile_cycle.py         # Per-cycle profiling (Gaussian path)
 ├── docs/                        # Architecture, decisions, completion reports
@@ -469,7 +475,7 @@ make nightly NIGHTLY_CYCLES=1000
 
 ## Cognitive Observatory
 
-Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 8–12), and
+Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 7–20), and
 offline session reports with schema versioning and Overview parity. PyQt `--qt` replay is the canonical path; matplotlib
 `--from-jsonl` is legacy.
 

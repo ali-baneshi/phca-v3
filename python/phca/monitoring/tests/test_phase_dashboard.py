@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.qt_dashboard import (
@@ -22,16 +21,10 @@ from phca.monitoring.qt_dashboard import (
     _phase_grid_caption,
     _phase_layout,
     _phase_status_line,
-    make_app,
 )
 from phca.monitoring.render import _prediction_heatmap, frame_from_json
 
 
-@pytest.fixture(scope="module")
-def qt_app():
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _reacher_frame(**kwargs) -> ObservabilityFrame:

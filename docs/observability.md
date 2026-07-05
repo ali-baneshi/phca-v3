@@ -2,7 +2,7 @@
 
 The Cognitive Observatory is a **PyQt5 live dashboard** plus **JSONL session recording**, **offline replay**, and **session reports**. One `ObservabilityFrame` is produced per cognitive cycle and is the ground truth for dashboard, JSONL, and reports.
 
-**Phases 8–16 complete:** PyQt replay/scrub (Phases 8–12), anomaly detection (13), action explainability (14), stable `phca.monitoring` API (15 — [observability_api.md](observability_api.md)), subprocess supervisor + crash recovery (16 — § Production operations). **Phase 17 complete:** multi-agent `agent_id` on frames, aligned local runner, per-agent dashboard timeline, per-agent reports (§ Multi-agent sessions). **Phase 18 complete:** cognitive-moment query CLI + dashboard filters (§ Interactive query). Phases 19–20 are backlog — see [STATUS.md](../STATUS.md).
+**Phases 7–20 complete:** PyQt replay/scrub (Phases 8–12), anomaly detection (13), action explainability (14), stable `phca.monitoring` API (15 — [observability_api.md](observability_api.md)), subprocess supervisor + crash recovery (16 — § Production operations), multi-agent sessions (17), cognitive-moment query (18), scientific reproduction (19), and Phase 20 sign-off — see [STATUS.md](../STATUS.md) and [archive/phase20_completion_report.md](archive/phase20_completion_report.md).
 
 ## Thread model
 
@@ -34,7 +34,7 @@ Replay reconstructs frames via `frame_from_json()` with deep-copied dict/list fi
 
 | Field | Values | When set |
 |-------|--------|----------|
-| `status` | `running`, `complete`, `incomplete`, `empty`, `corrupt` | `start()` → `running`; normal `close()` → `complete`; crash/early exit → `incomplete`/`empty` |
+| `status` | `running`, `complete`, `incomplete`, `empty`, `corrupt`, `crashed` | `start()` → `running`; normal `close()` → `complete`; crash/early exit → `incomplete`/`empty`/`crashed` (supervisor) |
 | `started_at` | ISO-8601 UTC | `start()` |
 | `closed_at` | ISO-8601 UTC | `close()`, `abort()`, or `finalize_session()` |
 | `recorded_cycles` | int | Actual JSONL lines written |
@@ -112,7 +112,7 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 
 #### Multi-agent sessions (Phase 17)
 
-- **Recording layout:** one `timeseries.jsonl` with interleaved lines (`agent_id` per line). Not per-agent subdirectories.
+- **Recording layout:** one `timeseries.jsonl` with step-major interleaved lines (`timeline_step`, then `agent_id` per line). Not per-agent subdirectories. Live recording sorts batched drains via `interleave_frames_for_record()`; `--check` validates step-major order.
 - **Aligned runner:** `phca_observatory.py --agents N` steps N independent cycles in lockstep on one coordinator thread; each logical step writes N JSONL lines sharing `timeline_step`.
 - **`meta.json`:** `agent_count`, `agents[]` (`agent_id`, `label`, `recorded_cycles`), `timeline_mode: aligned`, `recording_layout: single_jsonl`. `meta.cycles` / `recorded_cycles` = total JSONL lines (agents × cycles-per-agent).
 - **`--check`:** per-agent `cycle_id` contiguous `0..n-1` (not global line index). Single-agent sessions keep the legacy global contiguous check.
@@ -156,7 +156,7 @@ Shared formatter: [`action_explain.py`](../python/phca/monitoring/action_explain
 
 ## Playback and scrub (Phase 8)
 
-[`PlaybackClock`](python/phca/monitoring/playback.py) decouples display from cycle production.
+[`PlaybackClock`](../python/phca/monitoring/playback.py) decouples display from cycle production.
 
 | Mode | Buffer | Cursor behavior |
 |------|--------|-----------------|
@@ -173,14 +173,14 @@ Shared formatter: [`action_explain.py`](../python/phca/monitoring/action_explain
 
 ## Transport controls
 
-[`_TransportBar`](python/phca/monitoring/qt_dashboard.py) provides:
+[`_TransportBar`](../python/phca/monitoring/qt_dashboard.py) provides:
 
 - Scrub slider (seek to any cycle)
 - Play / pause
 - Speed slider (continuous slow-mo via `throttle_period()`)
 - Step forward (one frame while paused)
 
-**Keyboard** ([`ObservatoryWindow.keyPressEvent`](python/phca/monitoring/qt_dashboard.py)):
+**Keyboard** ([`ObservatoryWindow.keyPressEvent`](../python/phca/monitoring/qt_dashboard.py)):
 
 | Key | Action |
 |-----|--------|
@@ -353,6 +353,11 @@ Supervisor flags:
 | `--no-recover` | Do not finalize partial sessions |
 | `--no-verify` | Skip `phca_replay --check` after recovery |
 | `--strict-verify` | Fail if strict `--check` fails (default recovery uses `--allow-incomplete`) |
+| `--preserve-child-exit` | Return child exit code even when recovery + verify succeed (default masks crash as 0) |
+
+**Default exit code policy:** unless `--preserve-child-exit` is set, the supervisor returns **0** when crash recovery and lenient verify (`--allow-incomplete`) succeed — so soak/CI jobs are not failed by a child segfault after artifacts are salvaged. Use `--strict-verify` (and optionally `--preserve-child-exit`) when a non-zero exit must reflect the child crash.
+
+Early window close: `phca_observatory.py` runs `phca_replay --check --allow-incomplete` after finalize when `--verify` is set and JSONL lines exist.
 
 Structured log events: `supervisor_start`, `child_spawn`, `child_exit`, `recover_start`, `recover_done`, `verify_result`.
 
@@ -386,12 +391,12 @@ Implementation: [`session_recovery.py`](../python/phca/monitoring/session_recove
 
 ## Dashboard / report parity
 
-Shared helpers in [`python/phca/monitoring/cognitive_panels.py`](python/phca/monitoring/cognitive_panels.py):
+Shared helpers in [`python/phca/monitoring/cognitive_panels.py`](../python/phca/monitoring/cognitive_panels.py):
 
 - `rbta_time_bound_ms`, `flow_timing_ratio`, `flow_near_bound_modules`
 - `build_moment_series`, `cognitive_moment`, `append_cognitive_moment`
 
-[`session_report.py`](python/phca/monitoring/session_report.py) and Flow/Retention/RBTA panels use the same normalization. Session reports count near-bound cycles using the same `flow_near_bound_modules()` threshold as the live Flow panel. Reports are built from JSONL only and must not mutate input dicts.
+[`session_report.py`](../python/phca/monitoring/session_report.py) and Flow/Retention/RBTA panels use the same normalization. Session reports count near-bound cycles using the same `flow_near_bound_modules()` threshold as the live Flow panel. Reports are built from JSONL only and must not mutate input dicts.
 
 ## Manual smoke checklist
 
@@ -419,11 +424,11 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**343 monitoring tests** (699 total with MuJoCo — 2026-07-04). Key modules:
+**360 monitoring tests** (715 total with MuJoCo — 2026-07-05). Key modules:
 
 | Module | Coverage |
 |--------|----------|
-| `test_playback_store.py` | Seek/rebuild semantics, lazy tab rebuild, 3000-frame scrub budget |
+| `test_playback_store.py` | Seek/rebuild semantics, live/replay scrub sync, 3000-frame scrub budget |
 | `test_observatory_launcher.py` | Post-run verify + session_report pipeline |
 | `test_session_recovery.py` | Session recovery, supervisor crash simulation, strict vs `--allow-incomplete` |
 | `test_observability_integrity.py` | RBTA units, `--check`, schema governance, report parity, JSON immutability |
@@ -432,6 +437,11 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | `test_session_report.py` | Offline report from JSONL |
 | `test_session_anomalies.py` | Phase 13 spike/drift/leak/goal flags |
 | `test_action_explain.py` | Phase 14 action rationale explain chain |
+| `test_multi_agent.py` | Phase 17 aligned timelines, step-major JSONL order |
+| `test_session_query.py` | Phase 18 cognitive-moment query |
+| `test_public_api.py` | Phase 15 stable `phca.monitoring` exports |
+| `test_metrics_store.py` | Lightweight CycleMetrics ring buffer |
+| `test_render_legacy.py` | Legacy matplotlib smoke |
 | `test_r2_extensions.py` | Moment parity, retention/memory/goals anchors |
 
 ## Known gaps (remaining)

@@ -28,11 +28,11 @@ test-all: test-python
 
 test-python:
 	@echo "Running Python tests (no MuJoCo — fast path)..."
-	PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ \
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python -m pytest python/tests/ python/phca/ \
 	    --ignore=python/tests/test_mujoco_env.py \
 	    --ignore=python/tests/test_cycle_with_mujoco.py \
 	    --ignore=python/tests/test_continuous_actions.py \
-	    -v --tb=short -x
+	    -v --tb=short -x --timeout=30 --benchmark-skip
 
 test-mujoco:
 	@echo "Running MuJoCo integration tests (needs gymnasium[mujoco])..."
@@ -108,7 +108,7 @@ pre-gate-1:
 	@python3 -c "d = [l.split('##')[1] for l in open('DECISIONS.md') if '## Decision D-' in l]; print(f'   {len(d)} decisions logged:'); [print(f'      {x.strip()}') for x in d]"
 	@echo ""
 	@echo "   P-Stream navigation: PYTHONPATH=python python scripts/benchmark.py --levels=2 (Phase 3.2+)"
-	@echo "   RBTA enforcement:    pytest tests/test_acceptance.py::test_rbta_detection -v"
+	@echo "   RBTA enforcement:    pytest python/tests/test_phase_3_1.py -v"
 	@echo "   Code coverage:       pytest python/ --cov=python/phca/ --cov-report=term"
 	@echo ""
 	@echo "============================================"
@@ -134,7 +134,7 @@ nightly: nightly-mujoco
 	    --use-mlp --cycles=200 --output=logs/nightly_static.json >/dev/null
 	@python scripts/check_benchmark_gate.py logs/nightly_static.json logs/benchmark_ci_baseline.json
 	@echo "[2/7] MuJoCo benchmark gate (see nightly-mujoco) — done."
-	@echo "[3/7] Assumption validation (A1/A3/A4/A5, --ci)..."
+	@echo "[3/7] Assumption validation (A1–A5 incl. A2, --ci)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
 	    --output=logs/nightly_assumptions.json
 	@echo "[4/7] OOD calibration (σ-sweep, monotonic)..."
@@ -154,7 +154,7 @@ nightly: nightly-mujoco
 	@echo "============================================"
 
 nightly-mujoco:
-	@echo "[2/7] MuJoCo benchmark gate (Pendulum continuous + Cartpole/Reacher discrete)..."
+	@echo "[2/7] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \

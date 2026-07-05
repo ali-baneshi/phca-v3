@@ -1,5 +1,7 @@
 # PHCA v3.0 — Observatory Phase 20 Research Maturity Sign-off
 
+> **Historical snapshot (2026-07-04).** Post–Phase 20 remediation added D-124–D-127 and +6 monitoring tests (360 monitoring / 715 total as of 2026-07-05). See [STATUS.md](../../STATUS.md) for current counts.
+
 **Date:** 2026-07-04  
 **Phase:** 20 — Product/Research Maturity (Observatory capstone)  
 **Status:** **COMPLETE — Observatory Phases 7–20 signed off**  

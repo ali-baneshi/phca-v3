@@ -157,15 +157,15 @@ def _post_run_pipeline(
     return exit_code, verify_status, report_path
 
 
-def _run_session_verify(session_dir: Path) -> int:
+def _run_session_verify(session_dir: Path, *, allow_incomplete: bool = False) -> int:
     """Run phca_replay.py --check on the recorded session (inline verify)."""
     replay = Path(__file__).resolve().parent / "phca_replay.py"
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", str(_pkg_root))
-    proc = subprocess.run(
-        [sys.executable, str(replay), "--check", str(session_dir)],
-        env=env,
-    )
+    cmd = [sys.executable, str(replay), "--check", str(session_dir)]
+    if allow_incomplete:
+        cmd.append("--allow-incomplete")
+    proc = subprocess.run(cmd, env=env)
     return int(proc.returncode)
 
 
@@ -690,14 +690,20 @@ def main() -> None:
                     new_frames.extend(new)
                     last_recorded_by_agent[aid] = new[-1].cycle_id
             if new_frames:
+                if args.agents > 1:
+                    from phca.monitoring.multi_agent import interleave_frames_for_record
+                    new_frames = interleave_frames_for_record(new_frames)
                 for f in new_frames:
                     recorder.record(f)
                 if args.agents > 1:
                     win.append_observability_frames(new_frames)
                     projected = win.project_frames_for_agent(win._all_frames)
-                    transport.clock.set_frames(projected)
-                    if projected:
-                        transport.clock._cursor = float(len(projected) - 1)
+                    clk = transport.clock
+                    clk.reload_frames(
+                        projected,
+                        preserve_transport=True,
+                        follow_live=not (clk.paused or clk.scrubbing),
+                    )
                     transport.set_range(len(projected))
                     transport._sync_slider()
                 else:
@@ -767,11 +773,17 @@ def main() -> None:
     def _finalize_early_session() -> None:
         if args.no_record or session_dir is None:
             return
+        n_lines = int(recorder.count)
         try:
             from phca.monitoring.session_recovery import finalize_session
             finalize_session(session_dir, reason="user_close", write_report=True)
         except Exception as exc:
             print(f"[recover] early finalize failed: {exc}", file=sys.stderr)
+            return
+        if n_lines > 0 and args.verify:
+            verify_rc = _run_session_verify(session_dir, allow_incomplete=True)
+            status = "PASS (allow-incomplete)" if verify_rc == 0 else "FAIL"
+            print(f"[verify] early close check: {status}", file=sys.stderr)
 
     def _on_run_complete() -> None:
         nonlocal last_recorded_by_agent, post_run_exit, run_completed
@@ -791,9 +803,12 @@ def main() -> None:
             if args.agents > 1:
                 win.append_observability_frames(new_frames)
                 projected = win.project_frames_for_agent(win._all_frames)
-                transport.clock.set_frames(projected)
-                if projected:
-                    transport.clock._cursor = float(len(projected) - 1)
+                clk = transport.clock
+                clk.reload_frames(
+                    projected,
+                    preserve_transport=True,
+                    follow_live=not (clk.paused or clk.scrubbing),
+                )
                 transport.set_range(len(projected))
                 transport._sync_slider()
             else:

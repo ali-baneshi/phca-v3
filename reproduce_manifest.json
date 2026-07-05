@@ -30,10 +30,18 @@
         {
           "id": "test_python",
           "name": "Python test suite (CI-equivalent)",
-          "command": "python -m pytest python/tests/ python/phca/ -v --tb=short --timeout=30 -x --benchmark-skip",
+          "command": "python -m pytest python/tests/ python/phca/ --ignore=python/tests/test_mujoco_env.py --ignore=python/tests/test_cycle_with_mujoco.py --ignore=python/tests/test_continuous_actions.py -v --tb=short --timeout=30 -x --benchmark-skip",
           "outputs": [],
           "verify": { "type": "exit_code" },
           "runtime_estimate_s": 420
+        },
+        {
+          "id": "observatory_check",
+          "name": "Observatory session integrity (phca_replay --check)",
+          "command": "python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/",
+          "outputs": [],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 5
         },
         {
           "id": "benchmark_quick_gate",

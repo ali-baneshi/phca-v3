@@ -5,8 +5,8 @@
 PHCA (Predictive Hierarchical Cognitive Architecture) implements a **12-step cognitive cycle**
 that transforms raw sensor input into goal-directed action through a pipeline of specialized
 modules. The cycle runs at ~60–95 Hz on consumer hardware (~10–17 ms mean latency, MLP path,
-this machine). **699 tests** pass (`make test-python` 663 + `make test-mujoco` 36), 1 skipped;
-Overall Φ-IQ **0.7403** (re-measured 2026-07-04). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
+this machine). **709 tests** pass (`make test-python` 673 + `make test-mujoco` 36);
+Overall Φ-IQ **0.7323** (re-measured 2026-07-05). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
 emit true continuous actions via a prediction-driven MPC selector (Phase 6/7).
 
 Formal specification: v3.0 (PHCA-3.1-011). Resource-bounded via the **Resource Bounded
@@ -123,7 +123,7 @@ Formal definitions and proofs in [research/outputs/07-rigorous-whitepaper.md](..
 | L1 | Reactive Control | Prediction under active control + action diversity | 0.7125 |
 | L2 | Goal Pursuit | Goal-reaching rate in maze with walls/obstacles | 0.7773 |
 | L3 | Self-Motivated Exploration | MDIM drive diversity + autonomy | 0.7683 |
-| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7403** (gate PASS) |
+| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7323** (gate PASS) |
 
 Gate floor: Overall ≥ 0.5486. Cycle latency < 500 ms (mean ~17 ms, p95 ~31 ms, this machine). Failure rate < 10% (0 violations).
 
@@ -287,8 +287,8 @@ p95/p99, Φ-IQ at 1k/5k/10k, RBTA violations. 1000-cyc CI run exits 0 in ~43 s; 
 
 **Honest finding (D-102, updated D-112/D-113):** nightly stress gates on **late-half** RSS slope
 with phase-aware thresholds: ≤5000 B/cyc for runs under 7000 cycles (M3 fill phase) and
-≤1600 B/cyc for post-cap soaks. Default `NIGHTLY_CYCLES=10000` **PASS** (~1390 B/cyc late slope,
-2026-07-04). M4 has a 1000-fact cap with pruning; M3 episodic cap enforced.
+≤1600 B/cyc for post-cap soaks. Default `NIGHTLY_CYCLES=10000` **PASS** (~1257 B/cyc late slope,
+`logs/nightly_stress_10k.json`, 2026-07-05). M4 has a 1000-fact cap with pruning; M3 episodic cap enforced.
 
 ---
 

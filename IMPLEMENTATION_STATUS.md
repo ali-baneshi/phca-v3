@@ -2,7 +2,7 @@
 
 Maps **whitepaper success criteria** and **blueprint components** to current
 code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
-2026-07-04.
+2026-07-05.
 
 Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **Stub**
 
@@ -70,17 +70,17 @@ evidence separate from invariant tests.
 
 ## Evaluation Gates
 
-| Gate | Script | CI? | Current status (2026-07-04) |
+| Gate | Script | CI? | Current status (2026-07-05) |
 |---|---|---|---|
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
-| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7403) |
+| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7323) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
 | Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | PASS (Gaussian default; use `--use-mlp` for deployment mode) |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
-| Observatory integrity | `phca_replay.py --check` | Unit tests | PASS |
-| Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | PASS (quick, 2026-07-04) |
+| Observatory integrity | `phca_replay.py --check` on `python/phca/monitoring/tests/fixtures/multi_agent_short/` | **Yes** | PASS |
+| Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
 
 **Scope note:** Observatory Phases 7–20 are complete. Whole PHCA blueprint items
 (M5, L4–L5, grounding adapter, etc.) remain in backlog below.
@@ -100,12 +100,28 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 
 ---
 
-## Open Backlog (from STATUS.md)
+## Completed Observatory items (from STATUS.md)
 
 | ID | Item | Phase |
 |---|---|---|
+| P7-4 | JSONL/replay/report parity | **Done** (Phase 7) |
+| P8-1 | Seek/scrub without panel desync | **Done** (Phase 8) |
 | P10-1 | Full offline report ↔ dashboard parity | **Done** (Phase 10) |
 | P11-1 | 3000+ cycle scrub without severe lag | **Done** (Phase 11) |
-| AD-3 | Unify benchmark entry points | 4.1 (deprecated runner) |
+| P12-1 | Multi-session `--compare` | **Done** (Phase 12) |
+| P13-1 | Session anomaly detection | **Done** (Phase 13) |
+| P14-1 | Action explainability | **Done** (Phase 14) |
+| P15-1 | Stable `phca.monitoring` public API | **Done** (Phase 15) |
+| P16-1 | Supervisor + crash recovery | **Done** (Phase 16) |
+| P17-1 | Multi-agent Observatory | **Done** (Phase 17) |
+| P18-1 | Cognitive-moment query | **Done** (Phase 18) |
+| P19-1 | Scientific reproduction manifest | **Done** (Phase 19) |
+| P20-1 | Research maturity sign-off | **Done** (Phase 20) |
+
+## Open Backlog (blueprint / cognition)
+
+| ID | Item | Phase |
+|---|---|---|
+| AD-3 | Unify benchmark entry points | 4.1 | **Done** — `runner.py` deprecated; use `scripts/benchmark.py` |
 | AD-4 | M5 procedural memory | 4.3 |
 | SC-1 | Grounding adapter | Deferred |

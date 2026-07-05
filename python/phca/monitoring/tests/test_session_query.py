@@ -8,7 +8,6 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.session_query import (
@@ -21,15 +20,6 @@ from phca.monitoring.session_query import (
 _ROOT = Path(__file__).resolve().parents[4]
 _FIXTURE_JSONL = Path(__file__).resolve().parent / "fixtures" / "reacher_short.jsonl"
 _QUERY = _ROOT / "scripts" / "phca_query.py"
-
-
-@pytest.fixture(scope="module")
-def qt_app():
-    from phca.monitoring.qt_dashboard import make_app
-
-    app = make_app()
-    yield app
-    app.processEvents()
 
 
 def _frame(**kwargs) -> ObservabilityFrame:
