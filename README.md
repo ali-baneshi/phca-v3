@@ -12,6 +12,10 @@ interactive query, `make reproduce`; D-108–D-127). See
 [docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
 **743 tests** passing (`make test-python` 707 + `make test-mujoco` 36).
 Overall Φ-IQ **0.7323** (4-level MLP, 200 cyc, re-measured 2026-07-05).
+Scientific validation suite (30 seeds × 24 experiments): aggregate Φ-IQ
+**0.526 ± 0.189** (n=20 pooled experiment means; CI95 0.435–0.603). Scaling
+(grid5/10/20, slip=0, 30 seeds): **0.700 ± 0.046** / **0.325 ± 0.042** /
+**0.147 ± 0.042** overall Φ-IQ. See `results/validation/summary.json`.
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
 prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
 **measured** (`assumption_validation.py --ci` 5/5 PASS). Causal behavior gate
@@ -205,6 +209,12 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
   Causal gate L1/L2/L3: PASS (200 cyc × 5 seeds)
   Assumption validation --ci: 5/5 PASS (A1–A5)
   Nightly 10k soak: PASS (late RSS ~1257 B/cyc ≤ 1600, D-113)
+
+  Scientific validation (30 seeds, grid 5/10/20 scaling):
+    full_system Φ-IQ:     0.631 ± 0.029
+    scaling overall Φ-IQ: 0.700 ± 0.046 (5×5) | 0.325 ± 0.042 (10×10) | 0.147 ± 0.042 (20×20)
+    Φ-IQ predictive r:    0.992 (H006 Validated)
+    Hypotheses H001–H005: Refuted; H004 Partially_supported
 ```
 
 ### Causal Evidence Gate

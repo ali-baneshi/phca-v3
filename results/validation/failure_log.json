@@ -1,0 +1,1055 @@
+{
+  "failure_events": [
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 42,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 43,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 454
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 44,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 441
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 45,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 515
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 46,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 47,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 454
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 48,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 481
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 49,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 526
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 50,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 515
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 51,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 528
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 52,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 507
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 53,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 450
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 54,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 516
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 55,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 483
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 56,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 404
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 57,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 520
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 58,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 431
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 59,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 486
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 60,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 522
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 61,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 522
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 62,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 453
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 63,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 64,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 426
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 65,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 476
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 66,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 487
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 67,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 485
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 68,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 490
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 69,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 476
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 70,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 491
+    },
+    {
+      "experiment": "ablations/no_prediction.json",
+      "seed": 71,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 485
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 42,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 480
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 43,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 449
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 44,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 437
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 45,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 508
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 46,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 465
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 47,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 450
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 48,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 477
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 49,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 527
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 50,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 516
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 51,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 527
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 52,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 507
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 53,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 451
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 54,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 516
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 55,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 483
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 56,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 415
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 57,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 520
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 58,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 436
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 59,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 489
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 60,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 524
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 61,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 525
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 62,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 447
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 63,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 469
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 64,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 416
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 65,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 465
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 66,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 487
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 67,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 482
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 68,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 490
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 69,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 471
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 70,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 488
+    },
+    {
+      "experiment": "ablations/pred_off_mem_off_mdim_on.json",
+      "seed": 71,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 482
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 42,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 43,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 454
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 44,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 441
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 45,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 515
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 46,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 47,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 454
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 48,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 481
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 49,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 526
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 50,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 515
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 51,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 528
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 52,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 507
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 53,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 451
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 54,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 516
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 55,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 483
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 56,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 404
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 57,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 520
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 58,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 431
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 59,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 486
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 60,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 522
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 61,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 522
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 62,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 453
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 63,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 467
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 64,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 426
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 65,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 476
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 66,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 487
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 67,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 485
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 68,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 490
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 69,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 476
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 70,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 491
+    },
+    {
+      "experiment": "ablations/pred_off_mem_on_mdim_on.json",
+      "seed": 71,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 485
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 42,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 493
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 43,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 498
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 44,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 437
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 45,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 438
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 46,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 418
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 47,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 451
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 48,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 448
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 49,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 439
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 50,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 479
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 51,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 477
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 52,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 494
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 53,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 474
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 54,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 446
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 55,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 441
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 56,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 450
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 57,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 407
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 58,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 418
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 59,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 427
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 60,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 492
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 61,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 477
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 62,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 476
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 63,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 481
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 64,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 440
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 65,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 436
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 66,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 1,
+      "goal_thrash_events": 425
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 67,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 478
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 68,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 484
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 69,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 443
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 70,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 456
+    },
+    {
+      "experiment": "ood/bandit.json",
+      "seed": 71,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 448
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 42,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 207
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 43,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 186
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 44,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 178
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 45,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 171
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 46,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 196
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 47,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 201
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 48,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 120
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 49,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 116
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 50,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 165
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 51,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 217
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 52,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 183
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 53,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 159
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 54,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 181
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 55,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 209
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 56,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 239
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 57,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 243
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 58,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 245
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 59,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 176
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 60,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 158
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 61,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 222
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 62,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 206
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 63,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 240
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 64,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 247
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 65,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 237
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 66,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 247
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 67,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 236
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 68,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 204
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 69,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 190
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 70,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 226
+    },
+    {
+      "experiment": "ood/mujoco_pendulum.json",
+      "seed": 71,
+      "rbta_terminate_max_streak": 0,
+      "total_violations": 0,
+      "goal_thrash_events": 163
+    }
+  ],
+  "count": 150
+}

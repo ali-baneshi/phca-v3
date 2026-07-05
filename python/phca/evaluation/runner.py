@@ -31,8 +31,9 @@ def _apply_intervention_rbta(cycle: CognitiveCycle, interventions: Optional[Inte
         return
     if interventions.resource_policy == "energy" or interventions.rbta_energy_scale < 1.0:
         scale = interventions.rbta_energy_scale
+        bounds_map = getattr(cycle.rbta, "_bounds", None) or getattr(cycle.rbta, "module_bounds", {})
         for mod in ("G'", "ACTION", "PE", "PEU"):
-            b = cycle.rbta.module_bounds.get(mod)
+            b = bounds_map.get(mod)
             if b is not None:
                 cycle.rbta.update_bounds(
                     mod,

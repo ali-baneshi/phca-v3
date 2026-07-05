@@ -1,0 +1,35 @@
+{
+  "n_seeds": 100,
+  "base_seed": 42,
+  "cycles": 200,
+  "sensitivity": {
+    "full_vs_minimal": {
+      "u_statistic": 9688.0,
+      "p_value": 2.261378105915965e-30,
+      "significant_005": true,
+      "a_mean": 0.5875800880870166,
+      "b_mean": 0.25901438204727084,
+      "direction_ok": true,
+      "passed": true
+    },
+    "full_vs_no_prediction": {
+      "u_statistic": 5283.0,
+      "p_value": 0.490032357071569,
+      "significant_005": false,
+      "a_mean": 0.5875800880870166,
+      "b_mean": 0.5852144557808326,
+      "direction_ok": true,
+      "passed": false
+    },
+    "full_mean": 0.5875800880870166,
+    "minimal_mean": 0.25901438204727084,
+    "no_pred_mean": 0.5852144557808326
+  },
+  "predictive_validity": {
+    "pearson_r": 0.9920960020349829,
+    "pass_r_0_7": true,
+    "n_early": 50,
+    "n_late": 150
+  },
+  "decomposition_note": "Run multivariate regression offline on per-run subindices if r fails"
+}

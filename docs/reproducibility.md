@@ -100,6 +100,36 @@ make nightly NIGHTLY_CYCLES=10000
 
 ~3 min for 10k stress; verifies post-cap retention gate (D-112).
 
+### Scientific validation suite (`run_validation_suite.py`)
+
+Full multi-seed ablation, scaling, OOD, and Φ-IQ validation (~3 h on reference machine):
+
+```bash
+make validate-science
+# equivalent:
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/run_validation_suite.py \
+  --profile full --base-seed 42 --output-root results/validation --resume
+MUJOCO_GL=disabled PYTHONPATH=python python scripts/aggregate_validation.py \
+  --input results/validation \
+  --hypotheses experiments/hypotheses.yaml \
+  --output results/validation/summary.json
+```
+
+| Option | Meaning |
+|--------|---------|
+| `--profile smoke` | 3 seeds, 1k horizon (~15 min smoke) |
+| `--profile full` | 30 seeds, 100k horizon, 100 Φ-IQ validation seeds |
+| `--resume` | Skip steps listed in `results/validation/manifest_index.json` |
+| `--output-root` | Artifact directory (default `results/validation`) |
+
+**Outputs:** per-experiment JSON under `ablations/`, `scaling/`, `ood/`; rollup
+`summary.json`, `hypothesis_verdicts.json`, `failure_log.json`. See
+[`results/validation/README.md`](../results/validation/README.md).
+
+**Reference results (2026-07-05):** aggregate Φ-IQ **0.526±0.189**; scaling
+5/10/20 overall Φ-IQ **0.700±0.046** / **0.325±0.042** / **0.147±0.042**;
+Φ-IQ predictive r **0.992** (H006 Validated).
+
 ---
 
 ## Expected Results (reference machine, 2026-07-04)

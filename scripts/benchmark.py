@@ -293,6 +293,8 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=1)
     parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
     parser.add_argument("--action-slip", type=float, default=0.0)
+    parser.add_argument("--allow-fail", action="store_true",
+                        help="Exit 0 even when pass criteria fail (validation scaling)")
     args = parser.parse_args()
 
     if args.quick:
@@ -332,7 +334,7 @@ def main() -> None:
                              else "logs/benchmark_report.json")
     save_report(report, output, multi_seed=multi_seed_data)
 
-    if not all(report.pass_criteria.values()):
+    if not all(report.pass_criteria.values()) and not args.allow_fail:
         sys.exit(1)
 
 

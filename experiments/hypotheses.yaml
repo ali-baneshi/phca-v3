@@ -7,6 +7,11 @@ hypotheses:
     predicted_failure: "cross_context_reuse < 0.2 AND goal_rate drops >30%"
     seeds: 30
     manifest: experiments/ablations/no_memory.yaml
+    status: Refuted
+    observed:
+      cross_context_reuse_ablated: 0
+      cross_context_reuse_full: 0
+    verdict_date: "2026-07-05"
   - id: H002
     claim: "Prediction enables transfer beyond local reward"
     metric: transfer_efficiency
@@ -14,6 +19,10 @@ hypotheses:
     predicted_failure: "transfer_efficiency drops >25% vs full system"
     seeds: 30
     manifest: experiments/ablations/no_prediction.yaml
+    status: Refuted
+    observed:
+      transfer_drop_fraction: 0.0
+    verdict_date: "2026-07-05"
   - id: H003
     claim: "Stage order integrity supports synergy"
     metric: synergy
@@ -21,12 +30,22 @@ hypotheses:
     predicted_failure: "synergy < 0.5 * full system synergy"
     seeds: 30
     manifest: experiments/ablations/desync.json
+    status: Refuted
+    observed:
+      synergy_ablated: 0.029365389153189318
+      synergy_full: 0.01492108702795083
+    verdict_date: "2026-07-05"
   - id: H004
     claim: "Single modules cannot produce novel behaviour alone"
     metric: unexpected_skill_chains
     intervention: partial ablations
     predicted_failure: "unexpected_skill_chains near 0 for all single-module ablations"
     seeds: 30
+    status: Partially_supported
+    observed:
+      unexpected_skill_chains_all_ablations: 0
+      full_system_unexpected_skill_chains: 0
+    verdict_date: "2026-07-05"
   - id: H005
     claim: "Full architecture required vs minimal cycle"
     metric: emergence_composite
@@ -34,9 +53,17 @@ hypotheses:
     predicted_failure: "minimal emergence_composite < 0.7 * full"
     seeds: 30
     manifest: experiments/ablations/minimal_cycle.json
+    status: Refuted
+    observed:
+      emergence_ratio: 1.2992525641235948
+    verdict_date: "2026-07-05"
   - id: H006
     claim: "Phi-IQ predicts later success"
     metric: predictive_validity_r
     protocol: "correlate phi_iq first 50 cycles with goal_rate cycles 51-200"
     predicted_failure: "r < 0.7 requires metric revision"
     seeds: 30
+    status: Validated
+    observed:
+      pearson_r: 0.9920960020349829
+    verdict_date: "2026-07-05"

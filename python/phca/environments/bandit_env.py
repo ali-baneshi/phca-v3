@@ -23,6 +23,8 @@ class BanditEnv:
         self.best_arm = 0
         self._arm_probs = self._new_probs()
         self.size = 1
+        self._last_reward = 0.0
+        self._last_action = 0
         self.complexity_params: Dict[str, int] = {"n_arms": n_arms, "switch_every": switch_every}
 
     def _new_probs(self) -> np.ndarray:
@@ -44,6 +46,10 @@ class BanditEnv:
 
     def get_goal_position(self) -> Optional[Tuple[int, int]]:
         return None
+
+    @property
+    def stay_action(self) -> int:
+        return 0
 
     def normalize_obs(self, raw: np.ndarray) -> np.ndarray:
         return raw.astype(np.float32)

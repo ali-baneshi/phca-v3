@@ -227,6 +227,7 @@ help:
 	@echo "                      override length: make nightly NIGHTLY_CYCLES=10000"
 	@echo "  make reproduce      One-command scientific reproduction (full nightly-equivalent)"
 	@echo "  make reproduce-quick  CI-science subset (~10-15 min)"
+	@echo "  make validate-science Full validation suite + aggregation"
 	@echo "  make test-mujoco    Run MuJoCo integration tests (needs gymnasium[mujoco])"
 	@echo "  make clean          Remove build artifacts"
 	@echo "  make help           Show this message"

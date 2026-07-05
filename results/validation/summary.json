@@ -1,0 +1,63 @@
+{
+  "date": "2026-07-05",
+  "n_result_files": 24,
+  "phi_iq_overall": {
+    "phi_iq": {
+      "mean": 0.525756413660994,
+      "std": 0.18851795378644362,
+      "min": 0.13063651051577102,
+      "max": 0.7366069254006493,
+      "n": 20,
+      "values": [
+        0.629501355697932,
+        0.6305981862172299,
+        0.6304003294699283,
+        0.46971354998508646,
+        0.48088378883605915,
+        0.4869491984337103,
+        0.7178096758249538,
+        0.7183092066966003,
+        0.7178787163456174,
+        0.6309896332365941,
+        0.48103265282828434,
+        0.6155916710693585,
+        0.5472789056664301,
+        0.49675091000810456,
+        0.2623005051982876,
+        0.2629252448507873,
+        0.13252036020994912,
+        0.13063651051577102,
+        0.7364509467285493,
+        0.7366069254006493
+      ],
+      "ci95_lo": 0.43540668586285136,
+      "ci95_hi": 0.6027151635055376
+    }
+  },
+  "experiments": [
+    "ablations/desync.json",
+    "ablations/full_system.json",
+    "ablations/interaction_test.json",
+    "ablations/minimal_cycle.json",
+    "ablations/no_mdim.json",
+    "ablations/no_memory.json",
+    "ablations/no_prediction.json",
+    "ablations/pred_off_mem_off_mdim_on.json",
+    "ablations/pred_off_mem_on_mdim_on.json",
+    "ablations/pred_on_mem_off_mdim_on.json",
+    "ablations/pred_on_mem_on_mdim_off.json",
+    "ablations/rbta_energy_tight.json",
+    "baselines/causal_eval.json",
+    "horizon_100000.json",
+    "horizon_resume_check.json",
+    "ood/bandit.json",
+    "ood/mujoco_pendulum.json",
+    "phi_iq_validation.json",
+    "scaling/grid10_slip0.json",
+    "scaling/grid10_slip1.json",
+    "scaling/grid20_slip0.json",
+    "scaling/grid20_slip1.json",
+    "scaling/grid5_slip0.json",
+    "scaling/grid5_slip1.json"
+  ]
+}
