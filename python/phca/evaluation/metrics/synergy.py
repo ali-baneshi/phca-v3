@@ -51,9 +51,15 @@ def prediction_action_synergy(trace: Sequence[CycleTraceRecord]) -> float:
     """Normalized MI between prediction confidence bucket and next action."""
     if len(trace) < 20:
         return 0.0
-    conf_bins = _discretize_confidence([t.prediction_confidence for t in trace[:-1]])
-    next_actions = [t.action for t in trace[1:] if t.action >= 0]
-    conf_bins = conf_bins[: len(next_actions)]
+    pairs = [
+        (trace[i].prediction_confidence, trace[i + 1].action)
+        for i in range(len(trace) - 1)
+        if trace[i + 1].action >= 0
+    ]
+    if len(pairs) < 10:
+        return 0.0
+    conf_bins = _discretize_confidence([c for c, _ in pairs])
+    next_actions = [int(a) for _, a in pairs]
     if len(conf_bins) != len(next_actions) or not conf_bins:
         return 0.0
     mi = mutual_information(conf_bins, next_actions)

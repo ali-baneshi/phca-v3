@@ -40,3 +40,10 @@ def test_evaluate_h006_refuted():
     }
     verdicts = evaluate_hypotheses(hypotheses, results)
     assert verdicts[0]["status"] == "Refuted"
+
+
+def test_desync_stage_order_matches_cycle_implementation():
+    from phca.evaluation.interventions import DESYNC_STAGE_ORDER
+
+    assert DESYNC_STAGE_ORDER.index("regulation") < DESYNC_STAGE_ORDER.index("prediction")
+    assert DESYNC_STAGE_ORDER.index("feedback") > DESYNC_STAGE_ORDER.index("action")

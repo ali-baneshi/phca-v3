@@ -25,7 +25,7 @@
     "manifest": "experiments/ablations/no_prediction.yaml",
     "status": "Refuted",
     "observed": {
-      "transfer_drop_fraction": -0.5191474537073012
+      "transfer_drop_fraction": -0.5283494182677233
     },
     "verdict_date": "2026-07-05"
   },
@@ -37,10 +37,10 @@
     "predicted_failure": "synergy < 0.5 * full system synergy",
     "seeds": 30,
     "manifest": "experiments/ablations/desync.json",
-    "status": "Refuted",
+    "status": "Validated",
     "observed": {
-      "synergy_ablated": 0.029365389153189318,
-      "synergy_full": 0.01492108702795083
+      "synergy_ablated": 0.07103103443571622,
+      "synergy_full": 0.14682397363333732
     },
     "verdict_date": "2026-07-05"
   },
@@ -67,7 +67,7 @@
     "manifest": "experiments/ablations/minimal_cycle.json",
     "status": "Refuted",
     "observed": {
-      "emergence_ratio": 1.2992525641235948
+      "emergence_ratio": 1.3801961682236994
     },
     "verdict_date": "2026-07-05"
   },
@@ -80,7 +80,7 @@
     "seeds": 30,
     "status": "Validated",
     "observed": {
-      "pearson_r": 0.9920960020349829
+      "pearson_r": 0.9835519536954935
     },
     "verdict_date": "2026-07-05"
   }

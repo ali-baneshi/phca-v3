@@ -1,0 +1,191 @@
+{
+  "config": {
+    "n_cycles": 200,
+    "warmup": 10,
+    "seed": 44,
+    "grid_size": 10,
+    "use_continuous": true,
+    "use_mlp": true,
+    "diagnose_level": -1,
+    "dynamic_goals": false,
+    "dynamic_goals_every": 100,
+    "action_slip": 0.0,
+    "environment": "gridworld",
+    "mujoco_env": "Pendulum-v1",
+    "weights": {
+      "prediction_accuracy": 0.2,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 0.15,
+      "transfer_efficiency": 0.15,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 0,
+      "level_name": "Stationary Prediction",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.6112063001011061,
+      "adaptation_speed": 0.830862519361397,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.5078284063515631,
+      "resource_efficiency": 0.9753617661201861,
+      "failure_rate": 0.0,
+      "phi_iq": 0.7096603780692724,
+      "raw_metrics": {
+        "mean_error": 14.302053960566454,
+        "mean_confidence": 0.9721680383219848,
+        "mean_latency_ms": 12.319116939906962,
+        "p95_latency_ms": 17.234930460108444,
+        "violations": 0,
+        "skill_accuracy": 0.9976345628458463,
+        "skill_compiled": true,
+        "active_drives": 5
+      },
+      "emergence": {}
+    },
+    {
+      "level": 1,
+      "level_name": "Reactive Control",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.6751078611037014,
+      "adaptation_speed": 0.9141194844180577,
+      "goal_complexity": 0.2,
+      "transfer_efficiency": 0.6171292499186932,
+      "resource_efficiency": 0.9764687920641154,
+      "failure_rate": 0.0,
+      "phi_iq": 0.6357086150049789,
+      "raw_metrics": {
+        "mean_error": 11.951389395113841,
+        "mean_latency_ms": 11.765603967942297,
+        "p95_latency_ms": 15.74696698808111,
+        "violations": 0,
+        "unique_actions": 1,
+        "skill_accuracy": 0.9978252224651567,
+        "skill_compiled": true
+      },
+      "emergence": {}
+    },
+    {
+      "level": 2,
+      "level_name": "Goal Pursuit",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.720139417419538,
+      "adaptation_speed": 1.0,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.720139417419538,
+      "resource_efficiency": 0.9593683433870319,
+      "failure_rate": 0.0,
+      "phi_iq": 0.7939224647742447,
+      "raw_metrics": {
+        "mean_error": 10.294871430638423,
+        "mean_latency_ms": 20.315828306484036,
+        "p95_latency_ms": 34.92319282377138,
+        "violations": 0,
+        "goals_reached": 200,
+        "goal_rate": 1.0,
+        "skill_accuracy": 0.9978658119702072
+      },
+      "emergence": {}
+    },
+    {
+      "level": 3,
+      "level_name": "Self-Motivated Exploration",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.7103777842284948,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.14207555684569897,
+      "resource_efficiency": 0.974043047541054,
+      "failure_rate": 0.0,
+      "phi_iq": 0.5481954998807647,
+      "raw_metrics": {
+        "mean_error": 10.653960080166081,
+        "mean_latency_ms": 12.978476229473017,
+        "p95_latency_ms": 23.351155419368272,
+        "violations": 0,
+        "unique_actions": 1,
+        "active_drives": 5,
+        "m3_episodes": 210,
+        "consolidation_facts": 21,
+        "skill_accuracy": 0.9987067167975819
+      },
+      "emergence": {}
+    }
+  ],
+  "overall_phi_iq": 0.6718717394323152,
+  "total_cycles": 800,
+  "duration_s": 12.360097751021385,
+  "pass_criteria": {
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": true,
+    "goal_autonomy_achieved": true,
+    "phi_iq_above_0_5": true
+  },
+  "multi_seed": {
+    "n_seeds": 3,
+    "base_seed": 42,
+    "overall_phi_iq": {
+      "mean": 0.6713713101613296,
+      "std": 0.0003866832993776903,
+      "min": 0.6709301403751284,
+      "max": 0.6718717394323152,
+      "values": [
+        0.6709301403751284,
+        0.671312050676545,
+        0.6718717394323152
+      ]
+    },
+    "per_level_phi_iq": {
+      "0": {
+        "mean": 0.7257187503388377,
+        "std": 0.01625754362125962,
+        "min": 0.7096603780692724,
+        "max": 0.7479977819792664,
+        "n": 3,
+        "values": [
+          0.7194980909679741,
+          0.7479977819792664,
+          0.7096603780692724
+        ]
+      },
+      "1": {
+        "mean": 0.6281904112951316,
+        "std": 0.015501760232482557,
+        "min": 0.6065969517228414,
+        "max": 0.6422656671575748,
+        "n": 3,
+        "values": [
+          0.6422656671575748,
+          0.6065969517228414,
+          0.6357086150049789
+        ]
+      },
+      "2": {
+        "mean": 0.7924676236979139,
+        "std": 0.007484576169776417,
+        "min": 0.7826605060974152,
+        "max": 0.8008199002220817,
+        "n": 3,
+        "values": [
+          0.7826605060974152,
+          0.8008199002220817,
+          0.7939224647742447
+        ]
+      },
+      "3": {
+        "mean": 0.5391084553134348,
+        "std": 0.007497403633776393,
+        "min": 0.5298335687819904,
+        "max": 0.5481954998807647,
+        "n": 3,
+        "values": [
+          0.5392962972775495,
+          0.5298335687819904,
+          0.5481954998807647
+        ]
+      }
+    }
+  }
+}

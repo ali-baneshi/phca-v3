@@ -72,6 +72,22 @@ def _expected_output(step_id: str, out: Path) -> Path | None:
     return None
 
 
+def _reconstruct_duration(completed: List[str], out: Path) -> float:
+    """Sum duration_s from completed experiment result files."""
+    total = 0.0
+    for step_id in completed:
+        if step_id == "aggregate":
+            continue
+        path = _expected_output(step_id, out)
+        if path is None or not path.exists():
+            continue
+        try:
+            total += float(json.loads(path.read_text()).get("duration_s", 0.0))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return total
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=["smoke", "full"], default="full")
@@ -171,10 +187,17 @@ def main() -> None:
             failed.append(sid)
 
     elapsed = time.perf_counter() - t0
-    index["duration_s"] = elapsed
+    stored_duration = float(index.get("duration_s", 0.0) or 0.0)
+    prior_duration = stored_duration
+    if args.resume and prior_duration < 1.0:
+        reconstructed = _reconstruct_duration(index.get("completed", []), out)
+        if reconstructed > prior_duration:
+            prior_duration = reconstructed
+    total_duration = prior_duration + elapsed if args.resume else elapsed
+    index["duration_s"] = total_duration
     index["failed"] = failed
     _save_index(index_path, index)
-    print(f"\nValidation suite finished in {elapsed/3600:.2f}h; failed={failed}")
+    print(f"\nValidation suite finished in {total_duration/3600:.2f}h; failed={failed}")
     sys.exit(1 if failed else 0)
 
 

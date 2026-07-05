@@ -1,0 +1,46 @@
+{
+  "cycles": 1000,
+  "seed": 42,
+  "grid_size": 5,
+  "duration_s": 8.565636223065667,
+  "final_emergence": {
+    "novel_behaviour": 0.0,
+    "strategy_diversity": 0.17428763014579252,
+    "behavioral_compression": 0.9365482233502538,
+    "adaptation_stability": 0.0,
+    "cross_context_reuse": 0.0,
+    "self_generated_goals": 0.0,
+    "unexpected_skill_chains": 0.0,
+    "emergence_composite": 0.1586908362137209,
+    "synergy": 0.0
+  },
+  "rolling_windows": [
+    {
+      "novel_behaviour": 0.0,
+      "strategy_diversity": 0.17428763014579252,
+      "behavioral_compression": 0.9379652605459057,
+      "adaptation_stability": 0.0,
+      "cross_context_reuse": 0.0,
+      "self_generated_goals": 0.0,
+      "unexpected_skill_chains": 0.0,
+      "emergence_composite": 0.15889327009881402,
+      "synergy": 0.0,
+      "window_start": 0
+    },
+    {
+      "novel_behaviour": 0.0,
+      "strategy_diversity": 0.17428763014579252,
+      "behavioral_compression": 0.9390243902439024,
+      "adaptation_stability": 0.0,
+      "cross_context_reuse": 0.0,
+      "self_generated_goals": 0.0,
+      "unexpected_skill_chains": 0.0,
+      "emergence_composite": 0.159044574341385,
+      "synergy": 0.0,
+      "window_start": 0
+    }
+  ],
+  "checkpoint": "results/validation_smoke/horizon_1000.ckpt",
+  "resume_drift": null,
+  "resume_ok": true
+}

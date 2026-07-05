@@ -28,6 +28,31 @@ from phca.config import StateVector
 _EPS = 1e-8
 
 
+def estimate_mlp_memory_bytes(
+    state_dim: int,
+    action_dim: int,
+    hidden_dim: int = 128,
+    replay_capacity: int = 500,
+) -> int:
+    """Estimate G' MLP footprint: weight matrices + experience replay buffer."""
+    params = ((state_dim + action_dim) * hidden_dim + hidden_dim * hidden_dim
+              + hidden_dim * state_dim + 2 * hidden_dim + state_dim) * 4
+    replay = replay_capacity * ((state_dim + action_dim) + state_dim) * 4
+    return max(10_000, int(params + replay))
+
+
+REF_STATE_DIM = 84  # 5×5 grid reference for RBTA scaling
+
+
+def estimate_mlp_gprime_time_bound(
+    state_dim: int,
+    base_time: float = 0.080,
+    ref_dim: int = REF_STATE_DIM,
+) -> float:
+    """Scale G' time bound linearly with state_dim (MLP learn cost grows with sd)."""
+    return base_time * max(1.0, state_dim / ref_dim)
+
+
 class WorldModelMLP:
     """MLP-based world model replacing Gaussian G'.
 

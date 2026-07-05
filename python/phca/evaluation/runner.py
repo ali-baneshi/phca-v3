@@ -224,7 +224,10 @@ def run_multiseed_experiment(
         runs.append(summary)
     duration = time.perf_counter() - t0
     metric_runs = [r.metrics for r in runs]
-    aggregate = aggregate_runs(metric_runs, ["phi_iq", "synergy"])
+    aggregate = aggregate_runs(
+        metric_runs,
+        ["phi_iq", "synergy", "transfer_efficiency", "prediction_accuracy", "adaptation_speed"],
+    )
     emergence_runs = [r.emergence for r in runs]
     emergence_agg = aggregate_runs(emergence_runs)
     result = {

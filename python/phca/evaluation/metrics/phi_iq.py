@@ -25,9 +25,18 @@ def compute_phi_iq(result: BenchmarkResult, weights: Optional[Dict[str, float]] 
     return float(np.clip(score, 0.0, 1.0))
 
 
-def _prediction_accuracy(errors: List[float]) -> float:
+REF_STATE_DIM = 84  # 5×5 grid — calibration reference for summed PEU error
+
+
+def _scale_peu_error(error: float, state_dim: int) -> float:
+    """Normalize summed PEU error to the reference 5×5 grid scale."""
+    return error * (REF_STATE_DIM / max(state_dim, 1))
+
+
+def _prediction_accuracy(errors: List[float], state_dim: int = REF_STATE_DIM) -> float:
     mean_error = float(np.mean(errors)) if errors else 0.0
-    return max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
+    scaled = _scale_peu_error(mean_error, state_dim)
+    return max(0.0, 1.0 - min(scaled / 10.0, 1.0))
 
 
 def _resource_efficiency(latencies: List[float]) -> float:
@@ -52,13 +61,14 @@ def compute_level_0(
     violations = sum(m.violations_count for m in history)
 
     mean_error = float(np.mean(errors)) if errors else 0.0
-    result.prediction_accuracy = _prediction_accuracy(errors)
+    sd = cycle.state_dim
+    result.prediction_accuracy = _prediction_accuracy(errors, sd)
 
     if len(errors) >= 10:
         early = float(np.mean(errors[: len(errors) // 2]))
         late = float(np.mean(errors[len(errors) // 2 :]))
         improvement = (early - late) / max(early, 0.001)
-        maintenance = max(0.0, 1.0 - late / 10.0)
+        maintenance = max(0.0, 1.0 - _scale_peu_error(late, sd) / 10.0)
         result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
 
     if hasattr(cycle, "mdim") and cycle.mdim is not None:
@@ -91,13 +101,14 @@ def compute_level_1(
     violations = sum(m.violations_count for m in history)
 
     mean_error = float(np.mean(errors)) if errors else 0.0
-    result.prediction_accuracy = _prediction_accuracy(errors)
+    sd = cycle.state_dim
+    result.prediction_accuracy = _prediction_accuracy(errors, sd)
 
     if len(errors) >= 10:
         early = float(np.mean(errors[: max(1, len(errors) // 4)]))
         late = float(np.mean(errors[-max(1, len(errors) // 4) :]))
         improvement = (early - late) / max(early, 0.001)
-        maintenance = max(0.0, 1.0 - late / 10.0)
+        maintenance = max(0.0, 1.0 - _scale_peu_error(late, sd) / 10.0)
         result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
 
     actions = [m.action_taken for m in history if m.action_taken >= 0]
@@ -128,7 +139,7 @@ def compute_level_2(
     violations = sum(m.violations_count for m in history)
 
     mean_error = float(np.mean(errors)) if errors else 0.0
-    result.prediction_accuracy = _prediction_accuracy(errors)
+    result.prediction_accuracy = _prediction_accuracy(errors, cycle.state_dim)
 
     if len(goals) >= 10:
         early_goals = float(np.mean(goals[: len(goals) // 2]))
@@ -163,7 +174,7 @@ def compute_level_3(
     actions = [m.action_taken for m in history if m.action_taken >= 0]
 
     mean_error = float(np.mean(errors)) if errors else 0.0
-    result.prediction_accuracy = _prediction_accuracy(errors)
+    result.prediction_accuracy = _prediction_accuracy(errors, cycle.state_dim)
     unique_actions = len(set(actions)) if actions else 0
     result.adaptation_speed = min(1.0, unique_actions / 5.0)
 

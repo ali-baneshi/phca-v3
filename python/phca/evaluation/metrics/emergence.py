@@ -93,11 +93,11 @@ def cross_context_reuse(trace: Sequence[CycleTraceRecord]) -> float:
     after_profiles: List[np.ndarray] = []
     for idx in switch_indices:
         lo = max(0, idx - 10)
-        hi = min(len(actions), idx + 10)
-        if idx - lo < 3 or hi - idx < 3:
+        hi = min(len(trace), idx + 10)
+        before = [t.action for t in trace[lo:idx] if t.action >= 0]
+        after = [t.action for t in trace[idx:hi] if t.action >= 0]
+        if len(before) < 3 or len(after) < 3:
             continue
-        before = actions[lo:idx]
-        after = actions[idx:hi]
         before_profiles.append(_action_profile(before, 5))
         after_profiles.append(_action_profile(after, 5))
     if not before_profiles:
@@ -150,11 +150,11 @@ def unexpected_skill_chains(
 
 def _action_goal_pairs(trace: Sequence[CycleTraceRecord], n: int) -> Set[Tuple[int, ...]]:
     pairs: Set[Tuple[int, ...]] = set()
-    actions = _actions(trace)
     for i in range(len(trace)):
         if trace[i].goal_reached and i >= n:
-            key = tuple(actions[i - n : i])
-            pairs.add(key)
+            key = tuple(t.action for t in trace[i - n : i] if t.action >= 0)
+            if len(key) >= n:
+                pairs.add(key)
     return pairs
 
 

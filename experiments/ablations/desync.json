@@ -10,8 +10,8 @@
   "levels": [0, 1, 2, 3],
   "ablation": {
     "stage_order": [
-      "sanitize", "memory_write", "feedback", "prediction", "regulation",
-      "rbta_preflight", "action", "rbta_post", "consolidation"
+      "sanitize", "memory_write", "regulation", "prediction",
+      "rbta_preflight", "action", "feedback", "rbta_post", "consolidation"
     ]
   },
   "output": "results/validation/ablations/desync.json"

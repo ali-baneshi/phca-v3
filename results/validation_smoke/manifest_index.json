@@ -8,7 +8,6 @@
     "scaling/grid20_slip1",
     "ablations/desync",
     "ablations/full_system",
-    "ablations/interaction_test",
     "ablations/minimal_cycle",
     "ablations/no_mdim",
     "ablations/no_memory",
@@ -21,16 +20,12 @@
     "baselines/causal_eval",
     "phi_iq_validation",
     "horizon",
-    "horizon_resume_check",
+    "ablations/interaction_test",
     "ood/bandit",
     "ood/mujoco_pendulum",
     "aggregate"
   ],
   "base_seed": 42,
-  "duration_s": 5409.2999371987535,
-  "failed": [],
-  "date": "2026-07-05",
-  "n_experiments": 24,
-  "n_seeds_ablations": 30,
-  "n_seeds_phi_iq_validation": 100
+  "duration_s": 939.5420811169315,
+  "failed": []
 }

@@ -9,36 +9,36 @@ import numpy as np
 from phca.evaluation.trace import CycleTraceRecord
 
 
-def _features(trace: Sequence[CycleTraceRecord]) -> np.ndarray:
-    """Simple feature matrix for surrogate predictability."""
-    rows = []
-    for i, t in enumerate(trace):
-        prev_action = trace[i - 1].action if i > 0 else -1
+def _aligned_feature_targets(
+    trace: Sequence[CycleTraceRecord],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Features at cycle i paired with action at cycle i (i >= 1)."""
+    rows: List[List[float]] = []
+    targets: List[float] = []
+    for i in range(1, len(trace)):
+        curr = trace[i]
+        if curr.action < 0:
+            continue
+        prev = trace[i - 1]
         rows.append([
-            float(t.prediction_error),
-            float(t.prediction_confidence),
-            float(t.goal_drive),
-            float(prev_action),
-            float(t.goal_reached),
+            float(curr.prediction_error),
+            float(curr.prediction_confidence),
+            float(curr.goal_drive),
+            float(prev.action),
+            float(curr.goal_reached),
         ])
-    return np.asarray(rows, dtype=np.float64)
-
-
-def _targets(trace: Sequence[CycleTraceRecord]) -> np.ndarray:
-    return np.asarray([float(t.action) for t in trace if t.action >= 0], dtype=np.float64)
+        targets.append(float(curr.action))
+    return np.asarray(rows, dtype=np.float64), np.asarray(targets, dtype=np.float64)
 
 
 def surrogate_r2(trace: Sequence[CycleTraceRecord]) -> float:
     """R² of linear surrogate predicting next action from trace features."""
     if len(trace) < 30:
         return 0.0
-    X = _features(trace[1:])
-    y = _targets(trace)
-    n = min(len(X), len(y))
+    X, y = _aligned_feature_targets(trace)
+    n = len(y)
     if n < 20:
         return 0.0
-    X = X[:n]
-    y = y[:n]
     split = int(n * 0.7)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]

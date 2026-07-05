@@ -28,14 +28,16 @@ MINIMAL_STAGE_ORDER = [
 DESYNC_STAGE_ORDER = [
     "sanitize",
     "memory_write",
-    "feedback",
-    "prediction",
     "regulation",
+    "prediction",
     "rbta_preflight",
     "action",
+    "feedback",
     "rbta_post",
     "consolidation",
 ]
+# Note: feedback (PEU/TSPL/learn) runs after action because it needs the env
+# transition. Desync swaps regulation before prediction only (see cycle.py).
 
 
 @dataclass

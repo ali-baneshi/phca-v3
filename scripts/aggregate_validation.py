@@ -48,11 +48,19 @@ def _extract_phi_iq(data: Dict[str, Any]) -> Optional[float]:
 def _extract_metric(data: Dict[str, Any], key: str) -> Optional[float]:
     agg = data.get("aggregate", {})
     emergence = agg.get("emergence", {})
+    metrics = agg.get("metrics", {})
     if key in emergence and isinstance(emergence[key], dict):
         return float(emergence[key].get("mean", 0))
-    metrics = agg.get("metrics", {})
     if key in metrics and isinstance(metrics[key], dict):
         return float(metrics[key].get("mean", 0))
+    if "runs" in data:
+        run_vals = [
+            r.get("metrics", {}).get(key)
+            for r in data["runs"]
+            if key in r.get("metrics", {})
+        ]
+        if run_vals:
+            return float(np.mean(run_vals))
     return None
 
 

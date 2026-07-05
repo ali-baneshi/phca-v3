@@ -1,0 +1,334 @@
+{
+  "name": "no_mdim",
+  "intervention": "no_mdim",
+  "n_seeds": 3,
+  "base_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "duration_s": 24.66450148494914,
+  "aggregate": {
+    "metrics": {
+      "phi_iq": {
+        "mean": 0.38686128066470254,
+        "std": 0.02907578757460557,
+        "min": 0.3458793794130548,
+        "max": 0.41026169206110286,
+        "n": 3,
+        "values": [
+          0.40444277051995015,
+          0.41026169206110286,
+          0.3458793794130548
+        ],
+        "ci95_lo": 0.3458793794130548,
+        "ci95_hi": 0.41026169206110286
+      },
+      "synergy": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "transfer_efficiency": {
+        "mean": 0.34959356552989723,
+        "std": 0.06431668449118276,
+        "min": 0.25891384509908505,
+        "max": 0.4010852614753785,
+        "n": 3,
+        "values": [
+          0.38878159001522816,
+          0.4010852614753785,
+          0.25891384509908505
+        ],
+        "ci95_lo": 0.25891384509908505,
+        "ci95_hi": 0.40108526147537854
+      },
+      "prediction_accuracy": {
+        "mean": 0.6545764550773523,
+        "std": 0.009832037888408836,
+        "min": 0.6472846127477125,
+        "max": 0.6684754357922975,
+        "n": 3,
+        "values": [
+          0.6479693166920469,
+          0.6684754357922975,
+          0.6472846127477125
+        ],
+        "ci95_lo": 0.6472846127477125,
+        "ci95_hi": 0.6684754357922976
+      },
+      "adaptation_speed": {
+        "mean": 0.5333333333333333,
+        "std": 0.09428090415820632,
+        "min": 0.4,
+        "max": 0.6,
+        "n": 3,
+        "values": [
+          0.6,
+          0.6,
+          0.4
+        ],
+        "ci95_lo": 0.4000000000000001,
+        "ci95_hi": 0.6
+      }
+    },
+    "emergence": {
+      "novel_behaviour": {
+        "mean": 0.27777777777777773,
+        "std": 0.0392837100659193,
+        "min": 0.25,
+        "max": 0.3333333333333333,
+        "n": 3,
+        "values": [
+          0.25,
+          0.25,
+          0.3333333333333333
+        ],
+        "ci95_lo": 0.25,
+        "ci95_hi": 0.3333333333333333
+      },
+      "strategy_diversity": {
+        "mean": 0.21655018588770839,
+        "std": 0.013693903736703325,
+        "min": 0.20686713369456966,
+        "max": 0.23591629027398583,
+        "n": 3,
+        "values": [
+          0.23591629027398583,
+          0.20686713369456966,
+          0.20686713369456966
+        ],
+        "ci95_lo": 0.20686713369456966,
+        "ci95_hi": 0.23591629027398583
+      },
+      "behavioral_compression": {
+        "mean": 0.8433333333333333,
+        "std": 0.004714045207910321,
+        "min": 0.84,
+        "max": 0.85,
+        "n": 3,
+        "values": [
+          0.84,
+          0.84,
+          0.85
+        ],
+        "ci95_lo": 0.84,
+        "ci95_hi": 0.85
+      },
+      "adaptation_stability": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "cross_context_reuse": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "self_generated_goals": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "unexpected_skill_chains": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "emergence_composite": {
+        "mean": 0.1801788758804296,
+        "std": 0.004027274641303397,
+        "min": 0.17672142640888439,
+        "max": 0.18582715976469227,
+        "n": 3,
+        "values": [
+          0.17798804146771227,
+          0.17672142640888439,
+          0.18582715976469227
+        ],
+        "ci95_lo": 0.1767214264088844,
+        "ci95_hi": 0.18582715976469225
+      },
+      "synergy": {
+        "mean": 0.14682397363333732,
+        "std": 0.10382022739688766,
+        "min": 0.0,
+        "max": 0.22023596045000599,
+        "n": 3,
+        "values": [
+          0.22023596045000599,
+          0.22023596045000599,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.220235960450006
+      }
+    }
+  },
+  "runs": [
+    {
+      "seed": 42,
+      "metrics": {
+        "phi_iq": 0.40444277051995015,
+        "prediction_accuracy": 0.6479693166920469,
+        "adaptation_speed": 0.6,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.38878159001522816,
+        "resource_efficiency": 0.9826583433962827,
+        "failure_rate": 1.0,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.4793261202721326,
+        "level_1_phi_iq": 0.5655369838225802,
+        "level_2_phi_iq": 0.6468387437809918,
+        "level_3_phi_iq": 0.40444277051995015
+      },
+      "emergence": {
+        "novel_behaviour": 0.25,
+        "strategy_diversity": 0.23591629027398583,
+        "behavioral_compression": 0.84,
+        "adaptation_stability": 0.0,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.17798804146771227,
+        "synergy": 0.22023596045000599
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 0,
+        "total_violations": 840,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    },
+    {
+      "seed": 43,
+      "metrics": {
+        "phi_iq": 0.41026169206110286,
+        "prediction_accuracy": 0.6684754357922975,
+        "adaptation_speed": 0.6,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.4010852614753785,
+        "resource_efficiency": 0.9820190784066827,
+        "failure_rate": 1.0,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.48275625123729793,
+        "level_1_phi_iq": 0.5572256356206939,
+        "level_2_phi_iq": 0.6528318849603331,
+        "level_3_phi_iq": 0.41026169206110286
+      },
+      "emergence": {
+        "novel_behaviour": 0.25,
+        "strategy_diversity": 0.20686713369456966,
+        "behavioral_compression": 0.84,
+        "adaptation_stability": 0.0,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.17672142640888439,
+        "synergy": 0.22023596045000599
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 0,
+        "total_violations": 840,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    },
+    {
+      "seed": 44,
+      "metrics": {
+        "phi_iq": 0.3458793794130548,
+        "prediction_accuracy": 0.6472846127477125,
+        "adaptation_speed": 0.4,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.25891384509908505,
+        "resource_efficiency": 0.9879269004932472,
+        "failure_rate": 1.0,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.4693400146432686,
+        "level_1_phi_iq": 0.5600454037862416,
+        "level_2_phi_iq": 0.6815520946071623,
+        "level_3_phi_iq": 0.3458793794130548
+      },
+      "emergence": {
+        "novel_behaviour": 0.3333333333333333,
+        "strategy_diversity": 0.20686713369456966,
+        "behavioral_compression": 0.85,
+        "adaptation_stability": 0.0,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.18582715976469227,
+        "synergy": 0.0
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 0,
+        "total_violations": 840,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    }
+  ],
+  "hypothesis": "Disabling MDIM reduces goal complexity and self-motivated behavior",
+  "predicted_failure": "If goal_complexity unchanged, drive system is not causal",
+  "config": {
+    "cycles": 200,
+    "grid_size": 5,
+    "use_mlp": true,
+    "action_slip": 0.0,
+    "environment": "gridworld",
+    "causal_fair": false,
+    "levels": [
+      0,
+      1,
+      2,
+      3
+    ]
+  }
+}

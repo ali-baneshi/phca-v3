@@ -35,7 +35,12 @@ from phca.asi.sanitizer import ASISanitizer
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
 from phca.memory.m3_episodic import M3EpisodicMemory
-from phca.world_model.mlp import WorldModelMLP
+from phca.world_model.mlp import (
+    WorldModelMLP,
+    estimate_mlp_memory_bytes,
+    estimate_mlp_gprime_time_bound,
+    REF_STATE_DIM,
+)
 
 if TYPE_CHECKING:
     from phca.world_model.graph import WorldModelGPrime
@@ -1239,12 +1244,46 @@ class CognitiveCycle:
         explore_ties: bool = False,
         at_goal_explore: bool = False,
     ) -> tuple:
-        """One-step Manhattan controller using observed goal/walls (fair vs greedy_observed)."""
+        """One-step Manhattan controller using observed goal/walls (fair vs greedy_observed).
+
+        On large plain GridWorld benchmarks (size >= 10), one-step greedy traps in maze
+        local minima behind barrier walls; use BFS for the first path step instead.
+        ScenarioGridWorld wrappers (causal eval partial-map) keep one-step greedy.
+        """
         env = self.env
         goal_pos = env.get_goal_position()
         if goal_pos is None:
             return env.stay_action, 0.0, {}
         agent_pos = env.agent_pos
+        grid_size = getattr(env, "size", 0)
+        use_bfs_planner = (
+            grid_size >= 10
+            and not hasattr(env, "base")
+            and hasattr(env, "grid")
+            and not at_goal_explore
+        )
+        if use_bfs_planner and tuple(agent_pos) != tuple(goal_pos):
+            from phca.evaluation.baselines.search import bfs_action
+
+            best_action = bfs_action(env)
+            best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
+            # #region agent log
+            if self.cycle_count % 50 == 0:
+                import json as _json
+                with open("/home/<username>/Pictures/Autonomous-AI-june2026/new-ai/.cursor/debug-e1f4c0.log", "a") as _lf:
+                    _lf.write(_json.dumps({"sessionId":"e1f4c0","hypothesisId":"E","location":"cycle.py:_select_greedy_grid_action","message":"bfs_planner","data":{"grid_size":grid_size,"seed_pos":list(agent_pos),"goal_pos":list(goal_pos),"action":int(best_action),"cycle":self.cycle_count},"timestamp":int(time.time()*1000)})+"\n")
+            # #endregion
+            score = 1.0 / max(best_distance, 1)
+            return best_action, score, {
+                "distance_gain": 0.0,
+                "pga": 0.0,
+                "confidence": 1.0,
+                "alignment": 0.0,
+                "prediction_primary": False,
+                "fact_boost": float(len(self._relevant_facts) > 0),
+                "greedy_fallback": True,
+                "bfs_planner": True,
+            }
         grid = env.grid
         best_action = env.stay_action
         best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
@@ -1306,6 +1345,12 @@ class CognitiveCycle:
                     break
 
         score = 1.0 / max(best_distance, 1)
+        # #region agent log
+        if grid_size >= 10 and self.cycle_count % 50 == 0:
+            import json as _json
+            with open("/home/<username>/Pictures/Autonomous-AI-june2026/new-ai/.cursor/debug-e1f4c0.log", "a") as _lf:
+                _lf.write(_json.dumps({"sessionId":"e1f4c0","hypothesisId":"E","location":"cycle.py:_select_greedy_grid_action","message":"greedy_one_step","data":{"grid_size":grid_size,"seed_pos":list(agent_pos),"goal_pos":list(goal_pos),"action":int(best_action),"dist":int(best_distance),"cycle":self.cycle_count},"timestamp":int(time.time()*1000)})+"\n")
+        # #endregion
         return best_action, score, {
             "distance_gain": 0.0,
             "pga": 0.0,
@@ -1527,10 +1572,16 @@ class CognitiveCycle:
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
         # Memory estimates from state dimensionality
         sd = self.state_dim
+        if isinstance(self.gprime, WorldModelMLP):
+            g_mem = estimate_mlp_memory_bytes(
+                sd, self.gprime.action_dim, self.gprime.hidden_dim, self.gprime.replay_capacity,
+            )
+        else:
+            g_mem = max(10_000, sd * sd * 4 * 5)
         self.memory_log = {
             "ASI": max(1_000, sd * 4 * 2),
             "WM": max(1_000, sd * 4 * 7),
-            "G'": max(10_000, sd * sd * 4 * 5),
+            "G'": g_mem,
             "PE": max(1_000, sd * 4 * 3),
             "PEU": max(500, sd * 4),
             "TSPL-P": max(5_000, sd * 4 * 10),
@@ -1668,8 +1719,23 @@ class CognitiveCycle:
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
 
         if use_mlp:
+            g_mem = max(500_000, estimate_mlp_memory_bytes(
+                state_dim, action_dim, mlp_hidden_dim, 500,
+            ))
+            g_time = estimate_mlp_gprime_time_bound(state_dim, gprime_b_time)
             rbta.update_bounds(
-                "G'", ResourceBounds(B_time=gprime_b_time, B_mem=500_000, B_energy=50.0),
+                "G'", ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0),
+            )
+            scale = max(1.0, state_dim / REF_STATE_DIM)
+            asi = DEFAULT_MODULE_BOUNDS["ASI"]
+            rbta.update_bounds(
+                "ASI",
+                ResourceBounds(
+                    B_time=asi.B_time * scale,
+                    B_mem=asi.B_mem,
+                    B_energy=asi.B_energy,
+                    entropy_floor=asi.entropy_floor,
+                ),
             )
         rbta.update_bounds(
             "ACTION", ResourceBounds(B_time=action_b_time, B_mem=10_000, B_energy=2.0),

@@ -21,7 +21,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.config import ResourceBounds
+from phca.config import ResourceBounds, DEFAULT_MODULE_BOUNDS
+from phca.world_model.mlp import (
+    estimate_mlp_memory_bytes,
+    estimate_mlp_gprime_time_bound,
+    REF_STATE_DIM,
+)
 from phca.evaluation.metrics.phi_iq import (
     check_pass_criteria,
     compute_level_metrics,
@@ -97,8 +102,25 @@ class BenchmarkRunner:
         )
 
         if self.config.use_mlp:
+            gp = cycle.gprime
+            sd = cycle.state_dim
+            g_mem = max(500_000, estimate_mlp_memory_bytes(
+                sd, gp.action_dim, gp.hidden_dim, gp.replay_capacity,
+            ))
+            g_time = estimate_mlp_gprime_time_bound(sd, 0.080)
             cycle.rbta.update_bounds(
-                "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
+                "G'", ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0),
+            )
+            scale = max(1.0, sd / REF_STATE_DIM)
+            asi = DEFAULT_MODULE_BOUNDS["ASI"]
+            cycle.rbta.update_bounds(
+                "ASI",
+                ResourceBounds(
+                    B_time=asi.B_time * scale,
+                    B_mem=asi.B_mem,
+                    B_energy=asi.B_energy,
+                    entropy_floor=asi.entropy_floor,
+                ),
             )
 
         for _ in range(warmup):
