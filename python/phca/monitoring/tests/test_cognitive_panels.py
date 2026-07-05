@@ -219,6 +219,37 @@ def test_data_contract_all_panels():
         assert data_contract_text(key, replay=False).startswith("LIVE —")
         assert data_contract_text(key, replay=True).startswith("REPLAY —")
         assert data_contract_text(key, replay=False, review=True).startswith("REVIEW —")
+        aborted = data_contract_text(
+            key, replay=False, review=True, incomplete=True,
+        )
+        assert aborted.startswith("ABORTED —")
+        assert "INCOMPLETE" in aborted or "ABORTED" in aborted
+
+
+def test_session_status_aborted_and_incomplete():
+    from phca.monitoring.cognitive_panels import session_status_text
+
+    aborted = session_status_text(
+        cycle_error="Action dimension mismatch",
+        jsonl_count=167,
+        total=1000,
+    )
+    assert "ABORTED" in aborted
+    assert "Action dimension mismatch" in aborted
+
+    incomplete = session_status_text(
+        incomplete=True,
+        jsonl_count=167,
+        total=1000,
+        verify_status="FAIL",
+    )
+    assert "INCOMPLETE 167/1000" in incomplete
+    assert "verify=FAIL" in incomplete
+
+    safe = session_status_text(rbta_safe_ratio=0.42)
+    assert "SAFE-MODE 42%" in safe
+    quiet = session_status_text(rbta_safe_ratio=0.05)
+    assert "SAFE-MODE" not in quiet
 
 
 def test_format_early_late():

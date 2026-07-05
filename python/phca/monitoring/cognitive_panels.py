@@ -473,6 +473,17 @@ DATA_CONTRACT_REVIEW: Dict[str, str] = {
     "goals": "tanks at cursor · deficit heatmap from prefix 0..cursor · heatmap window ≤200",
 }
 
+DATA_CONTRACT_REVIEW_INCOMPLETE: Dict[str, str] = {
+    "overview": "SESSION ABORTED/INCOMPLETE · scrub recorded prefix only · live-only panels empty",
+    "flow": "partial session · module_timings from recorded frames only",
+    "action": "partial session · scores/rationale from recorded frames only",
+    "phase": "partial session · belief projection from recorded prefix",
+    "retention": "partial session · series end at last recorded cycle",
+    "rbta": "partial session · bounds from recorded frames only",
+    "memory": "partial session · memory samples from recorded frames only",
+    "goals": "partial session · drives/goals from recorded frames only",
+}
+
 
 def data_contract_text(
     panel_key: str,
@@ -480,10 +491,14 @@ def data_contract_text(
     replay: bool,
     review: bool = False,
     multi_agent: bool = False,
+    incomplete: bool = False,
 ) -> str:
     """Return the data-contract banner string for a tab panel."""
     key = str(panel_key)
-    if review:
+    if review and incomplete:
+        body = DATA_CONTRACT_REVIEW_INCOMPLETE.get(key, "")
+        prefix = "ABORTED — "
+    elif review:
         body = DATA_CONTRACT_REVIEW.get(key, "")
         prefix = "REVIEW — "
     elif replay:
@@ -630,9 +645,22 @@ def session_status_text(
     agent_id: int = 0,
     agent_count: int = 1,
     agent_label: str = "",
+    playback_error: str = "",
+    cycle_error: str = "",
+    incomplete: bool = False,
+    rbta_safe_ratio: float = 0.0,
+    rbta_safe_warn_threshold: float = 0.10,
 ) -> str:
     """One-line global session strip (all tabs share this context)."""
     parts: List[str] = []
+    if cycle_error:
+        parts.append(f"ABORTED {cycle_error[:64]}")
+    elif incomplete and total > 0 and jsonl_count < total:
+        parts.append(f"INCOMPLETE {jsonl_count}/{total}")
+    if playback_error:
+        parts.append(f"ERR {playback_error[:72]}")
+    if rbta_safe_ratio >= rbta_safe_warn_threshold:
+        parts.append(f"SAFE-MODE {100.0 * rbta_safe_ratio:.0f}%")
     if agent_count > 1:
         lbl = f" {agent_label}" if agent_label else ""
         parts.append(f"agent {agent_id + 1}/{agent_count}{lbl}")
@@ -713,6 +741,13 @@ def format_session_results_lines(
         f"spikes {report.get('spike_count', 0)} · "
         f"viol {viol_n}"
     )
+    safe_ratio = report.get("rbta_safe_ratio")
+    term_n = int(report.get("terminate_cycle_count") or 0)
+    if safe_ratio is not None and float(safe_ratio) >= 0.10:
+        lines.append(
+            f"SAFE-MODE {100.0 * float(safe_ratio):.0f}% "
+            f"(rbta_safe · TERMINATE cycles {term_n})"
+        )
     err_line = format_early_late(
         "error",
         report.get("error_early_median"),

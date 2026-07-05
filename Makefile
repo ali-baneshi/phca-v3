@@ -58,6 +58,7 @@ ci-local: lint
 	    -v --tb=short --timeout=30 -x --benchmark-skip
 	@echo "Observatory session integrity gate..."
 	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
+	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/reacher_short/
 	mkdir -p logs
 	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
 	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json

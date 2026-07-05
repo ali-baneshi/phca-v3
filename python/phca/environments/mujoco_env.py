@@ -174,6 +174,17 @@ class MuJoCoSimpleEnv:
             return ContinuousSpace(low=low, high=high, dim=dim)
         return DiscreteSpace(n=len(self._action_map))
 
+    def neutral_action(self):
+        """RBTA/safe-mode action: zero vector (continuous) or stay index (discrete).
+
+        Continuous envs must not use ``stay_action`` (int) with ``env.step`` —
+        gymnasium expects shape ``(dim,)``.
+        """
+        if self._continuous_cfg is not None:
+            dim = int(self._continuous_cfg[2])
+            return np.zeros(dim, dtype=np.float32)
+        return int(self.stay_action)
+
     def get_goal_reference(self):
         """Homeostatic reference state for goal-directed continuous control.
 

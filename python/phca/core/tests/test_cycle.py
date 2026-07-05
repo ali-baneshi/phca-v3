@@ -168,6 +168,35 @@ class TestRBTAEnforcement:
         assert metrics.module_timings.get("consolidation", 0.0) == 0.0
         assert metrics.action_taken == cycle.env.stay_action
 
+    def test_terminate_continuous_uses_zero_vector(self):
+        """CORE-A01: continuous TERMINATE must not pass stay_action int to step."""
+        from phca.config import continuous_space
+
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle.action_space = continuous_space(-1.0, 1.0, 2)
+        cycle._is_continuous = True
+        stepped = []
+
+        def _step(action):
+            arr = np.asarray(action, dtype=np.float32)
+            stepped.append(arr.copy())
+            assert arr.shape == (2,), f"expected (2,), got {arr.shape}"
+            obs = np.zeros(cycle.state_dim, dtype=np.float32)
+            return obs, 0.0, False, {}
+
+        cycle.env.step = _step
+        self._tighten_all_bounds(cycle)
+        metrics = cycle.step()
+        assert metrics.rbta_action == "TERMINATE"
+        assert len(stepped) == 1
+        assert stepped[0].shape == (2,)
+        assert np.allclose(stepped[0], 0.0)
+        assert np.allclose(cycle.last_action, 0.0)
+        r = cycle.last_action_rationale
+        assert r.get("decision_reason") == "rbta_safe"
+        assert r.get("continuous") is True
+        assert r.get("rbta_safe_mode") is True
+
     def test_interrupt_limits_prediction_candidates(self):
         """INTERRUPT flag → at most one predict rollout when not task-lock."""
         from phca.prediction.engine import PredictionEngine

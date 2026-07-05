@@ -43,7 +43,6 @@ from .playback import _Smoother, freeze_sig
 from .render import _prediction_heatmap
 from .cognitive_panels import (
     MOMENT_COLORS,
-    OBSERVATORY_TAB_LABELS,
     PIPELINE_LABEL,
     RBTA_TO_FLOW,
     append_cognitive_moment,
@@ -51,28 +50,23 @@ from .cognitive_panels import (
     belief_reference,
     build_moment_series,
     data_contract_text,
-    decimate_frames_for_history,
     flow_action_link_line,
     flow_near_bound_modules,
     classify_action_mechanism,
     mechanism_histogram,
     mechanism_pct,
-    moment_tab_badge,
     pipeline_time_budget_ms,
-    phase_tab_status_line,
     rbta_bound_for_module,
     rbta_time_bound_ms,
-    session_status_text,
 )
-from phca.monitoring.observability import OBSERVABILITY_SCHEMA_VERSION
 from phca.monitoring.action_explain import build_explain_chain
 from phca.monitoring.belief_projection import (
     BeliefProjection,
     ScaleState,
     _AUTOSCALE_FROZEN,
-    set_autoscale_frozen,
+    set_autoscale_frozen,  # noqa: F401 — re-export for tests
 )
-from phca.monitoring.qt_transport import TransportBar as _TransportBar
+from phca.monitoring.qt_transport import TransportBar as _TransportBar  # noqa: F401
 from phca.monitoring.overview_narrative import (
     TREND_WINDOW,
     _OVERVIEW_PHASE_STEPS,
@@ -86,7 +80,7 @@ from phca.monitoring.overview_narrative import (
     _overview_moment_flags,
     _overview_outcome_line,
     _overview_spike,  # noqa: F401 — re-export for tests
-    _phase_frame_is_grid,
+    _phase_frame_is_grid,  # noqa: F401 — re-export for tests
     _phase_ms,
     _phase_status_line,
     _reacher_kinematics_from_obs,
@@ -1610,6 +1604,12 @@ def _draw_overview_body(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
         p.setPen(DIM_COL); p.drawText(rect, 0x84, "World (collecting…)")
 
 
+def _window_session_incomplete(widget: QtWidgets.QWidget) -> bool:
+    """True when the owning ObservatoryWindow marks the session incomplete/aborted."""
+    win = widget.window() if widget is not None else None
+    return bool(getattr(win, "_session_incomplete", False))
+
+
 def _draw_data_contract_banner(
     p: QtGui.QPainter,
     w: int,
@@ -1618,15 +1618,23 @@ def _draw_data_contract_banner(
     panel_key: str,
     review: bool = False,
     multi_agent: bool = False,
+    incomplete: bool = False,
     y: int = 2,
 ) -> int:
-    """Draw LIVE/REVIEW/REPLAY data-contract strip; returns y offset."""
+    """Draw LIVE/REVIEW/REPLAY/ABORTED data-contract strip; returns y offset."""
     text = data_contract_text(
-        panel_key, replay=replay, review=review, multi_agent=multi_agent,
+        panel_key,
+        replay=replay,
+        review=review,
+        multi_agent=multi_agent,
+        incomplete=incomplete,
     )
     if not text:
         return 0
-    if review:
+    if review and incomplete:
+        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 1))
+        p.setBrush(QtGui.QColor(231, 76, 60, 50))
+    elif review:
         p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 1))
         p.setBrush(QtGui.QColor(155, 89, 182, 40))
     elif replay:
@@ -1636,7 +1644,7 @@ def _draw_data_contract_banner(
         p.setPen(QtGui.QPen(QtGui.QColor(90, 90, 100), 1))
         p.setBrush(QtGui.QColor(40, 40, 48, 120))
     p.drawRoundedRect(8, y, w - 16, 14, 3, 3)
-    p.setPen(TEXT_COL if (review or replay) else DIM_COL)
+    p.setPen(TEXT_COL if (review or replay or incomplete) else DIM_COL)
     p.setFont(_F_AXIS)
     p.drawText(12, y + 11, text)
     return 16
@@ -2800,7 +2808,8 @@ class OverviewAgentView(_BaseCanvas):
         ribbon_rect = QtCore.QRect(m, h - _OVERVIEW_RIBBON_H - m, w - 2 * m, _OVERVIEW_RIBBON_H)
         y0 = _draw_data_contract_banner(
             p, w, replay=self._replay, review=self._review_mode, panel_key="overview",
-            multi_agent=self._multi_agent)
+            multi_agent=self._multi_agent,
+            incomplete=_window_session_incomplete(self))
         if f is not None:
             flags = self._current_moment(f)
             flags = _overview_moment_flags(f, self._err_hist, moment=flags)
@@ -3729,7 +3738,8 @@ class CognitiveFlowView(_BaseCanvas):
         y0 = lay["y0"]
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
                                    review=self._review, panel_key="flow", y=2,
-                                   multi_agent=self._multi_agent)
+                                   multi_agent=self._multi_agent,
+                                   incomplete=_window_session_incomplete(self))
         self._title(p, "Cognitive flow — timing topology + execution phases", y=12 + y0)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, 28 + y0, _flow_status_line(f, active_idx=active_idx))
@@ -4439,7 +4449,8 @@ class CandidateScoreView(_BaseCanvas):
         names = list(getattr(f, "action_names", []) or [])
         _draw_data_contract_banner(p, self.width(), replay=self._replay,
                                    review=self._review, panel_key="action",
-                                   multi_agent=self._multi_agent)
+                                   multi_agent=self._multi_agent,
+                                   incomplete=_window_session_incomplete(self))
         hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
@@ -4897,8 +4908,10 @@ class TrajectoryView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "Phase space…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="phase", multi_agent=self._multi_agent)
+        y0 = _draw_data_contract_banner(
+            p, w, replay=self._replay, review=self._review,
+            panel_key="phase", multi_agent=self._multi_agent,
+            incomplete=_window_session_incomplete(self))
         show_radar = (not self.is_grid) and w >= 900
         status = _phase_status_line(
             f, replay=self._replay, review=self._review, prefix_len=self._prefix_len,
@@ -5407,7 +5420,8 @@ class _PhasePortraitView(_BaseCanvas):
             self._empty(p, "Phase portrait (collecting…)"); return
         y0 = _draw_data_contract_banner(
             p, w, replay=self._replay, review=self._review, panel_key="phase",
-            multi_agent=self._multi_agent)
+            multi_agent=self._multi_agent,
+            incomplete=_window_session_incomplete(self))
         pred = np.asarray(f.predicted_state, dtype=np.float32).reshape(-1)
         ref_a, ref_src = belief_reference(f, prefer_goal=self._ref_prefer_goal)
         if ref_a is None:
@@ -5784,8 +5798,10 @@ class RetentionView(_BaseCanvas):
         w, h = self.width(), self.height()
         if not self.m3:
             self._empty(p, "Retention…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="retention", multi_agent=self._multi_agent)
+        y0 = _draw_data_contract_banner(
+            p, w, replay=self._replay, review=self._review,
+            panel_key="retention", multi_agent=self._multi_agent,
+            incomplete=_window_session_incomplete(self))
         leak = self._leak_smooth.value(self._leak_rate())
         env_ok, env_seg = self._envelope_status()
         mech = self._mechanism_line()
@@ -6099,8 +6115,10 @@ class RBTABoundsView(_BaseCanvas):
         w, h = self.width(), self.height()
         if f is None:
             self._empty(p, "RBTA bounds…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="rbta", multi_agent=self._multi_agent)
+        y0 = _draw_data_contract_banner(
+            p, w, replay=self._replay, review=self._review,
+            panel_key="rbta", multi_agent=self._multi_agent,
+            incomplete=_window_session_incomplete(self))
         bounds = getattr(f, "rbta_bounds", None) or {}
         btypes = [("time", "B_time (ms)", QtGui.QColor(52, 152, 219)),
                   ("mem", "B_mem (B)", QtGui.QColor(155, 89, 182)),
@@ -6188,1356 +6206,17 @@ class RBTABoundsView(_BaseCanvas):
 
 # ----- NEW Memory & Belief tab ------------------------------------------------
 
-class MemoryBeliefView(_BaseCanvas):
-    """v7: focal 'belief geography map' (per-dim belief_entropies heat-strip +
-    gprime_uncertainty band + dim_names) — the actual 'what the agent believes'.
-    M3/M4 become ranked bars (swatch+bar+caption) frozen via content hash; the
-    |sanitized−raw| diff is demoted to a small EMA-smoothed inset with a
-    retention-cap engagement gauge."""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._m3_sig: str = ""
-        self._m4_sig: str = ""
-        self._m3_cache: List[dict] = []
-        self._m4_cache: List[dict] = []
-        self._diff_smooth = _Smoother(0.2)
-        self._replay: bool = False
-        self._review: bool = False
+# ----- Memory / Goals panels (extracted) ------------------------------------
+from phca.monitoring.qt_memory import MemoryBeliefView  # noqa: E402, F401
+from phca.monitoring.qt_goals import GoalsMotivationView  # noqa: E402, F401
+
+# ----- Controller + main window (extracted to qt_app.py) ---------------------
+from phca.monitoring.qt_app import (  # noqa: E402, F401
+    DashboardController,
+    RenderPacer,
+    _PhaseSpaceTab,
+    ObservatoryWindow,
+    make_app,
+)
 
-    def _diff_max(self, f: ObservabilityFrame) -> Optional[float]:
-        raw = f.obs_vector
-        san = f.sanitized_state
-        if raw is None or san is None:
-            return None
-        raw = np.asarray(raw, dtype=np.float32).reshape(-1)
-        san = np.asarray(san, dtype=np.float32).reshape(-1)
-        d = min(len(raw), len(san))
-        if d == 0:
-            return None
-        return float(np.abs(san[:d] - raw[:d]).max())
-
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False, review: bool = False) -> None:
-        self.frame = f
-        self._replay = replay
-        self._review = review
-        if not histories_done:
-            mx = self._diff_max(f)
-            if mx is not None:
-                self._diff_smooth.value(mx)
-        self._dirty = True
-
-    def _memory_live_empty(self, f: ObservabilityFrame) -> bool:
-        return not (
-            getattr(f, "m3_recent", None) or getattr(f, "m3_top_error", None)
-            or getattr(f, "m4_relevant", None) or getattr(f, "m4_top", None))
-
-    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
-        self._m3_sig = ""
-        self._m4_sig = ""
-        self._m3_cache = []
-        self._m4_cache = []
-        self._diff_smooth.reset()
-        for f in frames:
-            mx = self._diff_max(f)
-            if mx is not None:
-                self._diff_smooth.value(mx)
-        if frames:
-            self.frame = frames[-1]
-        self._dirty = True
-
-    def _draw(self, p: QtGui.QPainter) -> None:
-        f = self.frame
-        w, h = self.width(), self.height()
-        if f is None:
-            self._empty(p, "Memory & belief…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="memory", multi_agent=self._multi_agent)
-        # ---- v7 focal: belief geography map (full width, top) ----
-        self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
-        self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
-        self._belief_geography(p, f, 10, 32 + y0, w - 20, h // 3)
-        # ---- left: M3 ranked bars (frozen via content hash) ----
-        col_w = w // 2 - 8
-        my = h // 3 + 40 + y0
-        self._title(p, "M3 episodic memory — ranked by retention score", x=10, y=my)
-        m3 = list(getattr(f, "m3_recent", None) or []) + list(getattr(f, "m3_top_error", None) or [])
-        sig = freeze_sig(m3)
-        if sig != self._m3_sig:
-            self._m3_cache = m3; self._m3_sig = sig
-        if self._replay and not m3:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(10, my + 24, "(M3 episodic lists not recorded in JSONL replay)")
-        else:
-            self._ranked_decay_cards(p, self._m3_cache, f,
-                                     label_fn=lambda ep: f"d{ep.get('drive_id','?')} conf={ep.get('confidence','?')}",
-                                     score_fn=lambda ep, fr: _retention_score(
-                                         max(0, int(fr.cycle_id) - int(ep.get('timestamp', fr.cycle_id))),
-                                         max(float(ep.get('confidence', 0.1) or 0.1) * 80.0, 5.0)),
-                                     x=10, y=my + 12, w=col_w, h=h - my - 36,
-                                     col=QtGui.QColor(52, 152, 219))
-        # v8 B6: episodic timeline mark strip (M3 events coloured by salience/confidence)
-        self._episodic_timeline(p, self._m3_cache, f, 10, h - 22, col_w, 14)
-        # ---- right: M4 retention cards + retention-cap gauge ----
-        rx = col_w + 16
-        self._title(p, "M4 consolidated facts — ranked by retention score", x=rx, y=my)
-        m4 = list(getattr(f, "m4_relevant", None) or []) + list(getattr(f, "m4_top", None) or [])
-        sig4 = freeze_sig(m4)
-        if sig4 != self._m4_sig:
-            self._m4_cache = m4; self._m4_sig = sig4
-        if self._replay and not m4:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(rx, my + 24, "(M4 fact lists not recorded in JSONL replay)")
-        else:
-            self._ranked_decay_cards(p, self._m4_cache, f,
-                                     label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
-                                     score_fn=lambda fac, fr: _retention_score(
-                                         max(0, int(fr.cycle_id) - int(fac.get('timestamp', fr.cycle_id))),
-                                         max(float(fac.get('confidence', fac.get('frequency', fac.get('support', 0.1))) or 0.1) * 80.0, 5.0)),
-                                     x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
-                                     col=QtGui.QColor(155, 89, 182))
-        # retention-cap gauge (top-right of the M4 column)
-        self._cap_gauge(p, rx, my - 14, 120, 16, int(f.fact_count), int(f.m4_cap), "M4 cap")
-        # v7: demoted |sanitized−raw| diff as a thin EMA-smoothed inset (bottom strip)
-        self._diff_inset(p, f, 10, h - 26, w - 20, 22)
-
-    def _episodic_timeline(self, p, items: list, f: ObservabilityFrame,
-                           x: int, y: int, w: int, h: int) -> None:
-        """v8 B6: M3 episodic events as a coloured mark strip along cycle time."""
-        if not items:
-            return
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y - 2, "episodic timeline (mark = M3 event · opacity = confidence)")
-        n = len(items); cw = w / max(n, 1)
-        cyc = int(getattr(f, "cycle_id", 0) or 0)
-        for i, ep in enumerate(items[:40]):
-            conf = float(ep.get("confidence", 0.5) or 0.5)
-            did = int(ep.get("drive_id", 1) or 1)
-            col = _drive_color(did); col.setAlpha(int(80 + 140 * min(1.0, conf)))
-            bx = int(x + i * cw)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(bx + 1, y + 2, max(int(cw) - 1, 2), h - 4, col)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x + w - 60, y + h - 1, f"now c{cyc}")
-
-    def _belief_geography(self, p, f, x, y, w, h) -> None:
-        """v7 focal: per-dim belief entropy heat-strip + gprime_uncertainty band."""
-        dim_names = list(getattr(f, "dim_names", []) or [])
-        be = getattr(f, "belief_entropies", {}) or {}
-        # extract per-dim entropy values (keys like d0/i0/0 or dim_names)
-        ent = self._per_dim_entropy(be, dim_names, f)
-        unc = np.asarray(f.gprime_uncertainty, dtype=np.float32).reshape(-1) if f.gprime_uncertainty is not None else None
-        n = len(ent)
-        if n == 0:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 14, "(no per-dim belief entropy collected yet)")
-            return
-        emx = max(ent) or 1.0
-        umx = float(unc.max()) if (unc is not None and unc.size) else 1.0
-        umx = umx if umx > 1e-6 else 1.0
-        bw = w / n
-        strip_y = y + 8; strip_h = h - 28
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-        p.drawRect(x, strip_y, w, strip_h)
-        for i in range(n):
-            bx = int(x + i * bw)
-            e = float(np.clip(ent[i] / emx, 0, 1)) if emx > 0 else 0.0
-            # heat colour: low entropy=blue (certain), high=red (uncertain belief)
-            col = QtGui.QColor(int(52 + 179 * e), int(152 - 92 * e), int(219 - 159 * e), 210)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(bx + 1, strip_y, max(int(bw) - 2, 1), strip_h, col)
-            # gprime_uncertainty band overlay (translucent blue, height = σ)
-            if unc is not None and i < unc.size:
-                uh = int(float(np.clip(unc[i] / umx, 0, 1)) * strip_h)
-                p.fillRect(bx + 1, strip_y + strip_h - uh, max(int(bw) - 2, 1), uh,
-                           QtGui.QColor(46, 204, 113, 70))
-        # dim labels (every k-th)
-        step = max(1, n // 16)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        for i in range(0, n, step):
-            lbl = dim_names[i] if i < len(dim_names) else f"d{i}"
-            p.drawText(int(x + i * bw), strip_y + strip_h + 12, lbl[:6])
-        self._legend(p, [("█ belief entropy", QtGui.QColor(231, 76, 60)),
-                         ("▒ G′ σ band", QtGui.QColor(46, 204, 113))],
-                     y=y + h - 2, x=x)
-
-    def _per_dim_entropy(self, be: dict, dim_names: list, f) -> List[float]:
-        """Pull per-dim entropy values out of the belief_entropies dict (keys may
-        be 'd0'/'0'/dim_names; falls back to broadcasting 'total' or to gprime
-        uncertainty length)."""
-        if not be:
-            return []
-        # try integer/d-prefixed keys
-        per = {}
-        for k, v in be.items():
-            try:
-                per[float(k)] = float(v)
-            except (TypeError, ValueError):
-                if isinstance(k, str) and k.lower().startswith("d") and k[1:].replace(".", "", 1).isdigit():
-                    per[float(k[1:])] = float(v)
-                elif k in dim_names:
-                    per[float(dim_names.index(k))] = float(v)
-        if per:
-            n = int(max(per.keys())) + 1
-            return [per.get(float(i), 0.0) for i in range(n)]
-        # fallback: gprime_uncertainty length broadcast of total
-        tot = be.get("total")
-        if tot is None and be:
-            tot = float(list(be.values())[0])
-        if tot is None:
-            return []
-        unc = f.gprime_uncertainty
-        unc_a = np.asarray(unc, dtype=np.float32).reshape(-1) if unc is not None else None
-        n = int(unc_a.size) if (unc_a is not None and unc_a.size) else 0
-        return [float(tot)] * n if n else [float(tot)]
-
-    def _ranked_decay_cards(self, p, items: list, f: ObservabilityFrame,
-                            label_fn, score_fn, x, y, w, h, col) -> None:
-        """v8 B6: retention-score-ranked cards (swatch + label + decay sparkline)."""
-        if not items:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 12, "(empty)"); return
-        scored = [(float(score_fn(d, f)), d) for d in items]
-        ranked = sorted(scored, key=lambda t: t[0], reverse=True)[:8]
-        rh = max(16, min(30, h // max(len(ranked), 1)))
-        for i, (rscore, d) in enumerate(ranked):
-            ry = y + i * rh
-            if ry + rh > y + h:
-                break
-            S = max(rscore * 0.5, 2.0) if rscore > 1 else max(1.0 / max(rscore, 0.05), 2.0)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.drawRect(x, ry + 4, 6, rh - 10)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 12, ry + rh - 8, label_fn(d)[:28])
-            spark_x = x + 12; spark_w = w - 120
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-            p.drawRect(spark_x, ry + 6, spark_w, rh - 14)
-            _draw_decay_sparkline(p, spark_x + 2, ry + 7, spark_w - 4, rh - 16, S, col)
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            val_lbl = f"R={rscore:.2f}"
-            p.drawText(x + w - 58, ry + rh - 8, val_lbl)
-
-    def _ranked_bars(self, p, items: list, key: str, label_fn, x, y, w, h, col) -> None:
-        """v7: ranked swatch+bar+caption list (M3 by prediction_error, M4 by support)."""
-        if not items:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 12, "(empty)"); return
-        ranked = sorted(items, key=lambda d: float(d.get(key, 0) or 0), reverse=True)[:8]
-        mx = max(float(d.get(key, 0) or 0) for d in ranked) or 1.0
-        rh = max(14, min(26, h // max(len(ranked), 1)))
-        for i, d in enumerate(ranked):
-            ry = y + i * rh
-            if ry + rh > y + h:
-                break
-            v = float(d.get(key, 0) or 0)
-            frac = v / mx if mx > 0 else 0.0
-            # swatch
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.drawRect(x, ry + 3, 6, rh - 8)
-            # bar
-            bar_x = x + 12; bar_w = w - 12 - 96
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-            p.drawRect(bar_x, ry + 4, bar_w, rh - 12)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 200))
-            p.fillRect(bar_x, ry + 4, int(bar_w * frac), rh - 12, col)
-            # caption
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-            p.drawText(bar_x + bar_w + 4, ry + rh - 8, f"{v:.2f}")
-            p.setPen(DIM_COL)
-            p.drawText(x + 12, ry + rh - 8, label_fn(d)[:30])
-
-    def _cap_gauge(self, p, x, y, w, h, val, cap, label) -> None:
-        """v7: small retention-cap engagement gauge (fact_count/m4_cap)."""
-        if cap <= 0:
-            return
-        frac = min(val / cap, 1.0)
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRoundedRect(x, y, w, h, 3, 3)
-        col = QtGui.QColor(231, 76, 60) if frac > 0.9 else QtGui.QColor(46, 204, 113)
-        p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-        p.fillRect(x + 1, y + 1, int((w - 2) * frac), h - 2, col)
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(x + 3, y + h - 4, f"{label} {val}/{cap}")
-
-    def _diff_inset(self, p, f, x, y, w, h) -> None:
-        """v7: demoted |sanitized−raw| diff — a thin EMA-smoothed per-dim strip
-        with dim labels + a y-scale caption (was the big bottom portrait)."""
-        raw = f.obs_vector; san = f.sanitized_state
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y - 2, "|sanitized−raw| (EMA) · dim salience")
-        if raw is None or san is None:
-            return
-        raw = np.asarray(raw, dtype=np.float32).reshape(-1)
-        san = np.asarray(san, dtype=np.float32).reshape(-1)
-        d = min(len(raw), len(san))
-        if d == 0:
-            return
-        diff = np.abs(san[:d] - raw[:d])
-        mx = float(diff.max()) or 1.0
-        sm = self._diff_smooth.value(mx)
-        bw = w / d
-        base_y = y + h - 4
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x, base_y, x + w, base_y)
-        for i in range(d):
-            bx = int(x + i * bw)
-            bh = int(diff[i] / max(sm, mx) * (h - 8))
-            p.fillRect(bx + 1, base_y - bh, max(int(bw) - 2, 1), bh, QtGui.QColor(231, 76, 60, 160))
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x + w - 90, y + 10, f"max={sm:.3g}")
-
-
-# ----- NEW Goals & Motivation tab ---------------------------------------------
-
-class GoalsMotivationView(_BaseCanvas):
-    """v7: focal 'homeostasis tanks' (6 vertical tanks: level vs target setpoint,
-    deficit gap, active highlight, Pareto ring). Goal stack → indented tree with
-    per-node progress bars; goal_history → step-strip; deficit heatmap gets a
-    correct caption + colorbar; deficits EMA-smoothed; trend y-scale snapped to
-    a ScaleState; drive_goals radial 'where each drive pulls' inset."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.drive_hist: Deque[List[float]] = deque(maxlen=TREND_WINDOW)
-        self.goal_hist: Deque[int] = deque(maxlen=TREND_WINDOW)
-        self.temp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
-        self.emp_hist: Deque[float] = deque(maxlen=TREND_WINDOW)
-        # v7: EMA-smoothed per-drive deficit + snapped trend scales.
-        self._def_smooth: List[_Smoother] = []
-        self._temp_scale = ScaleState(contract=0.05, head=0.06)
-        self._emp_scale = ScaleState(contract=0.05, head=0.06)
-        self._replay: bool = False
-        self._review: bool = False
-        self._prefix_len: int = 0
-
-    def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
-        self.drive_hist.clear()
-        self.goal_hist.clear()
-        self.temp_hist.clear()
-        self.emp_hist.clear()
-        self._def_smooth = []
-        self._temp_scale.reset()
-        self._emp_scale.reset()
-        for f in frames:
-            self.set_frame(f, histories_done=False)
-        self._dirty = True
-
-    def _ensure_def_smooth(self, n: int) -> None:
-        while len(self._def_smooth) < n:
-            self._def_smooth.append(_Smoother(0.2))
-
-    def set_frame(self, f: ObservabilityFrame, *, histories_done: bool = False,
-                  replay: bool = False, review: bool = False) -> None:
-        self._replay = replay
-        self._review = review
-        if not histories_done:
-            if f.drive_deficits is not None:
-                defs = np.asarray(f.drive_deficits, dtype=np.float32).reshape(-1)
-                nd = len(defs)
-                self._ensure_def_smooth(nd)
-                self.drive_hist.append([float(x) for x in defs])
-                for i in range(nd):
-                    self._def_smooth[i].value(float(defs[i]))
-            gh = getattr(f, "goal_history", None)
-            if gh:
-                self.goal_hist.append(int(gh[-1]))
-            t = getattr(f, "cr_temperature", None)
-            if t is not None:
-                self.temp_hist.append(float(t))
-            e = getattr(f, "empowerment", None)
-            if e is not None:
-                self.emp_hist.append(float(e))
-        super().set_frame(f)
-
-    def _draw(self, p: QtGui.QPainter) -> None:
-        f = self.frame
-        w, h = self.width(), self.height()
-        if f is None:
-            self._empty(p, "Goals & motivation…"); return
-        y0 = _draw_data_contract_banner(p, w, replay=self._replay, review=self._review,
-                                        panel_key="goals", multi_agent=self._multi_agent)
-        levels = f.drive_levels or []
-        targets = f.drive_targets or []
-        nd = _n_drives(f, list(levels))
-        self._ensure_def_smooth(nd)
-        defs = [self._def_smooth[i]._v if i < len(self._def_smooth) and self._def_smooth[i]._have else 0.0
-                for i in range(nd)]
-        pareto = {int(x) for x in (getattr(f, "pareto_front", None) or [])}
-        active = int(getattr(f, "active_drive_id", 0) or 0)
-        footer_top = h - 18
-        # ---- v7 focal: homeostasis tanks (top, full width) ----
-        tank_h = max(min(h // 3, footer_top - 120), 80)
-        self._title(p, "Homeostasis tanks — setpoint band · deficit arrow · ◯ = Pareto · ▮ = active",
-                    x=8, y=14 + y0)
-        self._caption(p, "shaded band = target setpoint · red gap + arrow = deficit toward setpoint",
-                      x=8, y=26 + y0)
-        tank_y = max(40 + y0, 32)
-        self._tanks(p, levels, targets, defs, pareto, active, 8, tank_y, w - 16, tank_h)
-        # ---- bottom-left: goal stack tree + goal_history step-strip ----
-        by = tank_y + tank_h + 20
-        lw = max(w // 2 - 8, 120)
-        self._title(p, "Goal stack (tree, deepest active first)", x=8, y=by)
-        stack = getattr(f, "goal_stack", None) or []
-        gy = by + 12
-        gy = self._goal_tree(p, stack, 8, gy, lw)
-        self._goal_history_strip(p, 8, gy + 6, lw, 26)
-        # ---- bottom-right: drive_goals radial inset + heatmap + trends ----
-        rx = lw + 16
-        rw = max(w - rx - 8, 160)
-        heatmap_w = max(80, rw - 140)
-        heatmap_h = max(48, h // 4)
-        self._drive_goals_inset(p, f, rx, by, min(130, rw), min(130, heatmap_h + 80))
-        self._title(p, "Drive deficit history heatmap", x=rx + 140, y=by)
-        self._heatmap(p, rx + 140, by + 12, heatmap_w, heatmap_h)
-        trend_y = by + heatmap_h + 24
-        trend_h = max(48, min(footer_top - trend_y, h - trend_y - 8))
-        if trend_h >= 48 and trend_y + trend_h <= footer_top:
-            self._trend_pair(p, rx, trend_y, rw, trend_h)
-
-    def _tanks(self, p, levels, targets, defs, pareto, active, x, y, w, h) -> None:
-        """v7 focal: vertical homeostasis tanks (dim-agnostic N drives)."""
-        n = _n_drives(self.frame, list(levels))
-        tw = w // max(n, 1) - 8
-        lvl_max = max([float(x) for x in levels] + [1.0]) if levels else 1.0
-        tgt_max = max([float(x) for x in targets if x is not None] + [1.0]) if targets else 1.0
-        scale = max(lvl_max, tgt_max, 1.0)
-        for i in range(n):
-            did = i + 1
-            tx = x + i * (w / max(n, 1)) + 4
-            col = _drive_color(did)
-            lvl = float(levels[i]) if i < len(levels) else 0.0
-            tgt = float(targets[i]) if i < len(targets) and targets[i] is not None else None
-            dfc = float(defs[i]) if i < len(defs) else 0.0
-            is_active = (did == active)
-            is_pareto = did in pareto
-            # tank frame
-            frame_col = col if is_active else GRID_COL
-            p.setPen(QtGui.QPen(frame_col, 2 if is_active else 1))
-            p.setBrush(PANEL_BG); p.drawRect(int(tx), y, tw, h - 18)
-            # level fill (normalized when levels exceed 1.0)
-            disp = min(1.0, max(0.0, lvl / scale))
-            lh = int(disp * (h - 20))
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(col.red(), col.green(), col.blue(), 200))
-            p.fillRect(int(tx) + 2, y + (h - 18) - lh, tw - 4, lh, col)
-            # v8 B7: target setpoint band (lower–upper) + dashed centre line
-            if tgt is not None:
-                band = 0.05 * scale
-                t_lo = int(min(1.0, max(0.0, (tgt - band) / scale)) * (h - 20))
-                t_hi = int(min(1.0, max(0.0, (tgt + band) / scale)) * (h - 20))
-                ty = y + (h - 18) - int(min(1.0, max(0.0, tgt / scale)) * (h - 20))
-                p.setPen(QtCore.Qt.NoPen)
-                p.setBrush(QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
-                p.fillRect(int(tx) + 2, y + (h - 18) - t_hi, tw - 4, t_hi - t_lo, QtGui.QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 35))
-                p.setPen(QtGui.QPen(ACCENT, 1, QtCore.Qt.DashLine))
-                p.drawLine(int(tx), ty, int(tx) + tw, ty)
-            # deficit gap shading + arrow toward setpoint
-            if tgt is not None and dfc > 0.02:
-                ly = y + (h - 18) - lh
-                p.setPen(QtCore.Qt.NoPen); p.setBrush(QtGui.QColor(231, 76, 60, 90))
-                gap_top = min(ly, ty); gap_bot = max(ly, ty)
-                p.fillRect(int(tx) + 2, gap_top, tw - 4, gap_bot - gap_top, QtGui.QColor(231, 76, 60, 90))
-                # deficit arrow (level → setpoint)
-                ax = int(tx + tw // 2); ay = ly
-                _arrow(p, ax, ay, ax, ty, QtGui.QColor(231, 76, 60, 200), size=5)
-            # Pareto ring
-            if is_pareto:
-                p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 2))
-                p.setBrush(QtGui.QColor(0, 0, 0, 0))
-                p.drawEllipse(int(tx) + tw // 2 - 6, y + (h - 18) - lh - 6, 12, 12)
-            # labels
-            p.setPen(col if is_active else TEXT_COL); p.setFont(_F_LABEL_B)
-            p.drawText(int(tx), y + h - 14, f"{_drive_short(did)} {lvl:.2f}")
-            if tgt is not None:
-                p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
-                p.drawText(int(tx), y + h - 4, f"Δ{dfc:.2f}")
-
-    def _goal_tree(self, p, stack, x, y, w) -> int:
-        """v7: indented goal-stack tree with a per-node completion-progress bar."""
-        if not stack:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 10, "(no active goals)"); return y + 14
-        for i, g in enumerate(stack[:8]):
-            did = g.get("drive_id", "?")
-            tnorm = g.get("target_norm")
-            pri = g.get("priority")
-            comp = bool(g.get("completed", False))
-            depth = int(g.get("depth", 0) or 0)
-            prog = float(g.get("progress", 1.0 if comp else 0.0) or 0.0)
-            indent = depth * 14
-            col = QtGui.QColor(46, 204, 113) if comp else ACCENT
-            # v8 B7: connector/label line-weight ∝ goal priority (drive dominance proxy)
-            pri_f = float(pri) if isinstance(pri, (int, float)) else 1.0
-            lw = max(1, min(4, int(1 + pri_f)))
-            # tree connector
-            p.setPen(QtGui.QPen(DIM_COL, 1)); p.setFont(_F_AXIS)
-            if depth > 0:
-                p.drawText(x + indent - 10, y + 10, "└")
-            p.setPen(QtGui.QPen(col, lw)); p.setFont(_F_LABEL_B)
-            tgt_s = f"|tgt|={float(tnorm):.2f}" if tnorm is not None else "no tgt"
-            p.drawText(x + indent, y + 10, f"#{i+1} d{did} {tgt_s}")
-            # progress bar
-            bx = x + indent + 150; bw = max(20, w - indent - 210)
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
-            p.drawRect(bx, y + 3, bw, 8)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(bx, y + 3, int(bw * np.clip(prog, 0, 1)), 8, col)
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            tag = "✓done" if comp else "active"
-            p.drawText(bx + bw + 4, y + 10, f"{tag} p{pri}")
-            y += 18
-        return y
-
-    def _goal_history_strip(self, p, x, y, w, h) -> None:
-        """v7: goal_history as a coloured step-strip (which drive held the goal
-        over time). Wires up the previously-undrawn goal_hist deque."""
-        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-        p.drawText(x, y, "goal history (which drive held the goal)")
-        gh = list(self.goal_hist)
-        if not gh:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 16, "(collecting…)"); return
-        n = len(gh); cw = w / max(n, 1)
-        sy = y + 4; sh = h - 4
-        for i, did in enumerate(gh):
-            did = max(1, int(did))
-            col = _drive_color(did)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(int(x + i * cw), sy, max(int(cw), 1), sh, col)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y + h + 10, f"{n} cycles · colour = drive id")
-
-    def _drive_goals_inset(self, p, f, x, y, w, h) -> None:
-        """v7: radial 'where each drive pulls' — spoke length = ||drive_goals[i]||
-        (magnitude of each drive's pull on the goal vector)."""
-        import math
-        dgs = getattr(f, "drive_goals", None) or []
-        if not dgs and self._replay:
-            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 3, y + 11, "drive_goals unavailable (replay)")
-            return
-        nd = max(len(dgs), _n_drives(f))
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(x + 3, y + 11, "drive pull ‖·‖")
-        cx, cy = x + w // 2, y + h // 2 + 6
-        R = min(w, h) // 2 - 16
-        mags = []
-        for i in range(nd):
-            dg = dgs[i] if i < len(dgs) else None
-            m = float(np.linalg.norm(np.asarray(dg, dtype=np.float32))) if dg is not None else 0.0
-            mags.append(m)
-        mx = max(mags) if mags else 1.0
-        mx = mx if mx > 1e-6 else 1.0
-        for i in range(nd):
-            ang = -math.pi / 2 + i * 2 * math.pi / max(nd, 1)
-            r = (mags[i] / mx) * R
-            ex = int(cx + r * math.cos(ang)); ey = int(cy + r * math.sin(ang))
-            col = _drive_color(i + 1)
-            p.setPen(QtGui.QPen(col, 2)); p.drawLine(cx, cy, ex, ey)
-            p.setBrush(col); p.setPen(QtGui.QPen(col, 1))
-            p.drawEllipse(ex - 2, ey - 2, 4, 4)
-
-    def _heatmap(self, p, x, y, w, h) -> None:
-        hist = list(self.drive_hist)
-        if not hist:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 10, "drive×cycle deficit heatmap (collecting…)"); return
-        n = len(hist); nd = max((len(d) for d in hist), default=6)
-        cw = w / max(n, 1); rh = h / max(nd, 1)
-        for i, defs in enumerate(hist):
-            for j in range(min(nd, len(defs))):
-                a = int(np.clip(defs[j], 0, 1) * 230)
-                if a < 8:
-                    continue
-                col = _drive_color(j + 1); col.setAlpha(a)
-                p.fillRect(int(x + i * cw), int(y + j * rh), int(cw) + 1, int(rh) - 1, col)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(x, y + h + 8, f"{nd} drives × {n} cycles · more opaque = higher deficit")
-        # v7: labeled colorbar (integer coords — fillRect rejects floats)
-        cbw = 6; cbh = int(h); cbx = int(x + w - cbw - 2); cby = int(y)
-        steps = 12
-        for k in range(steps):
-            a = int((steps - 1 - k) / (steps - 1) * 230)
-            c = QtGui.QColor(200, 200, 210, a)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(c)
-            p.fillRect(cbx, cby + k * cbh // steps, cbw, cbh // steps + 1, c)
-        p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(cbx - 16, cby + 8, "hi")
-        p.drawText(cbx - 16, cby + cbh - 2, "lo")
-
-    def _trend_pair(self, p, x, y, w, h) -> None:
-        half = h // 2
-        self._mini_trend(p, self.temp_hist, x, y, w, half, QtGui.QColor(231, 126, 34), "CR temperature", self._temp_scale)
-        self._mini_trend(p, self.emp_hist, x, y + half + 4, w, half, QtGui.QColor(52, 152, 219), "empowerment", self._emp_scale)
-
-    def _mini_trend(self, p, s, x, y, w, h, col, label, scale: Optional[ScaleState] = None) -> None:
-        p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
-        p.drawText(x, y + 10, label)
-        top, bot = y + 16, y + h - 2
-        p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x, bot, x + w, bot)
-        vals = list(s)
-        if len(vals) < 2:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 4, top + 12, "collecting…"); return
-        lo, hi = min(vals), max(vals)
-        # v7: snap y-scale to a ScaleState (EMA of recent max) — no per-frame jumps
-        if scale is not None:
-            lo, hi = scale.update(float(lo), float(hi))
-        if hi - lo < 1e-9: hi = lo + 1
-        n = len(vals); path = QtGui.QPainterPath()
-        for i, v in enumerate(vals):
-            px = x + i * w / (n - 1); py = bot - (v - lo) / (hi - lo) * (bot - top - 2)
-            (path.moveTo if i == 0 else path.lineTo)(px, py)
-        p.setPen(QtGui.QPen(col, 2)); p.drawPath(path)
-
-
-# ----- Controller + main window ---------------------------------------------
-
-
-class DashboardController:
-    """Mutates persistent widget state from frames (no widget rebuild)."""
-
-    def __init__(self, window: "ObservatoryWindow"):
-        self.w = window
-        # v6 flicker-free: skip the whole widget update when the frame is the
-        # same cycle as the last one we rendered (idle/no-new-data → 0 repaints).
-        self._last_cycle: int = -1
-        self._last_agent_id: int = -1
-        self._last_rolling: Optional[List[ObservabilityFrame]] = None
-        self._pending_tab_rebuilds: set = set()
-
-    def _contract_flags(self) -> Tuple[bool, bool]:
-        review = bool(getattr(self.w, "_review_mode", False))
-        transport = getattr(self.w, "_transport", None)
-        clock = getattr(transport, "clock", None) if transport else None
-        replay = bool(clock is not None and clock.mode == "replay" and not review)
-        return review, replay
-
-    def _repaint_visible_tab(self, *, force_sync: bool = False) -> None:
-        tab = self.w._tabs.currentWidget()
-        if tab is None:
-            return
-        for cv in tab.findChildren(_BaseCanvas):
-            try:
-                if force_sync:
-                    cv.mark_dirty()
-                    cv.repaint()
-                else:
-                    cv.repaint_if_dirty()
-            except Exception:
-                pass
-
-    def _mark_all_tabs_dirty(self) -> None:
-        for i in range(self.w._tabs.count()):
-            tab = self.w._tabs.widget(i)
-            if tab is None:
-                continue
-            for cv in tab.findChildren(_BaseCanvas):
-                cv.mark_dirty()
-
-    def _activate_review_tab(self, tab_idx: int) -> None:
-        f = getattr(self.w, "_last_frame", None)
-        if tab_idx == 2 and f is not None:
-            try:
-                self.w.cand.mark_dirty()
-                self.w.cand.repaint()
-            except Exception:
-                pass
-        if tab_idx == 3 and f is not None:
-            self.w._apply_phase_layout(f)
-            self.w.dim_selector.refresh()
-            review, _ = self._contract_flags()
-            plen = getattr(self.w.cand, "_prefix_len", 0)
-            self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
-        tab = self.w._tabs.widget(tab_idx)
-        if tab is None:
-            return
-        for cv in tab.findChildren(_BaseCanvas):
-            try:
-                cv.mark_dirty()
-                cv.repaint()
-            except Exception:
-                pass
-
-    def _set_prefix_len(self, prefix_len: int) -> None:
-        for attr in ("traj", "cand", "perdim", "radar", "retention", "goals"):
-            view = getattr(self.w, attr, None)
-            if view is not None:
-                setattr(view, "_prefix_len", int(prefix_len))
-
-    def on_tab_changed(self, tab_idx: int) -> None:
-        """Lazy rebuild: finish history rebuild when user switches to a tab."""
-        if (not self.w._review_mode
-                and tab_idx in self._pending_tab_rebuilds
-                and self._last_rolling):
-            self._rebuild_tab_histories(self._last_rolling, tab_idx)
-            self._pending_tab_rebuilds.discard(tab_idx)
-        if self.w._review_mode:
-            self._activate_review_tab(tab_idx)
-        else:
-            self._repaint_visible_tab(force_sync=True)
-
-    def _rebuild_tab_histories(
-        self,
-        rolling: List[ObservabilityFrame],
-        tab_idx: int,
-    ) -> None:
-        """Rebuild rolling histories for one tab (+ shared overview/proj)."""
-        self.w.overview.rebuild_histories(rolling)
-        self.w.proj.rebuild_from_frames(rolling)
-        if tab_idx == 1:
-            self.w.flow.rebuild_histories(rolling)
-        elif tab_idx == 2:
-            self.w.cand.rebuild_histories(rolling)
-        elif tab_idx == 3:
-            self.w.traj.rebuild_histories(rolling)
-            self.w.radar.rebuild_histories(rolling)
-            self.w.perdim.rebuild_histories(rolling)
-        elif tab_idx == 4:
-            self.w.retention.rebuild_histories(rolling)
-            self.w.rbta_bounds.rebuild_histories(rolling)
-            self.w.viol.rebuild_from_frames(rolling)
-        elif tab_idx == 5:
-            self.w.memory.rebuild_histories(rolling)
-        elif tab_idx == 6:
-            self.w.goals.rebuild_histories(rolling)
-
-    def rebuild_all_histories(self, rolling: List[ObservabilityFrame]) -> None:
-        """Rebuild all tab histories (post-run review mode)."""
-        if len(rolling) > 2000:
-            rolling = decimate_frames_for_history(rolling, 2000)
-        self.w.proj.rebuild_from_frames(rolling)
-        self.w.overview.rebuild_histories(rolling)
-        self.w.flow.rebuild_histories(rolling)
-        self.w.cand.rebuild_histories(rolling)
-        self.w.traj.rebuild_histories(rolling)
-        self.w.radar.rebuild_histories(rolling)
-        self.w.perdim.rebuild_histories(rolling)
-        self.w.retention.rebuild_histories(rolling)
-        self.w.rbta_bounds.rebuild_histories(rolling)
-        self.w.viol.rebuild_from_frames(rolling)
-        self.w.memory.rebuild_histories(rolling)
-        self.w.goals.rebuild_histories(rolling)
-        self._pending_tab_rebuilds.clear()
-        self._last_rolling = rolling
-        if not rolling:
-            return
-        f = rolling[-1]
-        review, replay = self._contract_flags()
-        self._set_prefix_len(len(rolling))
-        self.w.overview.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.flow.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.cand.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w._last_frame = f
-        self.w._apply_phase_layout(f)
-        self.w.update_phase_tab_status(f, review=review, prefix_len=len(rolling))
-        self.w.traj.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.radar.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.perdim.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.dim_selector.refresh()
-        self.w.retention.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.rbta_bounds.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.viol.rebuild_from_frames(rolling)
-        self.w._viol_summary.setText(self.w.viol.summary())
-        self.w.memory.set_frame(f, histories_done=True, replay=replay, review=review)
-        self.w.goals.set_frame(f, histories_done=True, replay=replay, review=review)
-        self._last_cycle = int(getattr(f, "cycle_id", -1))
-        self._mark_all_tabs_dirty()
-        self._repaint_visible_tab(force_sync=True)
-
-    def _update_tab_badges(self, flags: Dict[str, Any]) -> None:
-        badge = moment_tab_badge(flags)
-        tabs = self.w._tabs
-        bases = self.w._tab_base_labels
-        for i, base in enumerate(bases):
-            label = f"{base} • {badge}" if badge else base
-            if tabs.tabText(i) != label:
-                tabs.setTabText(i, label)
-
-    def update(self, frame: Optional[ObservabilityFrame],
-               rolling: Optional[List[ObservabilityFrame]] = None,
-               cycle_error: Optional[str] = None) -> None:
-        if frame is None and cycle_error is None:
-            return
-        f = frame
-        if f is not None:
-            # v6 flicker-free: drop redundant updates for an unchanged cycle
-            # (heartbeat emitting the same cursor frame while production stalls).
-            cid = int(getattr(f, "cycle_id", -1))
-            aid = int(getattr(f, "agent_id", 0) or 0)
-            if cycle_error is None and cid == self._last_cycle and aid == self._last_agent_id and not rolling:
-                return
-            self._last_cycle = cid
-            self._last_agent_id = aid
-            if rolling:
-                if len(rolling) > 2000:
-                    rolling = decimate_frames_for_history(rolling, 2000)
-                review, replay = self._contract_flags()
-                if self.w._review_mode:
-                    self.rebuild_all_histories(rolling)
-                    flags = _overview_moment_flags(f, deque())
-                    self._update_tab_badges(flags)
-                    title = (f"PHCA Cognitive Observatory — review cycle {f.cycle_id}"
-                             if review else f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
-                    self.w.setWindowTitle(title)
-                    self._repaint_visible_tab(force_sync=True)
-                    return
-                # OBS-002: scrub/seek rolling update rebuilds all tabs (replay + live).
-                self.rebuild_all_histories(rolling)
-                self._pending_tab_rebuilds.clear()
-                self._last_rolling = rolling
-            else:
-                self.w.proj.update(f)
-                v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
-                self.w.proj.push_history(self.w.proj.project(v))
-                self._pending_tab_rebuilds.clear()
-                self._last_rolling = None
-            histories_done = bool(rolling)
-            review, replay = self._contract_flags()
-            if rolling:
-                self._set_prefix_len(len(rolling))
-            flags = _overview_moment_flags(f, deque())
-            self._update_tab_badges(flags)
-            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.flow.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.cand.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w._last_frame = f
-            self.w._apply_phase_layout(f)
-            plen = len(rolling) if rolling else getattr(self.w.cand, "_prefix_len", 0)
-            self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
-            self.w.traj.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.radar.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.dim_selector.refresh()
-            self.w.retention.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.rbta_bounds.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            if not histories_done:
-                self.w.viol.add_frame(f)
-            self.w._viol_summary.setText(self.w.viol.summary())
-            self.w.memory.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.goals.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
-        else:
-            self.w.overview.set_state(None, cycle_error)
-        if cycle_error:
-            self.w.overview.set_state(f, cycle_error)
-
-
-class RenderPacer(QtCore.QObject):
-    """v8 calm-render: a single QTimer that repaints only the *visible* tab's
-    canvases, at a calm cadence (default 6 Hz). Each canvas repaints only if it
-    is dirty (new data since last paint). Paused/no-new-data → 0 repaints.
-
-    Owned by ``ObservatoryWindow``; started once. Cheap: one findChildren + a
-    handful of dirty-flag checks per tick."""
-
-    def __init__(self, window: "ObservatoryWindow", render_hz: float = 6.0,
-                 parent: Optional[QtCore.QObject] = None):
-        super().__init__(parent or window)
-        self._window = window
-        self._timer = QtCore.QTimer(self)
-        self._timer.setInterval(int(1000.0 / max(render_hz, 0.5)))
-        self._timer.timeout.connect(self._tick)
-
-    def start(self) -> None:
-        self._timer.start()
-
-    def stop(self) -> None:
-        self._timer.stop()
-
-    def set_hz(self, render_hz: float) -> None:
-        self._timer.setInterval(int(1000.0 / max(render_hz, 0.5)))
-
-    def _tick(self) -> None:
-        tab = self._window._tabs.currentWidget()
-        if tab is None:
-            return
-        for cv in tab.findChildren(_BaseCanvas):
-            try:
-                cv.repaint_if_dirty()
-            except Exception:
-                pass
-
-
-class _PhaseSpaceTab(QtWidgets.QWidget):
-    """Phase Space tab — unified status strip + resize-driven layout."""
-
-    def __init__(self, obs_window: "ObservatoryWindow"):
-        super().__init__()
-        self._obs_window = obs_window
-        outer = QtWidgets.QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        self._phase_status = QtWidgets.QLabel("")
-        self._phase_status.setFixedHeight(22)
-        self._phase_status.setStyleSheet(
-            "color:#a0a0b0; font-family:monospace; font-size:11px; padding:2px 8px;"
-            "background:#1a1a22; border-bottom:1px solid #333;"
-        )
-        outer.addWidget(self._phase_status)
-        grid_w = QtWidgets.QWidget()
-        self._grid_lay = QtWidgets.QGridLayout(grid_w)
-        self._grid_lay.setContentsMargins(6, 6, 6, 6)
-        self._grid_lay.setSpacing(6)
-        outer.addWidget(grid_w, 1)
-
-    def update_status(self, text: str) -> None:
-        self._phase_status.setText(text)
-
-    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
-        super().resizeEvent(event)
-        f = self._obs_window._last_frame
-        if f is not None:
-            self._obs_window._apply_phase_layout(f)
-
-
-class ObservatoryWindow(QtWidgets.QMainWindow):
-    def __init__(self, title: str = "PHCA Cognitive Observatory"):
-        super().__init__()
-        self.setWindowTitle(title)
-        self.resize(1320, 840)
-        self.setStyleSheet(_qss())
-        tabs = QtWidgets.QTabWidget()
-        # v6: top transport slot (hidden until install_transport is called).
-        central = QtWidgets.QWidget()
-        cv = QtWidgets.QVBoxLayout(central)
-        cv.setContentsMargins(0, 0, 0, 0); cv.setSpacing(0)
-        self._top_frame = QtWidgets.QFrame()
-        self._top_frame.hide()
-        self._top_layout = QtWidgets.QHBoxLayout(self._top_frame)
-        self._top_layout.setContentsMargins(0, 0, 0, 0)
-        cv.addWidget(self._top_frame)
-        self._status_strip = QtWidgets.QLabel("")
-        self._status_strip.setFixedHeight(22)
-        self._status_strip.setStyleSheet(
-            "color:#a0a0b0; font-family:monospace; font-size:11px; padding:2px 8px;"
-            "background:#1a1a22; border-bottom:1px solid #333;"
-        )
-        cv.addWidget(self._status_strip)
-        cv.addWidget(tabs, 1)
-        self.setCentralWidget(central)
-        self._tabs = tabs
-        self._tab_base_labels = list(OBSERVATORY_TAB_LABELS)
-        self._session_ctx: Dict[str, Any] = {}
-        self._verify_status = ""
-        self._review_mode = False
-
-        # shared dimension-agnostic projection (World / Phase-Space / Action)
-        self.proj = BeliefProjection(window=256)
-
-        # Overview — v8.1: single unified agent card
-        ov = QtWidgets.QWidget()
-        ov_lay = QtWidgets.QVBoxLayout(ov)
-        ov_lay.setContentsMargins(6, 6, 6, 6); ov_lay.setSpacing(0)
-        self.overview = OverviewAgentView()
-        self.overview.set_projection(self.proj)
-        self.overview.setMinimumHeight(480)
-        self.overview.bind_camera_tabs(tabs, overview_tab_index=0)
-        ov_lay.addWidget(self.overview, 1)
-        tabs.addTab(ov, "Overview")
-
-        # Cognitive Flow
-        self.flow = CognitiveFlowView()
-        tabs.addTab(self.flow, "Cognitive Flow")
-
-        # Action Selection
-        self.cand = CandidateScoreView(); self.cand.set_projection(self.proj)
-        tabs.addTab(self.cand, "Action Selection")
-
-        # Phase Space & Belief Uncertainty
-        ps = _PhaseSpaceTab(self)
-        ps_lay = ps._grid_lay
-        self.traj = TrajectoryView(); self.traj.set_projection(self.proj)
-        self.radar = DriveRadarView()
-        # v5: consolidated per-dim error + uncertainty (one view, not two) + pager
-        self.perdim = _PhasePortraitView()
-        self.dim_selector = _DimSelector(self.perdim)
-        ps_lay.addWidget(self.traj, 0, 0, 2, 2)
-        ps_lay.addWidget(self.radar, 0, 2, 1, 1)
-        ps_lay.addWidget(self.perdim, 2, 0, 1, 3)
-        ps_lay.addWidget(self.dim_selector, 3, 0, 1, 3)
-        tabs.addTab(ps, "Phase Space & Trajectory")
-        self._ps_tab = ps
-        self._ps_lay = ps_lay
-        self._last_frame: Optional[ObservabilityFrame] = None
-
-        # Retention & Resources
-        ret = QtWidgets.QWidget(); ret_lay = QtWidgets.QVBoxLayout(ret)
-        ret_lay.setContentsMargins(6, 6, 6, 6); ret_lay.setSpacing(6)
-        self.retention = RetentionView()
-        self.rbta_bounds = RBTABoundsView()
-        self.rbta_bounds.setMinimumHeight(160)
-        self.rbta_bounds.setMaximumHeight(220)
-        self.viol = ViolationTable()
-        self._viol_summary = QtWidgets.QLabel("0 violations")
-        self._viol_summary.setStyleSheet("color:#e74c3c; font-weight:bold; padding:2px 6px;")
-        ret_lay.addWidget(self.retention, 3)
-        ret_lay.addWidget(self.rbta_bounds, 0)
-        ret_lay.addWidget(self._viol_summary)
-        ret_lay.addWidget(self.viol, 1)
-        tabs.addTab(ret, "Retention & Resources")
-
-        # NEW: Memory & Belief
-        self.memory = MemoryBeliefView()
-        tabs.addTab(self.memory, "Memory & Belief")
-
-        # NEW: Goals & Motivation
-        self.goals = GoalsMotivationView()
-        tabs.addTab(self.goals, "Goals & Motivation")
-
-        self.controller = DashboardController(self)
-        self._tabs.currentChanged.connect(self.controller.on_tab_changed)
-        self._camera_provider: Optional[Callable[[], Any]] = None
-        self._camera_debug: bool = False
-        # v8: calm-render pacer (repaints the visible tab's dirty canvases at
-        # ~6 Hz). Constructed here; started by the launcher via start_render.
-        self.render_pacer = RenderPacer(self, render_hz=6.0)
-        self._transport: Optional[_TransportBar] = None
-        self._multi_agent: bool = False
-        self._agent_ids: List[int] = [0]
-        self._agent_labels: Dict[int, str] = {0: ""}
-        self._selected_agent_id: int = 0
-        self._all_frames: List[ObservabilityFrame] = []
-        self._moment_matches: List[Any] = []
-
-    def _moment_nav_enabled(self) -> bool:
-        transport = self._transport
-        if transport is None or transport.clock is None:
-            return False
-        clock = transport.clock
-        if self._review_mode:
-            return True
-        if clock.mode == "replay" and (clock.paused or clock.scrubbing):
-            return True
-        return False
-
-    def _rebuild_moment_matches(self) -> None:
-        from phca.monitoring.session_query import (
-            current_match_position,
-            query_frames,
-        )
-        transport = self._transport
-        if transport is None or transport.clock is None:
-            self._moment_matches = []
-            return
-        frames = list(transport.clock._frames)
-        if not frames and self._all_frames:
-            frames = self.project_frames_for_agent(self._all_frames)
-        q = transport.moment_query_from_ui()
-        self._moment_matches = query_frames(frames, q)
-        pos = current_match_position(self._moment_matches, transport.clock.cursor_int)
-        transport.update_moment_counter(pos, len(self._moment_matches))
-        transport.set_moment_nav_enabled(self._moment_nav_enabled())
-
-    def _jump_moment(self, direction: int) -> None:
-        from phca.monitoring.session_query import navigate_match
-        transport = self._transport
-        if transport is None or transport.clock is None or not self._moment_nav_enabled():
-            return
-        if not self._moment_matches:
-            self._rebuild_moment_matches()
-        idx = navigate_match(
-            self._moment_matches, transport.clock.cursor_int, int(direction))
-        if idx is None:
-            return
-        transport.clock.seek(idx)
-        transport._sync_slider()
-        set_autoscale_frozen(True)
-        self._rebuild_moment_matches()
-
-    def _on_moment_filter_changed(self) -> None:
-        self._rebuild_moment_matches()
-
-    def init_multi_agent(self, count: int, labels: List[str]) -> None:
-        """Configure multi-agent UI (agent selector + per-agent projection)."""
-        self._multi_agent = int(count) > 1
-        self._agent_ids = list(range(int(count)))
-        self._agent_labels = {i: labels[i] for i in range(int(count))}
-        self._selected_agent_id = 0
-        for cv in self.findChildren(_BaseCanvas):
-            cv._multi_agent = self._multi_agent
-        if self._transport is not None:
-            self._transport.setup_agent_selector(labels, self.select_agent)
-
-    def append_observability_frames(self, frames: List[ObservabilityFrame]) -> None:
-        """Accumulate interleaved frames during live multi-agent runs."""
-        if frames:
-            self._all_frames.extend(frames)
-
-    def load_multi_agent_frames(
-        self,
-        frames: List[ObservabilityFrame],
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Load replay frames and configure agent selector when needed."""
-        from phca.monitoring.multi_agent import is_multi_agent_session, session_agent_ids
-
-        self._all_frames = list(frames)
-        if is_multi_agent_session(meta, frames=frames):
-            self._multi_agent = True
-            self._agent_ids = session_agent_ids(frames)
-            self._agent_labels = {}
-            for f in frames:
-                aid = int(getattr(f, "agent_id", 0) or 0)
-                lbl = str(getattr(f, "agent_label", "") or "")
-                if aid not in self._agent_labels and lbl:
-                    self._agent_labels[aid] = lbl
-            labels = [
-                self._agent_labels.get(aid, f"agent_{aid}") for aid in self._agent_ids
-            ]
-            self.init_multi_agent(len(self._agent_ids), labels)
-        self._apply_agent_projection(rebuild=False)
-        self._rebuild_moment_matches()
-
-    def project_frames_for_agent(
-        self,
-        frames: List[ObservabilityFrame],
-    ) -> List[ObservabilityFrame]:
-        """Return frames for the currently selected agent."""
-        if not self._multi_agent:
-            return list(frames)
-        from phca.monitoring.multi_agent import frames_for_agent
-        return frames_for_agent(frames, self._selected_agent_id)
-
-    def select_agent(self, agent_id: int) -> None:
-        """Switch dashboard to another agent's timeline."""
-        aid = int(agent_id)
-        if aid == self._selected_agent_id:
-            return
-        self._selected_agent_id = aid
-        self.controller._last_cycle = -1
-        self.controller._last_agent_id = -1
-        if self._transport is not None:
-            self._transport.set_agent_index(aid)
-        self._apply_agent_projection(rebuild=True)
-
-    def _apply_agent_projection(self, *, rebuild: bool = True) -> None:
-        from phca.monitoring.multi_agent import frames_for_agent
-
-        projected = (
-            frames_for_agent(self._all_frames, self._selected_agent_id)
-            if self._all_frames else []
-        )
-        transport = self._transport
-        if transport is None or transport.clock is None:
-            return
-        clock = transport.clock
-        cursor = min(clock.cursor_int, max(0, len(projected) - 1))
-        was_paused = clock.paused
-        was_scrubbing = clock.scrubbing
-        clock.reload_frames(
-            projected,
-            preserve_transport=True,
-            follow_live=not was_paused and not was_scrubbing,
-        )
-        if projected and (was_paused or was_scrubbing):
-            clock._cursor = float(cursor)
-        transport.set_range(len(projected))
-        transport._sync_slider()
-        if projected:
-            clock._emit(force_rebuild=True)
-        if rebuild and projected:
-            prefix = projected[: clock.cursor_int + 1]
-            self.controller.rebuild_all_histories(prefix)
-        self._rebuild_moment_matches()
-
-    def set_session_context(self, ctx: Dict[str, Any]) -> None:
-        self._session_ctx = dict(ctx or {})
-
-    def set_verify_status(self, status: str) -> None:
-        self._verify_status = str(status or "")
-
-    def update_session_strip(
-        self,
-        frame: Optional[ObservabilityFrame],
-        *,
-        jsonl_count: int = 0,
-        clock_cursor: int = 0,
-    ) -> None:
-        ctx = self._session_ctx
-        cid = int(getattr(frame, "cycle_id", 0) or 0) if frame is not None else 0
-        target = int(ctx.get("target_cycles", 0) or 0)
-        live_lag = max(0, cid - int(clock_cursor))
-        ek = str(getattr(frame, "env_kind", "") or "") if frame is not None else ""
-        agent_count = int(ctx.get("agent_count", 1) or 1)
-        agent_id = int(getattr(frame, "agent_id", self._selected_agent_id) or 0) if frame else self._selected_agent_id
-        agent_label = str(getattr(frame, "agent_label", "") or "") if frame else self._agent_labels.get(agent_id, "")
-        text = session_status_text(
-            env=str(ctx.get("env", "") or ""),
-            env_kind=ek,
-            camera=str(ctx.get("camera", "") or ""),
-            cycle_id=cid,
-            total=target,
-            live_lag=live_lag,
-            schema_version=OBSERVABILITY_SCHEMA_VERSION,
-            jsonl_count=jsonl_count,
-            recording=bool(ctx.get("recording", True)),
-            verify_status=self._verify_status,
-            agent_id=agent_id,
-            agent_count=agent_count,
-            agent_label=agent_label,
-        )
-        if self._status_strip.text() != text:
-            self._status_strip.setText(text)
-
-    def refresh_session_strip(self, *, jsonl_count: Optional[int] = None) -> None:
-        """Refresh status strip after production timers stop (hb_sync no longer runs)."""
-        f = getattr(self, "_last_frame", None)
-        transport = self._transport
-        cursor = 0
-        if transport is not None and getattr(transport, "clock", None) is not None:
-            cursor = transport.clock.cursor_int
-        jcount = jsonl_count
-        if jcount is None:
-            jcount = int(self._session_ctx.get("jsonl_count", 0) or 0)
-        self.update_session_strip(f, jsonl_count=int(jcount), clock_cursor=cursor)
-
-    def enter_review_mode(self, *, verify_status: str = "",
-                          resync_only: bool = False) -> None:
-        """Pause production; keep transport + render alive for post-run scrub.
-
-        When ``resync_only=True`` (post-run entry), sync transport range/cursor
-        without ``follow_live()`` emit — caller runs ``rebuild_all_histories`` once.
-        """
-        self._review_mode = True
-        if verify_status:
-            self.set_verify_status(verify_status)
-        self.overview.set_review_mode(True)
-        self.setWindowTitle(
-            "PHCA Cognitive Observatory — review (close window to exit)")
-        transport = self._transport
-        if transport is not None and getattr(transport, "clock", None) is not None:
-            transport.clock.review_mode = True
-            transport.set_range(transport.clock.n)
-            if resync_only:
-                transport.clock.scrubbing = False
-                if transport.clock.n > 0:
-                    transport.clock._cursor = float(transport.clock.n - 1)
-            else:
-                transport.clock.follow_live()
-            transport.clock.set_paused(True)
-            transport.play_btn.setChecked(True)
-            transport.play_btn.setText("Review")
-            transport._sync_slider()
-        self._rebuild_moment_matches()
-        self.overview.mark_dirty()
-        for cv in self.findChildren(_BaseCanvas):
-            try:
-                cv.mark_dirty()
-            except Exception:
-                pass
-
-    def set_session_results(self, lines: Optional[List[str]]) -> None:
-        self.overview.set_session_results(lines)
-
-    def set_camera_provider(self, provider: Optional[Callable[[], Any]],
-                            *, debug: bool = False,
-                            mode: str = "auto") -> None:
-        self._camera_provider = provider
-        self._camera_debug = bool(debug)
-        self.overview.set_camera_provider(provider, debug=debug, mode=mode)
-        if mode != "schematic":
-            self.overview.start_camera_capture()
-
-    def start_camera_capture(self) -> None:
-        self.overview.start_camera_capture()
-
-    def stop_camera_capture(self) -> None:
-        self.overview.stop_camera_capture()
-
-    def start_render(self, render_hz: Optional[float] = None) -> None:
-        """Start the calm-render pacer (call after show())."""
-        if render_hz is not None:
-            self.render_pacer.set_hz(render_hz)
-        self.render_pacer.start()
-
-    def _apply_phase_layout(self, f: ObservabilityFrame) -> None:
-        """Drive QGridLayout stretches and visibility from _phase_layout."""
-        w = max(self._ps_tab.width(), 1)
-        h = max(self._ps_tab.height(), 1)
-        is_grid = _phase_frame_is_grid(f)
-        lay = _phase_layout(w, h, getattr(f, "env_kind", "") or "", is_grid, tab_w=w)
-        show_perdim = lay["show_perdim"]
-        show_radar = lay["show_radar"]
-        self.perdim.setVisible(show_perdim)
-        self.dim_selector.setVisible(show_perdim)
-        self.radar.setVisible(show_radar)
-        gl = self._ps_lay
-        if is_grid:
-            gl.setRowStretch(0, 3)
-            gl.setRowStretch(1, 3)
-            gl.setRowStretch(2, 0)
-            gl.setRowStretch(3, 0)
-        else:
-            gl.setRowStretch(0, 2)
-            gl.setRowStretch(1, 2)
-            gl.setRowStretch(2, 2)
-            gl.setRowStretch(3, 0)
-        if show_radar:
-            radar_h = max(100, min(140, lay["traj_h"] // 3))
-            self.radar.setFixedSize(lay["radar_w"], radar_h)
-        if show_perdim:
-            self.dim_selector.setFixedHeight(28)
-
-    def update_phase_tab_status(self, f: ObservabilityFrame, *, review: bool = False,
-                                prefix_len: int = 0) -> None:
-        """Refresh unified Phase Space tab status strip."""
-        ps = getattr(self, "_ps_tab", None)
-        if ps is None or f is None:
-            return
-        line = phase_tab_status_line(
-            f, self.proj, review=review, prefix_len=prefix_len)
-        ps.update_status(line)
-
-    def update_phase_panel_visibility(self, f: ObservabilityFrame) -> None:
-        """Hide per-dim portrait on GridWorld; compact drive radar on narrow windows."""
-        self._apply_phase_layout(f)
-
-    def install_transport(self, bar: QtWidgets.QWidget) -> None:
-        """Dock a transport bar at the top of the window (additive)."""
-        self._top_layout.addWidget(bar, 1)
-        self._top_frame.show()
-        if isinstance(bar, _TransportBar):
-            self._transport = bar
-            bar.setup_moment_navigation(
-                self._on_moment_filter_changed,
-                self._jump_moment,
-                on_cursor_change=self._rebuild_moment_matches,
-            )
-            if self._multi_agent:
-                labels = [
-                    self._agent_labels.get(aid, f"agent_{aid}") for aid in self._agent_ids
-                ]
-                bar.setup_agent_selector(labels, self.select_agent)
-
-    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
-        """v8 keyboard transport: Space=pause, Left/Right=step, Home=seek 0,
-        End=Esc=follow-live. Falls through to super when no transport."""
-        t = self._transport
-        if t is not None:
-            k = ev.key()
-            if k == QtCore.Qt.Key_Space:
-                t.play_btn.toggle(); return
-            if k == QtCore.Qt.Key_Right:
-                t._on_step(); return
-            if k == QtCore.Qt.Key_Left:
-                # step the view cursor back one (scrub); cognition single-step
-                # is forward-only by design.
-                t.clock.seek(max(0, t.clock.cursor_int - 1))
-                t._sync_slider(); set_autoscale_frozen(True); return
-            if k == QtCore.Qt.Key_Home:
-                t.clock.seek(0); t._sync_slider(); set_autoscale_frozen(True); return
-            if k in (QtCore.Qt.Key_End, QtCore.Qt.Key_Escape):
-                t.clock.follow_live(); t._sync_slider(); set_autoscale_frozen(False); return
-            if k == QtCore.Qt.Key_BracketLeft:
-                self._jump_moment(-1); return
-            if k == QtCore.Qt.Key_BracketRight:
-                self._jump_moment(1); return
-        super().keyPressEvent(ev)
-
-
-def make_app() -> "QtWidgets.QApplication":
-    """Construct (but do not exec) the QApplication. Caller owns it."""
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    app.setStyleSheet(_qss())
-    return app

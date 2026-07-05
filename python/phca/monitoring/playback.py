@@ -319,7 +319,9 @@ class PlaybackClock:
             self._last_emitted = i
         except Exception as exc:
             import sys
-            print(f"[observatory] update failed: {exc}", file=sys.stderr)
+            msg = f"update failed: {exc}"
+            self.error = msg if self.error is None else f"{self.error}; {msg}"
+            print(f"[observatory] {msg}", file=sys.stderr)
 
 
 def throttle_period(speed: float) -> float:

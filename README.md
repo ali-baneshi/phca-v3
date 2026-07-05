@@ -10,7 +10,7 @@ budgets every cycle.
 **Observatory Phases 7–20 complete** (cognitive observability, replay, multi-agent,
 interactive query, `make reproduce`; D-108–D-127). See
 [docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
-**715 tests** passing (`make test-python` 679 + `make test-mujoco` 36).
+**743 tests** passing (`make test-python` 707 + `make test-mujoco` 36).
 Overall Φ-IQ **0.7323** (4-level MLP, 200 cyc, re-measured 2026-07-05).
 Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
 prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
@@ -55,7 +55,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (679 core + 36 MuJoCo = 715; set MUJOCO_GL=disabled for headless)
+# Run all tests (707 core + 36 MuJoCo = 743; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco

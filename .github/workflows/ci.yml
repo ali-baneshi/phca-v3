@@ -65,6 +65,7 @@ jobs:
       - name: Observatory session integrity gate
         run: |
           PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
+          PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/reacher_short/
 
   benchmark-level-0:
     runs-on: ubuntu-latest

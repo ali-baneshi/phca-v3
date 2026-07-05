@@ -318,6 +318,62 @@ def test_dashboard_controller_scrub_500_jsonl_frames_no_mutation(qt_app):
     assert frames[-1].to_json() == frame_last_before
 
 
+def test_playback_clock_surfaces_update_error():
+    clock = PlaybackClock(mode="replay")
+    clock.set_frames([_frame(0), _frame(1)])
+
+    def boom(frame, rolling, error):
+        raise RuntimeError("bad frame")
+
+    clock.on_update = boom
+    clock.seek(0)
+    assert clock.error is not None
+    assert "bad frame" in clock.error
+
+
+def test_scrub_tab_badges_show_spike(qt_app):
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    frames = []
+    for i in range(5):
+        f = _rich_frame(i)
+        f.prediction_error = 1.0
+        frames.append(f)
+    frames[4].prediction_error = 5.0
+
+    win = ObservatoryWindow()
+    clock = PlaybackClock(mode="replay")
+    clock.set_frames(frames)
+    clock.on_update = lambda f, rolling, err: win.controller.update(f, rolling, err)
+    win._transport = type("_T", (), {"clock": clock})()
+
+    clock.seek(4)
+    qt_app.processEvents()
+
+    tabs = win._tabs
+    assert any("SPIKE" in tabs.tabText(i) for i in range(tabs.count()))
+
+
+def test_abort_status_strip_and_incomplete_banner(qt_app):
+    from phca.monitoring.cognitive_panels import data_contract_text
+    from phca.monitoring.qt_dashboard import ObservatoryWindow
+
+    win = ObservatoryWindow()
+    win.set_session_context({"env": "Reacher-v5", "target_cycles": 1000, "recording": True})
+    win.set_cycle_error("Action dimension mismatch. Expected (2,), found ()")
+    win.mark_session_incomplete(recorded=167, requested=1000)
+    win.set_verify_status("FAIL")
+    win.enter_review_mode(resync_only=True)
+    win.refresh_session_strip(jsonl_count=167)
+    text = win._status_strip.text()
+    assert "ABORTED" in text
+    assert "Action dimension mismatch" in text
+    assert win._session_incomplete is True
+    assert data_contract_text(
+        "overview", replay=False, review=True, incomplete=True,
+    ).startswith("ABORTED —")
+
+
 def test_scrub_3000_frames_under_budget(qt_app):
     import time
 

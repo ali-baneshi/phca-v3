@@ -106,6 +106,39 @@ def test_cycle_reacher_continuous_step_no_nan():
     cycle.env.close()
 
 
+def test_reacher_terminate_neutral_action_shape():
+    """CORE-A01: RBTA TERMINATE on Reacher steps with zeros (2,), not stay_action int."""
+    from phca.config import ResourceBounds
+
+    cycle = CognitiveCycle.build_for_mujoco("Reacher-v5", seed=42, use_mlp=True)
+    tiny = ResourceBounds(B_time=1e-9, B_mem=1, B_energy=1e-9, entropy_floor=0.01)
+    for mod_id in list(cycle.rbta._bounds.keys()):
+        cycle.rbta.update_bounds(mod_id, tiny)
+    m = cycle.step()
+    assert m.rbta_action == "TERMINATE"
+    assert cycle.last_action.shape == (2,)
+    assert np.allclose(cycle.last_action, 0.0)
+    assert cycle.last_action_rationale.get("continuous") is True
+    assert cycle.last_action_rationale.get("decision_reason") == "rbta_safe"
+    # Second TERMINATE cycle must also survive (carry-forward path).
+    m2 = cycle.step()
+    assert m2.rbta_action == "TERMINATE"
+    assert cycle.last_action.shape == (2,)
+    cycle.env.close()
+
+
+def test_mujoco_neutral_action_continuous_vs_discrete():
+    """Env.neutral_action is zeros for continuous, stay index for discrete."""
+    reacher = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    a = reacher.neutral_action()
+    assert np.asarray(a).shape == (2,)
+    assert np.allclose(a, 0.0)
+    reacher.close()
+    cart = MuJoCoSimpleEnv("InvertedPendulum-v5", seed=42)
+    assert cart.neutral_action() == cart.stay_action
+    cart.close()
+
+
 def test_reacher_continuous_action_within_bounds():
     """The Reacher continuous selector returns a 2D action within [-1, 1]^2."""
     cycle = CognitiveCycle.build_for_mujoco("Reacher-v5", seed=42, use_mlp=True)

@@ -150,9 +150,12 @@ def _post_run_pipeline(
         if err_msg not in warn_list:
             warn_list.append(err_msg)
         print(f"[record] {err_msg}", file=sys.stderr)
-    if recorder_error and verify:
         verify_rc = 1
-        verify_status = "FAIL (recorder error)"
+        verify_status = (
+            "FAIL (recorder error)"
+            if verify
+            else "FAIL (recorder error; verify skipped)"
+        )
     elif verify:
         verify_rc = _run_session_verify(session_dir)
         verify_status = (
@@ -847,12 +850,24 @@ def main() -> None:
             if patch:
                 recorder._patch_meta(patch)
         recorder.flush()
-        recorder.close()
+        cycle_err = str(cycle_holder.get("error") or "")
+        short_run = recorder.count < expected_jsonl
+        if cycle_err or short_run:
+            reason = "cycle_error" if cycle_err else "short_run"
+            recorder.abort(reason)
+        else:
+            recorder.close()
         if video is not None:
             video.close()
         msg = (f"Done. {len(store)} cycles; {recorder.count} JSONL lines"
                + (f"; {video.frames} video frames" if video else "") + ".")
         print(msg)
+        if cycle_err:
+            win.set_cycle_error(cycle_err)
+        if short_run or cycle_err:
+            win.mark_session_incomplete(
+                recorded=recorder.count, requested=expected_jsonl,
+            )
         win.enter_review_mode(resync_only=True)
         rolling = win.project_frames_for_agent(store.snapshot())
         if rolling:
@@ -894,6 +909,9 @@ def main() -> None:
                             verify_status=verify_status,
                         )
                         win.set_session_results(lines)
+                        win.set_rbta_safe_ratio(
+                            float(report.get("rbta_safe_ratio") or 0.0))
+                        win.refresh_session_strip(jsonl_count=recorder.count)
             if verify_status:
                 win.set_verify_status(verify_status)
             print("Review mode: window stays open — scrub tabs and close when done.",

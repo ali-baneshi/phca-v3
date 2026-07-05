@@ -70,8 +70,9 @@ def test_dry_run_quick_profile():
     assert "benchmark_quick_gate" in proc.stdout
     assert "anomaly_gate" in proc.stdout
     assert "observatory_check" in proc.stdout
+    assert "observatory_check_reacher" in proc.stdout
     data = json.loads(MANIFEST.read_text())
-    assert len(data["profiles"]["quick"]["steps"]) >= 8
+    assert len(data["profiles"]["quick"]["steps"]) >= 9
 
 
 def test_dry_run_full_profile():

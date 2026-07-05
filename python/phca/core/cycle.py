@@ -412,17 +412,21 @@ class CognitiveCycle:
             # Step 9: Action selection + environment step
             t5 = time.perf_counter()
             if self._rbta_skip_feedback:
-                action = self.env.stay_action
+                # Continuous envs must receive a dim-vector (zeros), not the
+                # discrete stay_action int — gymnasium rejects shape ().
+                action = self._neutral_action()
                 self.last_candidate_scores = []
                 self.last_candidate_rollouts = []
                 self.last_action_rationale = self._finalize_action_rationale({
                     "explored": False,
                     "eps": 0.0,
                     "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
-                    "continuous": False,
+                    "continuous": bool(self._is_continuous),
                     "best_score": None,
                     "k_candidates": 1,
-                    "chosen_idx": int(action),
+                    "chosen_idx": (
+                        None if self._is_continuous else int(action)
+                    ),
                     "task_lock": bool(self._task_lock),
                     "rbta_safe_mode": True,
                     "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
@@ -735,6 +739,21 @@ class CognitiveCycle:
         r["mechanism"] = self._mechanism_for_reason(decision_reason)
         r["chosen_label"] = self._chosen_label_from_rationale(r)
         return r
+
+    def _neutral_action(self):
+        """Safe-mode action: discrete stay index, or continuous zero vector.
+
+        Continuous MuJoCo envs (Reacher/Pendulum) expose ``stay_action`` as an
+        int for discrete-map compatibility; stepping with that int yields a
+        0-d array and gymnasium raises ``Action dimension mismatch``.
+        """
+        if self._is_continuous:
+            getter = getattr(self.env, "neutral_action", None)
+            if callable(getter):
+                return np.asarray(getter(), dtype=np.float32)
+            dim = int(getattr(self.action_space, "dim", 0) or 0)
+            return np.zeros(dim, dtype=np.float32)
+        return self.env.stay_action
 
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.

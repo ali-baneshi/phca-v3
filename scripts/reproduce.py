@@ -125,7 +125,7 @@ def verify_step(step: dict, command_rc: int, env: dict, cwd: Path) -> tuple[bool
     return False, 1, f"unknown verify type {vtype!r}"
 
 
-def check_preflight(manifest: dict) -> dict:
+def check_preflight(manifest: dict) -> tuple[dict, bool]:
     py = sys.version_info
     if py < (3, 11):
         print(
@@ -140,7 +140,26 @@ def check_preflight(manifest: dict) -> dict:
     for req in reqs:
         if not (ROOT / req).is_file():
             print(f"WARNING: requirement file missing: {req}", file=sys.stderr)
-    return env_info
+    missing: List[str] = []
+    try:
+        import pytest_timeout  # noqa: F401
+    except ImportError:
+        missing.append("pytest-timeout")
+    try:
+        import pytest_benchmark.plugin  # noqa: F401
+    except ImportError:
+        missing.append("pytest-benchmark")
+    if missing:
+        print(
+            f"ERROR: missing pytest plugins: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        print(
+            "Install: pip install -r requirements.txt -r requirements-dev.txt",
+            file=sys.stderr,
+        )
+        return env_info, False
+    return env_info, True
 
 
 def run_profile(
@@ -275,7 +294,14 @@ def main() -> None:
         print(f"Unknown profile: {args.profile}", file=sys.stderr)
         sys.exit(2)
 
-    env_info = check_preflight(manifest)
+    env_info, preflight_ok = check_preflight(manifest)
+    if not preflight_ok and not args.dry_run:
+        write_report(
+            manifest, args.profile, [], "FAIL", env_info, args.output,
+            dry_run=False,
+        )
+        sys.exit(1)
+
     results, overall = run_profile(manifest, args.profile, dry_run=args.dry_run)
     write_report(
         manifest, args.profile, results, overall, env_info, args.output,

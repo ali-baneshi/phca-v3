@@ -5,7 +5,7 @@
 PHCA (Predictive Hierarchical Cognitive Architecture) implements a **12-step cognitive cycle**
 that transforms raw sensor input into goal-directed action through a pipeline of specialized
 modules. The cycle runs at ~60–95 Hz on consumer hardware (~10–17 ms mean latency, MLP path,
-this machine). **715 tests** pass (`make test-python` 679 + `make test-mujoco` 36);
+this machine). **743 tests** pass (`make test-python` 707 + `make test-mujoco` 36);
 Overall Φ-IQ **0.7323** (re-measured 2026-07-05). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
 emit true continuous actions via a prediction-driven MPC selector (Phase 6/7).
 

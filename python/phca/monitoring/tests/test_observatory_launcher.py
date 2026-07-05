@@ -122,6 +122,21 @@ def test_post_run_pipeline_recorder_error_fails_verify(tmp_path, monkeypatch, ca
     assert not any("--check" in str(c) for c in calls)
 
 
+def test_post_run_pipeline_recorder_error_fails_without_verify(tmp_path):
+    mod = _load_observatory()
+    session = _minimal_session(tmp_path)
+    rc, status, _ = mod._post_run_pipeline(
+        session,
+        n_lines=1,
+        expected=3,
+        verify=False,
+        warnings=[],
+        recorder_error="disk full",
+    )
+    assert rc != 0
+    assert "recorder error" in status
+
+
 def test_session_summary_recorder_error(tmp_path, capsys):
     mod = _load_observatory()
     session = _minimal_session(tmp_path)

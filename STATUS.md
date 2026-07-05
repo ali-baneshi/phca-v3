@@ -180,10 +180,10 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | Suite | Last run | Result |
 |-------|----------|--------|
-| Python (`make test-python`) | 2026-07-05 | **679 passed** (1 skipped) |
+| Python (`make test-python`) | 2026-07-05 | **707 passed** (1 skipped) |
 | MuJoCo (`make test-mujoco`, `MUJOCO_GL=disabled`) | 2026-07-05 | **36 passed** |
-| Monitoring only | 2026-07-05 | **359 passed** (1 skipped) |
-| **Total (both suites)** | 2026-07-05 | **715 passed** |
+| Monitoring only | 2026-07-05 | **386 passed** (1 skipped) |
+| **Total (both suites)** | 2026-07-05 | **743 passed** |
 | Reproduce quick (`make reproduce-quick`) | 2026-07-05 | Gate path updated (D-127); run locally for executed report |
 | CI Φ-IQ gate | 2026-07-04 | PASS (quick Φ-IQ 0.8415 ≥ floor 0.5486) |
 | Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
@@ -211,8 +211,10 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 
 | Date | Fix | Outcome |
 |------|-----|---------|
-| 2026-07-05 | Observatory audit remediation (OBS-014–016, D-127) | Tracked multi-agent fixture; explain fields; drift SKIP on short sessions; 709 tests |
-| 2026-07-05 | Observatory remediation (OBS-002–OBS-010) | Alignment gate, replay scrub, early-close verify, reproduce/CI `--check`; 710 tests |
+| 2026-07-05 | Remaining gaps C0–C5 | Meta incomplete honesty; rbta_safe rate; paint errors; qt_memory/qt_goals extract; 707/386 tests |
+| 2026-07-05 | CORE-A01 continuous RBTA stay + abort chrome + qt_app split | Neutral zero-vector on TERMINATE; incomplete/ABORTED banners; controller/window in `qt_app.py`; 707/386 tests |
+| 2026-07-05 | Observatory audit remediation (OBS-014–016, D-127) | Tracked multi-agent fixture; explain fields; drift SKIP on short sessions; 702/382 tests |
+| 2026-07-05 | Observatory remediation (OBS-002–OBS-010) | Alignment gate, replay scrub, early-close verify, reproduce/CI `--check`; 702/382 tests |
 | 2026-07-04 | Phase 20 Observatory sign-off (D-123) | Zero-trust audit; 699 tests; reproduce-quick PASS; phase20_completion_report.md |
 | 2026-07-04 | Phase 19 scientific reproduction (D-122) | `make reproduce` manifest + driver |
 | 2026-07-04 | Phase 13 anomaly detection (D-116) | Shared spike/drift/leak/goal flags; `--check` + nightly gate; 639 tests green |

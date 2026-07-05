@@ -925,7 +925,15 @@ class SessionRecorder:
                 pass
             self._jsonl = None
 
-    def close(self) -> None:
+    def close(self, *, incomplete: bool = False, reason: str = "") -> None:
+        """Finalize a normal session.
+
+        When ``incomplete=True`` (short run / cycle error), status is
+        ``incomplete`` or ``empty`` — never claim ``complete``.
+        """
+        if incomplete:
+            self.abort(reason or "short_run")
+            return
         self.flush()
         self._finalize_jsonl()
         if self.session_dir is not None and self.enabled:

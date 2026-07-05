@@ -25,6 +25,7 @@ DECISION_REASONS = (
     "prediction",
     "continuous_mpc",
     "continuous_explore",
+    "other",
 )
 
 
@@ -46,7 +47,7 @@ def infer_decision_reason(rationale: Dict[str, Any]) -> str:
         return "continuous_mpc"
     if r.get("best_score") is not None or r.get("k_candidates"):
         return "prediction"
-    return "prediction"
+    return "other"
 
 
 def explain_fields_present(rationale: Dict[str, Any]) -> bool:

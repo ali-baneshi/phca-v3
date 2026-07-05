@@ -104,6 +104,6 @@ not describe the running system verbatim.
 Always cite from [STATUS.md](STATUS.md) and named log files in
 [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md):
 
-- **715 tests** (679 core + 36 MuJoCo)
-- **360 monitoring tests** (`pytest python/phca/monitoring/tests/`)
+- **743 tests** (707 core + 36 MuJoCo)
+- **386 monitoring tests** (`pytest python/phca/monitoring/tests/`)
 - **Overall Φ-IQ 0.7323** (MLP, 200 cyc/level, seed 42)

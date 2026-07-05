@@ -58,6 +58,14 @@ def test_infer_decision_reason_explicit():
     assert infer_decision_reason({"decision_reason": "prediction"}) == "prediction"
 
 
+def test_infer_decision_reason_sparse_other():
+    from phca.monitoring.action_explain import DECISION_REASONS
+
+    assert infer_decision_reason({}) == "other"
+    assert infer_decision_reason({"explored": False}) == "other"
+    assert "other" in DECISION_REASONS
+
+
 def test_build_explain_chain_enriched():
     f = _frame(
         cycle_id=5,

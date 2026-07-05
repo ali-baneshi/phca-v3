@@ -178,3 +178,60 @@ def test_compare_session_reports_delta():
     assert result["deltas"]["explore_ratio"] == pytest.approx(0.02)
     assert result["regression_flags"]["error_late_worse"] is False
     assert result["regression_flags"]["violations_increased"] is True
+
+
+def test_rbta_safe_and_terminate_metrics():
+    """CORE-A02: report sustained safe-mode / TERMINATE fractions."""
+    lines = []
+    for i in range(10):
+        lines.append(json.dumps({
+            "cycle_id": i,
+            "schema_version": 1,
+            "prediction_error": 1.0,
+            "module_timings": {},
+            "rbta_action": "TERMINATE" if i >= 3 else "CONTINUE",
+            "action_rationale": (
+                {"rbta_safe_mode": True, "decision_reason": "rbta_safe"}
+                if i >= 3
+                else {"best_score": 0.1, "decision_reason": "prediction"}
+            ),
+        }))
+    report = build_session_report({"env": "grid", "cycles": 10}, lines)
+    assert report["rbta_safe_count"] == 7
+    assert report["rbta_safe_ratio"] == pytest.approx(0.7)
+    assert report["terminate_cycle_count"] == 7
+    assert report["terminate_ratio"] == pytest.approx(0.7)
+    from phca.monitoring.cognitive_panels import format_session_results_lines
+    lines_out = format_session_results_lines(report)
+    assert any("SAFE-MODE" in ln for ln in lines_out)
+
+
+def test_anchor_cycle_id_lookup():
+    lines = []
+    for cid in range(100):
+        lines.append(json.dumps({
+            "cycle_id": cid,
+            "schema_version": 1,
+            "prediction_error": 1.0,
+            "module_timings": {},
+            "action_rationale": {"best_score": 0.1},
+        }))
+    report = build_session_report({"env": "grid", "cycles": 100}, lines)
+    assert report["anchor_narratives"]["0"]["cycle_id"] == 0
+    assert report["anchor_narratives"]["99"]["cycle_id"] == 99
+
+
+def test_anchor_cycle_id_resolves_gaps():
+    lines = [
+        json.dumps({
+            "cycle_id": cid,
+            "schema_version": 1,
+            "prediction_error": 1.0,
+            "module_timings": {},
+            "action_rationale": {},
+        })
+        for cid in (0, 10, 20, 30)
+    ]
+    report = build_session_report({"env": "grid", "cycles": 4}, lines)
+    assert report["anchor_narratives"]["0"]["cycle_id"] == 0
+    assert report["anchor_narratives"]["99"]["cycle_id"] == 30

@@ -79,7 +79,7 @@ evidence separate from invariant tests.
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
-| Observatory integrity | `phca_replay.py --check` on `python/phca/monitoring/tests/fixtures/multi_agent_short/` | **Yes** | PASS |
+| Observatory integrity | `phca_replay.py --check` on `fixtures/multi_agent_short/` and `fixtures/reacher_short/` | **Yes** | PASS |
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
 
 **Scope note:** Observatory Phases 7–20 are complete. Whole PHCA blueprint items

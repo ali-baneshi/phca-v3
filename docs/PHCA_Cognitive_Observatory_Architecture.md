@@ -86,7 +86,7 @@ Early phases are usually for building foundational components:
 
 > **Status: Complete (2026-07).** Frame schema, JSONL recording, 7-tab PyQt dashboard,
 > `session_report.py`, shared `cognitive_panels.py` helpers, RBTA unit normalization,
-> and `--check` integrity gate are shipped. **360 monitoring tests** (715 total with MuJoCo).
+> and `--check` integrity gate are shipped. **386 monitoring tests** (743 total with MuJoCo).
 
 Phase 7 means the system must show itself. This phase is the transition from “merely running” to “being understandable.”
 

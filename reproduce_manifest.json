@@ -44,6 +44,14 @@
           "runtime_estimate_s": 5
         },
         {
+          "id": "observatory_check_reacher",
+          "name": "Observatory Reacher fixture integrity (phca_replay --check)",
+          "command": "python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/reacher_short/",
+          "outputs": [],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 5
+        },
+        {
           "id": "benchmark_quick_gate",
           "name": "L0 Φ-IQ quick regression gate",
           "command": "python scripts/benchmark.py --quick --output=logs/benchmark_report.json",

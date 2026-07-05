@@ -29,6 +29,7 @@ logs/phca.log.*
 logs/*.log
 logs/diagnose_level2.csv
 logs/sessions/
+logs/reproduce_report.json
 
 # Secrets / local env
 .env

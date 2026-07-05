@@ -70,7 +70,7 @@ for CI auto-close.
 - **Overview session results** — post-run panel from `session_report.json` with optional `--compare-report` and `--benchmark-report`.
 - **Review mode** — window stays open after run (default); `--close-at-end` for CI.
 - **MuJoCo JSONL honesty** — non-grid sessions omit misleading `agent_pos`/`goal_pos`.
-- **Scrub perf (Phase 11 — complete)** — decimated rolling rebuild + lazy per-tab rebuild on seek; budget tests ≤2s/≤4s at 3000+ cycles.
+- **Scrub perf (Phase 11 — complete)** — decimated rolling rebuild + lazy per-tab rebuild on seek; budget tests ≤2s/≤4s at 3000+ cycles. Prefixes longer than 2000 frames are **evenly decimated** (`decimate_frames_for_history`); rare spike/trend moments between sampled points may not appear in scrub/review badge history until you seek nearer the event.
 
 ## Dashboard tab index
 
@@ -363,6 +363,10 @@ Early window close: `phca_observatory.py` runs `phca_replay --check --allow-inco
 
 Structured log events: `supervisor_start`, `child_spawn`, `child_exit`, `recover_start`, `recover_done`, `verify_result`.
 
+**`.latest` pointer lifecycle:** `SessionRecorder.close()` clears `<record-root>/.latest` on a normal exit. If the child exits cleanly after recording but before you need recovery, the supervisor logs `recover_skip` (`no_latest_pointer`) — by design. For crash recovery, the pointer must still exist when the child dies abnormally (before `close()`).
+
+**`--no-verify` hazard:** post-run verify is skipped, but JSONL write failures (`recorder.error`) still fail the process exit code. Do not use `--no-verify` when recording integrity matters for science or CI.
+
 ### Manual recovery
 
 ```bash
@@ -426,7 +430,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-**360 monitoring tests** (715 total with MuJoCo — 2026-07-05). Key modules:
+**386 monitoring tests** (743 total with MuJoCo — 2026-07-05). Key modules:
 
 | Module | Coverage |
 |--------|----------|
@@ -454,6 +458,9 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
 | Legacy matplotlib replay (`render.py`, `phca_visualise.py`) not full-fidelity | Deprecated — use PyQt `--qt` |
 | `meta.cycles` is requested count; compare with `recorded_cycles` via `--check` | Ongoing |
 | GridWorld overview hides camera QLabel; grid body is the camera substitute | By design |
+| `anomalies_from_report()` cannot recompute leak without `rss_late_slope` in report | Documented — use frame-based `detect_session_anomalies()` |
+| Dual Reacher fixtures (`reacher_short.jsonl` flat file vs `reacher_short/` session dir) | Tests use both; CI gates the session dir |
+| Dashboard update failures during scrub | Surfaced in status strip via `PlaybackClock.error` |
 
 ## Troubleshooting (live Observatory)
 

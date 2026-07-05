@@ -84,6 +84,19 @@ def test_session_recorder_abort_clears_latest(tmp_path):
     assert read_latest_pointer(tmp_path / "sessions") is None
 
 
+def test_session_recorder_close_incomplete_never_complete(tmp_path):
+    """OBS-D05: short/aborted runs must not write status=complete."""
+    rec = SessionRecorder(root=str(tmp_path / "sessions"), record=True)
+    session_dir = rec.start({"cycles": 1000, "env": "Reacher-v5"})
+    rec.record(ObservabilityFrame(cycle_id=0))
+    rec.close(incomplete=True, reason="cycle_error")
+    meta = json.loads((session_dir / "meta.json").read_text())
+    assert meta["status"] == "incomplete"
+    assert meta["recorded_cycles"] == 1
+    assert meta["recovery_reason"] == "cycle_error"
+    assert read_latest_pointer(tmp_path / "sessions") is None
+
+
 def test_detect_session_state_complete(tmp_path):
     d = _write_partial_session(tmp_path, n=3, cycles=3, status="complete")
     state = detect_session_state(d)

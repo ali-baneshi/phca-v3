@@ -322,7 +322,12 @@ def detect_session_anomalies(
 
 
 def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
-    """Re-evaluate anomaly flags from an existing session report (no frames)."""
+    """Re-evaluate anomaly flags from an existing session report (no frames).
+
+    Leak detection requires ``anomalies.metrics.rss_late_slope_bytes_per_cycle``
+    in the report; it cannot be recomputed without the original frame sequence.
+    Goal instability can use ``goal_rolling_instability`` when present.
+    """
     th = _thresholds(None)
     cycles = int(report.get("cycles", 0) or 0)
     spike_count = int(report.get("spike_count", 0) or 0)

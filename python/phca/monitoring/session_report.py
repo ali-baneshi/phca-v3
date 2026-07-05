@@ -68,13 +68,34 @@ def _slice_early_late(values: List[float], frac: float = 0.10) -> Tuple[List[flo
     return values[:k], values[-k:]
 
 
-def _anchor_cycle_ids(n: int) -> Dict[str, int]:
-    """Map report anchor keys to frame-list indices (requires contiguous cycle_id 0..n-1)."""
+def _anchor_cycle_ids(n: int, frames: List[ObservabilityFrame]) -> Dict[str, int]:
+    """Map report anchor keys to frame-list indices.
+
+    Keys ``0`` / ``99`` / ``999`` resolve by ``cycle_id`` when present; otherwise
+    fall back to ``min(target, n-1)``. ``mid`` / ``last`` use list indices.
+    """
     if n <= 0:
         return {}
     mid = n // 2
-    anchors = {"0": 0, "99": 99, "999": 999, "mid": mid, "last": n - 1}
-    return {k: min(v, n - 1) for k, v in anchors.items()}
+    by_cycle: Dict[int, int] = {}
+    for i, f in enumerate(frames):
+        cid = int(getattr(f, "cycle_id", i) or i)
+        if cid not in by_cycle:
+            by_cycle[cid] = i
+
+    def _resolve(key: str, default: int) -> int:
+        if key in ("mid", "last"):
+            return min(default, n - 1)
+        target = int(key)
+        return by_cycle.get(target, min(target, n - 1))
+
+    return {
+        "0": _resolve("0", 0),
+        "99": _resolve("99", 99),
+        "999": _resolve("999", 999),
+        "mid": _resolve("mid", mid),
+        "last": _resolve("last", n - 1),
+    }
 
 
 def _narrative_bundle(
@@ -148,7 +169,7 @@ def _build_agent_report_from_frames(
     phase_totals: Dict[str, float] = {label: 0.0 for _, label in _OVERVIEW_PHASE_STEPS}
     phase_grand_total = 0.0
 
-    anchor_targets = _anchor_cycle_ids(n)
+    anchor_targets = _anchor_cycle_ids(n, frames)
     anchor_narratives: Dict[str, Dict[str, Any]] = {}
     anchor_flow_status: Dict[str, Dict[str, Any]] = {}
     anchor_action_status: Dict[str, Dict[str, Any]] = {}
@@ -191,6 +212,8 @@ def _build_agent_report_from_frames(
     }
     decision_reason_counts: Dict[str, int] = {}
     anchor_explain: Dict[str, Dict[str, Any]] = {}
+    terminate_cycle_count = 0
+    interrupt_cycle_count = 0
 
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
@@ -206,6 +229,11 @@ def _build_agent_report_from_frames(
         mechanism_counts[classify_action_mechanism(r)] += 1
         dr = infer_decision_reason(r)
         decision_reason_counts[dr] = decision_reason_counts.get(dr, 0) + 1
+        rbta_act = str(getattr(f, "rbta_action", "") or "").upper()
+        if rbta_act == "TERMINATE":
+            terminate_cycle_count += 1
+        elif rbta_act == "INTERRUPT":
+            interrupt_cycle_count += 1
         bs = r.get("best_score")
         cur_score = float(bs) if isinstance(bs, (int, float)) else None
 
@@ -439,6 +467,13 @@ def _build_agent_report_from_frames(
         ),
         "cycles": n,
         "explore_ratio": round(explore_count / n, 4) if n else 0.0,
+        "rbta_safe_count": int(mechanism_counts.get("rbta_safe", 0)),
+        "rbta_safe_ratio": (
+            round(mechanism_counts.get("rbta_safe", 0) / n, 4) if n else 0.0
+        ),
+        "terminate_cycle_count": terminate_cycle_count,
+        "terminate_ratio": round(terminate_cycle_count / n, 4) if n else 0.0,
+        "interrupt_cycle_count": interrupt_cycle_count,
         "spike_count": spike_count,
         "learn_burst_count": learn_burst_count,
         "decision_shift_count": decision_shift_count,

@@ -119,7 +119,7 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce — **360 monitoring tests** (715 total with MuJoCo — [STATUS.md](../STATUS.md)).
+**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce — **386 monitoring tests** (743 total with MuJoCo — [STATUS.md](../STATUS.md)).
 
 ---
 
