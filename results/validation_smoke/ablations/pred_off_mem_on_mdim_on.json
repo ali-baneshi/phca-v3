@@ -8,22 +8,22 @@
     43,
     44
   ],
-  "duration_s": 24.099701619008556,
+  "duration_s": 21.835423281998374,
   "aggregate": {
     "metrics": {
       "phi_iq": {
-        "mean": 0.6192243339747795,
-        "std": 0.00795898403161741,
-        "min": 0.6111816011935048,
-        "max": 0.6300650828359979,
+        "mean": 0.6194757495849007,
+        "std": 0.00769655220171409,
+        "min": 0.6120350778287296,
+        "max": 0.6300759602113558,
         "n": 3,
         "values": [
-          0.6111816011935048,
-          0.6164263178948357,
-          0.6300650828359979
+          0.6120350778287296,
+          0.6163162107146167,
+          0.6300759602113558
         ],
-        "ci95_lo": 0.6111816011935048,
-        "ci95_hi": 0.6300650828359979
+        "ci95_lo": 0.6120350778287296,
+        "ci95_hi": 0.6300759602113558
       },
       "synergy": {
         "mean": 0.0,
@@ -215,18 +215,18 @@
     {
       "seed": 42,
       "metrics": {
-        "phi_iq": 0.6111816011935048,
+        "phi_iq": 0.6120350778287296,
         "prediction_accuracy": 0.6430524030702877,
         "adaptation_speed": 0.8,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.5144419224562301,
-        "resource_efficiency": 0.9770241610550632,
+        "resource_efficiency": 0.981291544231187,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.6392423286248591,
-        "level_1_phi_iq": 0.6161145301561929,
-        "level_2_phi_iq": 0.23494677058468813,
-        "level_3_phi_iq": 0.6111816011935048
+        "level_0_phi_iq": 0.6396039776213084,
+        "level_1_phi_iq": 0.6166084563745046,
+        "level_2_phi_iq": 0.23541729066191705,
+        "level_3_phi_iq": 0.6120350778287296
       },
       "emergence": {
         "novel_behaviour": 0.25,
@@ -249,18 +249,18 @@
     {
       "seed": 43,
       "metrics": {
-        "phi_iq": 0.6164263178948357,
+        "phi_iq": 0.6163162107146167,
         "prediction_accuracy": 0.655641032973667,
         "adaptation_speed": 0.8,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.5245128263789337,
-        "resource_efficiency": 0.9831059367163106,
+        "resource_efficiency": 0.9825554008152159,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.644385682888612,
-        "level_1_phi_iq": 0.63572291443797,
-        "level_2_phi_iq": 0.22856146155911125,
-        "level_3_phi_iq": 0.6164263178948357
+        "level_0_phi_iq": 0.6448655832397167,
+        "level_1_phi_iq": 0.6357105211260178,
+        "level_2_phi_iq": 0.22926483233114733,
+        "level_3_phi_iq": 0.6163162107146167
       },
       "emergence": {
         "novel_behaviour": 0.75,
@@ -283,18 +283,18 @@
     {
       "seed": 44,
       "metrics": {
-        "phi_iq": 0.6300650828359979,
+        "phi_iq": 0.6300759602113558,
         "prediction_accuracy": 0.6986598688497552,
         "adaptation_speed": 0.8,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.5589278950798041,
-        "resource_efficiency": 0.982469624020381,
+        "resource_efficiency": 0.9825240108971706,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.6639379031871241,
-        "level_1_phi_iq": 0.5856707005787809,
-        "level_2_phi_iq": 0.19963860613408344,
-        "level_3_phi_iq": 0.6300650828359979
+        "level_0_phi_iq": 0.664280239046216,
+        "level_1_phi_iq": 0.5859952958921227,
+        "level_2_phi_iq": 0.1999494341665877,
+        "level_3_phi_iq": 0.6300759602113558
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,

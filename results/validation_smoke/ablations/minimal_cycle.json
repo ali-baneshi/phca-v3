@@ -8,22 +8,22 @@
     43,
     44
   ],
-  "duration_s": 22.031166004948318,
+  "duration_s": 18.82237793202512,
   "aggregate": {
     "metrics": {
       "phi_iq": {
-        "mean": 0.37576671604909234,
-        "std": 0.008616767952176186,
-        "min": 0.3677678437238108,
-        "max": 0.3877277202768419,
+        "mean": 0.3757106635527312,
+        "std": 0.008753104620348895,
+        "min": 0.3675627383221465,
+        "max": 0.38785517426401805,
         "n": 3,
         "values": [
-          0.3677678437238108,
-          0.37180458414662443,
-          0.3877277202768419
+          0.3675627383221465,
+          0.37171407807202905,
+          0.38785517426401805
         ],
-        "ci95_lo": 0.3677678437238108,
-        "ci95_hi": 0.3877277202768419
+        "ci95_lo": 0.3675627383221465,
+        "ci95_hi": 0.3878551742640181
       },
       "synergy": {
         "mean": 0.0,
@@ -215,18 +215,18 @@
     {
       "seed": 42,
       "metrics": {
-        "phi_iq": 0.3677678437238108,
+        "phi_iq": 0.3675627383221465,
         "prediction_accuracy": 0.6562345879161537,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.524987670332923,
-        "resource_efficiency": 0.9841019731913028,
-        "failure_rate": 1.9904761904761905,
+        "resource_efficiency": 0.9854573985639339,
+        "failure_rate": 1.9952380952380953,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.4028308501110113,
-        "level_1_phi_iq": 0.5292898398120484,
-        "level_2_phi_iq": 0.14242204618570536,
-        "level_3_phi_iq": 0.3677678437238108
+        "level_0_phi_iq": 0.4030642228753184,
+        "level_1_phi_iq": 0.5263217278624747,
+        "level_2_phi_iq": 0.1412667292132212,
+        "level_3_phi_iq": 0.3675627383221465
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,
@@ -241,7 +241,7 @@
       },
       "failures": {
         "rbta_terminate_max_streak": 0,
-        "total_violations": 1663,
+        "total_violations": 1677,
         "goal_thrash_events": 0
       },
       "duration_s": 0.0
@@ -249,18 +249,18 @@
     {
       "seed": 43,
       "metrics": {
-        "phi_iq": 0.37180458414662443,
+        "phi_iq": 0.37171407807202905,
         "prediction_accuracy": 0.66962102289923,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.535696818319384,
-        "resource_efficiency": 0.9852483317134015,
+        "resource_efficiency": 0.984795801340425,
         "failure_rate": 1.9952380952380953,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.4054078272388324,
-        "level_1_phi_iq": 0.5425294719505422,
-        "level_2_phi_iq": 0.149146965056637,
-        "level_3_phi_iq": 0.37180458414662443
+        "level_0_phi_iq": 0.4041753490530539,
+        "level_1_phi_iq": 0.5384426178700944,
+        "level_2_phi_iq": 0.13190734279956362,
+        "level_3_phi_iq": 0.37171407807202905
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,
@@ -275,7 +275,7 @@
       },
       "failures": {
         "rbta_terminate_max_streak": 0,
-        "total_violations": 1627,
+        "total_violations": 1677,
         "goal_thrash_events": 0
       },
       "duration_s": 0.0
@@ -283,18 +283,18 @@
     {
       "seed": 44,
       "metrics": {
-        "phi_iq": 0.3877277202768419,
+        "phi_iq": 0.38785517426401805,
         "prediction_accuracy": 0.7189668640652028,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.5751734912521623,
-        "resource_efficiency": 0.9859106664989321,
+        "resource_efficiency": 0.9865479364348132,
         "failure_rate": 1.9952380952380953,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.42604822193492053,
-        "level_1_phi_iq": 0.5482189421538923,
-        "level_2_phi_iq": 0.11624294141225941,
-        "level_3_phi_iq": 0.3877277202768419
+        "level_0_phi_iq": 0.41694835160036375,
+        "level_1_phi_iq": 0.4975396604646656,
+        "level_2_phi_iq": 0.10338366838134894,
+        "level_3_phi_iq": 0.38785517426401805
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,
@@ -309,7 +309,7 @@
       },
       "failures": {
         "rbta_terminate_max_streak": 0,
-        "total_violations": 1520,
+        "total_violations": 1677,
         "goal_thrash_events": 0
       },
       "duration_s": 0.0

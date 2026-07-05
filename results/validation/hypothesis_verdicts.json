@@ -17,7 +17,7 @@
   },
   {
     "id": "H002",
-    "claim": "Prediction enables transfer beyond local reward",
+    "claim": "Prediction enables transfer beyond local reward (transfer_efficiency proxy)",
     "metric": "transfer_efficiency",
     "intervention": "enable_prediction=false",
     "predicted_failure": "transfer_efficiency drops >25% vs full system",
@@ -51,9 +51,13 @@
     "intervention": "partial ablations",
     "predicted_failure": "unexpected_skill_chains near 0 for all single-module ablations",
     "seeds": 30,
-    "status": "Partially_supported",
+    "manifest": "experiments/interaction_test.json",
+    "status": "Refuted",
     "observed": {
-      "note": "Requires interaction_test.json comparison"
+      "r2_full": 1.0,
+      "r2_no_prediction": 1.0,
+      "interaction_supported": 0.0,
+      "n_seeds": 30
     },
     "verdict_date": "2026-07-05"
   },
