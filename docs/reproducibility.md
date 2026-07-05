@@ -64,7 +64,17 @@ MUJOCO_GL=disabled make test-all
 MUJOCO_GL=disabled make test-mujoco
 ```
 
-Expected: **707** core + **36** MuJoCo = **743** total ([STATUS.md](../STATUS.md)).
+Expected: **766** in `python/` + **36** MuJoCo optional ([STATUS.md](../STATUS.md)).
+
+### Two benchmark execution paths
+
+| Path | Entry | Emergence / synergy |
+|------|-------|---------------------|
+| Scaling steps | `scripts/benchmark.py` | No — Φ-IQ sub-metrics only |
+| Ablations / OOD | `scripts/run_experiment.py` → `evaluation/runner.py` | Yes — trace-based |
+
+Smoke profile (`--profile smoke`) uses 3 seeds and is **CI sanity only**; hypothesis
+verdicts (e.g. H003 synergy) may differ from full 30-seed runs.
 
 ### Φ-IQ benchmark (canonical)
 

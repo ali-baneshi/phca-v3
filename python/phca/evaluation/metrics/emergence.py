@@ -83,8 +83,11 @@ def adaptation_stability(trace: Sequence[CycleTraceRecord], window: int = 20) ->
 
 
 def cross_context_reuse(trace: Sequence[CycleTraceRecord]) -> float:
-    """Action policy similarity before/after goal switches."""
-    switch_indices = [i for i, t in enumerate(trace) if t.goal_switched]
+    """Action policy similarity before/after context switches (goal relocation or drive change)."""
+    switch_indices = [
+        i for i, t in enumerate(trace)
+        if t.env_goal_relocated or t.goal_switched
+    ]
     if not switch_indices:
         return 0.0
     actions = _actions(trace)

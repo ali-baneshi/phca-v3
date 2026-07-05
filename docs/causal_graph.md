@@ -19,7 +19,7 @@ Desync variant runs **regulation before prediction** (see `DESYNC_STAGE_ORDER`).
 |------|-------|--------|--------------|--------------------------|----------------------------------------|
 | E001 | PredictionEngine | Action diversity, transfer proxy | `enable_prediction=false` | Higher ε-explore; transfer_efficiency ↓ | strategy_diversity **+0.446**; transfer_efficiency **+0.174** (confounded by `causal_fair`); Φ-IQ **+0.087** |
 | E002 | MDIM | L3 goal complexity | `enable_mdim=false` | self_generated_goals → 0 | self_generated_goals **0→0**; Φ-IQ **−0.150**; emergence_composite unchanged |
-| E003 | M3+Consolidation | cross_context_reuse | `enable_consolidation=false` | reuse < 0.2 under relocation | cross_context_reuse **0→0** (grid5, no relocation); emergence_composite **+0.079** |
+| E003 | M3+Consolidation | cross_context_reuse | `enable_consolidation=false` | reuse < 0.2 under relocation | measured via `env_goal_relocated` trace flag (grid10, dynamic_goals_every=50) |
 | E004 | Attention | adaptation_speed | `enable_attention=false` | slower error reduction | not isolated in this suite |
 | E005 | TSPL | adaptation_speed | `enable_tspl=false` | skill compilation stalls | not isolated in this suite |
 | E006 | RBTA | exploration/safety tradeoff | tight energy bounds | TERMINATE ↑, diversity ↓ | strategy_diversity **0**; Φ-IQ **−0.015** |

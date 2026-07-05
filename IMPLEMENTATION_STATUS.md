@@ -83,6 +83,18 @@ evidence separate from invariant tests.
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
 | **Scientific validation suite** | `make validate-science` / `run_validation_suite.py` | Local | **Complete** (2026-07-05); 24 experiments × 30 seeds → `results/validation/` |
 
+### Scientific metrics (2026-07-05 audit)
+
+| Metric / hypothesis | Implementation | Notes |
+|---|---|---|
+| `cross_context_reuse` | `emergence.py` | Uses `env_goal_relocated` + `goal_switched` trace flags (D-128) |
+| H004 interaction | `aggregate_validation.py` | Reads `interaction_test.json`; multiseed traces in `run_experiment.py` |
+| `transfer_efficiency` | `phi_iq.py` | Proxy only — not cross-task transfer |
+| H003 synergy | `synergy.py` | Noisy; smoke (3 seeds) may flip verdict vs full (30) |
+| `goal_thrash_events` | `runner._collect_failures` | MDIM drive changes — not env goal relocation |
+
+See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
+
 **Scope note:** Observatory Phases 7–20 are complete. Whole PHCA blueprint items
 (M5, L4–L5, grounding adapter, etc.) remain in backlog below.
 

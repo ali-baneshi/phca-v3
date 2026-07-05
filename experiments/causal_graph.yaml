@@ -16,7 +16,7 @@ edges:
     effect: cross_context_reuse
     intervention: enable_consolidation=false
     predicted_change: "cross_context_reuse < 0.2 under goal relocation"
-    observed_delta: "cross_context_reuse 0->0 (grid5, no relocation); emergence_composite +0.079"
+    observed_delta: "cross_context_reuse measured via env_goal_relocated trace flag (grid10, dynamic_goals_every=50)"
   - id: E004
     cause: Attention
     effect: adaptation_speed

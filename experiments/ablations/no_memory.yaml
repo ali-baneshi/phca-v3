@@ -4,7 +4,7 @@ predicted_failure: "If cross_context_reuse >= full system, memory claim fails"
 seeds: 30
 base_seed: 42
 cycles: 200
-grid_size: 5
+grid_size: 10
 use_mlp: true
 levels: [2]
 dynamic_goals: true

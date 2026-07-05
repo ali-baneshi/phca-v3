@@ -27,6 +27,10 @@ Sensitivity passes on **1/2** ablation contrasts (full > minimal only).
 
 **Observed:** r = **0.992** (n_early=50, n_late=150) — **Validated** (H006).
 
+> **Caveat:** Early Φ-IQ and late goal_rate are both derived from the same L2 run;
+> very high r may partly reflect tautology. Decomposition regression (study 3) is
+> still recommended before citing r as independent predictive power.
+
 ### 3. Decomposition
 
 Regress later goal_rate on subindices (prediction_accuracy, adaptation_speed, goal_complexity, transfer_efficiency, resource_efficiency, failure_rate).

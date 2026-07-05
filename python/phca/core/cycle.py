@@ -726,7 +726,9 @@ class CognitiveCycle:
                         self._attention_weights.tolist()
                         if self.interventions.enable_attention else None
                     ),
+                    env_goal_relocated=getattr(self, "_env_goal_relocated", False),
                 )
+                self._env_goal_relocated = False
             if len(self.metrics_history) > 5000:
                 self.metrics_history = self.metrics_history[-5000:]
 

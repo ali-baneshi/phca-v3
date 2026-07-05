@@ -74,12 +74,14 @@ def evaluate_hypotheses(
     desync = results.get("ablations/desync.json") or results.get("ablations/desync")
     minimal = results.get("ablations/minimal_cycle.json") or results.get("ablations/minimal_cycle")
     phiq = results.get("phi_iq_validation.json") or results.get("phi_iq_validation")
+    interaction = results.get("ablations/interaction_test.json") or results.get("ablations/interaction_test")
 
     verdicts = []
     for h in hypotheses:
         hid = h["id"]
         status = "Partially_supported"
         observed: Dict[str, Any] = {}
+        n_seeds_hint = int(h.get("seeds", 30))
 
         if hid == "H001" and no_mem and full:
             reuse_ab = _extract_metric(no_mem, "cross_context_reuse") or 0
@@ -98,6 +100,10 @@ def evaluate_hypotheses(
             s_ab = _extract_metric(desync, "synergy") or 0
             s_full = _extract_metric(full, "synergy") or 0
             observed = {"synergy_ablated": s_ab, "synergy_full": s_full}
+            if n_seeds_hint < 10:
+                observed["low_seed_warning"] = (
+                    "Synergy verdict unstable below 10 seeds; smoke profile is CI sanity only."
+                )
             status = "Validated" if s_ab < 0.5 * max(s_full, 1e-6) else "Refuted"
 
         elif hid == "H005" and minimal and full:
@@ -112,8 +118,30 @@ def evaluate_hypotheses(
             observed = {"pearson_r": r}
             status = "Validated" if r >= 0.7 else "Refuted"
 
+        elif hid == "H004" and interaction:
+            inter = interaction.get("interaction", {})
+            r2_full = float(inter.get("r2_full", 1.0))
+            r2_ab = float(inter.get("r2_no_prediction", inter.get("r2_max_ablated", 1.0)))
+            supported = float(inter.get("interaction_supported", 0.0))
+            observed = {
+                "r2_full": r2_full,
+                "r2_no_prediction": r2_ab,
+                "interaction_supported": supported,
+                "n_seeds": interaction.get("n_seeds", n_seeds_hint),
+            }
+            if n_seeds_hint < 10:
+                observed["low_seed_warning"] = (
+                    "Verdict may be unstable with fewer than 10 seeds; prefer full profile."
+                )
+            if supported > 0.0 and r2_full < 0.9:
+                status = "Validated"
+            elif r2_full >= 0.95 and r2_ab >= 0.95:
+                status = "Refuted"
+            else:
+                status = "Partially_supported"
+
         elif hid == "H004":
-            observed = {"note": "Requires interaction_test.json comparison"}
+            observed = {"note": "interaction_test.json missing"}
             status = "Partially_supported"
 
         verdicts.append({

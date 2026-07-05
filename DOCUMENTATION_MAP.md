@@ -104,6 +104,7 @@ not describe the running system verbatim.
 Always cite from [STATUS.md](STATUS.md) and named log files in
 [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md):
 
-- **743 tests** (707 core + 36 MuJoCo)
+- **766 tests** in `python/` (+ 36 MuJoCo optional)
 - **386 monitoring tests** (`pytest python/phca/monitoring/tests/`)
 - **Overall Φ-IQ 0.7323** (MLP, 200 cyc/level, seed 42)
+- Drift audit: [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md)

@@ -1,5 +1,9 @@
 # PHCA v3.0 — Terminal Monitoring & Live Dashboard Plan
 
+> **⚠️ SUPERSEDED:** Canonical UI is [`scripts/phca_observatory.py`](../scripts/phca_observatory.py)
+> (Cognitive Observatory). `scripts/phca-monitor.py` was removed. See
+> [observability.md](observability.md).
+
 **Status:** ✅ **EXECUTED** — see `docs/monitoring_completion_report.md` for results
 **Requirement:** Live terminal dashboard + easy log access, stdlib only, no performance impact
 

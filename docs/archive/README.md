@@ -1,7 +1,7 @@
 # Archived Documentation
 
-Historical phase reports and audit snapshots. Metrics in these files reflect
-**the date of the report**, not current STATUS.md.
+Historical phase reports and audit snapshots. **Test counts and benchmark numbers
+in these files are stale** — cross-check [STATUS.md](../../STATUS.md) before citing.
 
 | File | Date / phase | Notes |
 |---|---|---|

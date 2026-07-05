@@ -7,5 +7,7 @@ cycles: 200
 grid_size: 5
 use_mlp: true
 levels: [0, 1, 2, 3]
+dynamic_goals: true
+dynamic_goals_every: 50
 ablation: {}
 output: results/validation/ablations/full_system.json

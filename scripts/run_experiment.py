@@ -16,7 +16,7 @@ except ImportError:
 
 from phca.evaluation.interventions import InterventionConfig
 from phca.evaluation.metrics.interaction import interaction_test, signature_distance
-from phca.evaluation.metrics.statistics import compare_groups, seed_sequence
+from phca.evaluation.metrics.statistics import aggregate_runs, compare_groups, seed_sequence
 from phca.evaluation.result_schema import BenchmarkConfig
 from phca.evaluation.runner import (
     build_cycle,
@@ -97,21 +97,50 @@ def run_manifest(
     }
 
     if manifest.get("interaction_test"):
-        full_trace = TraceCollector()
-        ablated_trace = TraceCollector()
-        build_cycle(seed=base, use_mlp=use_mlp, trace_collector=full_trace).run(cycles)
-        build_cycle(
-            seed=base, use_mlp=use_mlp,
-            interventions=InterventionConfig.no_prediction(),
-            trace_collector=ablated_trace,
-        ).run(cycles)
-        result["interaction"] = interaction_test(
-            full_trace.snapshot(),
-            {"no_prediction": ablated_trace.snapshot()},
-        )
-        result["signature_distance"] = signature_distance(
-            full_trace.snapshot(), ablated_trace.snapshot(),
-        )
+        per_seed_interaction = []
+        per_seed_distance = []
+        for seed in seed_sequence(base, seeds):
+            full_trace = TraceCollector()
+            ablated_trace = TraceCollector()
+            for level in levels:
+                cycle_full = build_cycle(
+                    seed=seed + level,
+                    use_mlp=use_mlp,
+                    grid_size=grid_size,
+                    level=level,
+                    trace_collector=full_trace,
+                )
+                for _ in range(cycles):
+                    cycle_full.step()
+                cycle_ab = build_cycle(
+                    seed=seed + level,
+                    use_mlp=use_mlp,
+                    grid_size=grid_size,
+                    level=level,
+                    interventions=InterventionConfig.no_prediction(),
+                    trace_collector=ablated_trace,
+                )
+                for _ in range(cycles):
+                    cycle_ab.step()
+            per_seed_interaction.append(
+                interaction_test(
+                    full_trace.snapshot(),
+                    {"no_prediction": ablated_trace.snapshot()},
+                )
+            )
+            per_seed_distance.append(
+                signature_distance(full_trace.snapshot(), ablated_trace.snapshot())
+            )
+        keys = list(per_seed_interaction[0].keys()) if per_seed_interaction else []
+        interaction_agg: Dict[str, float] = {}
+        for key in keys:
+            vals = [float(row[key]) for row in per_seed_interaction]
+            interaction_agg[key] = float(sum(vals) / len(vals)) if vals else 0.0
+        result["interaction"] = interaction_agg
+        result["interaction_per_seed"] = per_seed_interaction
+        result["signature_distance"] = float(
+            sum(per_seed_distance) / len(per_seed_distance)
+        ) if per_seed_distance else 0.0
 
     out_path = output or manifest.get("output", f"results/validation/ablations/{name}.json")
     save_result(result, out_path)

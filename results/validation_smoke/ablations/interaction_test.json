@@ -8,22 +8,22 @@
     43,
     44
   ],
-  "duration_s": 9.13533506100066,
+  "duration_s": 11.455050462041982,
   "aggregate": {
     "metrics": {
       "phi_iq": {
-        "mean": 0.5371587565438719,
-        "std": 0.0295763898654348,
-        "min": 0.4954587636883233,
-        "max": 0.560833147259576,
+        "mean": 0.5364474475143729,
+        "std": 0.029783643995722014,
+        "min": 0.49447581547530595,
+        "max": 0.5604967178715354,
         "n": 3,
         "values": [
-          0.5551843586837163,
-          0.560833147259576,
-          0.4954587636883233
+          0.5543698091962773,
+          0.5604967178715354,
+          0.49447581547530595
         ],
-        "ci95_lo": 0.49545876368832326,
-        "ci95_hi": 0.560833147259576
+        "ci95_lo": 0.49447581547530595,
+        "ci95_hi": 0.5604967178715354
       },
       "synergy": {
         "mean": 0.0,
@@ -215,16 +215,16 @@
     {
       "seed": 42,
       "metrics": {
-        "phi_iq": 0.5551843586837163,
+        "phi_iq": 0.5543698091962773,
         "prediction_accuracy": 0.6479693166920469,
         "adaptation_speed": 0.6,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.38878159001522816,
-        "resource_efficiency": 0.9863662842151132,
+        "resource_efficiency": 0.9822935367779185,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_2_phi_iq": 0.6501443572491712,
-        "level_3_phi_iq": 0.5551843586837163
+        "level_2_phi_iq": 0.6492493665531759,
+        "level_3_phi_iq": 0.5543698091962773
       },
       "emergence": {
         "novel_behaviour": 0.2,
@@ -247,16 +247,16 @@
     {
       "seed": 43,
       "metrics": {
-        "phi_iq": 0.560833147259576,
+        "phi_iq": 0.5604967178715354,
         "prediction_accuracy": 0.6684754357922975,
         "adaptation_speed": 0.6,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.4010852614753785,
-        "resource_efficiency": 0.9848763543990485,
+        "resource_efficiency": 0.9831942074588456,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_2_phi_iq": 0.6535774429451139,
-        "level_3_phi_iq": 0.560833147259576
+        "level_2_phi_iq": 0.6531418355561435,
+        "level_3_phi_iq": 0.5604967178715354
       },
       "emergence": {
         "novel_behaviour": 0.25,
@@ -279,16 +279,16 @@
     {
       "seed": 44,
       "metrics": {
-        "phi_iq": 0.4954587636883233,
+        "phi_iq": 0.49447581547530595,
         "prediction_accuracy": 0.6472846127477125,
         "adaptation_speed": 0.4,
         "goal_complexity": 1.0,
         "transfer_efficiency": 0.25891384509908505,
-        "resource_efficiency": 0.9858238218695901,
+        "resource_efficiency": 0.980909080804503,
         "failure_rate": 1.0,
         "synergy": 0.0,
-        "level_2_phi_iq": 0.6814287651432153,
-        "level_3_phi_iq": 0.4954587636883233
+        "level_2_phi_iq": 0.6806201247999452,
+        "level_3_phi_iq": 0.49447581547530595
       },
       "emergence": {
         "novel_behaviour": 0.3333333333333333,
@@ -324,12 +324,38 @@
     ]
   },
   "interaction": {
-    "r2_full": 1.0,
-    "r2_max_ablated": 1.0,
-    "interaction_gain": 0.0,
-    "unpredictable": 0.0,
-    "interaction_supported": 0.0,
-    "r2_no_prediction": 1.0
+    "r2_full": 0.8971069856103897,
+    "r2_max_ablated": 0.8771584677608889,
+    "interaction_gain": 0.02061930444287796,
+    "unpredictable": 0.3333333333333333,
+    "interaction_supported": 0.3333333333333333,
+    "r2_no_prediction": 0.8771584677608889
   },
+  "interaction_per_seed": [
+    {
+      "r2_full": 0.9304818400939483,
+      "r2_max_ablated": 0.9281963089965046,
+      "interaction_gain": 0.0022855310974436716,
+      "unpredictable": 0.0,
+      "interaction_supported": 0.0,
+      "r2_no_prediction": 0.9281963089965046
+    },
+    {
+      "r2_full": 0.9419208445869444,
+      "r2_max_ablated": 0.943933204367076,
+      "interaction_gain": 0.0,
+      "unpredictable": 0.0,
+      "interaction_supported": 0.0,
+      "r2_no_prediction": 0.943933204367076
+    },
+    {
+      "r2_full": 0.8189182721502766,
+      "r2_max_ablated": 0.7593458899190864,
+      "interaction_gain": 0.05957238223119021,
+      "unpredictable": 1.0,
+      "interaction_supported": 1.0,
+      "r2_no_prediction": 0.7593458899190864
+    }
+  ],
   "signature_distance": 0.0
 }

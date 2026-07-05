@@ -2,7 +2,7 @@
   "cycles": 1000,
   "seed": 42,
   "grid_size": 5,
-  "duration_s": 8.931741988984868,
+  "duration_s": 11.722973117954098,
   "final_emergence": {
     "novel_behaviour": 0.0,
     "strategy_diversity": 0.17428763014579252,

@@ -10,7 +10,7 @@ budgets every cycle.
 **Observatory Phases 7–20 complete** (cognitive observability, replay, multi-agent,
 interactive query, `make reproduce`; D-108–D-127). See
 [docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
-**743 tests** passing (`make test-python` 707 + `make test-mujoco` 36).
+**766 tests** in `python/` (+ **36** MuJoCo optional; `MUJOCO_GL=disabled make test-mujoco`).
 Overall Φ-IQ **0.7323** (4-level MLP, 200 cyc, re-measured 2026-07-05).
 Scientific validation suite (30 seeds × 24 experiments): aggregate Φ-IQ
 **0.526 ± 0.189** (n=20 pooled experiment means; CI95 0.435–0.603). Scaling
@@ -59,7 +59,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (707 core + 36 MuJoCo = 743; set MUJOCO_GL=disabled for headless)
+# Run all tests (766 in python/ + 36 MuJoCo optional; set MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco
@@ -214,7 +214,8 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
     full_system Φ-IQ:     0.631 ± 0.029
     scaling overall Φ-IQ: 0.700 ± 0.046 (5×5) | 0.325 ± 0.042 (10×10) | 0.147 ± 0.042 (20×20)
     Φ-IQ predictive r:    0.992 (H006 Validated)
-    Hypotheses H001–H005: Refuted; H004 Partially_supported
+    Hypotheses (30-seed full run): H006 Validated; H001–H003,H005 Refuted;
+    H004 from interaction_test (see hypothesis_verdicts.json). Smoke (3 seeds) may differ.
 ```
 
 ### Causal Evidence Gate

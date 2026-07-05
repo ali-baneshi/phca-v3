@@ -18,6 +18,7 @@ class CycleTraceRecord:
     prediction_confidence: float = 0.0
     goal_drive: int = 1
     goal_switched: bool = False
+    env_goal_relocated: bool = False
     rbta_action: str = "CONTINUE"
     violations: int = 0
     latency_ms: float = 0.0
@@ -53,6 +54,7 @@ class TraceCollector:
         module_timings: Dict[str, float],
         attention_weights: Optional[List[float]] = None,
         predicted_state_hash: Optional[str] = None,
+        env_goal_relocated: bool = False,
     ) -> None:
         goal_switched = (
             self._last_goal_drive is not None and self._last_goal_drive != goal_drive
@@ -66,6 +68,7 @@ class TraceCollector:
             prediction_confidence=prediction_confidence,
             goal_drive=goal_drive,
             goal_switched=goal_switched,
+            env_goal_relocated=env_goal_relocated,
             rbta_action=rbta_action,
             violations=violations,
             latency_ms=latency_ms,

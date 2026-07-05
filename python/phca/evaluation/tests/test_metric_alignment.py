@@ -79,6 +79,26 @@ def test_cross_context_reuse_uses_trace_windows():
     assert 0.0 <= score <= 1.0
 
 
+def test_cross_context_reuse_detects_env_goal_relocation():
+    records = []
+    for i in range(80):
+        action = i % 4 if i % 5 != 0 else -1
+        records.append(
+            CycleTraceRecord(
+                cycle_id=i,
+                action=action,
+                prediction_error=0.1,
+                prediction_confidence=0.5,
+                goal_drive=1,
+                goal_switched=False,
+                env_goal_relocated=(i in (40, 60)),
+                goal_reached=False,
+            )
+        )
+    score = cross_context_reuse(records)
+    assert score > 0.0
+
+
 def test_behavioral_compression_is_deterministic():
     trace = _trace_with_gaps(50)
     assert behavioral_compression(trace) == behavioral_compression(trace)

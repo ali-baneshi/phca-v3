@@ -25,7 +25,7 @@ single score between 0.0 and 1.0.
 |---|---|---|
 | PredictionAccuracy | 0.20 | Inverse of normalised mean prediction error |
 | AdaptationSpeed | 0.20 | Early vs late error/goals improvement |
-| GoalComplexity | 0.15 | L2 goal rate; L0/L3 drive diversity; L1 action diversity |
+| GoalComplexity | 0.15 | L2 goal rate; L0/L3 drive diversity; L1 `unique_actions / action_space_size` |
 | TransferEfficiency | 0.15 | **`adaptation × prediction` proxy** — not cross-task transfer |
 | ResourceEfficiency | 0.20 | `1 − mean_latency_ms / 500` |
 | FailureRate | 0.10 | RBTA violations per cycle (subtracted) |
@@ -47,7 +47,8 @@ Static environment; world model learns identity-like dynamics.
 
 ### Level 1 — Reactive Control
 
-Active control; prediction under action; action diversity measured.
+Active control; prediction under action. **Goal complexity** =
+`unique_actions / env.action_space_size` (GridWorld: 5 actions including STAY).
 
 ### Level 2 — Goal Pursuit
 
@@ -55,7 +56,18 @@ Active control; prediction under action; action diversity measured.
 
 ### Level 3 — Self-Motivated Exploration
 
-No external goal; MDIM drive diversity is the primary signal.
+No external goal. **Adaptation speed** = action diversity /
+`env.action_space_size`. **Goal complexity** from MDIM active drives (/5), or
+action diversity if MDIM is disabled.
+
+### Emergence trace metrics
+
+Operational emergence (`emergence.py`) uses cycle traces. Key semantics:
+
+- `goal_switched`: intrinsic drive id changed (MDIM)
+- `env_goal_relocated`: `GridWorld.relocate_goal()` before this cycle
+- `cross_context_reuse`: action-profile similarity around either switch type
+- `behavioral_compression`: deterministic zlib baseline (seeded from action bytes)
 
 ---
 

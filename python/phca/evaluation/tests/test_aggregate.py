@@ -42,6 +42,38 @@ def test_evaluate_h006_refuted():
     assert verdicts[0]["status"] == "Refuted"
 
 
+def test_evaluate_h004_refuted_when_fully_predictable():
+    hypotheses = [{"id": "H004", "seeds": 30}]
+    results = {
+        "ablations/interaction_test.json": {
+            "n_seeds": 30,
+            "interaction": {
+                "r2_full": 1.0,
+                "r2_no_prediction": 1.0,
+                "interaction_supported": 0.0,
+            },
+        },
+    }
+    verdicts = evaluate_hypotheses(hypotheses, results)
+    assert verdicts[0]["status"] == "Refuted"
+
+
+def test_evaluate_h004_validated_when_interaction_supported():
+    hypotheses = [{"id": "H004", "seeds": 30}]
+    results = {
+        "ablations/interaction_test.json": {
+            "n_seeds": 30,
+            "interaction": {
+                "r2_full": 0.6,
+                "r2_no_prediction": 0.4,
+                "interaction_supported": 1.0,
+            },
+        },
+    }
+    verdicts = evaluate_hypotheses(hypotheses, results)
+    assert verdicts[0]["status"] == "Validated"
+
+
 def test_desync_stage_order_matches_cycle_implementation():
     from phca.evaluation.interventions import DESYNC_STAGE_ORDER
 

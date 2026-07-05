@@ -7,26 +7,26 @@
       "u_statistic": 100.0,
       "p_value": 0.00018267179110955002,
       "significant_005": true,
-      "a_mean": 0.5685147420817195,
-      "b_mean": 0.12423955038374031,
+      "a_mean": 0.5676857553381147,
+      "b_mean": 0.12742179119519897,
       "direction_ok": true,
       "passed": true
     },
     "full_vs_no_prediction": {
-      "u_statistic": 56.0,
-      "p_value": 0.6775849579524755,
+      "u_statistic": 58.0,
+      "p_value": 0.5707503880581739,
       "significant_005": false,
-      "a_mean": 0.5685147420817195,
-      "b_mean": 0.5667836513962934,
+      "a_mean": 0.5676857553381147,
+      "b_mean": 0.565643438973032,
       "direction_ok": true,
       "passed": false
     },
-    "full_mean": 0.5685147420817195,
-    "minimal_mean": 0.12423955038374031,
-    "no_pred_mean": 0.5667836513962934
+    "full_mean": 0.5676857553381147,
+    "minimal_mean": 0.12742179119519897,
+    "no_pred_mean": 0.565643438973032
   },
   "predictive_validity": {
-    "pearson_r": 0.9835452300810984,
+    "pearson_r": 0.983501377437509,
     "pass_r_0_7": true,
     "n_early": 50,
     "n_late": 150
