@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick validate-science
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -181,6 +181,19 @@ reproduce:
 reproduce-quick:
 	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH \
 	    python scripts/reproduce.py --profile quick
+
+validate-science:
+	@echo "Running full scientific validation suite..."
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH \
+	    python scripts/run_validation_suite.py --profile full --base-seed 42 \
+	    --output-root results/validation --resume
+	@echo "Aggregating results..."
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH \
+	    python scripts/aggregate_validation.py \
+	    --input results/validation \
+	    --hypotheses experiments/hypotheses.yaml \
+	    --output results/validation/summary.json
+	@echo "✅ validate-science complete — see results/validation/summary.json"
 
 # ── Profiling ────────────────────────────────────────────────
 

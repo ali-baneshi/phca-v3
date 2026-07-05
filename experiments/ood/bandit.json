@@ -1,0 +1,12 @@
+{
+  "name": "ood_bandit",
+  "hypothesis": "PHCA generalizes to non-grid sequential decision (bandit) domain",
+  "predicted_failure": "If phi_iq < 0.3 on bandit, architecture is grid-specific",
+  "seeds": 30,
+  "base_seed": 42,
+  "cycles": 200,
+  "use_mlp": true,
+  "environment": "bandit",
+  "levels": [0, 1, 2],
+  "output": "results/validation/ood/bandit.json"
+}

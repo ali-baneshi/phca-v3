@@ -352,7 +352,13 @@ class CognitiveCycle:
                 ) if self._relevant_facts else 0.0
                 fact_count = len(self._relevant_facts)
 
-                self._planning_grid = self._build_planning_wall_grid() if self.interventions.enable_consolidation else None
+                if (
+                    self.interventions.enable_consolidation
+                    and not self.interventions.disable_planning_grid
+                ):
+                    self._planning_grid = self._build_planning_wall_grid()
+                else:
+                    self._planning_grid = None
 
                 env_goal_pos = self.env.get_goal_position()
                 goal_switch_boost = False
@@ -369,6 +375,8 @@ class CognitiveCycle:
                     self._goal_switch_cooldown -= 1
 
                 self._task_lock = env_goal_pos is not None
+                if self.interventions.disable_task_lock:
+                    self._task_lock = False
                 self._cycle_flops = self._compute_cycle_flops()
                 if self._cycle_flops > 0:
                     energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
@@ -1706,6 +1714,8 @@ class CognitiveCycle:
         enable_camera: bool = False,
         metrics_store: Optional["MetricsStore"] = None,
         observability_store: Optional["ObservabilityStore"] = None,
+        interventions: Optional[InterventionConfig] = None,
+        trace_collector: Optional[TraceCollector] = None,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for a MuJoCo physics environment.
 
@@ -1753,6 +1763,8 @@ class CognitiveCycle:
             action_b_time=0.050,      # MuJoCo step() overhead
             metrics_store=metrics_store,
             observability_store=observability_store,
+            interventions=interventions,
+            trace_collector=trace_collector,
         )
 
     @classmethod

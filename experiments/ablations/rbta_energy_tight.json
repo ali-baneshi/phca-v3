@@ -1,0 +1,16 @@
+{
+  "name": "rbta_energy_tight",
+  "hypothesis": "Tightened RBTA energy bounds increase TERMINATE streaks and reduce goal rate",
+  "predicted_failure": "If goal_rate unchanged under tight energy, RBTA is not regulating",
+  "seeds": 30,
+  "base_seed": 42,
+  "cycles": 200,
+  "grid_size": 5,
+  "use_mlp": true,
+  "levels": [0, 1, 2, 3],
+  "ablation": {
+    "resource_policy": "energy",
+    "rbta_energy_scale": 0.3
+  },
+  "output": "results/validation/ablations/rbta_energy_tight.json"
+}

@@ -48,3 +48,7 @@ id_rsa.pub
 # Large local artifacts
 *.mp4
 *.whl
+*.ckpt
+
+# Validation checkpoints (summaries committed under results/validation/)
+results/validation/*.ckpt

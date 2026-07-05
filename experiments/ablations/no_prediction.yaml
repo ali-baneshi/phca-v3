@@ -1,12 +1,13 @@
 name: no_prediction
 hypothesis: "Disabling prediction increases action entropy and reduces transfer proxy"
 predicted_failure: "If phi_iq unchanged and strategy_diversity does not rise, prediction edge is not causal"
-seeds: 5
+seeds: 30
 base_seed: 42
 cycles: 200
 grid_size: 5
 use_mlp: true
-levels: [2, 3]
+levels: [0, 1, 2, 3]
+causal_fair: true
 ablation:
   enable_prediction: false
-output: logs/experiments/no_prediction.json
+output: results/validation/ablations/no_prediction.json

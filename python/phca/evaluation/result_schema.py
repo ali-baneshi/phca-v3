@@ -28,6 +28,8 @@ class BenchmarkConfig:
     dynamic_goals: bool = False
     dynamic_goals_every: int = 100
     action_slip: float = 0.0
+    environment: str = "gridworld"
+    mujoco_env: str = "Pendulum-v1"
     weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
 
 

@@ -1,0 +1,13 @@
+{
+  "name": "ood_mujoco_pendulum",
+  "hypothesis": "PHCA maintains emergence metrics on continuous MuJoCo control",
+  "predicted_failure": "If synergy < 0.1 on pendulum, cycle coupling is grid-specific",
+  "seeds": 30,
+  "base_seed": 42,
+  "cycles": 200,
+  "use_mlp": true,
+  "environment": "mujoco",
+  "mujoco_env": "Pendulum-v1",
+  "levels": [0, 1],
+  "output": "results/validation/ood/mujoco_pendulum.json"
+}

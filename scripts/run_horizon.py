@@ -18,29 +18,64 @@ from phca.core.cycle import CognitiveCycle
 from phca.evaluation.metrics.emergence import compute_emergence_bundle
 from phca.evaluation.metrics.phi_iq import generate_goal_pursuit_obstacles
 from phca.evaluation.metrics.synergy import synergy_score
-from phca.evaluation.trace import TraceCollector
+from phca.evaluation.trace import CycleTraceRecord, TraceCollector
 from phca.logging import ensure_logging
 
 
-def _rolling_windows(trace, window: int = 1000) -> List[Dict[str, float]]:
-    records = trace.snapshot()
-    if len(records) < window:
-        return [compute_emergence_bundle(records)]
-    out = []
-    for i in range(0, len(records) - window + 1, window):
-        chunk = records[i : i + window]
-        bundle = compute_emergence_bundle(chunk)
-        bundle["synergy"] = synergy_score(chunk)
-        bundle["window_start"] = i
-        out.append(bundle)
-    return out
+class RollingTrace:
+    """Keep only the latest window for emergence metrics (memory-safe)."""
+
+    def __init__(self, window: int = 1000):
+        self.window = window
+        self._records: List[CycleTraceRecord] = []
+        self._summaries: List[Dict[str, float]] = []
+        self._last_goal_drive: int | None = None
+
+    def record(self, **kwargs) -> None:
+        drive = kwargs.get("goal_drive", 1)
+        switched = self._last_goal_drive is not None and self._last_goal_drive != drive
+        self._last_goal_drive = drive
+        rec = CycleTraceRecord(
+            cycle_id=kwargs["cycle_id"],
+            action=kwargs["action"],
+            reward=kwargs.get("reward", 0.0),
+            prediction_error=kwargs.get("prediction_error", 0.0),
+            prediction_confidence=kwargs.get("prediction_confidence", 0.0),
+            goal_drive=drive,
+            goal_switched=switched,
+            rbta_action=kwargs.get("rbta_action", "CONTINUE"),
+            violations=kwargs.get("violations", 0),
+            latency_ms=kwargs.get("latency_ms", 0.0),
+            goal_reached=kwargs.get("goal_reached", False),
+            module_timings=kwargs.get("module_timings", {}),
+        )
+        self._records.append(rec)
+        if len(self._records) > self.window:
+            self._records = self._records[-self.window:]
+
+    def flush_window_summary(self, window_start: int) -> None:
+        if not self._records:
+            return
+        bundle = compute_emergence_bundle(self._records)
+        bundle["synergy"] = synergy_score(self._records)
+        bundle["window_start"] = window_start
+        self._summaries.append(bundle)
+
+    def snapshot(self) -> List[CycleTraceRecord]:
+        return list(self._records)
+
+    @property
+    def summaries(self) -> List[Dict[str, float]]:
+        return self._summaries
 
 
-def save_checkpoint(path: str, cycle: CognitiveCycle, trace: TraceCollector, cycle_count: int) -> None:
+def save_checkpoint(path: str, cycle: CognitiveCycle, trace: RollingTrace, cycle_count: int) -> None:
     ckpt = {
         "cycle_count": cycle_count,
         "rng_state": np.random.get_state(),
-        "trace_records": trace.snapshot(),
+        "window_summaries": trace.summaries,
+        "m3_count": cycle.consolidation.m3.count() if hasattr(cycle, "consolidation") else 0,
+        "recent_records": trace.snapshot(),
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(pickle.dumps(ckpt))
@@ -58,18 +93,20 @@ def main() -> None:
     parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
     parser.add_argument("--checkpoint-every", type=int, default=1000)
     parser.add_argument("--checkpoint", default=None, help="Resume from checkpoint path")
-    parser.add_argument("--output", default="logs/horizon_run.json")
+    parser.add_argument("--verify-resume", action="store_true")
+    parser.add_argument("--output", default="results/validation/horizon_100k.json")
     parser.add_argument("--window", type=int, default=1000)
     args = parser.parse_args()
 
-    trace = TraceCollector(capacity=max(args.cycles + 100, 5000))
+    window = args.window
+    trace = RollingTrace(window=window)
     start_cycle = 0
+    pre_resume_composite: float | None = None
 
     obstacles = generate_goal_pursuit_obstacles(args.seed + 2, args.grid_size)
     cycle = CognitiveCycle.build_for_env(
         size=args.grid_size, seed=args.seed + 2,
         use_continuous=True, use_mlp=True, obstacles=obstacles,
-        trace_collector=trace,
     )
     cycle.rbta.update_bounds(
         "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
@@ -79,43 +116,69 @@ def main() -> None:
         ckpt = load_checkpoint(args.checkpoint)
         start_cycle = ckpt["cycle_count"]
         np.random.set_state(ckpt["rng_state"])
-        for rec in ckpt.get("trace_records", []):
-            trace.record(
-                cycle_id=rec.cycle_id, action=rec.action, reward=rec.reward,
-                prediction_error=rec.prediction_error,
-                prediction_confidence=rec.prediction_confidence,
-                goal_drive=rec.goal_drive, rbta_action=rec.rbta_action,
-                violations=rec.violations, latency_ms=rec.latency_ms,
-                goal_reached=rec.goal_reached, module_timings=rec.module_timings,
-            )
+        trace._summaries = list(ckpt.get("window_summaries", []))
+        for rec in ckpt.get("recent_records", []):
+            trace._records.append(rec)
         cycle.cycle_count = start_cycle
+        if trace.summaries:
+            pre_resume_composite = trace.summaries[-1].get("emergence_composite")
         print(f"Resumed from checkpoint at cycle {start_cycle}")
+
+    target = args.cycles
+    if args.verify_resume and not args.checkpoint:
+        target = min(args.cycles, 2000)
 
     t0 = time.perf_counter()
     ckpt_path = Path(args.output).with_suffix(".ckpt")
-    for i in range(start_cycle, args.cycles):
-        cycle.step()
+    for i in range(start_cycle, target):
+        m = cycle.step()
+        trace.record(
+            cycle_id=i,
+            action=m.action_taken,
+            reward=0.0,
+            prediction_error=m.prediction_error,
+            prediction_confidence=m.prediction_confidence,
+            goal_drive=m.drive_id,
+            rbta_action=m.rbta_action,
+            violations=m.violations_count,
+            latency_ms=m.latency_ms,
+            goal_reached=m.goal_reached,
+            module_timings=dict(m.module_timings),
+        )
         if args.checkpoint_every and (i + 1) % args.checkpoint_every == 0:
+            trace.flush_window_summary(i + 1 - window)
             save_checkpoint(str(ckpt_path), cycle, trace, i + 1)
 
     duration = time.perf_counter() - t0
-    windows = _rolling_windows(trace, args.window)
+    trace.flush_window_summary(max(0, target - window))
     final_emergence = compute_emergence_bundle(trace.snapshot())
     final_emergence["synergy"] = synergy_score(trace.snapshot())
 
+    resume_drift = None
+    if pre_resume_composite is not None:
+        resume_drift = abs(
+            final_emergence.get("emergence_composite", 0) - pre_resume_composite
+        )
+
     report = {
-        "cycles": args.cycles,
+        "cycles": target,
         "seed": args.seed,
         "grid_size": args.grid_size,
         "duration_s": duration,
         "final_emergence": final_emergence,
-        "rolling_windows": windows,
+        "rolling_windows": trace.summaries,
         "checkpoint": str(ckpt_path) if ckpt_path.exists() else None,
+        "resume_drift": resume_drift,
+        "resume_ok": resume_drift is None or resume_drift < 0.01,
     }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(report, indent=2, default=str))
-    print(f"Horizon run complete: {args.cycles} cycles in {duration:.1f}s → {args.output}")
+    print(f"Horizon run complete: {target} cycles in {duration:.1f}s → {args.output}")
     print(f"  emergence_composite={final_emergence.get('emergence_composite', 0):.4f}")
+    if resume_drift is not None:
+        print(f"  resume_drift={resume_drift:.4f} ok={report['resume_ok']}")
+        if args.verify_resume and not report["resume_ok"]:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

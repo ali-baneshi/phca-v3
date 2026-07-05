@@ -51,10 +51,19 @@ class InterventionConfig:
     enable_apc: bool = True
     enable_m2: bool = True
     enable_gprime_learn: bool = True
+    disable_task_lock: bool = False
+    disable_planning_grid: bool = False
     stage_order: Optional[List[str]] = None
     minimal_cycle: bool = False
     resource_policy: str = "time"  # time | energy | memory
     prediction_mode: str = "normal"  # normal | zero | scramble
+    rbta_energy_scale: float = 1.0  # <1 tightens energy bounds for RBTA variants
+
+    def apply_causal_fairness(self) -> "InterventionConfig":
+        """Bypass GridWorld task_lock and planning heuristics for causal tests."""
+        self.disable_task_lock = True
+        self.disable_planning_grid = True
+        return self
 
     def effective_stage_order(self) -> List[str]:
         if self.minimal_cycle:
@@ -84,9 +93,9 @@ class InterventionConfig:
         return cls(minimal_cycle=True)
 
     @classmethod
-    def from_ablation_dict(cls, d: dict) -> "InterventionConfig":
+    def from_ablation_dict(cls, d: dict, *, causal_fair: bool = False) -> "InterventionConfig":
         """Build from experiment manifest ablation block."""
-        return cls(
+        cfg = cls(
             enable_prediction=d.get("enable_prediction", True),
             enable_mdim=d.get("enable_mdim", True),
             enable_m3_write=d.get("enable_m3_write", True),
@@ -96,11 +105,17 @@ class InterventionConfig:
             enable_apc=d.get("enable_apc", True),
             enable_m2=d.get("enable_m2", True),
             enable_gprime_learn=d.get("enable_gprime_learn", True),
+            disable_task_lock=d.get("disable_task_lock", False),
+            disable_planning_grid=d.get("disable_planning_grid", False),
             minimal_cycle=d.get("minimal_cycle", False),
             stage_order=d.get("stage_order"),
             resource_policy=d.get("resource_policy", "time"),
             prediction_mode=d.get("prediction_mode", "normal"),
+            rbta_energy_scale=float(d.get("rbta_energy_scale", 1.0)),
         )
+        if causal_fair or not cfg.enable_prediction or cfg.minimal_cycle:
+            cfg.apply_causal_fairness()
+        return cfg
 
     def label(self) -> str:
         parts = []

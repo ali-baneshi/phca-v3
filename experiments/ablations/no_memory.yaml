@@ -1,7 +1,7 @@
 name: no_memory
 hypothesis: "Disabling M3+consolidation reduces cross-context reuse under goal relocation"
 predicted_failure: "If cross_context_reuse >= full system, memory claim fails"
-seeds: 5
+seeds: 30
 base_seed: 42
 cycles: 200
 grid_size: 5
@@ -12,4 +12,4 @@ dynamic_goals_every: 50
 ablation:
   enable_m3_write: false
   enable_consolidation: false
-output: logs/experiments/no_memory.json
+output: results/validation/ablations/no_memory.json

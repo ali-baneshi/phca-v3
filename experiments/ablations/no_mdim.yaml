@@ -1,12 +1,12 @@
 name: no_mdim
-hypothesis: "Disabling MDIM collapses L3 goal complexity and self-generated goals"
-predicted_failure: "If goal_complexity stays > 0.1, drives are not causal for autonomy"
-seeds: 5
+hypothesis: "Disabling MDIM reduces goal complexity and self-motivated behavior"
+predicted_failure: "If goal_complexity unchanged, drive system is not causal"
+seeds: 30
 base_seed: 42
 cycles: 200
 grid_size: 5
 use_mlp: true
-levels: [3]
+levels: [0, 1, 2, 3]
 ablation:
   enable_mdim: false
-output: logs/experiments/no_mdim.json
+output: results/validation/ablations/no_mdim.json

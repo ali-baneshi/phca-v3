@@ -27,3 +27,24 @@ def test_minimal_cycle_intervention():
     m = cycle.step()
     assert m.cycle_id == 0
     assert cycle.current_goal.drive_id == 1
+
+
+def test_causal_fairness_disables_heuristics():
+    cfg = InterventionConfig.from_ablation_dict({"enable_prediction": False}, causal_fair=True)
+    assert cfg.disable_task_lock is True
+    assert cfg.disable_planning_grid is True
+    cycle = CognitiveCycle.build_for_env(
+        size=5, seed=42, use_mlp=False,
+        interventions=cfg,
+    )
+    assert cycle._task_lock is False
+    assert cycle._planning_grid is None
+
+
+def test_bandit_runner_smoke():
+    from phca.evaluation.runner import build_cycle, run_benchmark_level
+    from phca.evaluation.result_schema import BenchmarkConfig
+
+    config = BenchmarkConfig(n_cycles=20, use_mlp=False, environment="bandit")
+    summary = run_benchmark_level(0, config, seed=42)
+    assert "phi_iq" in summary.metrics

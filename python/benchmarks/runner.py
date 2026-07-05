@@ -531,6 +531,11 @@ if __name__ == "__main__":
         DeprecationWarning,
         stacklevel=1,
     )
+    print(
+        "ERROR: Use scripts/benchmark.py — this entry point is deprecated (AD-3).",
+        file=sys.stderr,
+    )
+    sys.exit(2)
     import argparse
     parser = argparse.ArgumentParser(description="PHCA Φ-IQ Benchmark Runner")
     parser.add_argument("--level", type=int, default=0, help="Benchmark level (0-3)")

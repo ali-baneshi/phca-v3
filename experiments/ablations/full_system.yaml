@@ -1,11 +1,11 @@
 name: full_system
 hypothesis: "Full PHCA interaction produces highest emergence composite vs ablations"
 predicted_failure: "If emergence_composite <= 0.3, interaction claim fails"
-seeds: 5
+seeds: 30
 base_seed: 42
 cycles: 200
 grid_size: 5
 use_mlp: true
-levels: [2, 3]
+levels: [0, 1, 2, 3]
 ablation: {}
-output: logs/experiments/full_system.json
+output: results/validation/ablations/full_system.json

@@ -1,15 +1,18 @@
 {
   "name": "pred_off_mem_on_mdim_on",
   "hypothesis": "Memory without prediction yields local reward but low transfer",
-  "seeds": 3,
+  "seeds": 30,
   "base_seed": 42,
-  "cycles": 50,
-  "use_mlp": false,
+  "cycles": 200,
+  "grid_size": 5,
+  "use_mlp": true,
+  "levels": [0, 1, 2, 3],
+  "causal_fair": true,
   "ablation": {
     "enable_prediction": false,
     "enable_m3_write": true,
     "enable_consolidation": true,
     "enable_mdim": true
   },
-  "output": "logs/experiments/pred_off_mem_on_mdim_on.json"
+  "output": "results/validation/ablations/pred_off_mem_on_mdim_on.json"
 }

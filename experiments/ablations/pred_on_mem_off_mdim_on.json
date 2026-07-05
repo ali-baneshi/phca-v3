@@ -1,0 +1,17 @@
+{
+  "name": "pred_on_mem_off_mdim_on",
+  "hypothesis": "Prediction without memory yields fast adaptation but poor cross-context reuse",
+  "seeds": 30,
+  "base_seed": 42,
+  "cycles": 200,
+  "grid_size": 5,
+  "use_mlp": true,
+  "levels": [0, 1, 2, 3],
+  "ablation": {
+    "enable_prediction": true,
+    "enable_m3_write": false,
+    "enable_consolidation": false,
+    "enable_mdim": true
+  },
+  "output": "results/validation/ablations/pred_on_mem_off_mdim_on.json"
+}

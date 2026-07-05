@@ -250,29 +250,12 @@ def run_multiseed(
 
 
 def _run_mujoco(env_name: str, n_cycles: int, use_mlp: bool, output: str) -> dict:
-    cycle = CognitiveCycle.build_for_mujoco(env_name, seed=42, use_mlp=use_mlp)
-    for _ in range(10):
-        cycle.step()
-    errors, latencies, violations = [], [], 0
-    for _ in range(n_cycles):
-        m = cycle.step()
-        errors.append(m.prediction_error)
-        latencies.append(m.latency_ms)
-        violations += m.violations_count
-    early = float(np.mean(errors[:max(1, len(errors)//4)]))
-    late = float(np.mean(errors[-max(1, len(errors)//4):]))
-    report = {
-        "env": env_name, "n_cycles": n_cycles, "model": "MLP" if use_mlp else "Gaussian",
-        "mean_latency_ms": float(np.mean(latencies)),
-        "p95_latency_ms": float(np.percentile(latencies, 95)),
-        "max_latency_ms": float(np.max(latencies)),
-        "mean_error": float(np.mean(errors)),
-        "early_error": early, "late_error": late,
-        "error_improved": late < early,
-        "violations": violations,
-        "violation_rate": violations / max(n_cycles, 1),
-        "no_errors": all(np.isfinite(e) for e in errors),
-    }
+    from phca.evaluation.runner import run_mujoco_smoke_report
+
+    report = run_mujoco_smoke_report(env_name, n_cycles, use_mlp, seed=42)
+    early = report["early_error"]
+    late = report["late_error"]
+    violations = report["violations"]
     print(f"\n{'='*60}\n  PHCA v3.0 — MuJoCo Benchmark ({env_name})\n{'='*60}")
     print(f"  Cycles: {n_cycles}  Model: {report['model']}")
     print(f"  Latency mean/p95/max: {report['mean_latency_ms']:.1f}/"

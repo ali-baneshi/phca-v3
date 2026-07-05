@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import time
+
+import numpy as np
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-import numpy as np
 
 from phca.config import ResourceBounds
 from phca.core.cycle import CognitiveCycle
@@ -22,7 +22,26 @@ from phca.evaluation.metrics.statistics import aggregate_runs, compare_groups, s
 from phca.evaluation.metrics.synergy import synergy_score
 from phca.evaluation.result_schema import BenchmarkConfig, RunSummary
 from phca.evaluation.trace import TraceCollector
+from phca.environments.bandit_env import BanditEnv
 from phca.environments.grid_world import GridWorld
+
+
+def _apply_intervention_rbta(cycle: CognitiveCycle, interventions: Optional[InterventionConfig]) -> None:
+    if interventions is None:
+        return
+    if interventions.resource_policy == "energy" or interventions.rbta_energy_scale < 1.0:
+        scale = interventions.rbta_energy_scale
+        for mod in ("G'", "ACTION", "PE", "PEU"):
+            b = cycle.rbta.module_bounds.get(mod)
+            if b is not None:
+                cycle.rbta.update_bounds(
+                    mod,
+                    ResourceBounds(
+                        B_time=b.B_time,
+                        B_mem=b.B_mem,
+                        B_energy=max(0.5, b.B_energy * scale),
+                    ),
+                )
 
 
 def build_cycle(
@@ -33,9 +52,27 @@ def build_cycle(
     use_continuous: bool = True,
     level: int = 2,
     action_slip: float = 0.0,
+    environment: str = "gridworld",
+    mujoco_env: str = "Pendulum-v1",
     interventions: Optional[InterventionConfig] = None,
     trace_collector: Optional[TraceCollector] = None,
 ) -> CognitiveCycle:
+    if environment == "bandit":
+        env = BanditEnv(seed=seed)
+        cycle = CognitiveCycle.build(
+            env=env, seed=seed, use_mlp=use_mlp, use_continuous=use_continuous,
+            interventions=interventions, trace_collector=trace_collector,
+        )
+        _apply_intervention_rbta(cycle, interventions)
+        return cycle
+    if environment == "mujoco":
+        cycle = CognitiveCycle.build_for_mujoco(
+            env_name=mujoco_env, seed=seed, use_mlp=use_mlp,
+            interventions=interventions, trace_collector=trace_collector,
+        )
+        _apply_intervention_rbta(cycle, interventions)
+        return cycle
+
     obstacles = None
     if level == 2:
         obstacles = generate_goal_pursuit_obstacles(seed + level, grid_size)
@@ -57,6 +94,7 @@ def build_cycle(
         cycle.rbta.update_bounds(
             "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
         )
+    _apply_intervention_rbta(cycle, interventions)
     return cycle
 
 
@@ -76,6 +114,8 @@ def run_benchmark_level(
         use_continuous=config.use_continuous,
         level=level,
         action_slip=config.action_slip,
+        environment=getattr(config, "environment", "gridworld"),
+        mujoco_env=getattr(config, "mujoco_env", "Pendulum-v1"),
         interventions=interventions,
         trace_collector=trace,
     )
@@ -86,7 +126,7 @@ def run_benchmark_level(
     )
     last_reward = 0.0
     for i in range(n):
-        if relocate_every and i > 0 and i % relocate_every == 0:
+        if relocate_every and i > 0 and i % relocate_every == 0 and hasattr(cycle.env, "relocate_goal"):
             cycle.env.relocate_goal()
         metrics = cycle.step()
         last_reward = 0.0  # reward not in CycleMetrics; trace uses 0
@@ -146,12 +186,16 @@ def _collect_failures(history, cycle) -> Dict[str, Any]:
     goal_thrash = 0
     rbta_terminate_streak = 0
     max_terminate_streak = 0
+    prev_drive: Optional[int] = None
     for m in history:
         if m.rbta_action == "TERMINATE":
             rbta_terminate_streak += 1
             max_terminate_streak = max(max_terminate_streak, rbta_terminate_streak)
         else:
             rbta_terminate_streak = 0
+        if prev_drive is not None and m.drive_id != prev_drive:
+            goal_thrash += 1
+        prev_drive = m.drive_id
     return {
         "rbta_terminate_max_streak": max_terminate_streak,
         "total_violations": sum(m.violations_count for m in history),
@@ -197,6 +241,48 @@ def run_multiseed_experiment(
         phca_scores = [r.metrics.get("phi_iq", 0.0) for r in runs]
         result["comparison"] = compare_groups(phca_scores, baseline_scores)
     return result
+
+
+def run_mujoco_smoke_report(
+    env_name: str,
+    n_cycles: int,
+    use_mlp: bool,
+    seed: int = 42,
+) -> Dict[str, Any]:
+    """MuJoCo latency/error report (CI-compatible) plus evaluation metrics."""
+    trace = TraceCollector(verbose=False)
+    cycle = build_cycle(
+        seed=seed, use_mlp=use_mlp, environment="mujoco", mujoco_env=env_name,
+        trace_collector=trace,
+    )
+    for _ in range(10):
+        cycle.step()
+    errors, latencies, violations = [], [], 0
+    for _ in range(n_cycles):
+        m = cycle.step()
+        errors.append(m.prediction_error)
+        latencies.append(m.latency_ms)
+        violations += m.violations_count
+    early = float(np.mean(errors[:max(1, len(errors) // 4)]))
+    late = float(np.mean(errors[-max(1, len(errors) // 4):]))
+    emergence = compute_emergence_bundle(trace.snapshot())
+    synergy = synergy_score(trace.snapshot())
+    failures = _collect_failures(cycle.metrics_history, cycle)
+    return {
+        "env": env_name, "n_cycles": n_cycles, "model": "MLP" if use_mlp else "Gaussian",
+        "mean_latency_ms": float(np.mean(latencies)),
+        "p95_latency_ms": float(np.percentile(latencies, 95)),
+        "max_latency_ms": float(np.max(latencies)),
+        "mean_error": float(np.mean(errors)),
+        "early_error": early, "late_error": late,
+        "error_improved": late < early,
+        "violations": violations,
+        "violation_rate": violations / max(n_cycles, 1),
+        "no_errors": all(np.isfinite(e) for e in errors),
+        "synergy": synergy,
+        "emergence": emergence,
+        "failures": failures,
+    }
 
 
 def save_result(result: Dict[str, Any], path: str) -> None:
