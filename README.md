@@ -1,12 +1,16 @@
-# PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
+PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-PHCA is an experimental research prototype for resource-bounded cognitive architectures. It investigates how predictive processing, hierarchical memory, intrinsic motivation, and resource-aware control can be integrated into a formally specified, reproducible architecture for continual learning and autonomous decision-making.
 
-The architecture is organised as a deterministic cognitive cycle in which perception, prediction, memory, planning, adaptation, and action are executed under explicit computational constraints. Every cycle is supervised by the Resource-Bounded Turing Supervisor (RBTA), which enforces time, memory, energy, and entropy budgets while preserving architectural invariants.
+PHCA is an experimental research prototype for studying resource-bounded cognitive architectures.
 
-Rather than optimising for a single benchmark, PHCA is designed as a research platform for studying bounded intelligence under controlled experimental conditions. The project emphasises reproducibility, formal architectural assumptions, causal evaluation, ablation studies, scaling experiments, out-of-distribution testing, and long-horizon validation.
+Rather than treating intelligence as a single learning algorithm, PHCA models cognition as a structured pipeline of specialised modules operating under explicit computational constraints. Every cognitive cycle transforms sensory observations into goal-directed behaviour through prediction, hierarchical memory, intrinsic motivation, adaptive learning, and resource-aware control, while a Resource-Bounded Turing Supervisor (RBTA) enforces strict limits on computation, memory, energy, and entropy.
 
-PHCA currently supports discrete GridWorld environments together with continuous-control environments, enabling the same architectural principles to be evaluated across different task domains. The repository includes the complete implementation, reproducible experimental pipelines, scientific validation suite, and documentation describing the architectural assumptions, design rationale, and empirical results.
+The architecture is designed as a reproducible research platform for investigating continual learning, autonomous behaviour, predictive processing, and bounded decision-making. Instead of optimising for benchmark performance alone, PHCA emphasises explicit architectural assumptions, measurable invariants, controlled experiments, and scientific reproducibility.
+
+The current implementation includes discrete GridWorld environments together with continuous MuJoCo tasks, comprehensive benchmarking, ablation studies, causal evaluation, out-of-distribution experiments, observability tools, and automated validation pipelines.
+
+
+PHCA should be viewed as an experimental cognitive architecture—not as a production AI system or a state-of-the-art reinforcement learning framework. Its primary goal is to provide a transparent platform for exploring architectural principles underlying autonomous intelligent systems.
 
 ---
 
