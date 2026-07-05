@@ -50,7 +50,14 @@ class GridWorld:
     GOAL = 2
     HAZARD = 3
 
-    def __init__(self, size: int = 10, obstacles: list[tuple[int, int]] | None = None, seed: int = 42):
+    def __init__(
+        self,
+        size: int = 10,
+        obstacles: list[tuple[int, int]] | None = None,
+        seed: int = 42,
+        action_slip: float = 0.0,
+        maze: bool = False,
+    ):
         """
         Initialize the grid-world.
 
@@ -58,19 +65,25 @@ class GridWorld:
             size: Grid dimensions (size × size). Must be 5, 10, or 20.
             obstacles: List of (row, col) wall positions. If None, random walls generated.
             seed: Random seed for reproducibility.
+            action_slip: Probability [0,1] that action is replaced with STAY.
+            maze: If True, generate maze-like walls instead of random density.
         """
         assert size in (5, 10, 20), f"size must be 5, 10, or 20, got {size}"
         self.size = size
         self.rng = np.random.RandomState(seed)
         self.max_steps = size * size * 4
+        self.action_slip = float(np.clip(action_slip, 0.0, 1.0))
+        self.maze = maze
 
         # Initialize empty grid
         self.grid = np.zeros((size, size), dtype=np.int32)
 
         # Place walls
-        if obstacles is not None:
+        if obstacles is not None and len(obstacles) > 0:
             for r, c in obstacles:
                 self.grid[r, c] = self.WALL
+        elif maze:
+            self._generate_maze_walls()
         else:
             self._generate_random_walls()
 
@@ -93,6 +106,18 @@ class GridWorld:
             for c in range(self.size):
                 if self.rng.random() < wall_density:
                     self.grid[r, c] = self.WALL
+
+    def _generate_maze_walls(self) -> None:
+        """Place maze-like barrier walls with gaps for navigation tests."""
+        mid = max(1, self.size // 2)
+        gap_row = int(self.rng.randint(0, self.size))
+        for r in range(self.size):
+            if r != gap_row:
+                self.grid[r, mid] = self.WALL
+        for _ in range(max(1, self.size // 5)):
+            r, c = int(self.rng.randint(0, self.size)), int(self.rng.randint(0, self.size))
+            if self.grid[r, c] == self.EMPTY:
+                self.grid[r, c] = self.WALL
 
     def _get_empty_cells(self) -> list[tuple[int, int]]:
         """Return list of (row, col) for cells that are not walls."""
@@ -126,6 +151,9 @@ class GridWorld:
             (next_state, reward, terminal, info)
         """
         assert 0 <= action <= 4, f"Invalid action {action}"
+
+        if self.action_slip > 0.0 and self.rng.random() < self.action_slip:
+            action = 4  # STAY
 
         dr, dc = ACTION_DELTAS[action]
         new_r = self.agent_pos[0] + dr

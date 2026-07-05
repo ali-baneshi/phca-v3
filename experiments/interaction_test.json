@@ -1,0 +1,12 @@
+{
+  "name": "interaction_test",
+  "hypothesis": "Full system behavior is not explained by single-module ablation",
+  "predicted_failure": "If r2_full <= r2_no_prediction, interaction claim fails",
+  "seeds": 2,
+  "base_seed": 42,
+  "cycles": 30,
+  "use_mlp": false,
+  "levels": [2],
+  "interaction_test": true,
+  "output": "logs/experiments/interaction_test.json"
+}

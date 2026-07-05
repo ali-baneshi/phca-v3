@@ -2,17 +2,6 @@
 """
 PHCA v3.0 — Φ-IQ Benchmark Suite (Phase 2.4 Evaluation).
 
-Implements the Φ-Intelligence composite metric and multi-level benchmark suite.
-
-Φ-IQ = w₁·PredictionAccuracy + w₂·AdaptationSpeed + w₃·GoalComplexity
-     + w₄·TransferEfficiency + w₅·ResourceEfficiency - w₆·FailureRate
-
-Benchmark levels:
-  Level 0: Stationary prediction (no action required)
-  Level 1: Reactive control (single feedback loop)
-  Level 2: Goal pursuit (external goal → planning)
-  Level 3: Self-motivated exploration (no external goals)
-
 Usage:
     python scripts/benchmark.py --levels=0-3 --cycles=100 --output=benchmark_report.json
     python scripts/benchmark.py --quick  (Level 0 only, 20 cycles)
@@ -21,77 +10,28 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
-import time
-import statistics
 import sys
-from dataclasses import dataclass, field, asdict
+import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
+from phca.config import ResourceBounds
+from phca.evaluation.metrics.phi_iq import (
+    check_pass_criteria,
+    compute_level_metrics,
+    compute_phi_iq,
+    generate_goal_pursuit_obstacles,
+)
+from phca.evaluation.result_schema import DEFAULT_WEIGHTS
+from phca.evaluation.metrics.statistics import seed_sequence
+from phca.evaluation.result_schema import BenchmarkConfig, BenchmarkReport, BenchmarkResult
 from phca.logging import ensure_logging
-from phca.config import GoalVector, ResourceBounds, StateVector, CYCLE_TARGET
-
-
-# ── Φ-IQ Sub-Metric Weights ────────────────────────────────
-
-# Default weights from Phase 2.4 specification
-DEFAULT_WEIGHTS = {
-    "prediction_accuracy": 0.20,
-    "adaptation_speed": 0.20,
-    "goal_complexity": 0.15,
-    "transfer_efficiency": 0.15,
-    "resource_efficiency": 0.20,
-    "failure_rate": 0.10,  # subtracted
-}
-
-
-@dataclass
-class BenchmarkConfig:
-    """Configuration for a benchmark run."""
-    n_cycles: int = 100
-    warmup: int = 10
-    seed: int = 42
-    grid_size: int = 5
-    use_continuous: bool = True
-    use_mlp: bool = False
-    diagnose_level: int = -1  # if >=0, dump per-step history for this level to CSV
-    dynamic_goals: bool = False  # Week 3: L2 curriculum (static 100 cyc, then relocate every N)
-    dynamic_goals_every: int = 100  # Phase 5 / D-094: relocation cadence in cycles (every-100 default)
-    weights: Dict[str, float] = field(default_factory=lambda: DEFAULT_WEIGHTS.copy())
-
-
-@dataclass
-class BenchmarkResult:
-    """Results from a single benchmark level."""
-    level: int
-    level_name: str
-    n_cycles: int
-    prediction_accuracy: float = 0.0    # 1 - normalized prediction error
-    adaptation_speed: float = 0.0       # error improvement over time
-    goal_complexity: float = 0.0        # goal diversity / autonomy rate
-    transfer_efficiency: float = 0.0    # cross-task retention (heuristic: adapt × pred)
-    resource_efficiency: float = 0.0    # 1 - (cycle_time / target)
-    failure_rate: float = 0.0           # violations per cycle
-    phi_iq: float = 0.0                 # composite score
-    raw_metrics: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class BenchmarkReport:
-    """Full benchmark report across all levels."""
-    config: BenchmarkConfig
-    results: List[BenchmarkResult] = field(default_factory=list)
-    overall_phi_iq: float = 0.0
-    total_cycles: int = 0
-    duration_s: float = 0.0
-    pass_criteria: Dict[str, bool] = field(default_factory=dict)
-
-
-# ── Benchmark Runner ────────────────────────────────────────
 
 
 class BenchmarkRunner:
@@ -101,37 +41,11 @@ class BenchmarkRunner:
         self.config = config or BenchmarkConfig()
         self.report = BenchmarkReport(config=self.config)
 
-    @staticmethod
-    def _generate_goal_pursuit_obstacles(seed: int) -> List[Tuple[int, int]]:
-        """Generate wall positions for Level 2 (Goal Pursuit).
-
-        Creates a 5×5 grid with walls forming a maze-like structure
-        that requires the agent to navigate around obstacles to reach the goal.
-
-        Returns:
-            List of (row, col) wall positions.
-        """
-        rng = np.random.RandomState(seed)
-        obstacles = []
-        # Place a vertical wall barrier in column 2, with 1-2 gaps
-        gap_row = rng.randint(0, 5)
-        for r in range(5):
-            if r != gap_row:
-                obstacles.append((r, 2))
-        # Place a few scattered walls for variety
-        for _ in range(2):
-            r, c = rng.randint(0, 5, size=2)
-            if (r, c) not in obstacles:
-                obstacles.append((r, c))
-        return obstacles
-
     def run_all(self, levels: Optional[List[int]] = None) -> BenchmarkReport:
-        """Run all specified benchmark levels."""
         if levels is None:
             levels = [0, 1, 2, 3]
 
         t_start = time.perf_counter()
-
         level_names = {
             0: "Stationary Prediction",
             1: "Reactive Control",
@@ -156,29 +70,22 @@ class BenchmarkRunner:
                   f"resource={result.resource_efficiency:.3f}, "
                   f"failures={result.failure_rate:.3f})")
 
-        # Compute overall Φ-IQ (mean across levels)
         if self.report.results:
             self.report.overall_phi_iq = float(np.mean([r.phi_iq for r in self.report.results]))
 
         self.report.total_cycles = sum(r.n_cycles for r in self.report.results)
         self.report.duration_s = time.perf_counter() - t_start
-
-        # Check pass criteria from whitepaper §1.3
-        self._check_pass_criteria()
-
+        self.report.pass_criteria = check_pass_criteria(self.report)
         return self.report
 
     def _run_level(self, level: int) -> BenchmarkResult:
-        """Run a single benchmark level and compute metrics."""
-        # MLP needs more cycles to learn (200 vs 50)
         n = self.config.n_cycles if not self.config.use_mlp else max(self.config.n_cycles, 200)
         warmup = self.config.warmup
-
-        # Build a cycle configured for this level
-        # Level 2 (Goal Pursuit) gets obstacles to make navigation interesting
-        obstacles: Optional[List[Tuple[int, int]]] = None
+        obstacles = None
         if level == 2:
-            obstacles = self._generate_goal_pursuit_obstacles(self.config.seed + level)
+            obstacles = generate_goal_pursuit_obstacles(
+                self.config.seed + level, self.config.grid_size,
+            )
 
         cycle = CognitiveCycle.build_for_env(
             size=self.config.grid_size,
@@ -186,61 +93,36 @@ class BenchmarkRunner:
             use_continuous=self.config.use_continuous,
             use_mlp=self.config.use_mlp,
             obstacles=obstacles,
+            action_slip=self.config.action_slip,
         )
 
-        # Override G' timing bound for MLP (learn() takes ~55ms with 8×64 batch)
         if self.config.use_mlp:
             cycle.rbta.update_bounds(
                 "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
             )
 
-        # Warmup
         for _ in range(warmup):
             cycle.step()
 
-        # Benchmark cycles
         history: List[CycleMetrics] = []
-        # Week 3 dynamic-goal curriculum (L2 only): static for the first 100
-        # cycles so the agent stabilises, then relocate the goal every 100
-        # cycles — gentler than the rejected Iteration B (every 50). Gives
-        # adaptation_speed real improvement headroom without overwhelming.
-        relocate_every = self.config.dynamic_goals_every if (level == 2 and self.config.dynamic_goals) else 0
+        relocate_every = (
+            self.config.dynamic_goals_every if (level == 2 and self.config.dynamic_goals) else 0
+        )
         for i in range(n):
             if relocate_every and i > 0 and i % relocate_every == 0:
                 cycle.env.relocate_goal()
             metrics = cycle.step()
             history.append(metrics)
 
-        result = BenchmarkResult(level=level, level_name="", n_cycles=n)
-
-        # Diagnostic dump: per-step history for the diagnosed level (read-only analysis)
         if level == self.config.diagnose_level:
             self._dump_history_csv(history, level)
 
-        if level == 0:
-            result = self._compute_level_0(history, cycle, result)
-        elif level == 1:
-            result = self._compute_level_1(history, cycle, result)
-        elif level == 2:
-            result = self._compute_level_2(history, cycle, result)
-        elif level == 3:
-            result = self._compute_level_3(history, cycle, result)
-
-        # Compute transfer_efficiency heuristic (proxy for cross-task retention)
-        # When not measured directly, use the product of adaptation and prediction
-        # as a reasonable estimate: a system that predicts well AND adapts quickly
-        # is likely to transfer well across tasks.
+        result = compute_level_metrics(level, history, cycle, n, self.config.weights)
         result.transfer_efficiency = result.adaptation_speed * result.prediction_accuracy
-
-        # Compute Φ-IQ composite
-        result.phi_iq = self._compute_phi_iq(result)
+        result.phi_iq = compute_phi_iq(result, self.config.weights)
         return result
 
-    # ── Level 0: Stationary Prediction ───────────────────────
-
     def _dump_history_csv(self, history: List[CycleMetrics], level: int) -> None:
-        """Dump per-step cycle metrics to logs/diagnose_level{N}.csv (read-only diagnostic)."""
-        import csv
         path = f"logs/diagnose_level{level}.csv"
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", newline="") as f:
@@ -253,258 +135,8 @@ class BenchmarkRunner:
                             m.action_taken, f"{m.latency_ms:.2f}", m.violations_count])
         print(f"  [diagnose] per-step history dumped to {path} ({len(history)} rows)")
 
-    # ── Level 0: Stationary Prediction ───────────────────────
-
-    def _compute_level_0(
-        self, history: List[CycleMetrics], cycle: CognitiveCycle, result: BenchmarkResult,
-    ) -> BenchmarkResult:
-        """Level 0: Stationary prediction — measure prediction accuracy only."""
-        result.level_name = "Stationary Prediction"
-
-        errors = [m.prediction_error for m in history]
-        confidences = [m.prediction_confidence for m in history]
-        latencies = [m.latency_ms for m in history]
-        violations = sum(m.violations_count for m in history)
-
-        # Prediction accuracy: inverse of normalized RMSE
-        mean_error = float(np.mean(errors)) if errors else 0.0
-        result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
-
-        # Adaptation speed: blend of improvement and maintenance
-        # improvement = (early - late) / early  (relative error reduction)
-        # maintenance = 1 - late / 10.0          (sustained accuracy, same /10 scaling as pred_acc)
-        if len(errors) >= 10:
-            early = float(np.mean(errors[:len(errors)//2]))
-            late = float(np.mean(errors[len(errors)//2:]))
-            improvement = (early - late) / max(early, 0.001)
-            maintenance = max(0.0, 1.0 - late / 10.0)
-            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
-
-        # Goal complexity: MDIM drive diversity in stationary env
-        if hasattr(cycle, 'mdim') and cycle.mdim is not None:
-            drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
-            active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
-            result.goal_complexity = min(1.0, active_drives / 5.0)
-        else:
-            result.goal_complexity = 0.0
-
-        # Resource efficiency
-        mean_latency = float(np.mean(latencies)) if latencies else 500.0
-        target_ms = CYCLE_TARGET * 1000  # 500ms
-        result.resource_efficiency = max(0.0, 1.0 - mean_latency / target_ms)
-
-        # Failure rate
-        result.failure_rate = violations / max(len(history), 1)
-
-        result.raw_metrics = {
-            "mean_error": mean_error,
-            "mean_confidence": float(np.mean(confidences)) if confidences else 0.0,
-            "mean_latency_ms": mean_latency,
-            "p95_latency_ms": float(np.percentile(latencies, 95)) if latencies else 0.0,
-            "violations": violations,
-            "skill_accuracy": cycle.tspl.skill_accuracy,
-            "skill_compiled": cycle.tspl.skill_compiled,
-            "active_drives": int(result.goal_complexity * 5),
-        }
-        return result
-
-    # ── Level 1: Reactive Control ────────────────────────────
-
-    def _compute_level_1(
-        self, history: List[CycleMetrics], cycle: CognitiveCycle, result: BenchmarkResult,
-    ) -> BenchmarkResult:
-        """Level 1: Reactive control — single feedback loop accuracy."""
-        result.level_name = "Reactive Control"
-
-        errors = [m.prediction_error for m in history]
-        latencies = [m.latency_ms for m in history]
-        violations = sum(m.violations_count for m in history)
-
-        mean_error = float(np.mean(errors)) if errors else 0.0
-        result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
-
-        # Adaptation: error reduction under active control
-        if len(errors) >= 10:
-            early = float(np.mean(errors[:max(1, len(errors)//4)]))
-            late = float(np.mean(errors[-max(1, len(errors)//4):]))
-            improvement = (early - late) / max(early, 0.001)
-            maintenance = max(0.0, 1.0 - late / 10.0)
-            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
-
-        # Goal complexity: action diversity
-        actions = [m.action_taken for m in history if m.action_taken >= 0]
-        unique_actions = len(set(actions)) if actions else 0
-        result.goal_complexity = min(1.0, unique_actions / 5.0)
-
-        # Resource efficiency
-        mean_latency = float(np.mean(latencies)) if latencies else 500.0
-        target_ms = CYCLE_TARGET * 1000
-        result.resource_efficiency = max(0.0, 1.0 - mean_latency / target_ms)
-
-        # Failure rate
-        result.failure_rate = violations / max(len(history), 1)
-
-        result.raw_metrics = {
-            "mean_error": mean_error,
-            "mean_latency_ms": mean_latency,
-            "p95_latency_ms": float(np.percentile(latencies, 95)) if latencies else 0.0,
-            "violations": violations,
-            "unique_actions": unique_actions,
-            "skill_accuracy": cycle.tspl.skill_accuracy,
-            "skill_compiled": cycle.tspl.skill_compiled,
-        }
-        return result
-
-    # ── Level 2: Goal Pursuit ────────────────────────────────
-
-    def _compute_level_2(
-        self, history: List[CycleMetrics], cycle: CognitiveCycle, result: BenchmarkResult,
-    ) -> BenchmarkResult:
-        """Level 2: Goal pursuit — measure goal reaching rate."""
-        result.level_name = "Goal Pursuit"
-
-        errors = [m.prediction_error for m in history]
-        latencies = [m.latency_ms for m in history]
-        goals = [m.goal_reached for m in history]
-        violations = sum(m.violations_count for m in history)
-
-        mean_error = float(np.mean(errors)) if errors else 0.0
-        result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
-
-        # Adaptation: goal-reaching improvement AND sustained excellence.
-        # L0/L1 use max(improvement, maintenance); L2 now aligned (was late-early
-        # only, which collides with the ceiling when goal_rate is high throughout).
-        if len(goals) >= 10:
-            early_goals = float(np.mean(goals[:len(goals)//2]))
-            late_goals = float(np.mean(goals[len(goals)//2:]))
-            improvement = (late_goals - early_goals) / max(1.0 - early_goals, 0.001)
-            maintenance = late_goals  # sustained high goal rate IS adaptation
-            result.adaptation_speed = float(np.clip(max(improvement, maintenance), 0.0, 1.0))
-
-        # Goal complexity: actual goal reaching rate
-        result.goal_complexity = float(np.mean(goals)) if goals else 0.0
-
-        # Resource efficiency
-        mean_latency = float(np.mean(latencies)) if latencies else 500.0
-        target_ms = CYCLE_TARGET * 1000
-        result.resource_efficiency = max(0.0, 1.0 - mean_latency / target_ms)
-
-        # Failure rate
-        result.failure_rate = violations / max(len(history), 1)
-
-        result.raw_metrics = {
-            "mean_error": mean_error,
-            "mean_latency_ms": mean_latency,
-            "p95_latency_ms": float(np.percentile(latencies, 95)) if latencies else 0.0,
-            "violations": violations,
-            "goals_reached": int(sum(goals)),
-            "goal_rate": float(np.mean(goals)) if goals else 0.0,
-            "skill_accuracy": cycle.tspl.skill_accuracy,
-        }
-        return result
-
-    # ── Level 3: Self-Motivated Exploration ──────────────────
-
-    def _compute_level_3(
-        self, history: List[CycleMetrics], cycle: CognitiveCycle, result: BenchmarkResult,
-    ) -> BenchmarkResult:
-        """Level 3: Self-motivated exploration — measure goal autonomy."""
-        result.level_name = "Self-Motivated Exploration"
-
-        errors = [m.prediction_error for m in history]
-        latencies = [m.latency_ms for m in history]
-        violations = sum(m.violations_count for m in history)
-        actions = [m.action_taken for m in history if m.action_taken >= 0]
-
-        mean_error = float(np.mean(errors)) if errors else 0.0
-        result.prediction_accuracy = max(0.0, 1.0 - min(mean_error / 10.0, 1.0))
-
-        # Adaptation: exploration diversity over time
-        unique_actions = len(set(actions)) if actions else 0
-        result.adaptation_speed = min(1.0, unique_actions / 5.0)
-
-        # Goal complexity: drive diversity from MDIM
-        if hasattr(cycle, 'mdim') and cycle.mdim is not None:
-            drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
-            active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
-            result.goal_complexity = min(1.0, active_drives / 5.0)
-        else:
-            result.goal_complexity = 0.2  # default
-
-        # Resource efficiency
-        mean_latency = float(np.mean(latencies)) if latencies else 500.0
-        target_ms = CYCLE_TARGET * 1000
-        result.resource_efficiency = max(0.0, 1.0 - mean_latency / target_ms)
-
-        # Failure rate
-        result.failure_rate = violations / max(len(history), 1)
-
-        # Check goal autonomy criterion: ≥1 novel goal per 100 cycles
-        consol_stats = cycle.consolidation.get_stats() if hasattr(cycle, 'consolidation') else {}
-        m3_size = cycle.consolidation.m3.count() if hasattr(cycle, 'consolidation') else 0
-
-        result.raw_metrics = {
-            "mean_error": mean_error,
-            "mean_latency_ms": mean_latency,
-            "p95_latency_ms": float(np.percentile(latencies, 95)) if latencies else 0.0,
-            "violations": violations,
-            "unique_actions": unique_actions,
-            "active_drives": int(result.goal_complexity * 5),
-            "m3_episodes": m3_size,
-            "consolidation_facts": consol_stats.get("total_facts_stored", 0),
-            "skill_accuracy": cycle.tspl.skill_accuracy,
-        }
-        return result
-
-    # ── Φ-IQ Composite ───────────────────────────────────────
-
-    def _compute_phi_iq(self, result: BenchmarkResult) -> float:
-        """Compute the Φ-IQ composite score from sub-metrics."""
-        w = self.config.weights
-        score = (
-            w["prediction_accuracy"] * result.prediction_accuracy
-            + w["adaptation_speed"] * result.adaptation_speed
-            + w["goal_complexity"] * result.goal_complexity
-            + w["transfer_efficiency"] * result.transfer_efficiency
-            + w["resource_efficiency"] * result.resource_efficiency
-            - w["failure_rate"] * result.failure_rate
-        )
-        return float(np.clip(score, 0.0, 1.0))
-
-    def _check_pass_criteria(self) -> None:
-        """Check pass criteria from whitepaper §1.3."""
-        criteria = {}
-        all_results = self.report.results
-
-        # C1: Cycle latency < 500ms
-        latencies = []
-        for r in all_results:
-            if "mean_latency_ms" in r.raw_metrics:
-                latencies.append(r.raw_metrics["mean_latency_ms"])
-        criteria["latency_under_500ms"] = (
-            bool(latencies) and max(latencies) < 500.0
-        )
-
-        # C2: Failure recovery (violations < 10% of cycles)
-        total_violations = sum(r.raw_metrics.get("violations", 0) for r in all_results)
-        total_cycles = sum(r.n_cycles for r in all_results)
-        criteria["failure_rate_under_10pct"] = (
-            total_violations / max(total_cycles, 1) < 0.1
-        )
-
-        # C3: Goal autonomy (Level 3 only — N/A for --quick / L0-only runs)
-        level3 = [r for r in all_results if r.level == 3]
-        if level3:
-            criteria["goal_autonomy_achieved"] = level3[0].goal_complexity > 0.1
-
-        # C4: Overall Φ-IQ > 0.5
-        criteria["phi_iq_above_0_5"] = self.report.overall_phi_iq > 0.5
-
-        self.report.pass_criteria = criteria
-
 
 def print_report(report: BenchmarkReport) -> None:
-    """Print a formatted benchmark report."""
     print(f"\n{'='*60}")
     print(f"  PHCA v3.0 — Φ-IQ Benchmark Report")
     print(f"{'='*60}")
@@ -535,7 +167,6 @@ def print_report(report: BenchmarkReport) -> None:
 
 
 def save_report(report: BenchmarkReport, path: str, multi_seed: Optional[Dict[str, Any]] = None) -> None:
-    """Save benchmark report to JSON."""
     data = {
         "config": asdict(report.config),
         "results": [asdict(r) for r in report.results],
@@ -556,14 +187,12 @@ def run_multiseed(
     config: BenchmarkConfig,
     n_seeds: int,
 ) -> Tuple[BenchmarkReport, Dict[str, Any]]:
-    """Run benchmark across multiple seeds; return last report + aggregate stats."""
     base_seed = config.seed
     overall_scores: List[float] = []
     per_level: Dict[int, List[float]] = {level: [] for level in levels}
     last_report: Optional[BenchmarkReport] = None
 
-    for i in range(n_seeds):
-        seed = base_seed + i
+    for i, seed in enumerate(seed_sequence(base_seed, n_seeds)):
         run_config = BenchmarkConfig(
             n_cycles=config.n_cycles,
             warmup=config.warmup,
@@ -574,6 +203,7 @@ def run_multiseed(
             diagnose_level=config.diagnose_level,
             dynamic_goals=config.dynamic_goals,
             dynamic_goals_every=config.dynamic_goals_every,
+            action_slip=config.action_slip,
             weights=config.weights.copy(),
         )
         print(f"\n{'#'*60}\n  Seed {seed} ({i + 1}/{n_seeds})\n{'#'*60}")
@@ -620,14 +250,8 @@ def run_multiseed(
 
 
 def _run_mujoco(env_name: str, n_cycles: int, use_mlp: bool, output: str) -> dict:
-    """Run a single MuJoCo environment benchmark (Week 2).
-
-    Reports latency, prediction-error trend, and RBTA violations — the grid
-    goal_reached metric does not apply to MuJoCo, so no Φ-IQ composite.
-    """
-    from phca.core.cycle import CognitiveCycle
     cycle = CognitiveCycle.build_for_mujoco(env_name, seed=42, use_mlp=use_mlp)
-    for _ in range(10):  # warmup
+    for _ in range(10):
         cycle.step()
     errors, latencies, violations = [], [], 0
     for _ in range(n_cycles):
@@ -671,31 +295,21 @@ def _run_mujoco(env_name: str, n_cycles: int, use_mlp: bool, output: str) -> dic
 
 
 def main() -> None:
-    ensure_logging()  # enable file logging to logs/phca.log (A-002 fix)
+    ensure_logging()
     parser = argparse.ArgumentParser(description="PHCA Φ-IQ Benchmark Suite")
-    parser.add_argument("--levels", type=str, default="0,1,2,3",
-                        help="Comma-separated list of levels to run (default: 0,1,2,3)")
-    parser.add_argument("--cycles", type=int, default=50,
-                        help="Number of cognitive cycles per level (default: 50)")
-    parser.add_argument("--quick", action="store_true",
-                        help="Quick mode: Level 0 only, 20 cycles")
-    parser.add_argument("--use-mlp", action="store_true",
-                        help="Use MLP world model instead of Gaussian G'")
+    parser.add_argument("--levels", type=str, default="0,1,2,3")
+    parser.add_argument("--cycles", type=int, default=50)
+    parser.add_argument("--quick", action="store_true")
+    parser.add_argument("--use-mlp", action="store_true")
     parser.add_argument("--env", type=str, default="gridworld",
-                        choices=["gridworld", "cartpole", "pendulum", "reacher"],
-                        help="Environment: gridworld (4-level Φ-IQ) or a MuJoCo env "
-                             "(single-level latency/error report)")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Output JSON report path")
-    parser.add_argument("--diagnose-level", type=int, default=-1,
-                        help="Dump per-step history CSV for this level (default: off)")
-    parser.add_argument("--dynamic-goals", action="store_true",
-                        help="L2 curriculum: static goal, then relocate every --dynamic-goals-every cycles")
-    parser.add_argument("--dynamic-goals-every", type=int, default=100,
-                        help="L2 goal-relocation cadence in cycles (default 100; Phase 5 / D-094)")
-    parser.add_argument("--seeds", type=int, default=1,
-                        help="Number of seeds to run (base seed 42, increments by 1). "
-                             "Aggregates mean±std when > 1.")
+                        choices=["gridworld", "cartpole", "pendulum", "reacher"])
+    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--diagnose-level", type=int, default=-1)
+    parser.add_argument("--dynamic-goals", action="store_true")
+    parser.add_argument("--dynamic-goals-every", type=int, default=100)
+    parser.add_argument("--seeds", type=int, default=1)
+    parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
+    parser.add_argument("--action-slip", type=float, default=0.0)
     args = parser.parse_args()
 
     if args.quick:
@@ -705,7 +319,6 @@ def main() -> None:
         levels = [int(l.strip()) for l in args.levels.split(",")]
         n_cycles = args.cycles
 
-    # MuJoCo environments: single-level latency/error report (no grid goal_reached).
     if args.env in ("cartpole", "pendulum", "reacher"):
         env_name = {
             "cartpole": "InvertedPendulum-v5",
@@ -715,10 +328,14 @@ def main() -> None:
         report = _run_mujoco(env_name, n_cycles, args.use_mlp, args.output)
         sys.exit(0 if report["no_errors"] else 1)
 
-    config = BenchmarkConfig(n_cycles=n_cycles, use_mlp=args.use_mlp,
-                             diagnose_level=args.diagnose_level,
-                             dynamic_goals=args.dynamic_goals,
-                             dynamic_goals_every=args.dynamic_goals_every)
+    config = BenchmarkConfig(
+        n_cycles=n_cycles, use_mlp=args.use_mlp,
+        diagnose_level=args.diagnose_level,
+        dynamic_goals=args.dynamic_goals,
+        dynamic_goals_every=args.dynamic_goals_every,
+        grid_size=args.grid_size,
+        action_slip=args.action_slip,
+    )
     multi_seed_data: Optional[Dict[str, Any]] = None
     if args.seeds > 1:
         report, multi_seed_data = run_multiseed(levels, config, args.seeds)
@@ -732,7 +349,6 @@ def main() -> None:
                              else "logs/benchmark_report.json")
     save_report(report, output, multi_seed=multi_seed_data)
 
-    # Return exit code based on pass/fail
     if not all(report.pass_criteria.values()):
         sys.exit(1)
 

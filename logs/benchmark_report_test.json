@@ -1,0 +1,55 @@
+{
+  "config": {
+    "n_cycles": 20,
+    "warmup": 10,
+    "seed": 42,
+    "grid_size": 5,
+    "use_continuous": true,
+    "use_mlp": false,
+    "diagnose_level": -1,
+    "dynamic_goals": false,
+    "dynamic_goals_every": 100,
+    "action_slip": 0.0,
+    "weights": {
+      "prediction_accuracy": 0.2,
+      "adaptation_speed": 0.2,
+      "goal_complexity": 0.15,
+      "transfer_efficiency": 0.15,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 0,
+      "level_name": "Stationary Prediction",
+      "n_cycles": 20,
+      "prediction_accuracy": 0.922250001072882,
+      "adaptation_speed": 0.922250001072882,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.8505450644789309,
+      "resource_efficiency": 0.987350336892996,
+      "failure_rate": 0.0,
+      "phi_iq": 0.8439518274795916,
+      "raw_metrics": {
+        "mean_error": 0.7774999892711797,
+        "mean_confidence": 0.8,
+        "mean_latency_ms": 6.324831553502008,
+        "p95_latency_ms": 6.86116911820136,
+        "violations": 0,
+        "skill_accuracy": 0.9037921403770548,
+        "skill_compiled": false,
+        "active_drives": 5
+      },
+      "emergence": {}
+    }
+  ],
+  "overall_phi_iq": 0.8439518274795916,
+  "total_cycles": 20,
+  "duration_s": 2.4403888300294057,
+  "pass_criteria": {
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": true,
+    "phi_iq_above_0_5": true
+  }
+}

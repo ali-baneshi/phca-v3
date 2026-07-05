@@ -1,0 +1,42 @@
+hypotheses:
+  - id: H001
+    claim: "Memory enables cross-context reuse under goal relocation"
+    metric: cross_context_reuse
+    condition: "grid_size=10, dynamic_goals_every=50"
+    intervention: enable_consolidation=false
+    predicted_failure: "cross_context_reuse < 0.2 AND goal_rate drops >30%"
+    seeds: 30
+    manifest: experiments/ablations/no_memory.yaml
+  - id: H002
+    claim: "Prediction enables transfer beyond local reward"
+    metric: transfer_efficiency
+    intervention: enable_prediction=false
+    predicted_failure: "transfer_efficiency drops >25% vs full system"
+    seeds: 30
+    manifest: experiments/ablations/no_prediction.yaml
+  - id: H003
+    claim: "Stage order integrity supports synergy"
+    metric: synergy
+    intervention: desync
+    predicted_failure: "synergy < 0.5 * full system synergy"
+    seeds: 30
+    manifest: experiments/ablations/desync.json
+  - id: H004
+    claim: "Single modules cannot produce novel behaviour alone"
+    metric: unexpected_skill_chains
+    intervention: partial ablations
+    predicted_failure: "unexpected_skill_chains near 0 for all single-module ablations"
+    seeds: 30
+  - id: H005
+    claim: "Full architecture required vs minimal cycle"
+    metric: emergence_composite
+    intervention: minimal_cycle
+    predicted_failure: "minimal emergence_composite < 0.7 * full"
+    seeds: 30
+    manifest: experiments/ablations/minimal_cycle.json
+  - id: H006
+    claim: "Phi-IQ predicts later success"
+    metric: predictive_validity_r
+    protocol: "correlate phi_iq first 50 cycles with goal_rate cycles 51-200"
+    predicted_failure: "r < 0.7 requires metric revision"
+    seeds: 30

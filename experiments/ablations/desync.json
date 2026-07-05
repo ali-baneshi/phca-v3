@@ -1,0 +1,16 @@
+{
+  "name": "desync",
+  "hypothesis": "Stage desynchronization reduces synergy and predictive validity",
+  "predicted_failure": "If synergy >= full system, temporal order is not causal",
+  "seeds": 3,
+  "base_seed": 42,
+  "cycles": 50,
+  "use_mlp": false,
+  "ablation": {
+    "stage_order": [
+      "sanitize", "memory_write", "feedback", "prediction", "regulation",
+      "rbta_preflight", "action", "rbta_post", "consolidation"
+    ]
+  },
+  "output": "logs/experiments/desync.json"
+}

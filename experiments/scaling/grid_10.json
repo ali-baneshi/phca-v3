@@ -1,0 +1,12 @@
+{
+  "name": "scaling_grid_10",
+  "hypothesis": "Behavior complexity scales with grid size under fixed architecture",
+  "predicted_failure": "If strategy_diversity plateaus at 10x10, complexity claim fails",
+  "seeds": 3,
+  "base_seed": 42,
+  "cycles": 50,
+  "grid_size": 10,
+  "use_mlp": false,
+  "levels": [2, 3],
+  "output": "logs/experiments/scaling_grid_10.json"
+}

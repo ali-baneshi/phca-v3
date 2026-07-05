@@ -255,6 +255,52 @@
           "runtime_estimate_s": 5
         }
       ]
+    },
+    "science-full": {
+      "description": "Scientific validation subset: ablations, emergence, phi-IQ validation, interaction",
+      "runtime_estimate_s": 3600,
+      "steps": [
+        {
+          "id": "ablation_no_prediction",
+          "name": "Ablation: no prediction",
+          "command": "python scripts/run_experiment.py experiments/ablations/no_prediction.yaml",
+          "outputs": ["logs/experiments/no_prediction.json"],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 600
+        },
+        {
+          "id": "ablation_minimal_cycle",
+          "name": "Ablation: minimal cycle",
+          "command": "python scripts/run_experiment.py experiments/ablations/minimal_cycle.json",
+          "outputs": ["logs/experiments/minimal_cycle.json"],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 600
+        },
+        {
+          "id": "phi_iq_validation",
+          "name": "Phi-IQ validation (10 seeds smoke)",
+          "command": "python scripts/phi_iq_validation.py --seeds=10 --output=logs/phi_iq_validation.json",
+          "outputs": ["logs/phi_iq_validation.json"],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 900
+        },
+        {
+          "id": "scaling_action_slip",
+          "name": "Scaling: 10% action slip",
+          "command": "python scripts/run_experiment.py experiments/scaling/action_slip.json",
+          "outputs": ["logs/experiments/scaling_action_slip.json"],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 600
+        },
+        {
+          "id": "horizon_smoke",
+          "name": "Long horizon smoke (1000 cycles)",
+          "command": "python scripts/run_horizon.py --cycles=1000 --output=logs/horizon_smoke.json",
+          "outputs": ["logs/horizon_smoke.json"],
+          "verify": { "type": "exit_code" },
+          "runtime_estimate_s": 300
+        }
+      ]
     }
   }
 }

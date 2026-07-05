@@ -20,6 +20,10 @@ import numpy as np
 from phca.core.cycle import CognitiveCycle
 from phca.config import DiscreteSpace
 from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld
+from phca.evaluation.baselines.greedy import greedy_action
+from phca.evaluation.baselines.random_agent import random_action
+from phca.evaluation.baselines.search import bfs_action
+from phca.evaluation.metrics.statistics import seed_sequence
 
 BASE_METRICS = (
     "goal_rate",
@@ -103,8 +107,9 @@ class ScenarioGridWorld:
         obstacles: List[Tuple[int, int]],
         seed: int,
         spec: ScenarioSpec,
+        action_slip: float = 0.0,
     ) -> None:
-        self.base = GridWorld(size=size, obstacles=obstacles, seed=seed)
+        self.base = GridWorld(size=size, obstacles=obstacles, seed=seed, action_slip=action_slip)
         self.size = self.base.size
         self.rng = np.random.RandomState(seed + 10_000)
         self.spec = spec
@@ -284,9 +289,13 @@ def generate_goal_pursuit_obstacles(seed: int, size: int = 5) -> List[Tuple[int,
     return obstacles
 
 
-def build_scenario_env(seed: int, size: int, spec: ScenarioSpec) -> ScenarioGridWorld:
+def build_scenario_env(
+    seed: int, size: int, spec: ScenarioSpec, action_slip: float = 0.0,
+) -> ScenarioGridWorld:
     obstacles = generate_goal_pursuit_obstacles(seed + 2, size=size)
-    return ScenarioGridWorld(size=size, obstacles=obstacles, seed=seed + 2, spec=spec)
+    return ScenarioGridWorld(
+        size=size, obstacles=obstacles, seed=seed + 2, spec=spec, action_slip=action_slip,
+    )
 
 
 def distance_to_goal(env: ScenarioGridWorld) -> int:
@@ -372,19 +381,22 @@ def run_control_agent(
     cycles: int,
     size: int,
     spec: ScenarioSpec,
+    action_slip: float = 0.0,
 ) -> Dict[str, Any]:
-    env = build_scenario_env(seed, size, spec)
+    env = build_scenario_env(seed, size, spec, action_slip=action_slip)
     rng = np.random.RandomState(seed)
     distances: List[float] = []
     rewards: List[float] = []
     goals: List[bool] = []
     for _ in range(cycles):
         if agent == "random":
-            action = int(rng.randint(0, env.action_space_size))
+            action = random_action(env, rng)
         elif agent == "greedy_observed":
-            action = greedy_distance_action(env, full_info=False)
+            action = greedy_action(env, full_info=False)
         elif agent == "greedy_full_info":
-            action = greedy_distance_action(env, full_info=True)
+            action = greedy_action(env, full_info=True)
+        elif agent == "bfs_search":
+            action = bfs_action(env, full_info=True)
         else:
             raise ValueError(f"unknown control agent {agent!r}")
         _, reward, _, info = env.step(action)
@@ -404,8 +416,9 @@ def run_phca_agent(
     spec: ScenarioSpec,
     *,
     use_mlp: bool,
+    action_slip: float = 0.0,
 ) -> Dict[str, Any]:
-    env = build_scenario_env(seed, size, spec)
+    env = build_scenario_env(seed, size, spec, action_slip=action_slip)
     cycle = CognitiveCycle.build(
         env=env,
         seed=seed + 2,
@@ -550,16 +563,22 @@ def run_level(
     size: int,
     agents: Iterable[str],
     use_mlp: bool,
+    base_seed: int = 42,
+    action_slip: float = 0.0,
 ) -> Dict[str, Any]:
     spec = SCENARIOS[level]
     selected = list(agents)
     runs: List[Dict[str, Any]] = []
-    for seed in range(seeds):
+    for seed in seed_sequence(base_seed, seeds):
         if "phca" in selected:
-            runs.append(run_phca_agent(seed, cycles, size, spec, use_mlp=use_mlp))
-        for agent in ("random", "greedy_observed", "greedy_full_info"):
+            runs.append(run_phca_agent(
+                seed, cycles, size, spec, use_mlp=use_mlp, action_slip=action_slip,
+            ))
+        for agent in ("random", "greedy_observed", "greedy_full_info", "bfs_search"):
             if agent in selected:
-                runs.append(run_control_agent(agent, seed, cycles, size, spec))
+                runs.append(run_control_agent(
+                    agent, seed, cycles, size, spec, action_slip=action_slip,
+                ))
     summary = aggregate_runs(runs, spec.metrics)
     return {
         "config": {
@@ -567,7 +586,9 @@ def run_level(
             "description": spec.description,
             "cycles": int(cycles),
             "seeds": int(seeds),
+            "base_seed": int(base_seed),
             "grid_size": int(size),
+            "action_slip": float(action_slip),
             "agents": selected,
             "metrics": list(spec.metrics),
             "gate_controls": list(spec.gate_controls),
@@ -589,12 +610,14 @@ def run_evaluation(
     agents: Iterable[str],
     use_mlp: bool,
     levels: Iterable[str] = ("level1",),
+    base_seed: int = 42,
+    action_slip: float = 0.0,
 ) -> Dict[str, Any]:
     selected_levels = list(levels)
     reports = {
         level: run_level(
             level=level, cycles=cycles, seeds=seeds, size=size,
-            agents=agents, use_mlp=use_mlp,
+            agents=agents, use_mlp=use_mlp, base_seed=base_seed, action_slip=action_slip,
         )
         for level in selected_levels
     }
@@ -604,7 +627,9 @@ def run_evaluation(
         "config": {
             "cycles": int(cycles),
             "seeds": int(seeds),
+            "base_seed": int(base_seed),
             "grid_size": int(size),
+            "action_slip": float(action_slip),
             "levels": selected_levels,
             "agents": list(agents),
             "phca_model": "MLP" if use_mlp else "Gaussian",
@@ -633,7 +658,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA causal evidence evaluation")
     parser.add_argument("--cycles", type=int, default=200)
     parser.add_argument("--seeds", type=int, default=5)
-    parser.add_argument("--grid-size", type=int, default=5)
+    parser.add_argument("--base-seed", type=int, default=42)
+    parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
+    parser.add_argument("--action-slip", type=float, default=0.0)
     parser.add_argument("--levels", default="level1")
     parser.add_argument("--agents", default="phca,random,greedy_observed,greedy_full_info")
     parser.add_argument("--use-mlp", action="store_true")
@@ -649,6 +676,8 @@ def main() -> None:
         agents=agents,
         use_mlp=args.use_mlp,
         levels=parse_levels(args.levels),
+        base_seed=args.base_seed,
+        action_slip=args.action_slip,
     )
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

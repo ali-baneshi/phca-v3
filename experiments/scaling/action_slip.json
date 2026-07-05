@@ -1,0 +1,11 @@
+{
+  "name": "scaling_action_slip",
+  "hypothesis": "10% action slip reduces goal rate but preserves adaptation",
+  "predicted_failure": "If phi_iq collapses below 0.3, architecture is not robust to stochasticity",
+  "seeds": 3,
+  "base_seed": 42,
+  "cycles": 50,
+  "action_slip": 0.1,
+  "levels": [2],
+  "output": "logs/experiments/scaling_action_slip.json"
+}

@@ -1,0 +1,41 @@
+edges:
+  - id: E001
+    cause: PredictionEngine
+    effect: action_diversity
+    intervention: enable_prediction=false
+    predicted_change: "strategy_diversity increases; transfer_efficiency decreases"
+  - id: E002
+    cause: MDIM
+    effect: goal_complexity_L3
+    intervention: enable_mdim=false
+    predicted_change: "self_generated_goals -> 0; drive diversity collapses"
+  - id: E003
+    cause: M3_Consolidation
+    effect: cross_context_reuse
+    intervention: enable_consolidation=false
+    predicted_change: "cross_context_reuse < 0.2 under goal relocation"
+  - id: E004
+    cause: Attention
+    effect: adaptation_speed
+    intervention: enable_attention=false
+    predicted_change: "adaptation_speed decreases; uniform G' updates"
+  - id: E005
+    cause: TSPL
+    effect: adaptation_speed
+    intervention: enable_tspl=false
+    predicted_change: "adaptation_speed decreases; skill compilation stalls"
+  - id: E006
+    cause: RBTA
+    effect: strategy_diversity
+    intervention: "resource_policy=energy with tight bounds"
+    predicted_change: "TERMINATE rate increases; exploration decreases"
+  - id: E007
+    cause: APC
+    effect: goal_stability
+    intervention: enable_apc=false
+    predicted_change: "goal thrashing; meta-stability violations"
+  - id: E008
+    cause: temporal_order
+    effect: synergy
+    intervention: desync stage_order
+    predicted_change: "synergy and interaction_gain decrease"

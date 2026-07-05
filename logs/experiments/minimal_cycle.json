@@ -1,0 +1,278 @@
+{
+  "name": "minimal_cycle",
+  "intervention": "minimal_cycle",
+  "n_seeds": 3,
+  "base_seed": 42,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "duration_s": 7.559016829007305,
+  "aggregate": {
+    "metrics": {
+      "phi_iq": {
+        "mean": 0.6177194446300341,
+        "std": 0.009113078168494968,
+        "min": 0.6083079187371551,
+        "max": 0.6300501453357868,
+        "n": 3,
+        "values": [
+          0.6083079187371551,
+          0.6148002698171606,
+          0.6300501453357868
+        ],
+        "ci95_lo": 0.6083079187371551,
+        "ci95_hi": 0.6300501453357868
+      },
+      "synergy": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      }
+    },
+    "emergence": {
+      "novel_behaviour": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "strategy_diversity": {
+        "mean": 0.32470547606889166,
+        "std": 0.0,
+        "min": 0.32470547606889166,
+        "max": 0.32470547606889166,
+        "n": 3,
+        "values": [
+          0.32470547606889166,
+          0.32470547606889166,
+          0.32470547606889166
+        ],
+        "ci95_lo": 0.32470547606889166,
+        "ci95_hi": 0.32470547606889166
+      },
+      "behavioral_compression": {
+        "mean": 0.5077519379844961,
+        "std": 0.005481447916174797,
+        "min": 0.5,
+        "max": 0.5116279069767442,
+        "n": 3,
+        "values": [
+          0.5,
+          0.5116279069767442,
+          0.5116279069767442
+        ],
+        "ci95_lo": 0.5,
+        "ci95_hi": 0.5116279069767442
+      },
+      "adaptation_stability": {
+        "mean": 0.8980008254300689,
+        "std": 0.05548196133306516,
+        "min": 0.8491526085843945,
+        "max": 0.9756016283091629,
+        "n": 3,
+        "values": [
+          0.9756016283091629,
+          0.8491526085843945,
+          0.8692482393966495
+        ],
+        "ci95_lo": 0.8491526085843945,
+        "ci95_hi": 0.9756016283091627
+      },
+      "cross_context_reuse": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "self_generated_goals": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "unexpected_skill_chains": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      },
+      "emergence_composite": {
+        "mean": 0.24665461007017267,
+        "std": 0.007463688912547011,
+        "min": 0.24078371309000435,
+        "max": 0.2571867291968649,
+        "n": 3,
+        "values": [
+          0.2571867291968649,
+          0.24078371309000435,
+          0.24199338792364872
+        ],
+        "ci95_lo": 0.24078371309000435,
+        "ci95_hi": 0.2571867291968649
+      },
+      "synergy": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 3,
+        "values": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ci95_lo": 0.0,
+        "ci95_hi": 0.0
+      }
+    }
+  },
+  "runs": [
+    {
+      "seed": 42,
+      "metrics": {
+        "phi_iq": 0.6083079187371551,
+        "prediction_accuracy": 0.8371791714360297,
+        "adaptation_speed": 0.8,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.6697433371488238,
+        "resource_efficiency": 0.9853862527214612,
+        "failure_rate": 0.16666666666666666,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.6460113262554303,
+        "level_1_phi_iq": 0.7554214071191256,
+        "level_2_phi_iq": 0.3612250382043481,
+        "level_3_phi_iq": 0.6083079187371551
+      },
+      "emergence": {
+        "novel_behaviour": 0.0,
+        "strategy_diversity": 0.32470547606889166,
+        "behavioral_compression": 0.5,
+        "adaptation_stability": 0.9756016283091629,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.2571867291968649,
+        "synergy": 0.0
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 4,
+        "total_violations": 40,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    },
+    {
+      "seed": 43,
+      "metrics": {
+        "phi_iq": 0.6148002698171606,
+        "prediction_accuracy": 0.8584500028446302,
+        "adaptation_speed": 0.8,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.6867600022757042,
+        "resource_efficiency": 0.983814677867728,
+        "failure_rate": 0.16666666666666666,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.6468873013595448,
+        "level_1_phi_iq": 0.7743275222089473,
+        "level_2_phi_iq": 0.35432270669765736,
+        "level_3_phi_iq": 0.6148002698171606
+      },
+      "emergence": {
+        "novel_behaviour": 0.0,
+        "strategy_diversity": 0.32470547606889166,
+        "behavioral_compression": 0.5116279069767442,
+        "adaptation_stability": 0.8491526085843945,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.24078371309000435,
+        "synergy": 0.0
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 4,
+        "total_violations": 40,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    },
+    {
+      "seed": 44,
+      "metrics": {
+        "phi_iq": 0.6300501453357868,
+        "prediction_accuracy": 0.904875001991787,
+        "adaptation_speed": 0.8,
+        "goal_complexity": 0.0,
+        "transfer_efficiency": 0.7239000015934297,
+        "resource_efficiency": 0.985784056825408,
+        "failure_rate": 0.16666666666666666,
+        "synergy": 0.0,
+        "level_0_phi_iq": 0.6611030400388515,
+        "level_1_phi_iq": 0.7438121521986147,
+        "level_2_phi_iq": 0.34705027715088144,
+        "level_3_phi_iq": 0.6300501453357868
+      },
+      "emergence": {
+        "novel_behaviour": 0.0,
+        "strategy_diversity": 0.32470547606889166,
+        "behavioral_compression": 0.5116279069767442,
+        "adaptation_stability": 0.8692482393966495,
+        "cross_context_reuse": 0.0,
+        "self_generated_goals": 0.0,
+        "unexpected_skill_chains": 0.0,
+        "emergence_composite": 0.24199338792364872,
+        "synergy": 0.0
+      },
+      "failures": {
+        "rbta_terminate_max_streak": 4,
+        "total_violations": 40,
+        "goal_thrash_events": 0
+      },
+      "duration_s": 0.0
+    }
+  ],
+  "hypothesis": "4-stage minimal cycle underperforms full architecture on emergence",
+  "predicted_failure": "If emergence_composite within 10% of full, 12-step cycle is unnecessary"
+}

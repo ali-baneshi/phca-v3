@@ -1,0 +1,11 @@
+{
+  "name": "minimal_cycle",
+  "hypothesis": "4-stage minimal cycle underperforms full architecture on emergence",
+  "predicted_failure": "If emergence_composite within 10% of full, 12-step cycle is unnecessary",
+  "seeds": 3,
+  "base_seed": 42,
+  "cycles": 50,
+  "use_mlp": false,
+  "ablation": { "minimal_cycle": true },
+  "output": "logs/experiments/minimal_cycle.json"
+}
