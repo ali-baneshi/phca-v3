@@ -26,7 +26,7 @@ at ~10–17 ms mean MLP cycle time.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/phca-v3.git
+git clone https://github.com/ali-baneshi/phca-v3.git
 cd phca-v3
 
 # 2. Install dependencies (creates venv via Makefile)

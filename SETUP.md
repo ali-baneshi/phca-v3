@@ -20,7 +20,7 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-org/phca-v3.git
+git clone https://github.com/ali-baneshi/phca-v3.git
 cd phca-v3
 
 # 2. Create a venv (Python 3.11 or 3.12 recommended)

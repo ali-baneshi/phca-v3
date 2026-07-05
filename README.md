@@ -1,18 +1,29 @@
-PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
+# PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
+[![CI](https://github.com/ali-baneshi/phca-v3/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-baneshi/phca-v3/actions/workflows/ci.yml)
+[![Nightly](https://github.com/ali-baneshi/phca-v3/actions/workflows/nightly.yml/badge.svg)](https://github.com/ali-baneshi/phca-v3/actions/workflows/nightly.yml)
 
-PHCA is an experimental research prototype for studying resource-bounded cognitive architectures.
+**PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 
-Rather than treating intelligence as a single learning algorithm, PHCA models cognition as a structured pipeline of specialised modules operating under explicit computational constraints. Every cognitive cycle transforms sensory observations into goal-directed behaviour through prediction, hierarchical memory, intrinsic motivation, adaptive learning, and resource-aware control, while a Resource-Bounded Turing Supervisor (RBTA) enforces strict limits on computation, memory, energy, and entropy.
+Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by `phca/core/cycle.py`. Each cycle roughly follows: sanitise observations (ASI) → write working memory (M1/M2) → predict the next state (G′ world model) → compute prediction error (PEU) → update via predictive learning (TSPL) → select an action (discrete goal alignment on GridWorld; MPC sampling on continuous MuJoCo tasks) → regulate drives and attention (MDIM, APC, HPM) → enforce budgets (RBTA) → log, consolidate episodic memory (M3), and advance. The Resource-Bounded Turing Supervisor in `phca/regulation/rbta_enforcer.py` checks per-module time, memory, energy, and entropy-floor bounds each cycle and can interrupt or terminate when limits are exceeded.
 
-The architecture is designed as a reproducible research platform for investigating continual learning, autonomous behaviour, predictive processing, and bounded decision-making. Instead of optimising for benchmark performance alone, PHCA emphasises explicit architectural assumptions, measurable invariants, controlled experiments, and scientific reproducibility.
+The repository aims to make architectural assumptions **explicit and testable**. Five design invariants (A1–A5) are documented in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and exercised by `scripts/assumption_validation.py --ci`. Φ-IQ benchmark results, causal gates, and ablation configs live in this tree; they report what is implemented and measured here, not broader claims about general intelligence.
 
-The current implementation includes discrete GridWorld environments together with continuous MuJoCo tasks, comprehensive benchmarking, ablation studies, causal evaluation, out-of-distribution experiments, observability tools, and automated validation pipelines.
+### What is in this repository
 
-The current implementation includes discrete GridWorld environments evaluated across multiple environment scales (5×5, 10×10, and 20×20), together with continuous MuJoCo tasks, comprehensive benchmarking, scaling analyses, ablation studies, causal evaluation, out-of-distribution experiments, observability tools, and automated validation pipelines
+| Area | Contents |
+| :--- | :--- |
+| **Environments** | `GridWorld` (default 5×5 with walls; scaling experiments at 10×10 and 20×20) and optional MuJoCo wrappers (Cartpole, Pendulum, Reacher) |
+| **Evaluation** | Φ-IQ benchmark (`scripts/benchmark.py`), causal eval (`scripts/phca_causal_eval.py`), OOD calibration, nightly hardening (`make nightly`), ablation configs under `experiments/` |
+| **Observability** | Cognitive Observatory — live PyQt dashboard, per-cycle JSONL, replay/scrub (`scripts/phca_observatory.py`, `phca_replay.py`) |
+| **Documentation** | Architecture notes, limitations, decision log (`DECISIONS.md`), reproducibility guide |
 
+```bash
+git clone https://github.com/ali-baneshi/phca-v3.git
+cd phca-v3 && make setup
+```
 
-PHCA should be viewed as an experimental cognitive architecture—not as a production AI system or a state-of-the-art reinforcement learning framework. Its primary goal is to provide a transparent platform for exploring architectural principles underlying autonomous intelligent systems.
+PHCA is a **research prototype** for exploring bounded, prediction-first agents — not a production AI stack or a drop-in reinforcement-learning framework. See [Limitations](#limitations) for known gaps.
 
 ---
 
