@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from phca.evaluation.metrics.emergence import (
     compute_emergence_bundle,
     novel_behaviour,

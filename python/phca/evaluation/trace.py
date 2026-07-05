@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Deque, Dict, List, Optional
 
 
 @dataclass

@@ -42,7 +42,7 @@ def test_causal_fairness_disables_heuristics():
 
 
 def test_bandit_runner_smoke():
-    from phca.evaluation.runner import build_cycle, run_benchmark_level
+    from phca.evaluation.runner import run_benchmark_level
     from phca.evaluation.result_schema import BenchmarkConfig
 
     config = BenchmarkConfig(n_cycles=20, use_mlp=False, environment="bandit")

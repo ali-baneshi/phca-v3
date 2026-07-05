@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Protocol, Tuple
+from typing import Any, Dict, Protocol
 
 import numpy as np
 

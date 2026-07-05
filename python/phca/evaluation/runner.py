@@ -125,13 +125,11 @@ def run_benchmark_level(
     relocate_every = (
         config.dynamic_goals_every if (level == 2 and config.dynamic_goals) else 0
     )
-    last_reward = 0.0
     for i in range(n):
         if relocate_every and i > 0 and i % relocate_every == 0 and hasattr(cycle.env, "relocate_goal"):
             cycle.env.relocate_goal()
             cycle._env_goal_relocated = True
-        metrics = cycle.step()
-        last_reward = 0.0  # reward not in CycleMetrics; trace uses 0
+        cycle.step()
     history = list(cycle.metrics_history)
     result = compute_level_metrics(level, history, cycle, n, config.weights)
     emergence = compute_emergence_bundle(trace.snapshot())

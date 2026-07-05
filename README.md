@@ -2,6 +2,15 @@
 
 [![CI](https://github.com/ali-baneshi/phca-v3/actions/workflows/ci.yml/badge.svg)](https://github.com/ali-baneshi/phca-v3/actions/workflows/ci.yml)
 [![Nightly](https://github.com/ali-baneshi/phca-v3/actions/workflows/nightly.yml/badge.svg)](https://github.com/ali-baneshi/phca-v3/actions/workflows/nightly.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![NumPy](https://img.shields.io/badge/NumPy-1.26-013243.svg)](https://numpy.org/)
+[![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC.svg)](https://pytest.org/)
+[![ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![MuJoCo](https://img.shields.io/badge/MuJoCo-optional-4CAF50.svg)](requirements-mujoco.txt)
+[![Gymnasium](https://img.shields.io/badge/Gymnasium-envs-5C4EE5.svg)](https://gymnasium.farama.org/)
+[![PyQt5](https://img.shields.io/badge/Observatory-PyQt5-41CD52.svg)](docs/observability.md)
+[![pgmpy](https://img.shields.io/badge/G%27-pgmpy-2C3E50.svg)](https://pgmpy.org/)
+[![SQLite](https://img.shields.io/badge/M3%20episodic-SQLite-003B57.svg)](python/phca/memory/m3_episodic.py)
 
 **PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 

@@ -5,7 +5,6 @@ from phca.evaluation.metrics.phi_iq import (
     check_pass_criteria,
     compute_level_metrics,
     compute_phi_iq,
-    generate_goal_pursuit_obstacles,
 )
 from phca.evaluation.metrics.statistics import (
     aggregate_runs,
