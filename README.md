@@ -9,6 +9,8 @@ The architecture is designed as a reproducible research platform for investigati
 
 The current implementation includes discrete GridWorld environments together with continuous MuJoCo tasks, comprehensive benchmarking, ablation studies, causal evaluation, out-of-distribution experiments, observability tools, and automated validation pipelines.
 
+The current implementation includes discrete GridWorld environments evaluated across multiple environment scales (5×5, 10×10, and 20×20), together with continuous MuJoCo tasks, comprehensive benchmarking, scaling analyses, ablation studies, causal evaluation, out-of-distribution experiments, observability tools, and automated validation pipelines
+
 
 PHCA should be viewed as an experimental cognitive architecture—not as a production AI system or a state-of-the-art reinforcement learning framework. Its primary goal is to provide a transparent platform for exploring architectural principles underlying autonomous intelligent systems.
 
