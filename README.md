@@ -1,27 +1,12 @@
 # PHCA v3.0 — Predictive Hierarchical Cognitive Architecture
 
-A formally specified, resource-bounded cognitive architecture for continual
-learning, intrinsic motivation, and self-regulated autonomous agents. Each
-cognitive cycle transforms raw sensor input into a goal-directed action
-through a pipeline of specialised modules, governed by a Resource-Bounded
-Turing Supervisor (RBTA) that enforces time, memory, energy, and entropy
-budgets every cycle.
+PHCA is an experimental research prototype for resource-bounded cognitive architectures. It investigates how predictive processing, hierarchical memory, intrinsic motivation, and resource-aware control can be integrated into a formally specified, reproducible architecture for continual learning and autonomous decision-making.
 
-**Observatory Phases 7–20 complete** (cognitive observability, replay, multi-agent,
-interactive query, `make reproduce`; D-108–D-127). See
-[docs/archive/phase20_completion_report.md](docs/archive/phase20_completion_report.md).
-**766 tests** in `python/` (+ **36** MuJoCo optional; `MUJOCO_GL=disabled make test-mujoco`).
-Overall Φ-IQ **0.7323** (4-level MLP, 200 cyc, re-measured 2026-07-05).
-Scientific validation suite (30 seeds × 24 experiments): aggregate Φ-IQ
-**0.526 ± 0.189** (n=20 pooled experiment means; CI95 0.435–0.603). Scaling
-(grid5/10/20, slip=0, 30 seeds): **0.700 ± 0.046** / **0.325 ± 0.042** /
-**0.147 ± 0.042** overall Φ-IQ. See `results/validation/summary.json`.
-Pendulum-v1 (continuous dim 1) and Reacher-v5 (continuous dim 2) use an MPC-style
-prediction-driven action selector; Cartpole stays discrete. Invariants A1–A5 are
-**measured** (`assumption_validation.py --ci` 5/5 PASS). Causal behavior gate
-L1/L2/L3 **PASS** (D-111, D-112). Observatory: PyQt live dashboard, JSONL
-recording, seek/scrub replay, schema versioning, and offline session reports — see
-[docs/observability.md](docs/observability.md).
+The architecture is organised as a deterministic cognitive cycle in which perception, prediction, memory, planning, adaptation, and action are executed under explicit computational constraints. Every cycle is supervised by the Resource-Bounded Turing Supervisor (RBTA), which enforces time, memory, energy, and entropy budgets while preserving architectural invariants.
+
+Rather than optimising for a single benchmark, PHCA is designed as a research platform for studying bounded intelligence under controlled experimental conditions. The project emphasises reproducibility, formal architectural assumptions, causal evaluation, ablation studies, scaling experiments, out-of-distribution testing, and long-horizon validation.
+
+PHCA currently supports discrete GridWorld environments together with continuous-control environments, enabling the same architectural principles to be evaluated across different task domains. The repository includes the complete implementation, reproducible experimental pipelines, scientific validation suite, and documentation describing the architectural assumptions, design rationale, and empirical results.
 
 ---
 
