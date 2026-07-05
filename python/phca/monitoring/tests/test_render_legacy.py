@@ -23,4 +23,6 @@ def test_build_and_update_dashboard_grid_smoke():
         action_rationale={"explored": False, "eps": 0.1, "goal_id": 1, "best_score": 0.5},
     )
     update_dashboard(handle, frame)
+    assert handle is not None
+    assert len(fig.axes) >= 1
     plt.close(fig)

@@ -73,3 +73,19 @@ def test_goals_replay_drive_goals_unavailable(qt_app):
             if c.red() + c.green() + c.blue() != bg_lum:
                 diffs += 1
     assert diffs > 20
+
+
+def test_goals_replay_data_contract_text():
+    from phca.monitoring.cognitive_panels import data_contract_text
+
+    text = data_contract_text("goals", replay=True)
+    assert "drive_goals" in text
+    assert "live-only" in text
+
+
+def test_goals_radar_replay_flag(qt_app):
+    from phca.monitoring.qt_dashboard import DriveRadarView
+
+    view = DriveRadarView()
+    view.set_frame(_goals_frame(), replay=True)
+    assert view._replay is True

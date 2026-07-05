@@ -56,6 +56,8 @@ ci-local: lint
 	@python -c "import pytest_benchmark.plugin" 2>/dev/null || (echo "❌ pytest-benchmark missing — run: pip install -r requirements.txt" && exit 1)
 	PYTHONPATH=python:$$PYTHONPATH MUJOCO_GL=disabled python -m pytest python/tests/ python/phca/ \
 	    -v --tb=short --timeout=30 -x --benchmark-skip
+	@echo "Observatory session integrity gate..."
+	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
 	mkdir -p logs
 	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
 	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json

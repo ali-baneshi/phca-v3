@@ -313,6 +313,8 @@ Shared module: [`session_anomalies.py`](../python/phca/monitoring/session_anomal
 
 Cycle-level markers (cap 50) appear in `session_report.json` under `anomalies.cycle_markers` (e.g. per-cycle `spike` from `build_moment_series()`).
 
+**Report-only re-evaluation:** `anomalies_from_report()` can recompute spike, drift, and goal-instability flags from aggregate fields in an existing `session_report.json`. The **`leak`** flag is **best-effort** in that path: it requires `anomalies.metrics.rss_late_slope_bytes_per_cycle` to have been preserved when the report was built. If that slope is missing, `leak` defaults to `PASS` even when frames would flag a leak — use `detect_session_anomalies()` on JSONL frames (via `--check` or `build_session_report`) for authoritative leak detection.
+
 ```bash
 # Integrity + anomaly summary
 PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/

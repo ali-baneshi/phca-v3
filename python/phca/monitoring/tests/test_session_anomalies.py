@@ -165,6 +165,28 @@ def test_anomalies_from_report_rolling_goal_parity():
     assert report_only["metrics"]["goal_rolling_instability"] is True
 
 
+def test_anomalies_from_report_leak_requires_slope():
+    """Report-only re-eval cannot detect leak without rss_late_slope in anomalies.metrics."""
+    from phca.monitoring.session_anomalies import anomalies_from_report
+
+    report_with_leak = {
+        "cycles": 8000,
+        "spike_count": 0,
+        "error_early_median": 1.0,
+        "error_late_median": 1.0,
+        "drive_switch_count": 0,
+        "goals_metrics": {"active_drive_switch_count": 0},
+        "anomalies": {
+            "metrics": {"rss_late_slope_bytes_per_cycle": 2000.0},
+        },
+    }
+    assert anomalies_from_report(report_with_leak)["flags"]["leak"] is True
+
+    report_stripped = dict(report_with_leak)
+    report_stripped["anomalies"] = {"metrics": {}}
+    assert anomalies_from_report(report_stripped)["flags"]["leak"] is False
+
+
 def test_spike_density_synthetic():
     frames = []
     for i in range(50):

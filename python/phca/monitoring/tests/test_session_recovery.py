@@ -165,7 +165,7 @@ def test_supervisor_recovers_crashed_child(tmp_path):
         no_verify=True,
         strict_verify=False,
     )
-    assert rc == 137 or rc == 0
+    assert rc == 0
     sessions = [p for p in record_dir.iterdir() if p.is_dir()]
     assert len(sessions) >= 1
     sess = sessions[0]

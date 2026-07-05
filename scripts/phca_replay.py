@@ -172,7 +172,7 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
                 print(f"  [PASS] cycle_id contiguous 0..{len(parsed) - 1}")
     if parsed:
         try:
-            from phca.monitoring.render import frame_from_json
+            from phca.monitoring.session_io import frame_from_json
             for idx in {0, len(parsed) // 2, len(parsed) - 1}:
                 frame_from_json(parsed[idx])
             print("  [PASS] frame_from_json smoke (first/mid/last)")
@@ -207,7 +207,7 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
     anomaly_ok = True
     if parsed and ok:
         try:
-            from phca.monitoring.render import frame_from_json
+            from phca.monitoring.session_io import frame_from_json
             from phca.monitoring.session_anomalies import (
                 anomaly_strict_fail,
                 detect_session_anomalies,
@@ -307,7 +307,8 @@ def _play_jsonl(session_dir: str, fps: float) -> int:
     _pkg = Path(__file__).resolve().parent.parent / "python"
     if str(_pkg) not in sys.path:
         sys.path.insert(0, str(_pkg))
-    from phca.monitoring.render import build_dashboard, update_dashboard, frame_from_json
+    from phca.monitoring.render import build_dashboard, update_dashboard
+    from phca.monitoring.session_io import frame_from_json
     meta, lines, video = _load_session(session_dir)
     if meta is None:
         return 1
@@ -347,7 +348,7 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
         sys.path.insert(0, str(_pkg))
     from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
     from phca.monitoring.playback import PlaybackClock
-    from phca.monitoring.render import frame_from_json
+    from phca.monitoring.session_io import frame_from_json
     from PyQt5 import QtCore
     meta, lines, video = _load_session(session_dir)
     if meta is None:

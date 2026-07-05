@@ -41,7 +41,7 @@ MUJOCO_GL=disabled make test-all
 MUJOCO_GL=disabled make test-mujoco
 ```
 
-Expected output: **673** core tests + **36** MuJoCo tests = **709** total (see
+Expected output: **679** core tests + **36** MuJoCo tests = **715** total (see
 [STATUS.md](../STATUS.md) for current counts).
 
 ---

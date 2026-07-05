@@ -94,3 +94,56 @@ def test_run_session_verify_allow_incomplete_flag(tmp_path, monkeypatch):
     rc = mod._run_session_verify(session, allow_incomplete=True)
     assert rc == 0
     assert "--allow-incomplete" in calls[0]
+
+
+def test_post_run_pipeline_recorder_error_fails_verify(tmp_path, monkeypatch, capsys):
+    mod = _load_observatory()
+    session = _minimal_session(tmp_path)
+    calls = []
+
+    def fake_run(cmd, env=None):
+        calls.append(cmd)
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    rc, status, _ = mod._post_run_pipeline(
+        session,
+        n_lines=1,
+        expected=3,
+        verify=True,
+        warnings=[],
+        recorder_error="disk full",
+    )
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert "recorder error" in status
+    assert "JSONL write error: disk full" in captured.err
+    assert "JSONL write error: disk full" in captured.out
+    assert not any("--check" in str(c) for c in calls)
+
+
+def test_session_summary_recorder_error(tmp_path, capsys):
+    mod = _load_observatory()
+    session = _minimal_session(tmp_path)
+    mod._session_summary(session, 1, 3, recorder_error="I/O error")
+    captured = capsys.readouterr()
+    assert "JSONL write failure: I/O error" in captured.err
+
+
+def test_session_recorder_stores_first_write_error(tmp_path):
+    from phca.monitoring.observability import ObservabilityFrame, SessionRecorder
+
+    rec = SessionRecorder(root=str(tmp_path), record=True)
+    rec.start({"env": "grid", "cycles": 2})
+    f = ObservabilityFrame(cycle_id=0)
+    rec.record(f)
+
+    class _BrokenIO:
+        def write(self, _data):
+            raise OSError("disk full")
+
+    rec._jsonl = _BrokenIO()
+    rec.record(ObservabilityFrame(cycle_id=1))
+    assert rec.error == "disk full"
+    rec.record(ObservabilityFrame(cycle_id=2))
+    assert rec.error == "disk full"

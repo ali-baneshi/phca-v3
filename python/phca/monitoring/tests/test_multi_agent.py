@@ -33,6 +33,7 @@ from phca.monitoring.session_report import (
 _ROOT = Path(__file__).resolve().parents[4]
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 _MULTI_AGENT_FIXTURE = _FIXTURE_DIR / "multi_agent_short"
+_REACHER_FIXTURE = _FIXTURE_DIR / "reacher_short"
 _REPLAY = _ROOT / "scripts" / "phca_replay.py"
 _OBS = _ROOT / "scripts" / "phca_observatory.py"
 
@@ -189,6 +190,58 @@ def test_replay_check_committed_multi_agent_fixture():
     assert "per-agent cycle_id contiguous" in r.stdout
     assert "step-major JSONL line order" in r.stdout
     assert "Overall: PASS" in r.stdout
+
+
+def test_replay_check_committed_reacher_fixture():
+    """Tracked reacher_short session dir (--check gate coverage)."""
+    assert _REACHER_FIXTURE.is_dir()
+    env = {**dict(os.environ), "PYTHONPATH": str(_ROOT / "python")}
+    r = subprocess.run(
+        [sys.executable, str(_REPLAY), "--check", str(_REACHER_FIXTURE)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Overall: PASS" in r.stdout
+    assert "explain" in r.stdout.lower()
+
+
+def test_replay_compare_cli(tmp_path):
+    """Phase 12: phca_replay --compare subprocess gate."""
+    import shutil
+
+    base = tmp_path / "base"
+    cur = tmp_path / "cur"
+    shutil.copytree(_REACHER_FIXTURE, base)
+    shutil.copytree(_REACHER_FIXTURE, cur)
+    jsonl = cur / "timeseries.jsonl"
+    lines = jsonl.read_text().splitlines()
+    obj = json.loads(lines[0])
+    obj["prediction_error"] = float(obj.get("prediction_error", 0)) + 50.0
+    lines[0] = json.dumps(obj)
+    jsonl.write_text("\n".join(lines) + "\n")
+    out_json = tmp_path / "compare.json"
+    env = {**dict(os.environ), "PYTHONPATH": str(_ROOT / "python")}
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(_REPLAY),
+            str(cur),
+            "--compare",
+            str(base),
+            "--compare-output",
+            str(out_json),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Session compare" in r.stdout
+    assert out_json.exists()
+    payload = json.loads(out_json.read_text())
+    assert "deltas" in payload
 
 
 def test_replay_check_multi_agent_fail(tmp_path):

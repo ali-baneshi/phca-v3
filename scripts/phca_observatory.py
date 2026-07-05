@@ -67,10 +67,21 @@ def _load_optional_json(path: str | None) -> dict | None:
         return None
 
 
-def _session_summary(session_dir: Path | None, n_lines: int, expected: int) -> None:
+def _session_summary(
+    session_dir: Path | None,
+    n_lines: int,
+    expected: int,
+    *,
+    recorder_error: str | None = None,
+) -> None:
     """One-line post-run recording health (matches meta.recorded_cycles when present)."""
     if session_dir is None:
         return
+    if recorder_error:
+        print(
+            f"Session ERROR: JSONL write failure: {recorder_error}",
+            file=sys.stderr,
+        )
     recorded = None
     meta_path = session_dir / "meta.json"
     if meta_path.exists():
@@ -79,7 +90,13 @@ def _session_summary(session_dir: Path | None, n_lines: int, expected: int) -> N
         except Exception:
             pass
     recorded_ok = recorded is None or n_lines == int(recorded)
-    if n_lines == expected and recorded_ok:
+    if recorder_error:
+        print(
+            f"Session WARN: {n_lines} JSONL lines; requested {expected}, "
+            f"recorded={recorded}",
+            file=sys.stderr,
+        )
+    elif n_lines == expected and recorded_ok:
         print(f"Session OK: {n_lines} JSONL lines (recorded_cycles match).")
     else:
         print(
@@ -119,6 +136,7 @@ def _post_run_pipeline(
     expected: int,
     verify: bool,
     warnings: list[str],
+    recorder_error: str | None = None,
 ) -> tuple[int, str, Path | None]:
     """Verify session, write session_report.json, return (exit_code, status, report_path)."""
     verify_status = "SKIP"
@@ -126,7 +144,16 @@ def _post_run_pipeline(
     report_path: Path | None = None
     if session_dir is None:
         return 0, verify_status, report_path
-    if verify:
+    warn_list = list(warnings)
+    if recorder_error:
+        err_msg = f"JSONL write error: {recorder_error}"
+        if err_msg not in warn_list:
+            warn_list.append(err_msg)
+        print(f"[record] {err_msg}", file=sys.stderr)
+    if recorder_error and verify:
+        verify_rc = 1
+        verify_status = "FAIL (recorder error)"
+    elif verify:
         verify_rc = _run_session_verify(session_dir)
         verify_status = (
             f"PASS (contiguous cycle_id, schema v{OBSERVABILITY_SCHEMA_VERSION})"
@@ -144,14 +171,14 @@ def _post_run_pipeline(
         if verify_rc == 0:
             verify_rc = 1
             verify_status = "FAIL (report write)"
-    exit_code = verify_rc if verify else 0
+    exit_code = verify_rc if (verify or recorder_error) else 0
     _print_post_run_summary(
         session_dir,
         n_lines=n_lines,
         expected=expected,
         verify_status=verify_status,
         report_path=report_path,
-        warnings=warnings,
+        warnings=warn_list,
         exit_code=exit_code,
     )
     return exit_code, verify_status, report_path
@@ -838,7 +865,12 @@ def main() -> None:
             nonlocal post_run_exit
             verify_status = ""
             if not args.no_record:
-                _session_summary(session_dir, recorder.count, expected_jsonl)
+                _session_summary(
+                    session_dir,
+                    recorder.count,
+                    expected_jsonl,
+                    recorder_error=recorder.error,
+                )
                 if session_dir is not None:
                     post_run_exit, verify_status, _ = _post_run_pipeline(
                         session_dir,
@@ -846,6 +878,7 @@ def main() -> None:
                         expected=expected_jsonl,
                         verify=not args.no_verify,
                         warnings=startup_warnings,
+                        recorder_error=recorder.error,
                     )
                     report = _load_optional_json(
                         str(session_dir / "session_report.json"))
