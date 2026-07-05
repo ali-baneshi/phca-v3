@@ -1628,6 +1628,7 @@ class CognitiveCycle:
         mlp_hidden_dim: int = 128,
         gprime_b_time: float = 0.020,
         action_b_time: float = 0.020,
+        action_b_energy: float = 2.0,
         metrics_store: Optional["MetricsStore"] = None,
         observability_store: Optional["ObservabilityStore"] = None,
         interventions: Optional[InterventionConfig] = None,
@@ -1653,6 +1654,7 @@ class CognitiveCycle:
             gprime_b_time: RBTA time bound for G' module in seconds
                 (default 0.020; use 0.080 for MuJoCo with physics sim overhead).
             action_b_time: RBTA time bound for ACTION module in seconds
+            action_b_energy: RBTA energy bound for ACTION module
                 (default 0.020; use 0.050 for MuJoCo).
             metrics_store: Optional MetricsStore for live monitoring.
 
@@ -1740,7 +1742,8 @@ class CognitiveCycle:
                 ),
             )
         rbta.update_bounds(
-            "ACTION", ResourceBounds(B_time=action_b_time, B_mem=10_000, B_energy=2.0),
+            "ACTION",
+            ResourceBounds(B_time=action_b_time, B_mem=10_000, B_energy=action_b_energy),
         )
 
         mdim = MDIM(state_dim=state_dim)
@@ -1829,6 +1832,7 @@ class CognitiveCycle:
             mlp_lr=0.05,              # lower LR for smooth continuous targets
             gprime_b_time=0.120,      # MuJoCo + MLP learn headroom (D-128)
             action_b_time=0.080,      # MPC + MuJoCo step() headroom (D-128)
+            action_b_energy=4.0,      # Runtime-derived ACTION energy headroom on CI (D-128)
             metrics_store=metrics_store,
             observability_store=observability_store,
             interventions=interventions,

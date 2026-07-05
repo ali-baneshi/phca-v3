@@ -55,6 +55,15 @@ def test_cycle_pendulum_continuous_step_no_nan():
     cycle.env.close()
 
 
+def test_mujoco_action_bound_override_matches_ci_headroom():
+    """MuJoCo builder widens ACTION time and energy bounds for MPC on CI."""
+    cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
+    bounds = cycle.rbta._bounds["ACTION"]
+    assert bounds.B_time == pytest.approx(0.080)
+    assert bounds.B_energy == pytest.approx(4.0)
+    cycle.env.close()
+
+
 def test_continuous_action_within_bounds():
     """The continuous action selector returns an action within [low, high]."""
     cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
