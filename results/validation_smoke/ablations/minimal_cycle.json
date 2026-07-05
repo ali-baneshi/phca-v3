@@ -8,22 +8,22 @@
     43,
     44
   ],
-  "duration_s": 16.226617378066294,
+  "duration_s": 15.427466101013124,
   "aggregate": {
     "metrics": {
       "phi_iq": {
-        "mean": 0.37617592534426825,
-        "std": 0.008512298974704258,
-        "min": 0.36805233581056285,
-        "max": 0.38793150465242643,
+        "mean": 0.37666169049262166,
+        "std": 0.008394548253648009,
+        "min": 0.3691191034406859,
+        "max": 0.3883724232933252,
         "n": 3,
         "values": [
-          0.36805233581056285,
-          0.3725439355698156,
-          0.38793150465242643
+          0.3691191034406859,
+          0.3724935447438539,
+          0.3883724232933252
         ],
-        "ci95_lo": 0.3680523358105628,
-        "ci95_hi": 0.3879315046524264
+        "ci95_lo": 0.36911910344068594,
+        "ci95_hi": 0.3883724232933252
       },
       "synergy": {
         "mean": 0.0,
@@ -112,18 +112,18 @@
         "ci95_hi": 0.17757416821923946
       },
       "behavioral_compression": {
-        "mean": 0.7227541577687179,
-        "std": 0.00224139978302277,
+        "mean": 0.7200000000000001,
+        "std": 1.1102230246251565e-16,
         "min": 0.72,
-        "max": 0.7254901960784313,
+        "max": 0.72,
         "n": 3,
         "values": [
-          0.7254901960784313,
-          0.7227722772277227,
+          0.72,
+          0.72,
           0.72
         ],
         "ci95_lo": 0.7200000000000001,
-        "ci95_hi": 0.7254901960784313
+        "ci95_hi": 0.7200000000000001
       },
       "adaptation_stability": {
         "mean": 0.17635670492632283,
@@ -182,17 +182,17 @@
         "ci95_hi": 0.0
       },
       "emergence_composite": {
-        "mean": 0.24878880460306707,
-        "std": 0.006812437333100264,
-        "min": 0.2391545633337799,
+        "mean": 0.24865679140174693,
+        "std": 0.006999132192819484,
+        "min": 0.2387585237298195,
         "max": 0.2536059252377107,
         "n": 3,
         "values": [
-          0.2391545633337799,
+          0.2387585237298195,
           0.2536059252377107,
           0.2536059252377107
         ],
-        "ci95_lo": 0.2391545633337799,
+        "ci95_lo": 0.2387585237298195,
         "ci95_hi": 0.2536059252377107
       },
       "synergy": {
@@ -215,33 +215,33 @@
     {
       "seed": 42,
       "metrics": {
-        "phi_iq": 0.36805233581056285,
+        "phi_iq": 0.3691191034406859,
         "prediction_accuracy": 0.6562345879161537,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.524987670332923,
-        "resource_efficiency": 0.9879053860060161,
-        "failure_rate": 1.9952380952380953,
+        "resource_efficiency": 0.9884773193947262,
+        "failure_rate": 1.9857142857142858,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.4030266004791937,
-        "level_1_phi_iq": 0.5262182346019002,
-        "level_2_phi_iq": 0.14148164915982114,
-        "level_3_phi_iq": 0.36805233581056285
+        "level_0_phi_iq": 0.40318162487332054,
+        "level_1_phi_iq": 0.5261464879095727,
+        "level_2_phi_iq": 0.14142018865059008,
+        "level_3_phi_iq": 0.3691191034406859
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,
         "strategy_diversity": 0.1775741682192395,
-        "behavioral_compression": 0.7254901960784313,
+        "behavioral_compression": 0.72,
         "adaptation_stability": 0.10706883122283051,
         "cross_context_reuse": 0.0,
         "self_generated_goals": 0.0,
         "unexpected_skill_chains": 0.0,
-        "emergence_composite": 0.2391545633337799,
+        "emergence_composite": 0.2387585237298195,
         "synergy": 0.0
       },
       "failures": {
         "rbta_terminate_max_streak": 0,
-        "total_violations": 1678,
+        "total_violations": 1676,
         "goal_thrash_events": 0
       },
       "duration_s": 0.0
@@ -249,23 +249,23 @@
     {
       "seed": 43,
       "metrics": {
-        "phi_iq": 0.3725439355698156,
+        "phi_iq": 0.3724935447438539,
         "prediction_accuracy": 0.66962102289923,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.535696818319384,
-        "resource_efficiency": 0.9889450888293574,
+        "resource_efficiency": 0.988693134699549,
         "failure_rate": 1.9952380952380953,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.4049250253906082,
-        "level_1_phi_iq": 0.5608275063938849,
-        "level_2_phi_iq": 0.13251744676907018,
-        "level_3_phi_iq": 0.3725439355698156
+        "level_0_phi_iq": 0.4305295818343101,
+        "level_1_phi_iq": 0.5404296823032012,
+        "level_2_phi_iq": 0.13321074492735038,
+        "level_3_phi_iq": 0.3724935447438539
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,
         "strategy_diversity": 0.1775741682192395,
-        "behavioral_compression": 0.7227722772277227,
+        "behavioral_compression": 0.72,
         "adaptation_stability": 0.211000641778069,
         "cross_context_reuse": 0.0,
         "self_generated_goals": 0.0,
@@ -275,7 +275,7 @@
       },
       "failures": {
         "rbta_terminate_max_streak": 0,
-        "total_violations": 1629,
+        "total_violations": 1617,
         "goal_thrash_events": 0
       },
       "duration_s": 0.0
@@ -283,18 +283,18 @@
     {
       "seed": 44,
       "metrics": {
-        "phi_iq": 0.38793150465242643,
+        "phi_iq": 0.3883724232933252,
         "prediction_accuracy": 0.7189668640652028,
         "adaptation_speed": 0.8,
         "goal_complexity": 0.0,
         "transfer_efficiency": 0.5751734912521623,
-        "resource_efficiency": 0.9869295883768548,
+        "resource_efficiency": 0.9891341815813489,
         "failure_rate": 1.9952380952380953,
         "synergy": 0.0,
-        "level_0_phi_iq": 0.41801191544845556,
-        "level_1_phi_iq": 0.498074409615474,
-        "level_2_phi_iq": 0.10371824582003664,
-        "level_3_phi_iq": 0.38793150465242643
+        "level_0_phi_iq": 0.41796889775918383,
+        "level_1_phi_iq": 0.4983246022450908,
+        "level_2_phi_iq": 0.10425498839519276,
+        "level_3_phi_iq": 0.3883724232933252
       },
       "emergence": {
         "novel_behaviour": 0.6666666666666666,

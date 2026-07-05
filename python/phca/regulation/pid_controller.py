@@ -208,7 +208,11 @@ class AdaptiveParameterController:
 
         # Compute correlation matrix over sliding window (v3.0 §2.6.1)
         # Use np.corrcoef for scale-invariant redundancy detection (C5 fix)
-        stack = np.column_stack([T_vals, eta_vals, alpha_vals])
+        cols = (T_vals, eta_vals, alpha_vals)
+        if any(float(np.std(col, ddof=1)) < 1e-12 for col in cols):
+            return
+
+        stack = np.column_stack(cols)
         corr = np.corrcoef(stack.T)
         names = ["T", "eta", "alpha"]
 

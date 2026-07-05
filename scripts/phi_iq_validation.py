@@ -62,8 +62,15 @@ def run_validation(n_seeds: int, base_seed: int, cycles: int) -> Dict:
         early_phis.append(ep)
         late_rates.append(lr)
 
-    if len(early_phis) > 2 and np.std(early_phis) > 1e-6 and np.std(late_rates) > 1e-6:
-        r = float(np.corrcoef(early_phis, late_rates)[0, 1])
+    if (
+        len(early_phis) > 2
+        and np.std(early_phis, ddof=1) > 1e-6
+        and np.std(late_rates, ddof=1) > 1e-6
+    ):
+        with np.errstate(invalid="ignore", divide="ignore"):
+            r = float(np.corrcoef(early_phis, late_rates)[0, 1])
+        if not np.isfinite(r):
+            r = 0.0
     else:
         r = 0.0
 

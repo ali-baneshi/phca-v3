@@ -113,7 +113,8 @@ def compute_level_1(
 
     actions = [m.action_taken for m in history if m.action_taken >= 0]
     unique_actions = len(set(actions)) if actions else 0
-    result.goal_complexity = min(1.0, unique_actions / 5.0)
+    n_actions = max(getattr(cycle.env, "action_space_size", 5), 1)
+    result.goal_complexity = min(1.0, unique_actions / n_actions)
     result.resource_efficiency = _resource_efficiency(latencies)
     result.failure_rate = violations / max(len(history), 1)
     result.raw_metrics = {
@@ -176,14 +177,15 @@ def compute_level_3(
     mean_error = float(np.mean(errors)) if errors else 0.0
     result.prediction_accuracy = _prediction_accuracy(errors, cycle.state_dim)
     unique_actions = len(set(actions)) if actions else 0
-    result.adaptation_speed = min(1.0, unique_actions / 5.0)
+    n_actions = max(getattr(cycle.env, "action_space_size", 5), 1)
+    result.adaptation_speed = min(1.0, unique_actions / n_actions)
 
     if hasattr(cycle, "mdim") and cycle.mdim is not None:
         drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
         active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
         result.goal_complexity = min(1.0, active_drives / 5.0)
     else:
-        result.goal_complexity = 0.2
+        result.goal_complexity = min(1.0, unique_actions / n_actions)
 
     result.resource_efficiency = _resource_efficiency(latencies)
     result.failure_rate = violations / max(len(history), 1)

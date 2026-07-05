@@ -5,63 +5,63 @@
       "seed": 42,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 545
     },
     {
       "experiment": "ablations/no_prediction.json",
       "seed": 43,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 538
+      "goal_thrash_events": 535
     },
     {
       "experiment": "ablations/no_prediction.json",
       "seed": 44,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 549
     },
     {
       "experiment": "ablations/pred_off_mem_off_mdim_on.json",
       "seed": 42,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 545
     },
     {
       "experiment": "ablations/pred_off_mem_off_mdim_on.json",
       "seed": 43,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 538
+      "goal_thrash_events": 535
     },
     {
       "experiment": "ablations/pred_off_mem_off_mdim_on.json",
       "seed": 44,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 549
     },
     {
       "experiment": "ablations/pred_off_mem_on_mdim_on.json",
       "seed": 42,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 545
     },
     {
       "experiment": "ablations/pred_off_mem_on_mdim_on.json",
       "seed": 43,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 538
+      "goal_thrash_events": 535
     },
     {
       "experiment": "ablations/pred_off_mem_on_mdim_on.json",
       "seed": 44,
       "rbta_terminate_max_streak": 0,
       "total_violations": 840,
-      "goal_thrash_events": 541
+      "goal_thrash_events": 549
     },
     {
       "experiment": "ood/bandit.json",

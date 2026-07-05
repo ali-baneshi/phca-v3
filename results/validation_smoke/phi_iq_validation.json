@@ -7,8 +7,8 @@
       "u_statistic": 100.0,
       "p_value": 0.00018267179110955002,
       "significant_005": true,
-      "a_mean": 0.5680181509435083,
-      "b_mean": 0.12582643631037999,
+      "a_mean": 0.5685147420817195,
+      "b_mean": 0.12423955038374031,
       "direction_ok": true,
       "passed": true
     },
@@ -16,17 +16,17 @@
       "u_statistic": 56.0,
       "p_value": 0.6775849579524755,
       "significant_005": false,
-      "a_mean": 0.5680181509435083,
-      "b_mean": 0.5662743997831002,
+      "a_mean": 0.5685147420817195,
+      "b_mean": 0.5667836513962934,
       "direction_ok": true,
       "passed": false
     },
-    "full_mean": 0.5680181509435083,
-    "minimal_mean": 0.12582643631037999,
-    "no_pred_mean": 0.5662743997831002
+    "full_mean": 0.5685147420817195,
+    "minimal_mean": 0.12423955038374031,
+    "no_pred_mean": 0.5667836513962934
   },
   "predictive_validity": {
-    "pearson_r": 0.9835519536954935,
+    "pearson_r": 0.9835452300810984,
     "pass_r_0_7": true,
     "n_early": 50,
     "n_late": 150

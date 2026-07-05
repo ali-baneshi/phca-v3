@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from phca.evaluation.metrics.emergence import cross_context_reuse
+from phca.evaluation.metrics.emergence import cross_context_reuse, behavioral_compression
 from phca.evaluation.metrics.interaction import _aligned_feature_targets, surrogate_r2
 from phca.evaluation.metrics.synergy import prediction_action_synergy
 from phca.evaluation.trace import CycleTraceRecord
@@ -77,6 +77,11 @@ def test_cross_context_reuse_uses_trace_windows():
     trace = _trace_with_gaps(60)
     score = cross_context_reuse(trace)
     assert 0.0 <= score <= 1.0
+
+
+def test_behavioral_compression_is_deterministic():
+    trace = _trace_with_gaps(50)
+    assert behavioral_compression(trace) == behavioral_compression(trace)
 
 
 def test_extract_metric_falls_back_to_per_run_transfer_efficiency():

@@ -54,7 +54,8 @@ def behavioral_compression(trace: Sequence[CycleTraceRecord]) -> float:
     if len(actions) < 10:
         return 0.0
     action_bytes = bytes(a % 256 for a in actions)
-    random_bytes = bytes(np.random.randint(0, 5, size=len(actions), dtype=np.uint8))
+    rng = np.random.RandomState(zlib.adler32(action_bytes) & 0xFFFFFFFF)
+    random_bytes = bytes(rng.randint(0, 5, size=len(actions), dtype=np.uint8))
     comp = len(zlib.compress(action_bytes))
     comp_rand = len(zlib.compress(random_bytes))
     if comp_rand <= 0:

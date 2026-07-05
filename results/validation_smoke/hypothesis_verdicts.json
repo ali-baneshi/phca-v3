@@ -25,7 +25,7 @@
     "manifest": "experiments/ablations/no_prediction.yaml",
     "status": "Refuted",
     "observed": {
-      "transfer_drop_fraction": -0.5283494182677233
+      "transfer_drop_fraction": -0.523562217640718
     },
     "verdict_date": "2026-07-05"
   },
@@ -67,7 +67,7 @@
     "manifest": "experiments/ablations/minimal_cycle.json",
     "status": "Refuted",
     "observed": {
-      "emergence_ratio": 1.3801961682236994
+      "emergence_ratio": 1.3786725961665087
     },
     "verdict_date": "2026-07-05"
   },
@@ -80,7 +80,7 @@
     "seeds": 30,
     "status": "Validated",
     "observed": {
-      "pearson_r": 0.9835519536954935
+      "pearson_r": 0.9835452300810984
     },
     "verdict_date": "2026-07-05"
   }
