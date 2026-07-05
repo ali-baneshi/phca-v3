@@ -1,15 +1,31 @@
 {
   "env": "InvertedPendulum-v5",
-  "n_cycles": 50,
+  "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 3.6498301837127656,
-  "p95_latency_ms": 4.393021916621365,
-  "max_latency_ms": 5.433920014183968,
-  "mean_error": 3.957290723568131,
-  "early_error": 10.895906814407406,
-  "late_error": 0.5641746267452623,
+  "mean_latency_ms": 6.3607796595897526,
+  "p95_latency_ms": 9.748709364794195,
+  "max_latency_ms": 10.139352991245687,
+  "mean_error": 2.117808815921202,
+  "early_error": 5.516414829546578,
+  "late_error": 0.14572396516240999,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
-  "no_errors": true
+  "no_errors": true,
+  "synergy": 0.0,
+  "emergence": {
+    "novel_behaviour": 0.0,
+    "strategy_diversity": 0.5502972046234315,
+    "behavioral_compression": 0.30645161290322576,
+    "adaptation_stability": 0.0,
+    "cross_context_reuse": 0.0,
+    "self_generated_goals": 1.0,
+    "unexpected_skill_chains": 0.0,
+    "emergence_composite": 0.26524983107523675
+  },
+  "failures": {
+    "rbta_terminate_max_streak": 0,
+    "total_violations": 0,
+    "goal_thrash_events": 33
+  }
 }

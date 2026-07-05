@@ -38,8 +38,8 @@ def load_phi_iq(path: Path) -> float:
     return float(value)
 
 
-def _mujoco_check(path: Path) -> tuple[bool, str]:
-    """Check one MuJoCo benchmark JSON. Returns (passed, message)."""
+def _mujoco_check(path: Path) -> tuple[bool, str, list]:
+    """Check one MuJoCo benchmark JSON. Returns (passed, message, violation_details)."""
     data = json.loads(path.read_text())
     env = data.get("env", path.stem)
     violations = int(data.get("violations", 0))
@@ -47,18 +47,28 @@ def _mujoco_check(path: Path) -> tuple[bool, str]:
     no_errors = bool(data.get("no_errors", True))
     early = float(data.get("early_error", 0.0))
     late = float(data.get("late_error", 0.0))
+    details = data.get("violation_details", [])
     ok = (violations == 0) and improved and no_errors
     msg = (f"{env}: violations={violations} error_improved={improved} "
            f"no_errors={no_errors} early={early:.3f}→late={late:.3f}")
-    return ok, msg
+    return ok, msg, details
 
 
 def run_mujoco_gate(paths: list[Path]) -> int:
     print("MuJoCo benchmark gate (Phase 6 / C2):")
     all_ok = True
     for p in paths:
-        ok, msg = _mujoco_check(p)
+        ok, msg, details = _mujoco_check(p)
         print(f"  [{'PASS' if ok else 'FAIL'}] {msg}")
+        if not ok and details:
+            for d in details[:10]:
+                print(
+                    f"      cycle {d.get('cycle')}: {d.get('module_id')} "
+                    f"{d.get('bound_type')} measured={d.get('measured'):.4f} "
+                    f"allowed={d.get('allowed'):.4f}"
+                )
+            if len(details) > 10:
+                print(f"      ... and {len(details) - 10} more")
         all_ok = all_ok and ok
     print(f"Overall: {'PASS' if all_ok else 'FAIL'}")
     return 0 if all_ok else 1

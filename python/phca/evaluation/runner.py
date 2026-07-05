@@ -246,6 +246,16 @@ def run_multiseed_experiment(
     return result
 
 
+def _violation_to_dict(v: Any, cycle_idx: int) -> Dict[str, Any]:
+    return {
+        "cycle": cycle_idx,
+        "module_id": v.module_id,
+        "bound_type": v.bound_type,
+        "measured": float(v.measured),
+        "allowed": float(v.allowed),
+    }
+
+
 def run_mujoco_smoke_report(
     env_name: str,
     n_cycles: int,
@@ -261,17 +271,21 @@ def run_mujoco_smoke_report(
     for _ in range(10):
         cycle.step()
     errors, latencies, violations = [], [], 0
-    for _ in range(n_cycles):
+    violation_details: List[Dict[str, Any]] = []
+    for i in range(n_cycles):
         m = cycle.step()
         errors.append(m.prediction_error)
         latencies.append(m.latency_ms)
         violations += m.violations_count
+        if m.violations_count > 0:
+            for v in cycle.last_violations:
+                violation_details.append(_violation_to_dict(v, i))
     early = float(np.mean(errors[:max(1, len(errors) // 4)]))
     late = float(np.mean(errors[-max(1, len(errors) // 4):]))
     emergence = compute_emergence_bundle(trace.snapshot())
     synergy = synergy_score(trace.snapshot())
     failures = _collect_failures(cycle.metrics_history, cycle)
-    return {
+    result: Dict[str, Any] = {
         "env": env_name, "n_cycles": n_cycles, "model": "MLP" if use_mlp else "Gaussian",
         "mean_latency_ms": float(np.mean(latencies)),
         "p95_latency_ms": float(np.percentile(latencies, 95)),
@@ -286,6 +300,9 @@ def run_mujoco_smoke_report(
         "emergence": emergence,
         "failures": failures,
     }
+    if violation_details:
+        result["violation_details"] = violation_details
+    return result
 
 
 def save_result(result: Dict[str, Any], path: str) -> None:

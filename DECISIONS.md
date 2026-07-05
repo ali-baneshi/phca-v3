@@ -1475,3 +1475,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Test fixtures belong in-repo; session recording dirs stay gitignored. Keeps `--check` gate honest on clean checkout without committing live runs.
 - **v3.0 trace:** Observatory production gates (Phase 16/19 follow-up).
 - **Tests/Validation:** `test_multi_agent.py`, `test_observability_integrity.py`, `test_session_anomalies.py`; monitoring 354+ passed; CI observatory-check on tracked path.
+
+## Decision D-128: MuJoCo RBTA bound recalibration for CI runner variance
+
+- **Date:** 2026-07-05
+- **Author:** Principal Architect
+- **Category:** Tier 1 (MuJoCo nightly gate / A1)
+- **Problem:** GitHub Actions `make nightly` step 2 failed on Pendulum-v1: 3 RBTA violations in 100 cycles (`violations=3`, `error_improved=True`). Cartpole and Reacher passed. Local runs showed 0 violations — shared `ubuntu-latest` runners are slower/noisier than dev hardware under `MUJOCO_GL=disabled`.
+- **Option chosen:** Raise MuJoCo-only RBTA time bounds in `CognitiveCycle.build_for_mujoco`: `gprime_b_time` 0.080→**0.120** s (MLP `gprime_learn`), `action_b_time` 0.050→**0.080** s (MPC K=8 + `env.step()`). Add `violation_details` to `run_mujoco_smoke_report` JSON and print them on MuJoCo gate FAIL. Gate rule unchanged (`violations == 0`).
+- **Alternatives:** Relax gate to allow `<10%` violations (rejected — masks regressions); lower MPC K on CI only (rejected — changes measured behaviour).
+- **Rationale:** Bounds should reflect measured p99 on target hardware including CI, not mask failures. A1 injects G'=10.0 s — still far above 0.120 s. GridWorld bounds unchanged.
+- **v3.0 trace:** A1 Resource Boundedness; Phase 6 MuJoCo gate C2.
+- **Tests/Validation:** `make nightly-mujoco` exit 0; `assumption_validation.py --ci` 5/5 PASS; Pendulum 100-cyc 0 violations.

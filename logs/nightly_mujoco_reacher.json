@@ -1,15 +1,31 @@
 {
   "env": "Reacher-v5",
-  "n_cycles": 50,
+  "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 6.049870423739776,
-  "p95_latency_ms": 6.675376810017042,
-  "max_latency_ms": 7.10682402132079,
-  "mean_error": 39.07711009444311,
-  "early_error": 15.85928728529867,
-  "late_error": 18.364395379455054,
-  "error_improved": false,
+  "mean_latency_ms": 7.002252526581287,
+  "p95_latency_ms": 9.912341390736401,
+  "max_latency_ms": 10.443333070725203,
+  "mean_error": 31.89536952106658,
+  "early_error": 42.87732676770842,
+  "late_error": 7.959634398468234,
+  "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
-  "no_errors": true
+  "no_errors": true,
+  "synergy": 0.0,
+  "emergence": {
+    "novel_behaviour": 0.0,
+    "strategy_diversity": 0.0,
+    "behavioral_compression": 0.0,
+    "adaptation_stability": 0.5898100389520571,
+    "cross_context_reuse": 0.0,
+    "self_generated_goals": 0.09090909090909091,
+    "unexpected_skill_chains": 0.0,
+    "emergence_composite": 0.097245589980164
+  },
+  "failures": {
+    "rbta_terminate_max_streak": 0,
+    "total_violations": 0,
+    "goal_thrash_events": 1
+  }
 }

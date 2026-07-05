@@ -20,6 +20,9 @@ with a prediction-driven MPC selector; **Cartpole** remains discrete.
 100-cycle reference (MLP, D-107): Pendulum ~7 ms mean, error 29.6→0.68; Reacher
 ~4.4 ms mean, error 105.7→8.4; Cartpole discrete, 0 violations.
 
+MuJoCo RBTA time bounds (D-128): G' **0.120 s**, ACTION **0.080 s** — calibrated
+for shared CI runners; local means stay well below these limits.
+
 ---
 
 ## Installation

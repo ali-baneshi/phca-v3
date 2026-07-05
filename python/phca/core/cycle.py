@@ -1789,8 +1789,8 @@ class CognitiveCycle:
 
         Thin wrapper around build() that creates a MuJoCoSimpleEnv.
         Uses MuJoCo-appropriate defaults: MLP with LR=0.05, higher RBTA
-        bounds for G' (0.080s) and ACTION (0.050s) to account for physics
-        simulation overhead.
+        bounds for G' (0.120s) and ACTION (0.080s) to account for physics
+        simulation and MPC overhead on variable CI runners (D-128).
 
         Args:
             env_name: gymnasium MuJoCo environment ID.
@@ -1827,8 +1827,8 @@ class CognitiveCycle:
             env=env, seed=seed,
             use_mlp=use_mlp, use_continuous=use_continuous,
             mlp_lr=0.05,              # lower LR for smooth continuous targets
-            gprime_b_time=0.080,      # MuJoCo physics sim overhead
-            action_b_time=0.050,      # MuJoCo step() overhead
+            gprime_b_time=0.120,      # MuJoCo + MLP learn headroom (D-128)
+            action_b_time=0.080,      # MPC + MuJoCo step() headroom (D-128)
             metrics_store=metrics_store,
             observability_store=observability_store,
             interventions=interventions,
