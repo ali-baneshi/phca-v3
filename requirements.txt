@@ -23,6 +23,9 @@ orjson==3.9.13
 # CLI
 click==8.1.7
 
+# Nightly stress RSS leak detector (scripts/nightly_stress.py) + Observatory
+psutil>=5.9.0
+
 # Visual Observability Layer (Phase 7 ext) — graphical live view + replay
 matplotlib==3.11.0
 

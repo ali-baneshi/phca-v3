@@ -211,6 +211,7 @@ Erasmus (PHCA v3.0) is released under the **Apache License, Version 2.0**.
 | pytest | MIT |
 | orjson | Apache 2.0 / MIT |
 | click | BSD-3-Clause |
+| psutil | BSD-3-Clause |
 | structlog (optional) | Apache 2.0 / MIT |
 | mujoco (optional) | Apache 2.0 |
 | gymnasium (optional) | MIT |
