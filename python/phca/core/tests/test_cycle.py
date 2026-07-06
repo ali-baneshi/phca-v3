@@ -141,12 +141,87 @@ class TestCognitiveCycleCollectLogs:
     def test_belief_entropies_decrease_with_cycles(self):
         """Belief entropies should decrease as cycle_count increases."""
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle.gprime._last_mutual_info = 0.8
         cycle._collect_runtime_log()
         e1 = cycle.belief_entropies["G'"]
-        cycle.cycle_count = 100
+        cycle.gprime._last_mutual_info = 0.2
         cycle._collect_runtime_log()
         e2 = cycle.belief_entropies["G'"]
         assert e2 <= e1
+
+    def test_epistemic_entropy_uses_mutual_info(self):
+        """_epistemic_entropy reflects MC-dropout mutual information."""
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle.gprime._last_mutual_info = 0.3
+        assert cycle._epistemic_entropy() == pytest.approx(0.31)
+        cycle.gprime._last_mutual_info = 0.0
+        assert cycle._epistemic_entropy() == pytest.approx(0.01)
+
+    def test_task_lock_low_confidence_uses_blended_scorer(self):
+        """Task-lock with low G' confidence falls through to per-candidate predict."""
+        from phca.prediction.engine import PredictionEngine
+
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle._task_lock = True
+        cycle.cycle_count = 400
+        cycle.current_state = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.ones(cycle.state_dim, dtype=np.float32),
+        )
+        cycle.last_prediction = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.full(cycle.state_dim, 0.3, dtype=np.float32),
+        )
+        calls = {"n": 0}
+        orig = PredictionEngine.predict
+
+        def _counting_predict(self, *a, **k):
+            calls["n"] += 1
+            return orig(self, *a, **k)
+
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 1.0
+        PredictionEngine.predict = _counting_predict
+        try:
+            with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+                cycle._select_action()
+            assert calls["n"] >= 2
+            assert cycle.last_action_rationale.get("prediction_gated_fallback") is True
+        finally:
+            PredictionEngine.predict = orig
+
+    def test_task_lock_high_confidence_uses_greedy(self):
+        """Task-lock with high G' confidence uses geometry-primary greedy."""
+        from phca.prediction.engine import PredictionEngine
+
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle._task_lock = True
+        cycle.cycle_count = 400
+        cycle.current_state = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.ones(cycle.state_dim, dtype=np.float32),
+        )
+        cycle.last_prediction = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.full(cycle.state_dim, 0.8, dtype=np.float32),
+        )
+        calls = {"n": 0}
+        orig = PredictionEngine.predict
+
+        def _counting_predict(self, *a, **k):
+            calls["n"] += 1
+            return orig(self, *a, **k)
+
+        mock_rng = MagicMock()
+        mock_rng.random.return_value = 1.0
+        PredictionEngine.predict = _counting_predict
+        try:
+            with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+                cycle._select_action()
+            assert calls["n"] == 0
+            assert cycle.last_action_rationale.get("decision_reason") == "greedy_fallback"
+        finally:
+            PredictionEngine.predict = orig
 
 
 class TestRBTAEnforcement:

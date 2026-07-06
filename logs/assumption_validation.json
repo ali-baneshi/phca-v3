@@ -16,7 +16,7 @@
     {
       "invariant": "A3",
       "name": "belief entropy floor \u2265 \u03b5",
-      "min_entropy": 0.3464403973846848,
+      "min_entropy": 0.04077736310660839,
       "floor": 0.01,
       "passed": true
     },

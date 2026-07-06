@@ -411,14 +411,20 @@ class MDIM:
 
         # Goal-switch boost: spike D1 when extrinsic goal relocated (P0-4).
         if context.get("goal_switch_boost"):
-            self.drives[1].deficit = max(float(self.drives[1].deficit), 5.0)
+            self.drives[1].deficit = max(float(self.drives[1].deficit), 2.0)
             for d in (2, 4, 5, 6):
                 self.drives[d].deficit = 0.0
 
         # Softmax weighting of deficits (now with suppressed drives if meta-stable)
         # Include D6 (Empowerment) in goal generation per v3.0 §2.4.1 Def 3.11(3)
         deficits = np.array([self.drives[d].deficit for d in range(1, 7)], dtype=np.float64)
-        exp_deficits = np.exp((deficits - deficits.max()) / max(self.temperature, 0.01))
+        targets = np.array(
+            [max(self._targets[d], 1e-6) for d in range(1, 7)], dtype=np.float64,
+        )
+        deficits_norm = deficits / targets
+        exp_deficits = np.exp(
+            (deficits_norm - deficits_norm.max()) / max(self.temperature, 0.01),
+        )
         weights = exp_deficits / (exp_deficits.sum() + 1e-8)
 
         # Task-lock: force D1 when extrinsic goal is active (P0-3).

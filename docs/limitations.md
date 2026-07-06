@@ -68,7 +68,7 @@ The nightly stress test uses a **phase-aware late RSS slope** gate (D-112, D-113
 
 ### Discrete GridWorld selector is not purely prediction-driven
 
-When an extrinsic goal is present, **`task_lock`** routes action selection through an observed-greedy Manhattan controller (fair vs `greedy_observed` baseline), with a sparse L3 coverage probe every 50 cycles on-goal (D-112). G′ prediction drives the **continuous MPC path** (Pendulum, Reacher) — the clean prediction-primary mechanism (A4 measured there, D-101).
+When an extrinsic goal is present, **`task_lock`** routes action selection through an observed-greedy Manhattan controller **when G′ prediction confidence ≥ 0.6** (fair vs `greedy_observed` baseline); below that threshold the blended per-candidate G′ scorer is used instead. A sparse L3 coverage probe every 50 cycles on-goal (D-112). G′ prediction drives the **continuous MPC path** (Pendulum, Reacher) — the clean prediction-primary mechanism (A4 measured there, D-101).
 
 ### MLP default hidden_dim = 128
 

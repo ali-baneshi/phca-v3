@@ -67,6 +67,9 @@ if TYPE_CHECKING:
 # ~30M FLOPs (MLP forward at h=128, bs=32, ts=4) ≈ 0.5 on energy scale.
 ENERGY_NORM_FLOPS = 60_000_000.0
 
+# Task-lock uses geometry-primary greedy only when G' confidence is high (P0-2 aligned).
+TASK_LOCK_CONFIDENCE_THRESHOLD = 0.6
+
 
 @dataclass
 class CycleMetrics:
@@ -387,7 +390,7 @@ class CognitiveCycle:
                     energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
                 else:
                     energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
-                model_entropy = max(0.01, 1.0 - metrics.prediction_confidence)
+                model_entropy = self._epistemic_entropy()
 
                 if self.interventions.enable_mdim:
                     mdim_context = {
@@ -864,6 +867,15 @@ class CognitiveCycle:
             return np.zeros(dim, dtype=np.float32)
         return self.env.stay_action
 
+    def _epistemic_entropy(self) -> float:
+        """Epistemic uncertainty for D4 and A3 (MC-dropout mutual information).
+
+        Uses additive floor (0.01 + mi) so the signal stays responsive above
+        the RBTA entropy_floor without max-clip flattening small variations.
+        """
+        mi = float(getattr(self.gprime, "_last_mutual_info", 0.5))
+        return min(1.0, 0.01 + mi)
+
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
 
@@ -917,8 +929,18 @@ class CognitiveCycle:
             self.last_candidate_rollouts = []
             return self.env.stay_action
 
-        # Task-lock: pure observed-greedy navigation (beats blended scorer on L3)
-        if self._task_lock and hasattr(self.env, "agent_pos"):
+        # Task-lock: geometry-primary when G' is confident; else fall through to
+        # blended scorer (per-candidate predict) for prediction-primary selection.
+        _cycle_conf = (
+            float(self.last_prediction.precision[0])
+            if self.last_prediction is not None
+            else 0.0
+        )
+        if (
+            self._task_lock
+            and hasattr(self.env, "agent_pos")
+            and _cycle_conf >= TASK_LOCK_CONFIDENCE_THRESHOLD
+        ):
             spec = getattr(self.env, "spec", None)
             long_horizon = bool(getattr(spec, "dynamic_goals_every", 0))
             explore_ties = self._goal_switch_cooldown > 0 or bool(
@@ -1055,6 +1077,10 @@ class CognitiveCycle:
         else:
             self.last_candidate_rollouts = []
 
+        _gated_fallback = (
+            self._task_lock
+            and _cycle_conf < TASK_LOCK_CONFIDENCE_THRESHOLD
+        )
         self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
@@ -1062,6 +1088,7 @@ class CognitiveCycle:
             "k_candidates": int(self.env.action_space_size),
             "chosen_idx": int(best_action),
             "task_lock": bool(self._task_lock),
+            "prediction_gated_fallback": bool(_gated_fallback),
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
         }, decision_reason="prediction")
@@ -1603,14 +1630,8 @@ class CognitiveCycle:
         if self._cycle_flops > 0:
             gprime_energy = self._cycle_flops / ENERGY_NORM_FLOPS
             self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
-        # Belief entropy from prediction error variance (A3: Incomplete Knowledge)
-        if len(self.metrics_history) >= 5:
-            recent_errs = [m.prediction_error for m in self.metrics_history[-10:]]
-            err_var = float(np.var(recent_errs)) if len(recent_errs) > 1 else 0.5
-            entropy_val = min(1.0, max(0.01, err_var * 10.0))
-        else:
-            entropy_val = 0.5
-        self.belief_entropies = {"G'": entropy_val}
+        # Belief entropy from MC-dropout epistemic uncertainty (A3: Incomplete Knowledge)
+        self.belief_entropies = {"G'": self._epistemic_entropy()}
 
     # ── Unified Builder (Phase 4) ─────────────────────────────
 

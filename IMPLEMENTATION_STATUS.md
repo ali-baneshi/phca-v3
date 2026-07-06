@@ -2,9 +2,9 @@
 
 Maps **whitepaper success criteria** and **blueprint components** to current
 code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
-2026-07-05.
+2026-07-06.
 
-Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **Stub**
+Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **Stub** | ✅ **Done**
 
 ---
 
@@ -26,8 +26,8 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 |---|---|---|---|
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
 | **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
-| **A3** Incomplete knowledge | Entropy floor in regulation | `assumption_validation.py --ci` | **Measured PASS** |
-| **A4** Prediction as primary | G′ predict every cycle | A4 test on continuous MPC | **Partial** — discrete GridWorld uses hybrid geometry+confidence selector |
+| **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** |
+| **A4** Prediction as primary | G′ predict every cycle | A4 test on continuous MPC | **Partial** (improved) — GridWorld: confidence-gated task_lock (τ=0.6) + blended G′ fallback; continuous MPC remains A4-primary (measured) |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) for behavioral
@@ -49,7 +49,7 @@ evidence separate from invariant tests.
 | PEU | Blueprint | `phca/prediction/error_unit.py` | **Implemented** |
 | TSPL P-Stream | Blueprint | `phca/learning/tspl.py` | **Implemented** |
 | TSPL E/S streams + EWC/GEM | Blueprint | — | **Removed** Phase 3.3 (D-020) |
-| MDIM (6 drives) | Whitepaper §3 | `phca/motivation/mdim.py` | **Implemented** |
+| MDIM (6 drives) | Whitepaper §3 | `phca/motivation/mdim.py` | **Implemented** — deficit/target normalization before softmax (✅ Done 2026-07-06) |
 | APC (adaptive PID) | Blueprint | `phca/regulation/pid_controller.py` | **Implemented** (error volatility, not SOC Φ) |
 | Attention | Blueprint | `phca/attention/attention.py` | **Implemented** |
 | HPM runtime | Blueprint | `phca/hpm/parser.py` | **Partial** — `compute_bounds()` only |
@@ -70,10 +70,10 @@ evidence separate from invariant tests.
 
 ## Evaluation Gates
 
-| Gate | Script | CI? | Current status (2026-07-05) |
+| Gate | Script | CI? | Current status (2026-07-06) |
 |---|---|---|---|
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
-| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7323) |
+| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7317) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
 | Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | PASS (Gaussian default; use `--use-mlp` for deployment mode) |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
@@ -104,12 +104,22 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 
 | Environment | Mode | A4 "prediction-primary"? |
 |---|---|---|
-| GridWorld discrete | Manhattan + confidence + MDIM blend | **Partial** |
+| GridWorld discrete | Confidence-gated task_lock (τ=0.6) + blended G′ fallback | **Partial** (improved) |
 | Cartpole | 3-bin discrete | **Partial** |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |
 
 Details: [docs/action_selection.md](docs/action_selection.md)
+
+---
+
+## Core Infrastructure Fixes (2026-07-06)
+
+| Feature | Code | Status | Evidence |
+|---|---|---|---|
+| Confidence-gated discrete action selection (autonomous goal-setting / conditional action branch) | `python/phca/core/cycle.py` — `TASK_LOCK_CONFIDENCE_THRESHOLD=0.6` | ✅ **Done** | Low confidence → blended G′ per-candidate scorer; high confidence → Manhattan greedy (D-112 preserved) |
+| MDIM deficit/target drive normalization | `python/phca/motivation/mdim.py` — `generate_goal()` | ✅ **Done** | `deficits_norm = deficits / targets` before softmax; `goal_switch_boost` capped at 2.0 |
+| Unified epistemic entropy for A3 + D4 (MC-Dropout) | `python/phca/core/cycle.py` — `_epistemic_entropy()` | ✅ **Done** | `0.01 + gprime._last_mutual_info` (MC-dropout); wired to D4 `model_entropy` and `belief_entropies["G'"]`; A3 CI PASS (min_entropy=0.0408) |
 
 ---
 

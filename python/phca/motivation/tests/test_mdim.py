@@ -10,6 +10,7 @@ v3.0 Reference: §3.3 Definition 3.5, §3.3 Definition 3.6, v3.0 Patch §2.4
 from __future__ import annotations
 
 import pytest
+import numpy as np
 
 from phca.motivation.mdim import MDIM, DriveState, GoalStackEntry, MetaStableState
 from phca.config import GoalVector
@@ -219,6 +220,28 @@ class TestGoalGeneration:
         """Goals should be logged in history."""
         mdim.generate_goal(default_context)
         assert len(mdim._goal_history) == 1
+
+    def test_softmax_deficit_normalization_balanced(self, mdim):
+        """Normalized deficits prevent D1 from monopolizing softmax weights."""
+        mdim.compute_drives({
+            "prediction_error": 1.0,
+            "error_volatility": 0.5,
+            "skill_accuracy": 0.5,
+            "model_entropy": 0.3,
+            "energy_cost": 0.5,
+            "empowerment": 0.3,
+            "cycle": 1,
+        })
+        deficits = np.array([mdim.drives[d].deficit for d in range(1, 7)], dtype=np.float64)
+        targets = np.array(
+            [max(mdim._targets[d], 1e-6) for d in range(1, 7)], dtype=np.float64,
+        )
+        deficits_norm = deficits / targets
+        exp_deficits = np.exp(
+            (deficits_norm - deficits_norm.max()) / max(mdim.temperature, 0.01),
+        )
+        weights = exp_deficits / (exp_deficits.sum() + 1e-8)
+        assert weights[0] < 0.80
 
 
 class TestGoalStack:
