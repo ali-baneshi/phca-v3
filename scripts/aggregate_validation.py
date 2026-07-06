@@ -16,6 +16,8 @@ except ImportError:
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.evaluation.metrics.statistics import aggregate_runs, compare_groups
 
 

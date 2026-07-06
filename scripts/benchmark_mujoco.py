@@ -24,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle
 
 

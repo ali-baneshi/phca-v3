@@ -15,10 +15,11 @@ import json
 import sys
 from pathlib import Path
 
+import _bootstrap  # noqa: F401
+from _bootstrap import _PKG_ROOT
+
 _REPO = Path(__file__).resolve().parent.parent
-_PKG = _REPO / "python"
-if str(_PKG) not in sys.path:
-    sys.path.insert(0, str(_PKG))
+_PKG = _PKG_ROOT
 
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.render import frame_from_json

@@ -10,6 +10,8 @@ from typing import Dict, List
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.evaluation.interventions import InterventionConfig
 from phca.evaluation.metrics.phi_iq import compute_level_metrics
 from phca.evaluation.metrics.statistics import compare_groups, seed_sequence

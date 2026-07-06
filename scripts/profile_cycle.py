@@ -16,8 +16,8 @@ import argparse
 import statistics
 from pathlib import Path
 
-# The PYTHONPATH must include python/ directory for phca imports.
-# Invoke via: PYTHONPATH=python:$$PYTHONPATH python scripts/profile_cycle.py
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle
 
 

@@ -36,9 +36,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-_pkg_root = Path(__file__).resolve().parent.parent / "python"
-if str(_pkg_root) not in sys.path:
-    sys.path.insert(0, str(_pkg_root))
+import _bootstrap  # noqa: F401
+from _bootstrap import _PKG_ROOT
 
 import numpy as np
 
@@ -191,7 +190,7 @@ def _run_session_verify(session_dir: Path, *, allow_incomplete: bool = False) ->
     """Run phca_replay.py --check on the recorded session (inline verify)."""
     replay = Path(__file__).resolve().parent / "phca_replay.py"
     env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(_pkg_root))
+    env.setdefault("PYTHONPATH", str(_PKG_ROOT))
     cmd = [sys.executable, str(replay), "--check", str(session_dir)]
     if allow_incomplete:
         cmd.append("--allow-incomplete")

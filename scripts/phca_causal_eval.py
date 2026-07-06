@@ -17,6 +17,8 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle
 from phca.config import DiscreteSpace
 from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld

@@ -119,6 +119,7 @@ integrity checks.
 
 | Problem | Solution |
 |---|---|
+| `ModuleNotFoundError: No module named 'phca'` | Run from repo root: `python scripts/<script>.py` (scripts bootstrap `python/` automatically). Legacy: `PYTHONPATH=python python scripts/...` |
 | `ModuleNotFoundError: No module named 'structlog'` | `pip install -r requirements.txt` |
 | `ModuleNotFoundError: No module named 'gymnasium'` | Optional — install `requirements-mujoco.txt` |
 | `pytest: error: unrecognized arguments: --timeout` | `pip install -r requirements-dev.txt` |

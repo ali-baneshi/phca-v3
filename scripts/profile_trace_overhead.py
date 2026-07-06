@@ -7,6 +7,8 @@ import argparse
 import sys
 import time
 
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle
 from phca.evaluation.trace import TraceCollector
 

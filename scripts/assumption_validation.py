@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.config import ResourceBounds, StateVector
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging

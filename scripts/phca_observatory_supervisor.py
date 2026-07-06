@@ -26,9 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-_pkg_root = Path(__file__).resolve().parent.parent / "python"
-if str(_pkg_root) not in sys.path:
-    sys.path.insert(0, str(_pkg_root))
+import _bootstrap  # noqa: F401
 
 from phca.monitoring.session_recovery import (  # noqa: E402
     detect_session_state,

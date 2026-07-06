@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle, CycleMetrics
 from phca.config import ResourceBounds, DEFAULT_MODULE_BOUNDS
 from phca.world_model.mlp import (

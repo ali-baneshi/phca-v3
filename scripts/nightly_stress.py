@@ -41,6 +41,8 @@ from pathlib import Path
 import numpy as np
 import psutil
 
+import _bootstrap  # noqa: F401
+
 from phca.monitoring.retention_slope import (
     FILL_PHASE_CYCLES,
     LEAK_SLOPE_FILL,

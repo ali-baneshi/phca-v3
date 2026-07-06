@@ -13,6 +13,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
+import _bootstrap  # noqa: F401
+
 from phca.core.cycle import CognitiveCycle
 from phca.world_model.mlp import gprime_stress_bounds
 from phca.evaluation.metrics.emergence import compute_emergence_bundle

@@ -31,6 +31,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import _bootstrap  # noqa: F401
+
 
 def _load_session(session_dir: str):
     d = Path(session_dir)
@@ -83,7 +85,6 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
     parse_fail_lines: list[int] = []
     parsed: list[dict] = []
     schema_versions: set[int] = set()
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
     from phca.monitoring.observability import normalize_observability_json
     for i, ln in enumerate(lines, start=1):
         try:
@@ -304,9 +305,6 @@ def _play_jsonl(session_dir: str, fps: float) -> int:
     if os.environ.get("MPLBACKEND"):
         matplotlib.use(os.environ["MPLBACKEND"])
     import matplotlib.pyplot as plt
-    _pkg = Path(__file__).resolve().parent.parent / "python"
-    if str(_pkg) not in sys.path:
-        sys.path.insert(0, str(_pkg))
     from phca.monitoring.render import build_dashboard, update_dashboard
     from phca.monitoring.session_io import frame_from_json
     meta, lines, video = _load_session(session_dir)
@@ -343,9 +341,6 @@ def _play_jsonl(session_dir: str, fps: float) -> int:
 def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
     """Replay a session in the PyQt5 Cognitive Observatory dashboard with the
     unified v6 transport (pause / speed / step / scrub)."""
-    _pkg = Path(__file__).resolve().parent.parent / "python"
-    if str(_pkg) not in sys.path:
-        sys.path.insert(0, str(_pkg))
     from phca.monitoring.qt_dashboard import ObservatoryWindow, make_app, _TransportBar
     from phca.monitoring.playback import PlaybackClock
     from phca.monitoring.session_io import frame_from_json
@@ -417,9 +412,6 @@ def _play_qt(session_dir: str, fps: float, close_at_end: bool = False) -> int:
 
 
 def _report(session_dir: str) -> int:
-    _pkg = Path(__file__).resolve().parent.parent / "python"
-    if str(_pkg) not in sys.path:
-        sys.path.insert(0, str(_pkg))
     from phca.monitoring.session_report import print_report_summary, write_session_report
     try:
         report = write_session_report(session_dir)
@@ -432,9 +424,6 @@ def _report(session_dir: str) -> int:
 
 
 def _compare(session_dir: str, baseline_dir: str, *, output: Optional[str] = None) -> int:
-    _pkg = Path(__file__).resolve().parent.parent / "python"
-    if str(_pkg) not in sys.path:
-        sys.path.insert(0, str(_pkg))
     from phca.monitoring.session_report import (
         compare_session_reports,
         load_session_report,
@@ -456,7 +445,6 @@ def _compare(session_dir: str, baseline_dir: str, *, output: Optional[str] = Non
 
 def _recover(session_dir: str, *, verify: bool = True,
              allow_incomplete: bool = False) -> int:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
     from phca.monitoring.session_recovery import print_recover_summary, recover_session
     rc, summary = recover_session(
         session_dir,

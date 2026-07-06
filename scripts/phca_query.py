@@ -18,9 +18,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-_pkg_root = Path(__file__).resolve().parent.parent / "python"
-if str(_pkg_root) not in sys.path:
-    sys.path.insert(0, str(_pkg_root))
+import _bootstrap  # noqa: F401
 
 from phca.monitoring.multi_agent import is_multi_agent_session
 from phca.monitoring.session_io import load_session_frames
