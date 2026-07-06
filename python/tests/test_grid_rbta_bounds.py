@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from phca.config import DEFAULT_MODULE_BOUNDS
 from phca.core.cycle import CognitiveCycle
+from phca.evaluation.metrics.phi_iq import generate_goal_pursuit_obstacles
 from phca.world_model.mlp import (
+    apply_grid_rbta_bounds,
     estimate_gaussian_gprime_memory_bytes,
     estimate_mlp_gprime_time_bound,
     grid_scale,
@@ -53,3 +57,27 @@ def test_5x5_gaussian_no_extra_bounds():
       size=5, seed=42, use_continuous=True, use_mlp=False,
   )
   assert grid_rbta_bounds(cycle=cycle) == {}
+
+
+@pytest.mark.slow
+def test_l2_10x10_gaussian_violation_rate_under_10pct():
+    """L2 Goal Pursuit on 10×10 Gaussian G' should stay under RBTA violation gate."""
+    level = 2
+    seed = 44
+    obstacles = generate_goal_pursuit_obstacles(seed + level, 10)
+    cycle = CognitiveCycle.build_for_env(
+        size=10,
+        seed=seed + level,
+        use_continuous=True,
+        use_mlp=False,
+        obstacles=obstacles,
+    )
+    apply_grid_rbta_bounds(cycle, b_time=0.020)
+
+    warmup = 10
+    n_cycles = 80
+    for _ in range(warmup):
+        cycle.step()
+
+    violations = sum(cycle.step().violations_count for _ in range(n_cycles))
+    assert violations / n_cycles < 0.10

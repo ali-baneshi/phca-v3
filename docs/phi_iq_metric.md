@@ -134,6 +134,8 @@ Larger grids increase `state_dim`; RBTA bounds are scaled via `grid_rbta_bounds(
 in [`python/phca/world_model/mlp.py`](../python/phca/world_model/mlp.py). Even so,
 validation scaling runs (`results/validation/scaling/`) show lower Φ-IQ and the
 violation gate may still fail — treat scaling as exploratory, not CI-gated.
+After full module RBTA bound alignment (`grid_rbta_bounds`), 10×10 Gaussian L2
+can pass the violation gate (`failure_rate_under_10pct`).
 
 | Grid | Typical overall Φ-IQ (MLP, 200 cyc) | `failure_rate_under_10pct` |
 |---|---|---|

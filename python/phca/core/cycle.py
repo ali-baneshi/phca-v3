@@ -39,6 +39,8 @@ from phca.world_model.mlp import (
     WorldModelMLP,
     estimate_mlp_memory_bytes,
     grid_rbta_bounds,
+    grid_scale,
+    scaled_time_bound,
 )
 
 if TYPE_CHECKING:
@@ -656,8 +658,7 @@ class CognitiveCycle:
             # Compute composite bounds from HPM validator using actual module timings
             # Replaces hardcoded 200ms/500ms with structure-aware computed bounds
             hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
-            reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
-            reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
+            reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
             # Build composition tree reflecting the 21-step cycle's structure
             # with full three-dimensional bounds (B_time, B_energy) per A1 fix.
             composition_tree = {
@@ -1507,6 +1508,17 @@ class CognitiveCycle:
         vol = min(1.0, cv)
         return float(np.clip(vol, 0.1, 0.99))
 
+    def _scaled_hpm_composite_bounds(
+        self, hpm_bounds: Optional[Dict[str, float]],
+    ) -> tuple[float, float]:
+        """Scale HPM composite bounds for large GridWorld state dimensions."""
+        reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
+        reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
+        if grid_scale(self.state_dim) > 1.0:
+            reg_b_time = scaled_time_bound(self.state_dim, reg_b_time)
+            reg_b_energy = reg_b_energy * grid_scale(self.state_dim)
+        return reg_b_time, reg_b_energy
+
     def _rbta_preflight_check(
         self,
         metrics: CycleMetrics,
@@ -1519,8 +1531,7 @@ class CognitiveCycle:
         """
         self._collect_runtime_log(metrics)
         hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
-        reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
-        reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
+        reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
         composition_tree = {
             "type": "SEQUENCE",
             "id": "cognitive_cycle",
