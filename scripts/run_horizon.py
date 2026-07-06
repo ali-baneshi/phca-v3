@@ -13,8 +13,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from phca.config import ResourceBounds
 from phca.core.cycle import CognitiveCycle
+from phca.world_model.mlp import gprime_stress_bounds
 from phca.evaluation.metrics.emergence import compute_emergence_bundle
 from phca.evaluation.metrics.phi_iq import generate_goal_pursuit_obstacles
 from phca.evaluation.metrics.synergy import synergy_score
@@ -108,9 +108,7 @@ def main() -> None:
         size=args.grid_size, seed=args.seed + 2,
         use_continuous=True, use_mlp=True, obstacles=obstacles,
     )
-    cycle.rbta.update_bounds(
-        "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
-    )
+    cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
 
     if args.checkpoint and Path(args.checkpoint).exists():
         ckpt = load_checkpoint(args.checkpoint)

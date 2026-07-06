@@ -40,7 +40,6 @@ from pathlib import Path
 import numpy as np
 import psutil
 
-from phca.config import ResourceBounds
 from phca.monitoring.retention_slope import (
     FILL_PHASE_CYCLES,
     LEAK_SLOPE_FILL,
@@ -51,6 +50,7 @@ from phca.monitoring.retention_slope import (
 )
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
+from phca.world_model.mlp import gprime_stress_bounds
 
 
 CHECKPOINTS = [1000, 5000, 10000, 50000, 100000]
@@ -74,7 +74,7 @@ def _build_cycle(seed: int = 42) -> CognitiveCycle:
     cycle = CognitiveCycle.build_for_env(
         size=5, seed=seed + 2, use_continuous=True, use_mlp=True, obstacles=obstacles,
     )
-    cycle.rbta.update_bounds("G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0))
+    cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
     return cycle
 
 

@@ -1523,3 +1523,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** RBTA should enforce the subsystem that spiked. GridWorld builds do not register ENV bounds — `env_step` is logged but not gated (fast steps). A1 injects G'=10.0 s — unaffected.
 - **v3.0 trace:** A1 Resource Boundedness; Phase 6 MuJoCo gate C2.
 - **Tests/Validation:** `test_mujoco_action_bound_override_matches_ci_headroom`, `test_mujoco_env_bound_override_matches_ci_headroom`, `test_mujoco_env_step_timing_recorded`; `make nightly-mujoco` exit 0.
+
+## Decision D-132: Align stress-script G' B_mem with `estimate_mlp_memory_bytes` (nightly stress FAIL)
+
+- **Date:** 2026-07-06
+- **Author:** Principal Architect
+- **Category:** Tier 1 (nightly stress gate / A1)
+- **Problem:** `make nightly NIGHTLY_CYCLES=10000` step 5 failed: 100% RBTA violation rate (`G' MEM` measured=501472 vs allowed=500000 every cycle) and RSS late-slope FAIL (4081 B/cyc > 1600). MuJoCo gate and assumptions PASS — not a D-131 regression.
+- **Option chosen:** Add `gprime_stress_bounds(cycle)` in `mlp.py` using `max(500_000, estimate_mlp_memory_bytes(...))`; replace hardcoded `B_mem=500_000` overrides in `nightly_stress.py`, `assumption_validation.py`, `ood_calibration.py`, `longrun_probe.py`, `profile_mlp_learn.py`, `run_horizon.py`, `evaluation/runner.py`, and `benchmarks/runner.py`. Regression test in `test_chaos.py`.
+- **Alternatives:** Raise default `DEFAULT_MODULE_BOUNDS["G'"].B_mem` to 501472 globally (rejected — only MLP path needs the estimate); relax violation gate (rejected — masks real regressions).
+- **Rationale:** `estimate_mlp_memory_bytes` (phase-20 hardening-2) made `build()` accurate (501472 for canonical 5×5 MLP) but stress scripts still clobbered `B_mem` to 500000. 100% violations triggered RBTA INTERRUPT every cycle (`skip_consolidation`), perturbing RSS slope. Fixing bounds restores historical baseline (~1 violation/10k, late RSS ~1411 B/cyc).
+- **v3.0 trace:** A1 Resource Boundedness; Phase 6 nightly stress C1.
+- **Tests/Validation:** `test_nightly_stress_build_no_spurious_gprime_mem_violation`; `nightly_stress.py --cycles=10000` PASS.

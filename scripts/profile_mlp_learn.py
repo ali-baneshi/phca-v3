@@ -24,9 +24,9 @@ from pathlib import Path
 
 import numpy as np
 
-from phca.config import ResourceBounds
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
+from phca.world_model.mlp import gprime_stress_bounds
 
 
 def _build_l2_cycle(seed: int = 42, train_steps: int | None = None,
@@ -47,9 +47,7 @@ def _build_l2_cycle(seed: int = 42, train_steps: int | None = None,
         size=5, seed=seed + 2, use_continuous=True, use_mlp=True,
         obstacles=obstacles,
     )
-    cycle.rbta.update_bounds(
-        "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
-    )
+    cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
     # Allow overriding the perf levers for re-measurement after a change.
     if train_steps is not None and hasattr(cycle.gprime, "train_steps"):
         cycle.gprime.train_steps = train_steps

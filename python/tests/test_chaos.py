@@ -168,6 +168,31 @@ class TestMemoryChaos:
         assert min_ts >= 10, f"Earliest remaining timestamp {min_ts} < 10, eviction did not preserve recent episodes"
 
 
+# ── Nightly stress G' MEM bound alignment (D-132) ─────────────
+
+
+class TestNightlyStressBounds:
+    """Regression: stress scripts must not clobber build() G' B_mem."""
+
+    def test_nightly_stress_build_no_spurious_gprime_mem_violation(self):
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        script = root / "scripts" / "nightly_stress.py"
+        spec = importlib.util.spec_from_file_location("nightly_stress", script)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+
+        cycle = mod._build_cycle(42)
+        metrics = cycle.step()
+        assert metrics.violations_count == 0, cycle.last_violations
+        assert cycle.rbta._bounds["G'"].B_mem >= cycle.memory_log["G'"]
+
+
 # ── Helpers ────────────────────────────────────────────────────
 
 

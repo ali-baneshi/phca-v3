@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import StateVector
+from phca.config import ResourceBounds, StateVector
 
 
 _EPS = 1e-8
@@ -51,6 +51,18 @@ def estimate_mlp_gprime_time_bound(
 ) -> float:
     """Scale G' time bound linearly with state_dim (MLP learn cost grows with sd)."""
     return base_time * max(1.0, state_dim / ref_dim)
+
+
+def gprime_stress_bounds(cycle: Any, *, b_time: float = 0.080) -> ResourceBounds:
+    """Stress/benchmark G' RBTA bounds aligned with ``estimate_mlp_memory_bytes``."""
+    g = cycle.gprime
+    g_mem = max(
+        500_000,
+        estimate_mlp_memory_bytes(
+            cycle.state_dim, g.action_dim, g.hidden_dim, g.replay_capacity,
+        ),
+    )
+    return ResourceBounds(B_time=b_time, B_mem=g_mem, B_energy=50.0)
 
 
 class WorldModelMLP:

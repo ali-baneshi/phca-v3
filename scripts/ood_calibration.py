@@ -25,8 +25,9 @@ from pathlib import Path
 
 import numpy as np
 
-from phca.config import ResourceBounds, StateVector
+from phca.config import StateVector
 from phca.core.cycle import CognitiveCycle
+from phca.world_model.mlp import gprime_stress_bounds
 from phca.logging import ensure_logging
 
 
@@ -50,7 +51,7 @@ def _build_trained_cycle(seed: int = 42, train_cycles: int = TRAIN_CYCLES) -> Co
     cycle = CognitiveCycle.build_for_env(
         size=5, seed=seed + 2, use_continuous=True, use_mlp=True, obstacles=obstacles,
     )
-    cycle.rbta.update_bounds("G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0))
+    cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
     for _ in range(TRAIN_CYCLES):
         cycle.step()
     return cycle

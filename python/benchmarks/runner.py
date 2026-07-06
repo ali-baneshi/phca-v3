@@ -36,7 +36,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.config import ResourceBounds, CYCLE_TARGET
+from phca.config import CYCLE_TARGET
+from phca.world_model.mlp import gprime_stress_bounds
 
 
 # ── Φ-IQ Sub-Metric Weights ────────────────────────────────
@@ -116,9 +117,7 @@ def _build_cycle(
     )
 
     if config.use_mlp:
-        cycle.rbta.update_bounds(
-            "G'", ResourceBounds(B_time=0.050, B_mem=500_000, B_energy=50.0),
-        )
+        cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle, b_time=0.050))
 
     return cycle
 

@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from phca.config import ResourceBounds
 from phca.core.cycle import CognitiveCycle
+from phca.world_model.mlp import gprime_stress_bounds
 from phca.evaluation.interventions import InterventionConfig
 from phca.evaluation.metrics.emergence import compute_emergence_bundle
 from phca.evaluation.metrics.phi_iq import (
@@ -92,9 +93,7 @@ def build_cycle(
         trace_collector=trace_collector,
     )
     if use_mlp:
-        cycle.rbta.update_bounds(
-            "G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0),
-        )
+        cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
     _apply_intervention_rbta(cycle, interventions)
     return cycle
 

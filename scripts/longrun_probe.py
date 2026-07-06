@@ -21,6 +21,7 @@ import numpy as np
 
 from phca.core.cycle import CognitiveCycle
 from phca.logging import ensure_logging
+from phca.world_model.mlp import gprime_stress_bounds
 
 
 def rss_kb() -> float:
@@ -52,8 +53,7 @@ def main() -> None:
     cycle = CognitiveCycle.build_for_env(
         size=5, seed=args.seed + 2, use_continuous=True, use_mlp=True, obstacles=obstacles,
     )
-    from phca.config import ResourceBounds
-    cycle.rbta.update_bounds("G'", ResourceBounds(B_time=0.080, B_mem=500_000, B_energy=50.0))
+    cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
 
     rss_start = rss_kb()
     blocks = []
