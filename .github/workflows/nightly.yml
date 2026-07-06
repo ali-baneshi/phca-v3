@@ -28,7 +28,7 @@ jobs:
       - name: Run nightly hardening suite
         env:
           MUJOCO_GL: disabled
-        run: make nightly NIGHTLY_CYCLES=10000
+        run: make nightly NIGHTLY_CYCLES=11000
 
       - name: Upload nightly artifacts
         if: always()

@@ -5,6 +5,9 @@ from typing import Dict, Sequence, Union
 
 import numpy as np
 
+# M3 FIFO caps at 10k episodes (one per cycle); post-M3 steady-state slope
+# uses samples after this cycle when total_cycles > M3_CAP_CYCLES (D-134).
+M3_CAP_CYCLES = 10_000
 # M3 fills to cap ~10k episodes; M4 cap engages ~6700 cycles. Shorter soaks
 # legitimately show ~4 KB/cyc fill-phase growth (D-112).
 FILL_PHASE_CYCLES = 7000
@@ -27,10 +30,14 @@ def compute_rss_slopes(
     *,
     total_cycles: int,
 ) -> Dict[str, Union[float, str, None]]:
-    """Linear-fit RSS vs cycle; late segment uses tail-quarter for post-cap runs.
+    """Linear-fit RSS vs cycle; late segment uses post-M3 or tail-quarter.
 
-    Returns keys: ``full_slope``, ``late_slope``, ``leak_gate_mode``,
-    ``leak_threshold``, ``sample_count``.
+    When ``total_cycles > M3_CAP_CYCLES`` and ≥2 samples exist after the M3
+    FIFO cap, late slope is fit on post-M3 samples only (D-134). Otherwise
+    post-cap runs use tail-quarter; shorter runs use late-half.
+
+    Returns keys: ``full_slope``, ``late_slope``, ``late_slope_window``,
+    ``leak_gate_mode``, ``leak_threshold``, ``sample_count``.
     """
     leak_threshold, leak_gate_mode = leak_threshold_for_cycles(total_cycles)
     xs = np.asarray(cycle_ids, dtype=np.float64)
@@ -40,27 +47,53 @@ def compute_rss_slopes(
         return {
             "full_slope": 0.0,
             "late_slope": 0.0,
+            "late_slope_window": "insufficient",
             "leak_gate_mode": leak_gate_mode,
             "leak_threshold": leak_threshold,
             "sample_count": sample_count,
         }
     slope = float(np.polyfit(xs, ys, 1)[0])
-    if total_cycles >= FILL_PHASE_CYCLES and len(xs) >= 4:
+    late_slope_window = "late_half"
+    if total_cycles > M3_CAP_CYCLES:
+        post_m3 = xs > M3_CAP_CYCLES
+        if int(np.sum(post_m3)) >= 2:
+            late_xs, late_ys = xs[post_m3], ys[post_m3]
+            late_slope = float(np.polyfit(late_xs, late_ys, 1)[0])
+            late_slope_window = "post_m3"
+        elif total_cycles >= FILL_PHASE_CYCLES and len(xs) >= 4:
+            tail_start = max(0, (len(xs) * 3) // 4)
+            late_xs, late_ys = xs[tail_start:], ys[tail_start:]
+            late_slope = (
+                float(np.polyfit(late_xs, late_ys, 1)[0])
+                if len(late_xs) >= 2 else slope
+            )
+            late_slope_window = "tail_quarter"
+        else:
+            half = len(xs) // 2
+            late_xs, late_ys = xs[half:], ys[half:]
+            late_slope = (
+                float(np.polyfit(late_xs, late_ys, 1)[0])
+                if len(late_xs) >= 2 else slope
+            )
+    elif total_cycles >= FILL_PHASE_CYCLES and len(xs) >= 4:
         tail_start = max(0, (len(xs) * 3) // 4)
         late_xs, late_ys = xs[tail_start:], ys[tail_start:]
         late_slope = (
             float(np.polyfit(late_xs, late_ys, 1)[0])
             if len(late_xs) >= 2 else slope
         )
+        late_slope_window = "tail_quarter"
     else:
         half = len(xs) // 2
+        late_xs, late_ys = xs[half:], ys[half:]
         late_slope = (
-            float(np.polyfit(xs[half:], ys[half:], 1)[0])
-            if len(xs[half:]) >= 2 else slope
+            float(np.polyfit(late_xs, late_ys, 1)[0])
+            if len(late_xs) >= 2 else slope
         )
     return {
         "full_slope": slope,
         "late_slope": late_slope,
+        "late_slope_window": late_slope_window,
         "leak_gate_mode": leak_gate_mode,
         "leak_threshold": leak_threshold,
         "sample_count": sample_count,

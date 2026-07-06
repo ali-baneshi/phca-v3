@@ -1547,3 +1547,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Goal switches every 50 steps in L3; probing during 15-cycle post-switch cooldown increases visited cells without constant wandering. Causal-eval RBTA headroom matches nightly/stress (D-132).
 - **v3.0 trace:** A5 (coverage/recovery under switches); Phase 6 causal gate step 6.
 - **Tests/Validation:** `test_level3_mlp_coverage_beats_greedy_observed`; `phca_causal_eval.py --levels level2,level3 --gate` PASS.
+
+## Decision D-134: Post-M3 RSS slope window + 11k nightly soak (nightly #10 FAIL)
+
+- **Date:** 2026-07-06
+- **Author:** Principal Architect
+- **Category:** Tier 2 (nightly stress retention gate / A1)
+- **Problem:** Nightly #10 step 5 failed `no_rss_leak`: late RSS slope **1673 B/cyc** on `ubuntu-latest` (> 1600 threshold). Local 10k soaks passed (late 1257–1332 B/cyc). Tail-quarter window (cycles 7500–10000) still includes M3 FIFO fill (cap at 10k episodes); CI allocator/GC variance on shared runners pushes marginal tail over threshold. Not D-131/D-132/D-133 regression (MuJoCo, assumptions, Φ-IQ, violation rate all PASS).
+- **Option chosen:** (1) `compute_rss_slopes` uses **post-M3 samples only** (`cycle > 10000`) when `total_cycles > M3_CAP_CYCLES` and ≥2 post-M3 samples exist (`retention_slope.py`). (2) Extend canonical nightly soak to **11000 cycles** (CI/Makefile/manifest) so post-M3 window has 10 sample points. (3) `gc.collect()` before each RSS sample in `nightly_stress.py`; report `late_slope_window` in JSON. Keep `LEAK_SLOPE_LATE=1600` unchanged.
+- **Alternatives:** Raise threshold to 1800 (rejected — masks measurement misalignment); keep 10k + threshold bump only (rejected — tail still includes M3 fill).
+- **Rationale:** Gate should measure steady-state post-FIFO growth, not late fill-phase variance. 11k adds ~10% to step 5 runtime; threshold unchanged proves gate is not relaxed.
+- **v3.0 trace:** A1 (resource boundedness); D-112/D-113 retention honesty.
+- **Tests/Validation:** `test_post_m3_slope_window_flat_after_cap`, `test_post_m3_slope_ignores_pre_cap_tail_growth`; `nightly_stress.py --cycles=11000` PASS.

@@ -227,7 +227,7 @@
           "name": "Nightly stress soak (10k cycles)",
           "command": "python scripts/nightly_stress.py --output=logs/nightly_stress.json",
           "outputs": ["logs/nightly_stress.json"],
-          "env": { "NIGHTLY_CYCLES": "10000" },
+          "env": { "NIGHTLY_CYCLES": "11000" },
           "verify": { "type": "exit_code" },
           "gates": {
             "leak_slope_late_b_per_cyc": 1600,

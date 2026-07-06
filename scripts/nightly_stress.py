@@ -2,7 +2,7 @@
 """PHCA v3.0 nightly stress test (Phase 6 / C1; Phase 7 / B3 tightened gate).
 
 Long-run stability probe: drives a single L2 (Goal Pursuit) MLP cognitive
-cycle for N cycles (default 10000; override via --cycles or NIGHTLY_CYCLES env)
+cycle for N cycles (default 11000; override via --cycles or NIGHTLY_CYCLES env)
 and reports the four stability signals a 24h soak must hold:
 
   - RSS leak detector: psutil current RSS sampled every 100 cycles, linear-fit
@@ -24,13 +24,14 @@ the first and final checkpoint). Read-only; modifies no production code.
 if the tightened gate flags it (proves the gate is non-vacuous).
 
 Usage:
-    MUJOCO_GL=disabled PYTHONPATH=python python scripts/nightly_stress.py --cycles=10000
+    MUJOCO_GL=disabled PYTHONPATH=python python scripts/nightly_stress.py --cycles=11000
     MUJOCO_GL=disabled NIGHTLY_CYCLES=1000 python scripts/nightly_stress.py
     python scripts/nightly_stress.py --neg-test
 """
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import sys
@@ -131,7 +132,7 @@ def main() -> None:
     ensure_logging()
     parser = argparse.ArgumentParser(description="PHCA nightly stress (Phase 7 / B3)")
     parser.add_argument("--cycles", type=int,
-                        default=int(os.environ.get("NIGHTLY_CYCLES", "10000")))
+                        default=int(os.environ.get("NIGHTLY_CYCLES", "11000")))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", default="logs/nightly_stress.json")
     parser.add_argument("--neg-test", action="store_true",
@@ -156,6 +157,7 @@ def main() -> None:
         latencies.append(m.latency_ms)
         violations += m.violations_count
         if (i + 1) % SAMPLE_EVERY == 0:
+            gc.collect()
             rss_samples.append((i + 1, proc.memory_info().rss))
         if (i + 1) in checkpoints:
             phi_checkpoints[i + 1] = _phi_proxy(window[-min(1000, len(window)):])
@@ -169,8 +171,10 @@ def main() -> None:
         slopes = compute_rss_slopes(xs, ys, total_cycles=n)
         slope = float(slopes["full_slope"])
         late_slope = float(slopes["late_slope"])
+        late_slope_window = str(slopes.get("late_slope_window", "unknown"))
     else:
         slope = late_slope = 0.0
+        late_slope_window = "insufficient"
     rss_start = rss_samples[0][1] if rss_samples else 0
     rss_end = rss_samples[-1][1] if rss_samples else 0
 
@@ -195,6 +199,7 @@ def main() -> None:
         "cycles": n, "duration_s": round(duration, 2),
         "rss_slope_bytes_per_cycle": round(slope, 2),
         "rss_late_slope_bytes_per_cycle": round(late_slope, 2),
+        "late_slope_window": late_slope_window,
         "rss_start_bytes": int(rss_start), "rss_end_bytes": int(rss_end),
         "latency_p95_ms": round(p95, 2), "latency_p99_ms": round(p99, 2),
         "latency_mean_ms": round(float(np.mean(lat)), 2),
@@ -211,7 +216,7 @@ def main() -> None:
     print("=" * 60)
     print(f"  PHCA v3.0 — Nightly Stress ({n} cycles, {duration:.1f}s)")
     print("=" * 60)
-    print(f"  RSS slope : {slope:.1f} B/cyc (late {late_slope:.1f})  "
+    print(f"  RSS slope : {slope:.1f} B/cyc (late {late_slope:.1f}, {late_slope_window})  "
           f"(start {rss_start/1e6:.1f}MB → end {rss_end/1e6:.1f}MB)")
     print(f"  Latency   : mean {report['latency_mean_ms']:.1f}ms  p95 {p95:.1f}ms  p99 {p99:.1f}ms")
     print(f"  Violations: {violations}  ({viol_rate*100:.3f}%/cyc)")

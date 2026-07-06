@@ -123,8 +123,8 @@ pre-gate-1:
 # `make nightly` runs the full hardening suite: static Φ-IQ gate, MuJoCo
 # benchmark gate (continuous + discrete), assumption validation (--ci),
 # OOD calibration, and the long-run stress test. Override the stress length
-# with NIGHTLY_CYCLES (default 1000 for CI; use 10000 for a true soak):
-#     make nightly NIGHTLY_CYCLES=10000
+# with NIGHTLY_CYCLES (default 11000 for post-M3 retention gate; 1000 fill-phase):
+#     make nightly NIGHTLY_CYCLES=11000
 # This is a script+gate target, NOT a cron job — schedule it externally
 # (GitHub Actions nightly, systemd timer, or cron) as documented in README.
 
@@ -169,8 +169,8 @@ nightly-mujoco:
 	@python scripts/check_benchmark_gate.py --neg-test >/dev/null
 
 # Set default stress length for `make nightly` (override on the command line).
-# Use 10000 for post-cap retention gate; 1000 uses fill-phase threshold (D-112).
-NIGHTLY_CYCLES ?= 10000
+# Use 11000 for post-M3 retention gate (D-134); 1000 uses fill-phase threshold (D-112).
+NIGHTLY_CYCLES ?= 11000
 
 # ── Scientific reproduction (Phase 19) ─────────────────────
 
@@ -224,7 +224,7 @@ help:
 	@echo "  make profile-cycle  Profile the cognitive cycle"
 	@echo "  make nightly        Run the full nightly hardening suite (static+MuJoCo gates,"
 	@echo "                      assumption validation --ci, OOD calibration, stress test)"
-	@echo "                      override length: make nightly NIGHTLY_CYCLES=10000"
+	@echo "                      override length: make nightly NIGHTLY_CYCLES=11000"
 	@echo "  make reproduce      One-command scientific reproduction (full nightly-equivalent)"
 	@echo "  make reproduce-quick  CI-science subset (~10-15 min)"
 	@echo "  make validate-science Full validation suite + aggregation"

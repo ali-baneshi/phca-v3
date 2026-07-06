@@ -94,7 +94,7 @@ MUJOCO_GL=disabled PYTHONPATH=python python scripts/ood_calibration.py --output=
 MUJOCO_GL=disabled PYTHONPATH=python:scripts python scripts/assumption_validation.py --ci
 
 # Phase 6 CI hardening: nightly stress + MuJoCo gate (one command, exit 0 = all green)
-make nightly NIGHTLY_CYCLES=1000          # CI; use NIGHTLY_CYCLES=10000 for a true soak
+make nightly NIGHTLY_CYCLES=1000          # fill-phase gate; use 11000 for post-M3 soak (D-134)
 ```
 
 ### Reproduction & gates
@@ -236,7 +236,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 
   Causal gate L1/L2/L3: PASS (200 cyc × 5 seeds)
   Assumption validation --ci: 5/5 PASS (A1–A5)
-  Nightly 10k soak: PASS (late RSS ~1257 B/cyc ≤ 1600, D-113)
+  Nightly 11k soak: PASS (post-M3 late RSS ≤ 1600 B/cyc, D-134)
 
   Scientific validation (30 seeds, grid 5/10/20 scaling):
     full_system Φ-IQ:     0.631 ± 0.029
@@ -393,7 +393,7 @@ See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 - **Long-run memory growth (Phase 7 retention).** `make nightly` uses a
   **phase-aware** late-half RSS slope gate (D-112, D-113): ≤5000 B/cyc for runs under
   7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
-  `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1257 B/cyc). See
+  `NIGHTLY_CYCLES=11000`; post-M3 window after cycle 10k, D-134). See
   [docs/limitations.md](docs/limitations.md) and [STATUS.md](STATUS.md).
 - **Observatory Phases 7–20 complete:** live PyQt dashboard, JSONL recording, seek/scrub replay, schema governance, report parity, scrub performance, multi-session `--compare`, anomaly detection, action explainability, stable API, supervisor/recovery, multi-agent timelines, cognitive-moment query, and scientific reproduction — see [docs/observability.md](docs/observability.md).
 - **No NLP, vision, multi-agent cognition (shared memory / coordination), or M5 procedural memory.**

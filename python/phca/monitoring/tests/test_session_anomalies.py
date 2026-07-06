@@ -10,7 +10,7 @@ import pytest
 
 from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.render import frame_from_json
-from phca.monitoring.retention_slope import compute_rss_slopes
+from phca.monitoring.retention_slope import compute_rss_slopes, rss_leak_flagged
 from phca.monitoring.session_anomalies import (
     DEFAULT_THRESHOLDS,
     anomaly_overall_pass,
@@ -233,6 +233,52 @@ def test_retention_slope_shared_with_nightly():
     late_legacy = float(np.polyfit(xs[half:], ys[half:], 1)[0])
     assert slopes["late_slope"] == pytest.approx(late_legacy, rel=1e-6)
     assert slopes["late_slope"] >= 1600.0
+
+
+def test_post_m3_slope_window_flat_after_cap():
+    n = 11_000
+    sample_every = 100
+    base = 70_000_000
+    xs, ys = [], []
+    for i in range(1, n // sample_every + 1):
+        cyc = i * sample_every
+        xs.append(cyc)
+        ys.append(base + cyc * 1500 if cyc <= 10_000 else base + 10_000 * 1500)
+    slopes = compute_rss_slopes(xs, ys, total_cycles=n)
+    assert slopes["late_slope_window"] == "post_m3"
+    assert slopes["late_slope"] == pytest.approx(0.0, abs=1.0)
+    assert not rss_leak_flagged(float(slopes["late_slope"]), n)
+
+
+def test_post_m3_slope_ignores_pre_cap_tail_growth():
+    n = 11_000
+    sample_every = 100
+    base = 70_000_000
+    flat_post = base + 20_000_000
+    xs, ys = [], []
+    for i in range(1, n // sample_every + 1):
+        cyc = i * sample_every
+        xs.append(cyc)
+        if cyc < 7500:
+            ys.append(base + cyc * 100)
+        elif cyc <= 10_000:
+            ys.append(base + cyc * 3000)
+        else:
+            ys.append(flat_post + (cyc - 10_000) * 10)
+    slopes = compute_rss_slopes(xs, ys, total_cycles=n)
+    assert slopes["late_slope_window"] == "post_m3"
+    assert float(slopes["late_slope"]) < 100.0
+    assert not rss_leak_flagged(float(slopes["late_slope"]), n)
+
+
+def test_10k_uses_tail_quarter_not_post_m3():
+    n = 10_000
+    sample_every = 100
+    base = 70_000_000
+    xs = [i * sample_every for i in range(1, n // sample_every + 1)]
+    ys = [base + c * 1500 for c in xs]
+    slopes = compute_rss_slopes(xs, ys, total_cycles=n)
+    assert slopes["late_slope_window"] == "tail_quarter"
 
 
 def _load_replay():

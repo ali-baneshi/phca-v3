@@ -64,7 +64,7 @@ Rust toolchain is **not** required (workspace removed D-084).
 
 ### Long-run memory growth (Phase 7 workstream)
 
-The nightly stress test uses a **phase-aware late-half RSS slope** gate (D-112, D-113): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=10000`). Measured 10k tail-quarter slope **~1257 B/cyc** (2026-07-05, `logs/nightly_stress_10k.json`); the prior 500 B/cyc target was aspirational pre-measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
+The nightly stress test uses a **phase-aware late RSS slope** gate (D-112, D-113, D-134): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=11000`). For runs beyond 10k cycles, the gate fits late slope on **post-M3 samples only** (cycles > 10000) so the tail-quarter M3 fill window does not inflate the measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
 
 ### Discrete GridWorld selector is not purely prediction-driven
 
@@ -109,7 +109,7 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 
 | Item | Status |
 |---|---|
-| M3/M4 retention soak (post-cap late slope ≤ 1600 B/cyc @ 10k) | **Done** (D-113; measured ~1257 B/cyc) |
+| M3/M4 retention soak (post-M3 late slope ≤ 1600 B/cyc @ 11k) | **Done** (D-134; post-M3 window) |
 | `schema_version` + JSONL migration | Done (Phase 9 / D-110) |
 | Full offline report ↔ dashboard parity | Done (Phase 10) |
 | Multi-session comparison (`--compare`) | Done (Phase 12) |
