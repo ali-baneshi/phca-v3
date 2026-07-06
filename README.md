@@ -11,6 +11,7 @@
 [![PyQt5](https://img.shields.io/badge/Observatory-PyQt5-41CD52.svg)](docs/observability.md)
 [![pgmpy](https://img.shields.io/badge/G%27-pgmpy-2C3E50.svg)](https://pgmpy.org/)
 [![SQLite](https://img.shields.io/badge/M3%20episodic-SQLite-003B57.svg)](python/phca/memory/m3_episodic.py)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 **PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 
@@ -546,4 +547,20 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
 
 ## License
 
-Internal research project. All rights reserved.
+Copyright © 2026 Ali Baneshi
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this project except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
+
+Full license text and third-party dependency licenses: [docs/license.md](docs/license.md).
