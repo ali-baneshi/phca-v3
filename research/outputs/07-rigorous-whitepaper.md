@@ -383,7 +383,7 @@ Added to Definition 2.8: the integral is clamped to $[-I_{\max}, I_{\max}]$.
 
 ---
 
-## STAGE B: OVER-ENGINEERING AUDIT ("پیش مهندسی")
+## STAGE B: OVER-ENGINEERING AUDIT ("بیش مهندسی")
 
 ### B.1 Component Necessity Traceability
 

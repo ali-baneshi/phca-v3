@@ -10,13 +10,13 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    INTELLIGENCE FOUNDATIONS                         │
-│  (01-what-is-intelligence, 02-minimal-cognition)                   │
+│  (01-what-is-intelligence, 02-minimal-cognition)                    │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      SYSTEM STRUCTURE                              │
-│  (01-state-and-memory, 02-action-and-feedback)                     │
+│                      SYSTEM STRUCTURE                               │
+│  (01-state-and-memory, 02-action-and-feedback)                      │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
          ┌───────────────┼───────────────┐
@@ -38,13 +38,13 @@
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                  COGNITIVE ARCHITECTURES                            │
-│  (Soar, ACT-R, LIDA, CoALA)                                       │
+│  (Soar, ACT-R, LIDA, CoALA)                                         │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                  NEUROSCIENCE PRINCIPLES                           │
-│  (memory, prediction, attention)                                   │
+│                  NEUROSCIENCE PRINCIPLES                            │
+│  (memory, prediction, attention)                                    │
 └────────────────────────┬────────────────────────────────────────────┘
                          │
                          ▼
