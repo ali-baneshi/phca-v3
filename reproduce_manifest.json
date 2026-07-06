@@ -240,7 +240,7 @@
         {
           "id": "causal_gate",
           "name": "Causal behavior gate (L2+L3, 200cyc × 5 seeds)",
-          "command": "python scripts/phca_causal_eval.py --levels level2,level3 --cycles 200 --seeds 5 --use-mlp --gate --output logs/phca_causal_eval_nightly.json",
+          "command": "python scripts/phca_causal_eval.py --levels level2,level3 --cycles 200 --seeds 5 --level-seeds level3=10 --use-mlp --gate --output logs/phca_causal_eval_nightly.json",
           "outputs": ["logs/phca_causal_eval_nightly.json"],
           "verify": { "type": "exit_code" },
           "gates": { "causal_75pct_rule": true },

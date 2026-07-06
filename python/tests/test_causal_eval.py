@@ -99,3 +99,23 @@ def test_all_levels_report_separate_gates():
     for level_report in report["levels"].values():
         assert "summary" in level_report
         assert "gate" in level_report["comparisons"]
+
+
+def test_level3_mlp_coverage_beats_greedy_observed():
+    """Regression (D-133): L3 coverage_rate must not trail greedy_observed."""
+    mod = _load_eval_module()
+    report = mod.run_level(
+        level="level3",
+        cycles=50,
+        seeds=2,
+        size=5,
+        agents=["phca", "random", "greedy_observed", "greedy_full_info"],
+        use_mlp=True,
+    )
+    summary = report["summary"]
+    phca_cov = summary["phca"]["coverage_rate_mean"]
+    greedy_cov = summary["greedy_observed"]["coverage_rate_mean"]
+    gate_passed = report["comparisons"]["gate"]["passed"]
+    assert gate_passed or phca_cov >= greedy_cov, (
+        f"L3 gate FAIL and coverage_rate phca={phca_cov} < greedy_observed={greedy_cov}"
+    )

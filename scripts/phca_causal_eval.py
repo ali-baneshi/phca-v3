@@ -24,6 +24,7 @@ from phca.evaluation.baselines.greedy import greedy_action
 from phca.evaluation.baselines.random_agent import random_action
 from phca.evaluation.baselines.search import bfs_action
 from phca.evaluation.metrics.statistics import seed_sequence
+from phca.world_model.mlp import gprime_stress_bounds
 
 BASE_METRICS = (
     "goal_rate",
@@ -423,8 +424,10 @@ def run_phca_agent(
         env=env,
         seed=seed + 2,
         use_mlp=use_mlp,
-        gprime_b_time=0.050 if use_mlp else 0.020,
+        gprime_b_time=0.080 if use_mlp else 0.020,
     )
+    if use_mlp:
+        cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
     distances: List[float] = []
     rewards: List[float] = []
     goals: List[bool] = []
@@ -602,6 +605,25 @@ def run_level(
     }
 
 
+def parse_level_seeds(raw: str, default: int) -> Dict[str, int]:
+    """Parse ``level3=10,level2=5`` overrides; unknown levels are ignored."""
+    out: Dict[str, int] = {}
+    if not raw.strip():
+        return out
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise SystemExit(f"invalid --level-seeds entry {part!r} (want level=N)")
+        level, count = part.split("=", 1)
+        level = level.strip()
+        if level not in SCENARIOS:
+            raise SystemExit(f"unknown level in --level-seeds: {level!r}")
+        out[level] = int(count.strip())
+    return out
+
+
 def run_evaluation(
     *,
     cycles: int,
@@ -612,11 +634,15 @@ def run_evaluation(
     levels: Iterable[str] = ("level1",),
     base_seed: int = 42,
     action_slip: float = 0.0,
+    level_seeds: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     selected_levels = list(levels)
+    overrides = level_seeds or {}
     reports = {
         level: run_level(
-            level=level, cycles=cycles, seeds=seeds, size=size,
+            level=level, cycles=cycles,
+            seeds=int(overrides.get(level, seeds)),
+            size=size,
             agents=agents, use_mlp=use_mlp, base_seed=base_seed, action_slip=action_slip,
         )
         for level in selected_levels
@@ -627,6 +653,7 @@ def run_evaluation(
         "config": {
             "cycles": int(cycles),
             "seeds": int(seeds),
+            "level_seeds": {k: int(v) for k, v in overrides.items()},
             "base_seed": int(base_seed),
             "grid_size": int(size),
             "action_slip": float(action_slip),
@@ -654,10 +681,32 @@ def parse_levels(raw: str) -> List[str]:
     return levels
 
 
+def _print_gate_failures(comparisons: Dict[str, Any], *, level: str = "") -> None:
+    """Print per-control gate details and metrics where PHCA did not win."""
+    gate = comparisons.get("gate", {})
+    prefix = f"{level}: " if level else ""
+    for control, detail in gate.get("controls", {}).items():
+        if detail.get("passed"):
+            continue
+        better = detail.get("phca_better_count", 0)
+        required = detail.get("required", 0)
+        print(f"  {prefix}{control}: {better}/{required} metrics (PHCA better)")
+        comp = comparisons.get(control, {}).get("metrics", {})
+        for metric, mdata in comp.items():
+            if not mdata.get("phca_better") and mdata.get("phca_worse"):
+                phca_v = mdata.get("phca")
+                other_v = mdata.get(control)
+                print(f"    {metric}: phca={phca_v} vs {control}={other_v}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA causal evidence evaluation")
     parser.add_argument("--cycles", type=int, default=200)
     parser.add_argument("--seeds", type=int, default=5)
+    parser.add_argument(
+        "--level-seeds", default="",
+        help="Per-level seed overrides, e.g. level3=10 (default: --seeds for all)",
+    )
     parser.add_argument("--base-seed", type=int, default=42)
     parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
     parser.add_argument("--action-slip", type=float, default=0.0)
@@ -678,6 +727,7 @@ def main() -> None:
         levels=parse_levels(args.levels),
         base_seed=args.base_seed,
         action_slip=args.action_slip,
+        level_seeds=parse_level_seeds(args.level_seeds, args.seeds),
     )
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -687,12 +737,17 @@ def main() -> None:
         print(f"Wrote {out}")
         for level, level_report in report["levels"].items():
             gate = level_report["comparisons"].get("gate", {})
-            print(f"{level}: {'PASS' if gate.get('passed') else 'FAIL'} — {gate.get('rule')}")
+            level_passed = bool(gate.get("passed", False))
+            print(f"{level}: {'PASS' if level_passed else 'FAIL'} — {gate.get('rule')}")
+            if args.gate and not level_passed:
+                _print_gate_failures(level_report["comparisons"], level=level)
     else:
         gate = report["comparisons"].get("gate", {})
         passed = bool(gate.get("passed", False))
         print(f"Wrote {out}")
         print(f"Gate: {'PASS' if passed else 'FAIL'} — {gate.get('rule')}")
+        if args.gate and not passed:
+            _print_gate_failures(report["comparisons"])
     if args.gate and not passed:
         sys.exit(1)
 

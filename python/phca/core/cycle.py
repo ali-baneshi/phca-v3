@@ -929,7 +929,10 @@ class CognitiveCycle:
                 goal_pos is not None
                 and tuple(self.env.agent_pos) == tuple(goal_pos)
             )
-            sparse_probe = long_horizon and on_goal and (self.cycle_count % 50 == 0)
+            sparse_probe = long_horizon and on_goal and (
+                self.cycle_count % 50 == 0
+                or self._goal_switch_cooldown >= 14
+            )
             greedy_action, greedy_score, greedy_comp = self._select_greedy_grid_action(
                 explore_ties=explore_ties,
                 at_goal_explore=sparse_probe,
@@ -1274,12 +1277,6 @@ class CognitiveCycle:
 
             best_action = bfs_action(env)
             best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
-            # #region agent log
-            if self.cycle_count % 50 == 0:
-                import json as _json
-                with open("/home/<username>/Pictures/Autonomous-AI-june2026/new-ai/.cursor/debug-e1f4c0.log", "a") as _lf:
-                    _lf.write(_json.dumps({"sessionId":"e1f4c0","hypothesisId":"E","location":"cycle.py:_select_greedy_grid_action","message":"bfs_planner","data":{"grid_size":grid_size,"seed_pos":list(agent_pos),"goal_pos":list(goal_pos),"action":int(best_action),"cycle":self.cycle_count},"timestamp":int(time.time()*1000)})+"\n")
-            # #endregion
             score = 1.0 / max(best_distance, 1)
             return best_action, score, {
                 "distance_gain": 0.0,
@@ -1352,12 +1349,6 @@ class CognitiveCycle:
                     break
 
         score = 1.0 / max(best_distance, 1)
-        # #region agent log
-        if grid_size >= 10 and self.cycle_count % 50 == 0:
-            import json as _json
-            with open("/home/<username>/Pictures/Autonomous-AI-june2026/new-ai/.cursor/debug-e1f4c0.log", "a") as _lf:
-                _lf.write(_json.dumps({"sessionId":"e1f4c0","hypothesisId":"E","location":"cycle.py:_select_greedy_grid_action","message":"greedy_one_step","data":{"grid_size":grid_size,"seed_pos":list(agent_pos),"goal_pos":list(goal_pos),"action":int(best_action),"dist":int(best_distance),"cycle":self.cycle_count},"timestamp":int(time.time()*1000)})+"\n")
-        # #endregion
         return best_action, score, {
             "distance_gain": 0.0,
             "pga": 0.0,

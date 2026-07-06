@@ -1535,3 +1535,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** `estimate_mlp_memory_bytes` (phase-20 hardening-2) made `build()` accurate (501472 for canonical 5×5 MLP) but stress scripts still clobbered `B_mem` to 500000. 100% violations triggered RBTA INTERRUPT every cycle (`skip_consolidation`), perturbing RSS slope. Fixing bounds restores historical baseline (~1 violation/10k, late RSS ~1411 B/cyc).
 - **v3.0 trace:** A1 Resource Boundedness; Phase 6 nightly stress C1.
 - **Tests/Validation:** `test_nightly_stress_build_no_spurious_gprime_mem_violation`; `nightly_stress.py --cycles=10000` PASS.
+
+## Decision D-133: L3 causal gate flake — cooldown coverage probe + causal-eval RBTA (D-112 follow-up)
+
+- **Date:** 2026-07-06
+- **Author:** Principal Architect
+- **Category:** Tier 1 (nightly causal gate / A5)
+- **Problem:** After D-132, `make nightly` step 6 failed: `level2 PASS`, `level3 FAIL`. L3 requires PHCA to beat `greedy_observed` on ≥75% of 6 metrics (5 required), but `first_goal_cycle` ties at 5.6 → PHCA must win all 5 remaining metrics. `coverage_rate` margin was only +0.008 (0.344 vs 0.336); CI variance flipped it → `phca_better_count=4` → FAIL.
+- **Option chosen:** (1) Extend D-112 sparse probe: fire `at_goal_explore` when `cycle_count % 50 == 0` or `_goal_switch_cooldown >= 14` (first cycle after goal switch) on-goal (`cycle.py`). (2) Align `run_phca_agent` with `gprime_stress_bounds(cycle)` and `gprime_b_time=0.080` for MLP. (3) Print per-metric gate failures on `--gate` FAIL. (4) Remove accidental hardcoded `.cursor/debug` logging. (5) Add `--level-seeds level3=10` for nightly (L2 stable at 5 seeds; L3 needs 10 for aggregate stability on `mean_distance_to_goal`).
+- **Alternatives:** Relax 75% gate (rejected — D-111 honesty); increase seeds only (rejected — masks thin margin); probe every on-goal cycle (rejected — hurts goal_rate).
+- **Rationale:** Goal switches every 50 steps in L3; probing during 15-cycle post-switch cooldown increases visited cells without constant wandering. Causal-eval RBTA headroom matches nightly/stress (D-132).
+- **v3.0 trace:** A5 (coverage/recovery under switches); Phase 6 causal gate step 6.
+- **Tests/Validation:** `test_level3_mlp_coverage_beats_greedy_observed`; `phca_causal_eval.py --levels level2,level3 --gate` PASS.

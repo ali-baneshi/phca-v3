@@ -51,6 +51,16 @@ extrinsic wins unless explicitly added to a future gate.
 PHCA must beat each scenario-gated control on at least 75% of that scenario's
 metrics.
 
+**L3 effective bar:** With 6 long-horizon metrics, `ceil(6 × 0.75) = 5` wins
+are required. When `first_goal_cycle` ties `greedy_observed` (common at mean
+5.6), that metric gives no credit — PHCA must then win **all five** remaining
+metrics (`goal_rate`, `mean_distance_to_goal`, `cumulative_reward`,
+`coverage_rate`, `switch_recovery_cycle`). A single loss fails the gate.
+
+Nightly CI (D-133) uses `--seeds 5` for level2 and `--level-seeds level3=10`
+because L2 aggregate metrics are stable at 5 seeds while L3
+`mean_distance_to_goal` needs 10 seeds to clear runner variance.
+
 Default gated controls:
 
 | Level | Gated controls |
@@ -116,5 +126,6 @@ Unsupported claims:
 
 This is a better benchmark shape. Levels 2–3 now pass versus `greedy_observed`
 after P0 cycle reorder, task-lock, observed-greedy navigation, and sparse L3
-coverage probes (`cycle_count % 50 == 0` on-goal unvisited steps, D-112).
+coverage probes (`cycle_count % 50 == 0` or `_goal_switch_cooldown >= 14` on-goal
+unvisited steps, D-112/D-133).
 
