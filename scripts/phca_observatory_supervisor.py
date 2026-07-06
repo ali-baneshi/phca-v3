@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import _bootstrap  # noqa: F401
+from _bootstrap import _PKG_ROOT
 
 from phca.monitoring.session_recovery import (  # noqa: E402
     detect_session_state,
@@ -104,7 +105,7 @@ def run_supervisor(
     cmd = _build_child_cmd(observatory_argv)
 
     env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(_pkg_root))
+    env.setdefault("PYTHONPATH", str(_PKG_ROOT))
 
     log.event("supervisor_start", record_dir=record_dir, child_cmd=cmd)
     proc = subprocess.Popen(cmd, env=env)
