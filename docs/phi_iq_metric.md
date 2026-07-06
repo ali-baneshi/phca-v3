@@ -75,17 +75,23 @@ Operational emergence (`emergence.py`) uses cycle traces. Key semantics:
 
 ```bash
 # Quick smoke (L0, 20 cycles, Gaussian) — matches CI gate
-PYTHONPATH=python python scripts/benchmark.py --quick
+python scripts/benchmark.py --quick
 
-# Canonical benchmark (L0–L3, MLP, 200 cycles, seed 42)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
+# Canonical benchmark (L0–L3, MLP, 200 cycles, seed 42, 5×5) — full pass criteria
+MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5
+
+# Scaling / exploratory (10×10 — Φ-IQ may be lower; violation gate often fails)
+python scripts/benchmark.py --grid-size 10 --cycles=200 --use-mlp
 
 # Multi-seed report (mean ± std across seeds 42..46)
-PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --seeds=5
+python scripts/benchmark.py --use-mlp --cycles=200 --seeds=5
 
-# Regression gate (after a run)
+# Regression gate (after a canonical run)
 python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
 ```
+
+Scripts bootstrap `python/` automatically (`scripts/_bootstrap.py`). Legacy:
+`PYTHONPATH=python python scripts/benchmark.py ...`
 
 MLP mode needs **≥ 200 cycles per level** to stabilise. See
 [docs/reproducibility.md](reproducibility.md) for pinned environment details.
@@ -94,26 +100,55 @@ MLP mode needs **≥ 200 cycles per level** to stabilise. See
 
 ## Interpreting Results
 
-### Pass Criteria
+### Fail column vs pass gate
 
-| Pass Criteria | Target | Current (2026-07-05) |
+The report **Fail** column is the Φ-IQ sub-metric `failure_rate = violations / n_cycles`
+per level. It is **not** a percentage:
+
+| Fail value | Meaning |
+|---|---|
+| `0.00` | No RBTA violations |
+| `0.10` | 10% of cycles had ≥1 violation (pass gate threshold) |
+| `1.00` | ~100% — at least one violation every cycle on average |
+| `1.26` | ~126% — more than one violation per cycle on average |
+
+The pass criterion `failure_rate_under_10pct` is **conjunctive**: all four criteria
+must pass for Overall PASS. A run can have Φ-IQ > 0.5 but still **Overall FAIL**
+if RBTA violations exceed 10% of total cycles.
+
+### Pass Criteria (canonical 5×5 MLP, 200 cycles)
+
+| Pass Criteria | Target | Canonical (5×5 MLP) |
 |---|---|---|
-| Cycle latency | < 500 ms | ~17 ms mean, ~31 ms p95 ✅ |
+| Cycle latency | < 500 ms mean | ~17 ms mean, ~31 ms p95 ✅ |
 | Failure rate | < 10% violations | **0 violations** ✅ |
 | Goal autonomy (L3) | Drive diversity > 0.1 | Achieved ✅ |
 | Overall Φ-IQ | > 0.5 | **0.7323** ✅ |
 | Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ |
 
-Source: [STATUS.md](../STATUS.md), `logs/benchmark_report.json`.
+Source: [STATUS.md](../STATUS.md), canonical `logs/benchmark_report.json`.
 
-### Score bands (heuristic)
+### Scaling grids (10×10, 20×20)
+
+Larger grids increase `state_dim`; RBTA bounds are scaled via `grid_rbta_bounds()`
+in [`python/phca/world_model/mlp.py`](../python/phca/world_model/mlp.py). Even so,
+validation scaling runs (`results/validation/scaling/`) show lower Φ-IQ and the
+violation gate may still fail — treat scaling as exploratory, not CI-gated.
+
+| Grid | Typical overall Φ-IQ (MLP, 200 cyc) | `failure_rate_under_10pct` |
+|---|---|---|
+| 5×5 | ~0.73 | PASS |
+| 10×10 | ~0.32 (validation mean) | Often FAIL |
+| 20×20 | ~0.15 (validation mean) | FAIL |
+
+### Score bands (heuristic — Φ-IQ only, not Overall PASS)
 
 | Φ-IQ Range | Interpretation |
 |---|---|
 | 0.00 – 0.30 | Near-random on scripted tasks |
 | 0.30 – 0.50 | Learning, not converged |
-| 0.50 – 0.70 | Passes gate criteria |
-| 0.70 – 0.90 | Strong on current GridWorld suite |
+| 0.50 – 0.70 | Strong Φ-IQ on harder configs; may still FAIL RBTA gate |
+| 0.70 – 0.90 | Strong on canonical 5×5 GridWorld suite |
 | 0.90 – 1.00 | Theoretical ceiling |
 
 ---

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import ResourceBounds, StateVector
+from phca.config import DEFAULT_MODULE_BOUNDS, ResourceBounds, StateVector
 
 
 _EPS = 1e-8
@@ -63,6 +63,80 @@ def gprime_stress_bounds(cycle: Any, *, b_time: float = 0.080) -> ResourceBounds
         ),
     )
     return ResourceBounds(B_time=b_time, B_mem=g_mem, B_energy=50.0)
+
+
+def grid_scale(state_dim: int, ref_dim: int = REF_STATE_DIM) -> float:
+    """Linear scale factor vs canonical 5×5 GridWorld state dimension."""
+    return max(1.0, state_dim / ref_dim)
+
+
+def estimate_gaussian_gprime_memory_bytes(state_dim: int) -> int:
+    """Match Gaussian G' memory estimate in ``CognitiveCycle._collect_runtime_log``."""
+    return max(10_000, state_dim * state_dim * 4 * 5)
+
+
+def _is_mlp_gprime(gprime: Any) -> bool:
+    return hasattr(gprime, "replay_capacity") and hasattr(gprime, "hidden_dim")
+
+
+def grid_rbta_bounds(
+    cycle: Any = None,
+    *,
+    state_dim: Optional[int] = None,
+    gprime: Any = None,
+    b_time: float = 0.080,
+    action_b_time: Optional[float] = None,
+) -> Dict[str, ResourceBounds]:
+    """Scale G'/ASI/ACTION RBTA bounds with state_dim for large GridWorld runs."""
+    sd = state_dim if state_dim is not None else cycle.state_dim
+    gp = gprime if gprime is not None else cycle.gprime
+    scale = grid_scale(sd)
+    bounds: Dict[str, ResourceBounds] = {}
+
+    if _is_mlp_gprime(gp):
+        g_mem = max(
+            500_000,
+            estimate_mlp_memory_bytes(sd, gp.action_dim, gp.hidden_dim, gp.replay_capacity),
+        )
+        g_time = estimate_mlp_gprime_time_bound(sd, b_time)
+        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
+    elif scale > 1.0:
+        g_mem = estimate_gaussian_gprime_memory_bytes(sd)
+        g_time = estimate_mlp_gprime_time_bound(sd, max(b_time, DEFAULT_MODULE_BOUNDS["G'"].B_time))
+        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
+
+    if scale > 1.0:
+        asi = DEFAULT_MODULE_BOUNDS["ASI"]
+        action = DEFAULT_MODULE_BOUNDS["ACTION"]
+        base_action_time = action_b_time if action_b_time is not None else action.B_time
+        bounds["ASI"] = ResourceBounds(
+            B_time=asi.B_time * scale,
+            B_mem=asi.B_mem,
+            B_energy=asi.B_energy,
+            entropy_floor=asi.entropy_floor,
+        )
+        bounds["ACTION"] = ResourceBounds(
+            B_time=estimate_mlp_gprime_time_bound(sd, base_action_time),
+            B_mem=action.B_mem,
+            B_energy=action.B_energy,
+            entropy_floor=action.entropy_floor,
+        )
+    return bounds
+
+
+def apply_grid_rbta_bounds(
+    cycle: Any,
+    *,
+    b_time: float = 0.080,
+    action_b_time: Optional[float] = None,
+) -> bool:
+    """Apply grid-scaled RBTA bounds. Returns True if any bound was updated."""
+    updates = grid_rbta_bounds(
+        cycle=cycle, b_time=b_time, action_b_time=action_b_time,
+    )
+    for module_id, bounds in updates.items():
+        cycle.rbta.update_bounds(module_id, bounds)
+    return bool(updates)
 
 
 class WorldModelMLP:

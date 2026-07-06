@@ -38,8 +38,7 @@ from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.world_model.mlp import (
     WorldModelMLP,
     estimate_mlp_memory_bytes,
-    estimate_mlp_gprime_time_bound,
-    REF_STATE_DIM,
+    grid_rbta_bounds,
 )
 
 if TYPE_CHECKING:
@@ -1740,29 +1739,17 @@ class CognitiveCycle:
             tspl.configs[StreamID.P_STREAM].enabled = False
         rbta = RBTAEnforcer(module_bounds=DEFAULT_MODULE_BOUNDS)
 
-        if use_mlp:
-            g_mem = max(500_000, estimate_mlp_memory_bytes(
-                state_dim, action_dim, mlp_hidden_dim, 500,
-            ))
-            g_time = estimate_mlp_gprime_time_bound(state_dim, gprime_b_time)
-            rbta.update_bounds(
-                "G'", ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0),
-            )
-            scale = max(1.0, state_dim / REF_STATE_DIM)
-            asi = DEFAULT_MODULE_BOUNDS["ASI"]
-            rbta.update_bounds(
-                "ASI",
-                ResourceBounds(
-                    B_time=asi.B_time * scale,
-                    B_mem=asi.B_mem,
-                    B_energy=asi.B_energy,
-                    entropy_floor=asi.entropy_floor,
-                ),
-            )
         rbta.update_bounds(
             "ACTION",
             ResourceBounds(B_time=action_b_time, B_mem=10_000, B_energy=action_b_energy),
         )
+        for module_id, bounds in grid_rbta_bounds(
+            state_dim=state_dim,
+            gprime=gprime,
+            b_time=gprime_b_time,
+            action_b_time=action_b_time,
+        ).items():
+            rbta.update_bounds(module_id, bounds)
 
         mdim = MDIM(state_dim=state_dim)
         attention = Attention()

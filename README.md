@@ -72,30 +72,35 @@ MUJOCO_GL=disabled make test-mujoco
 ### Benchmarks & validation
 
 ```bash
-# Canonical benchmark (4 levels, 200 cycles each, MLP mode)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
+# Canonical benchmark — full pass criteria (5×5 MLP, 200 cycles)
+MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5
 
-# Quick smoke test (Level 0 only, 20 cycles)
-PYTHONPATH=python python scripts/benchmark.py --quick
+# Quick smoke test (Level 0 only, 20 cycles, Gaussian G')
+python scripts/benchmark.py --quick
+
+# Scaling / exploratory (10×10 — lower Φ-IQ; violation gate may still fail)
+python scripts/benchmark.py --grid-size 10 --cycles=200 --use-mlp
 
 # Dynamic-goal curriculum (L2 relocates the goal every 75 cycles — validated)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals --dynamic-goals-every 75
+MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --dynamic-goals --dynamic-goals-every 75
 
 # MuJoCo environments — Pendulum + Reacher CONTINUOUS (Phase 6/7); Cartpole discrete
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env pendulum --use-mlp --cycles=100
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env cartpole --use-mlp --cycles=100
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --env reacher  --use-mlp --cycles=100
+MUJOCO_GL=disabled python scripts/benchmark.py --env pendulum --use-mlp --cycles=100
+MUJOCO_GL=disabled python scripts/benchmark.py --env cartpole --use-mlp --cycles=100
+MUJOCO_GL=disabled python scripts/benchmark.py --env reacher  --use-mlp --cycles=100
 
 # gprime_learn per-module profile (Phase 5 perf target)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/profile_mlp_learn.py --cycles=200
+MUJOCO_GL=disabled python scripts/profile_mlp_learn.py --cycles=200
 
 # Phase 6 scientific hardening: OOD calibration + assumption validation
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/ood_calibration.py --output=logs/ood_calibration.json
-MUJOCO_GL=disabled PYTHONPATH=python:scripts python scripts/assumption_validation.py --ci
+MUJOCO_GL=disabled python scripts/ood_calibration.py --output=logs/ood_calibration.json
+MUJOCO_GL=disabled python scripts/assumption_validation.py --ci
 
 # Phase 6 CI hardening: nightly stress + MuJoCo gate (one command, exit 0 = all green)
 make nightly NIGHTLY_CYCLES=1000          # fill-phase gate; use 11000 for post-M3 soak (D-134)
 ```
+
+Scripts under `scripts/` bootstrap `python/` automatically; `PYTHONPATH=python` is optional.
 
 ### Reproduction & gates
 
@@ -110,7 +115,7 @@ python scripts/check_benchmark_gate.py --mujoco logs/nightly_mujoco_pendulum.jso
 python scripts/check_benchmark_gate.py --neg-test   # proves the gate catches violations
 
 # Causal behavior gate: PHCA vs non-PHCA GridWorld controls, levels 1-3
-PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
+python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
 ```
 
 ---

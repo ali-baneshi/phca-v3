@@ -83,13 +83,13 @@ an action, and learns from the prediction error.
 
 ```bash
 # Quick smoke test (Level 0 only, 20 cycles, Gaussian G')
-PYTHONPATH=python python scripts/benchmark.py --quick
+python scripts/benchmark.py --quick
 
-# Canonical benchmark (Levels 0–3, MLP, 200 cycles each)
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
+# Canonical benchmark (Levels 0–3, MLP, 200 cycles, 5×5 — full pass criteria)
+MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5
 
 # Multi-seed report (mean ± std)
-PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --seeds=5
+python scripts/benchmark.py --use-mlp --cycles=200 --seeds=5
 ```
 
 See [phi_iq_metric.md](phi_iq_metric.md) for interpretation. MLP mode needs at
@@ -120,6 +120,7 @@ integrity checks.
 | Problem | Solution |
 |---|---|
 | `ModuleNotFoundError: No module named 'phca'` | Run from repo root: `python scripts/<script>.py` (scripts bootstrap `python/` automatically). Legacy: `PYTHONPATH=python python scripts/...` |
+| Benchmark Overall FAIL on 10×10 (`failure_rate_under_10pct`) | Expected on scaling configs. Fail column `1.26` = ~126% violations/cycle, not 12.6%. Use canonical `python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5` for full pass. See [phi_iq_metric.md](phi_iq_metric.md). |
 | `ModuleNotFoundError: No module named 'structlog'` | `pip install -r requirements.txt` |
 | `ModuleNotFoundError: No module named 'gymnasium'` | Optional — install `requirements-mujoco.txt` |
 | `pytest: error: unrecognized arguments: --timeout` | `pip install -r requirements-dev.txt` |

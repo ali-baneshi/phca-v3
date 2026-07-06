@@ -149,8 +149,16 @@ PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
 Use the canonical CLI (not `python -m phca.benchmarks.runner`):
 
 ```bash
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
+# Full pass criteria (5×5 MLP, 200 cycles)
+MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5
+
+# Quick smoke (L0, 20 cycles, Gaussian)
+python scripts/benchmark.py --quick
 ```
+
+Scripts bootstrap `python/` automatically; `PYTHONPATH=python` is optional.
+For 10×10 scaling runs, see [docs/phi_iq_metric.md](docs/phi_iq_metric.md) — the
+violation gate (`failure_rate_under_10pct`) is calibrated for canonical 5×5.
 
 ## Project Layout
 
