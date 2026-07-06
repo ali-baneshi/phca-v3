@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from phca.config import StreamID
-from phca.core.cycle import CognitiveCycle, CycleMetrics
+from phca.core.cycle import CognitiveCycle
 from phca.resilience import FailureDetector, RecoveryManager, recovery_rate
 from phca.resilience.types import CycleSnapshot, FailureCategory
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Dict, List, TYPE_CHECKING
 
 from phca.config import StreamID
 from phca.resilience.types import FailureEvent, RecoveryAction, RecoveryResult

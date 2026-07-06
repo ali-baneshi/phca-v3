@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
+from typing import Dict, Sequence
 
 
 def recovery_rate(
