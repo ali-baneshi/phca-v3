@@ -59,8 +59,27 @@ def test_mujoco_action_bound_override_matches_ci_headroom():
     """MuJoCo builder widens ACTION time and energy bounds for MPC on CI."""
     cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
     bounds = cycle.rbta._bounds["ACTION"]
-    assert bounds.B_time == pytest.approx(0.150)
-    assert bounds.B_energy == pytest.approx(7.5)
+    assert bounds.B_time == pytest.approx(0.080)
+    assert bounds.B_energy == pytest.approx(4.0)
+    cycle.env.close()
+
+
+def test_mujoco_env_bound_override_matches_ci_headroom():
+    """MuJoCo builder sets ENV bounds for physics step variance on CI."""
+    cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
+    bounds = cycle.rbta._bounds["ENV"]
+    assert bounds.B_time == pytest.approx(0.250)
+    assert bounds.B_energy == pytest.approx(12.5)
+    cycle.env.close()
+
+
+def test_mujoco_env_step_timing_recorded():
+    """env.step() is timed separately from action_selection (D-131)."""
+    cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
+    for _ in range(5):
+        m = cycle.step()
+        assert "env_step" in m.module_timings
+        assert m.module_timings["env_step"] >= 0.0
     cycle.env.close()
 
 

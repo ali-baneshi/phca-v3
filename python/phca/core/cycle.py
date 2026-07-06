@@ -491,7 +491,7 @@ class CognitiveCycle:
                 self._rbta_skip_consolidation = True
 
             # Step 9: Action selection + environment step
-            t5 = time.perf_counter()
+            t_action = time.perf_counter()
             if self._rbta_skip_feedback:
                 # Continuous envs must receive a dim-vector (zeros), not the
                 # discrete stay_action int — gymnasium rejects shape ().
@@ -514,14 +514,19 @@ class CognitiveCycle:
                 }, decision_reason="rbta_safe")
             else:
                 action = self._select_action()
+            metrics.module_timings["action_selection"] = (
+                time.perf_counter() - t_action
+            ) * 1000
+
             step_reward = 0.0
+            t_env = time.perf_counter()
             if self._is_continuous:
                 action_vec_step = np.asarray(action, dtype=np.float32)
                 obs, step_reward, terminal, info = self.env.step(action_vec_step)
             else:
                 obs, step_reward, terminal, info = self.env.step(action)
             self._last_step_reward = float(step_reward)
-            metrics.module_timings["action_selection"] = (time.perf_counter() - t5) * 1000
+            metrics.module_timings["env_step"] = (time.perf_counter() - t_env) * 1000
 
             # Step 5-7: PEU + TSPL + LEARN with correct action context.
             # PEU now compares the actual next_state against a prediction
@@ -1553,6 +1558,7 @@ class CognitiveCycle:
             "peu": "PEU",
             "tspl": "TSPL-P",
             "action_selection": "ACTION",
+            "env_step": "ENV",
             "gprime_learn": "G'",
             "mdim": "MDIM",
             "cr": "CR",
@@ -1792,8 +1798,8 @@ class CognitiveCycle:
 
         Thin wrapper around build() that creates a MuJoCoSimpleEnv.
         Uses MuJoCo-appropriate defaults: MLP with LR=0.05, higher RBTA
-        bounds for G' (0.120s) and ACTION (0.150s) to account for physics
-        simulation and MPC overhead on variable CI runners (D-128, D-130).
+        bounds for G' (0.120s), ACTION (0.080s, MPC only), and ENV (0.250s,
+        physics step) on variable CI runners (D-128, D-131).
 
         Args:
             env_name: gymnasium MuJoCo environment ID.
@@ -1826,18 +1832,23 @@ class CognitiveCycle:
                 "use_continuous=True for MuJoCo environments."
             )
 
-        return cls.build(
+        cycle = cls.build(
             env=env, seed=seed,
             use_mlp=use_mlp, use_continuous=use_continuous,
             mlp_lr=0.05,              # lower LR for smooth continuous targets
             gprime_b_time=0.120,      # MuJoCo + MLP learn headroom (D-128)
-            action_b_time=0.150,      # MPC + MuJoCo step() headroom (D-130)
-            action_b_energy=7.5,      # Runtime-derived ACTION energy (time×50, D-130)
+            action_b_time=0.080,      # MPC only (D-131; env.step → ENV)
+            action_b_energy=4.0,      # Runtime-derived ACTION energy (time×50)
             metrics_store=metrics_store,
             observability_store=observability_store,
             interventions=interventions,
             trace_collector=trace_collector,
         )
+        cycle.rbta.update_bounds(
+            "ENV",
+            ResourceBounds(B_time=0.250, B_mem=10_000, B_energy=12.5),
+        )
+        return cycle
 
     @classmethod
     def build_for_env(

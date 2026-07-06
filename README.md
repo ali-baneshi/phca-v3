@@ -289,8 +289,9 @@ Cartpole stays on a discrete 3-bin path — the **clean A4 prediction-primary pa
 is the continuous MPC selector (Pendulum, Reacher). MuJoCo is opt-in
 (`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
 
-**MuJoCo RBTA bounds** (D-128, D-130, `build_for_mujoco` only): G′ time **0.120 s**;
-ACTION time **0.150 s** (MPC K=8 + `env.step()`); ACTION energy **7.5**
+**MuJoCo RBTA bounds** (D-128, D-131, `build_for_mujoco` only): G′ time **0.120 s**;
+ACTION time **0.080 s** (MPC only); ENV time **0.250 s** (`env.step()` physics);
+ACTION energy **4.0**, ENV energy **12.5**
 (`runtime × 50`). GridWorld bounds unchanged.
 
 | Env | ID | Action space | State dim | 100-cyc result (D-107) |
@@ -421,7 +422,7 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | Which docs are living vs historical vs aspirational. |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix. |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-130). |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-131). |
 | [docs/architecture.md](docs/architecture.md) | Architecture overview — 12-step cycle, module map, invariants. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation caveats. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs continuous selectors; temporal cycle order. |
@@ -516,7 +517,8 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
 - **RBTA (Resource-Bounded Temporal Automata).** Each module carries bounds
   `(B_time, B_mem, B_energy)` plus an entropy floor ε; the enforcer verifies
   them every cycle (whitepaper §2.1). MuJoCo builds use widened G′/ACTION bounds
-  for CI runner variance (D-128, D-130).
+  for CI runner variance (D-128, D-131). ACTION times MPC only; ENV times
+  `env.step()` physics separately.
 - **MLP world model.** 38,868 params (hidden_dim=128). Confidence blends
   aleatoric `exp(-MSE)` with epistemic MC-Dropout variance (D-080); empowerment
   `I(s';a|s)` is estimated via MC-Dropout mutual information (D-077, samples=4

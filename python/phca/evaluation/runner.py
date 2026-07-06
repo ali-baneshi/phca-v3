@@ -271,11 +271,15 @@ def run_mujoco_smoke_report(
     for _ in range(10):
         cycle.step()
     errors, latencies, violations = [], [], 0
+    action_times_ms: List[float] = []
+    env_times_ms: List[float] = []
     violation_details: List[Dict[str, Any]] = []
     for i in range(n_cycles):
         m = cycle.step()
         errors.append(m.prediction_error)
         latencies.append(m.latency_ms)
+        action_times_ms.append(m.module_timings.get("action_selection", 0.0))
+        env_times_ms.append(m.module_timings.get("env_step", 0.0))
         violations += m.violations_count
         if m.violations_count > 0:
             for v in cycle.last_violations:
@@ -290,6 +294,8 @@ def run_mujoco_smoke_report(
         "mean_latency_ms": float(np.mean(latencies)),
         "p95_latency_ms": float(np.percentile(latencies, 95)),
         "max_latency_ms": float(np.max(latencies)),
+        "action_selection_p99_ms": float(np.percentile(action_times_ms, 99)),
+        "env_step_p99_ms": float(np.percentile(env_times_ms, 99)),
         "mean_error": float(np.mean(errors)),
         "early_error": early, "late_error": late,
         "error_improved": late < early,

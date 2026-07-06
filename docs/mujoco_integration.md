@@ -20,9 +20,9 @@ with a prediction-driven MPC selector; **Cartpole** remains discrete.
 100-cycle reference (MLP, D-107): Pendulum ~7 ms mean, error 29.6→0.68; Reacher
 ~4.4 ms mean, error 105.7→8.4; Cartpole discrete, 0 violations.
 
-MuJoCo RBTA time bounds (D-128, D-130): G' **0.120 s**, ACTION **0.150 s**
-(energy **7.5**) — calibrated for shared CI runners; local means stay well
-below these limits.
+MuJoCo RBTA time bounds (D-128, D-131): G' **0.120 s**, ACTION **0.080 s**
+(MPC only), ENV **0.250 s** (`env.step()` physics; energy **12.5**) — calibrated
+for shared CI runners; local means stay well below these limits.
 
 ---
 
@@ -51,8 +51,9 @@ for i in range(100):
     metrics = cycle.step()
 ```
 
-MuJoCo builds use lower learning rate (0.05), higher G′ time bound (0.120s), and
-higher action bound (0.150s / energy 7.5) for MPC + physics step overhead.
+MuJoCo builds use lower learning rate (0.05), higher G′ time bound (0.120s),
+ACTION bound (0.080s / energy 4.0) for MPC, and ENV bound (0.250s / energy 12.5)
+for physics step overhead.
 
 ---
 

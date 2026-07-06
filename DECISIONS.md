@@ -1511,3 +1511,15 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** D-129 covered the 0.1031 s spike; `ubuntu-latest` produced a higher 0.1401 s spike. Bounds must track measured p99 on CI without masking real regressions. A1 injects G'=10.0 s — unaffected.
 - **v3.0 trace:** A1 Resource Boundedness; Phase 6 MuJoCo gate C2.
 - **Tests/Validation:** `test_mujoco_action_bound_override_matches_ci_headroom`; `make nightly-mujoco` exit 0.
+
+## Decision D-131: Split ACTION vs ENV timing for MuJoCo RBTA (D-130 follow-up)
+
+- **Date:** 2026-07-06
+- **Author:** Principal Architect
+- **Category:** Tier 1 (MuJoCo nightly gate / A1)
+- **Problem:** After D-130, nightly #6 still failed on Pendulum-v1: 2 RBTA violations at cycle 32 (`ACTION TIME` measured=0.1729 s vs allowed=0.150 s). Repeated bound bumps (D-128→D-130) failed because `action_selection` timer bundled MPC and `env.step()` physics; CI physics variance kept exceeding monolithic ACTION limits.
+- **Option chosen:** Split Step 9 timing in `cycle.py`: `action_selection` = MPC/neutral action only; `env_step` = `env.step()` → RBTA module `ENV`. MuJoCo `build_for_mujoco`: revert ACTION to **0.080 s / 4.0** (MPC); add ENV **0.250 s / 12.5** (`runtime × 50`). Add `action_selection_p99_ms` and `env_step_p99_ms` to `run_mujoco_smoke_report` JSON. Gate rule unchanged (`violations == 0`).
+- **Alternatives:** Raise ACTION to 0.200+ s (rejected — whack-a-mole); relax gate (rejected in D-128); lower MPC K on CI (rejected — changes behaviour).
+- **Rationale:** RBTA should enforce the subsystem that spiked. GridWorld builds do not register ENV bounds — `env_step` is logged but not gated (fast steps). A1 injects G'=10.0 s — unaffected.
+- **v3.0 trace:** A1 Resource Boundedness; Phase 6 MuJoCo gate C2.
+- **Tests/Validation:** `test_mujoco_action_bound_override_matches_ci_headroom`, `test_mujoco_env_bound_override_matches_ci_headroom`, `test_mujoco_env_step_timing_recorded`; `make nightly-mujoco` exit 0.
