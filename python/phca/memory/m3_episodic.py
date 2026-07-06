@@ -39,6 +39,7 @@ class EpisodeRecord:
         timestamp: Monotonic cycle count.
         consolidated: 0 = pending, 1 = consolidated to M4.
         drive_id: Which MDIM drive generated the goal (None if unknown).
+        task_id: Continual-learning task tag (optional).
     """
     episode_id: int = 0
     version: int = 1
@@ -50,6 +51,7 @@ class EpisodeRecord:
     timestamp: int = 0
     consolidated: int = 0
     drive_id: int | None = None
+    task_id: int | None = None
 
 
 @dataclass
@@ -79,7 +81,8 @@ CREATE TABLE IF NOT EXISTS episodes (
     confidence REAL NOT NULL DEFAULT 0.0,
     timestamp INTEGER NOT NULL,
     consolidated INTEGER DEFAULT 0,
-    drive_id INTEGER DEFAULT NULL
+    drive_id INTEGER DEFAULT NULL,
+    task_id INTEGER DEFAULT NULL
 );
 
 -- Index for consolidation scan
@@ -162,6 +165,7 @@ class M3EpisodicMemory:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(M3_SCHEMA_SQL)
             self._conn.commit()
+            self._migrate_schema()
         except sqlite3.DatabaseError as e:
             # Corrupt or non-SQLite file: fall back to in-memory.
             if self.db_path == ":memory:":
@@ -176,6 +180,7 @@ class M3EpisodicMemory:
             self._conn = sqlite3.connect(":memory:")
             self._conn.executescript(M3_SCHEMA_SQL)
             self._conn.commit()
+            self._migrate_schema()
             self.db_path = ":memory:"
             return
 
@@ -201,6 +206,23 @@ class M3EpisodicMemory:
             except Exception as e:
                 _log(logger, "error", "m3.integrity_check_failed", error=str(e))
 
+    def _migrate_schema(self) -> None:
+        """Add optional columns for older databases."""
+        if self._conn is None:
+            return
+        try:
+            cols = {
+                row[1]
+                for row in self._conn.execute("PRAGMA table_info(episodes)").fetchall()
+            }
+            if "task_id" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN task_id INTEGER DEFAULT NULL"
+                )
+                self._conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
     @property
     def _connection(self) -> sqlite3.Connection:
         """Get or create the database connection (lazy init for pickle safety)."""
@@ -219,6 +241,7 @@ class M3EpisodicMemory:
         prediction_error: float,
         confidence: float = 0.0,
         drive_id: int | None = None,
+        task_id: int | None = None,
         timestamp: int | None = None,
     ) -> int:
         """Store a single episode in M3.
@@ -242,8 +265,8 @@ class M3EpisodicMemory:
             cursor = self._connection.execute(
                 """INSERT INTO episodes
                    (version, state_before, action_taken, state_after,
-                    prediction_error, confidence, timestamp, drive_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    prediction_error, confidence, timestamp, drive_id, task_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     self._current_version,
                     state_before.to_bytes(),
@@ -253,6 +276,7 @@ class M3EpisodicMemory:
                     float(confidence),
                     timestamp,
                     drive_id,
+                    task_id,
                 ),
             )
             episode_id = cursor.lastrowid
@@ -298,6 +322,35 @@ class M3EpisodicMemory:
         else:
             cursor = self._connection.execute("SELECT COUNT(*) FROM episodes")
         return cursor.fetchone()[0] or 0
+
+    def sample_episodes(
+        self,
+        n: int,
+        task_id: int | None = None,
+    ) -> List[EpisodeRecord]:
+        """Sample up to ``n`` episodes, optionally filtered by ``task_id``."""
+        n = max(0, int(n))
+        if n == 0:
+            return []
+        try:
+            if task_id is not None:
+                cursor = self._connection.execute(
+                    "SELECT * FROM episodes WHERE task_id = ? "
+                    "ORDER BY RANDOM() LIMIT ?",
+                    (task_id, n),
+                )
+            else:
+                cursor = self._connection.execute(
+                    "SELECT * FROM episodes ORDER BY RANDOM() LIMIT ?",
+                    (n,),
+                )
+            return [
+                r for r in (self._row_to_episode(row) for row in cursor.fetchall())
+                if r is not None
+            ]
+        except Exception as e:
+            _log(logger, "warning", "m3.sample_episodes_failed", error=str(e))
+            return []
 
     # ── Observability v4: cheap indexed reads for the Memory tab ──
 
@@ -521,7 +574,8 @@ class M3EpisodicMemory:
 
         # Column order: episode_id, version, state_before, action_taken,
         #               state_after, prediction_error, confidence, timestamp,
-        #               consolidated, drive_id
+        #               consolidated, drive_id, task_id (optional)
+        task_id = int(row[10]) if len(row) > 10 and row[10] is not None else None
         return EpisodeRecord(
             episode_id=row[0],
             version=row[1],
@@ -533,4 +587,5 @@ class M3EpisodicMemory:
             timestamp=int(row[7]),
             consolidated=int(row[8]),
             drive_id=int(row[9]) if row[9] is not None else None,
+            task_id=task_id,
         )

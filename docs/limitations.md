@@ -19,7 +19,7 @@ This document states what PHCA cannot do, so you can decide if it is the right t
 | **Multi-level grounding (levels 0–2)** | ⚠️ Partial | ASI always emits grounding level 1; Grounding Level Adapter deferred. |
 | **Long-term procedural memory (M5)** | ❌ Not implemented | Skills are compiled in TSPL but not stored in a persistent library. |
 | **Dual G′+V ensemble / VSA** | ❌ Not implemented | Blueprint items; only G′ (Gaussian / discrete graph / MLP) is implemented. |
-| **Resilience failure matrix** | ❌ Stub only | `phca/resilience/` is a placeholder package. |
+| **Resilience failure matrix** | ⚠️ Partial (MVP) | B1, B4, B5, C1, F5 detect + recover in `phca/resilience/`; see [resilience.md](resilience.md) |
 
 ---
 

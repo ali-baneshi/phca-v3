@@ -232,6 +232,10 @@ class ConsolidationScheduler:
         self._history.append(report)
         return report
 
+    def force_step(self, cycle_count: int) -> ConsolidationReport:
+        """Force consolidation immediately (F5 recovery alias)."""
+        return self.step(cycle_count, force=True)
+
     # ── Fact Extraction ──────────────────────────────────────
 
     def _extract_facts(

@@ -1,0 +1,41 @@
+{
+  "config": {
+    "scenarios": [
+      "b1",
+      "c1",
+      "f5"
+    ],
+    "cycles": 200,
+    "seed": 42
+  },
+  "scenarios": {
+    "b1": {
+      "scenario": "b1",
+      "recovered": true,
+      "recovery_cycle": 2,
+      "baseline_error": 4.239627866805004,
+      "final_error": 3.9299679442846305
+    },
+    "c1": {
+      "scenario": "c1",
+      "recovered": true,
+      "recovery_cycle": 1,
+      "baseline_violations": 0.0,
+      "final_rbta": "CONTINUE"
+    },
+    "f5": {
+      "scenario": "f5",
+      "recovered": true,
+      "facts_before": 5,
+      "facts_after": 37,
+      "m3_fill": 0.05
+    }
+  },
+  "recovery_rate": 1.0,
+  "outcomes": {
+    "b1": true,
+    "c1": true,
+    "f5": true
+  },
+  "duration_s": 2.279584106989205
+}

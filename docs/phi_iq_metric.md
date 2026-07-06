@@ -34,8 +34,18 @@ single score between 0.0 and 1.0.
 
 `TransferEfficiency` is computed as `adaptation_speed × prediction_accuracy` in
 [`scripts/benchmark.py`](../scripts/benchmark.py). It does **not** measure
-retention across tasks or environments. A dedicated cross-task transfer benchmark
-is backlog (see [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md)).
+retention across tasks or environments. Use **Level-4-lite** for cross-task
+forgetting measurement:
+
+```bash
+PYTHONPATH=python python scripts/benchmark_level4.py \
+  --tasks 10 --task-cycles 80 --eval-cycles 20 --seeds 3 --use-mlp \
+  --output logs/benchmark_level4.json
+```
+
+Gate: `forgetting_rate < 0.05` (max relative drop per task). Implemented in
+[`python/phca/evaluation/metrics/forgetting.py`](../python/phca/evaluation/metrics/forgetting.py).
+This is **not** the same as `TransferEfficiency` above.
 
 ---
 
@@ -59,6 +69,13 @@ Active control; prediction under action. **Goal complexity** =
 No external goal. **Adaptation speed** = action diversity /
 `env.action_space_size`. **Goal complexity** from MDIM active drives (/5), or
 action diversity if MDIM is disabled.
+
+### Level 4-lite — Continual learning (forgetting rate)
+
+Sequential GridWorld goal-pursuit tasks without task-boundary signals to the
+agent. **Forgetting rate** = `max_k |Δ_perf_k|` where Δ_perf is relative goal-rate
+drop vs end-of-training baseline. Anti-forgetting uses P-Stream protection +
+G′ replay (no EWC/GEM). See [`scripts/benchmark_level4.py`](../scripts/benchmark_level4.py).
 
 ### Emergence trace metrics
 

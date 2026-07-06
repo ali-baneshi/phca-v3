@@ -173,6 +173,11 @@ class AdaptiveParameterController:
 
         return output
 
+    def apply_c1_recovery(self) -> None:
+        """C1 feedback-instability recovery: halve Kp and hold integral."""
+        self.k_p *= 0.5
+        self._frozen_params.add("T")
+
     # ── Orthogonality Constraint ─────────────────────────────
 
     def _update_orthogonality(self, params: Dict[str, float]) -> None:

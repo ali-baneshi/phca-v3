@@ -1,0 +1,97 @@
+"""Forgetting-rate metrics for Level-4-lite continual learning benchmarks."""
+
+from __future__ import annotations
+
+from typing import Dict, List, Mapping, Optional, Union
+
+import numpy as np
+
+from phca.core.cycle import CycleMetrics
+
+
+HistoryInput = Union[Mapping[int, List[CycleMetrics]], List[CycleMetrics]]
+
+
+def _metrics_for_task(history: HistoryInput, task_id: int) -> List[CycleMetrics]:
+    if isinstance(history, Mapping):
+        return list(history.get(task_id, []))
+    return [m for m in history if getattr(m, "task_id", None) == task_id]
+
+
+def task_accuracy(
+    history: HistoryInput,
+    *,
+    task_id: int,
+    metric: str = "goal_rate",
+    window: Optional[int] = None,
+) -> float:
+    """Task accuracy proxy over history for a single task.
+
+    GridWorld default (``goal_rate``): fraction of cycles with ``goal_reached``.
+    """
+    records = _metrics_for_task(history, task_id)
+    if not records:
+        return 0.0
+    if window is not None and window > 0:
+        records = records[-window:]
+    if metric == "goal_rate":
+        goals = [float(m.goal_reached) for m in records]
+        return float(np.mean(goals)) if goals else 0.0
+    if metric == "prediction_accuracy":
+        errors = [m.prediction_error for m in records]
+        mean_err = float(np.mean(errors)) if errors else 0.0
+        return max(0.0, 1.0 - min(mean_err / 10.0, 1.0))
+    raise ValueError(f"Unknown metric: {metric}")
+
+
+def eval_window_accuracy(
+    history: HistoryInput,
+    *,
+    task_id: int,
+    eval_cycles: int = 20,
+    metric: str = "goal_rate",
+) -> float:
+    """Accuracy over the last ``eval_cycles`` evaluation cycles for a task."""
+    return task_accuracy(
+        history, task_id=task_id, metric=metric, window=eval_cycles,
+    )
+
+
+def delta_perf(
+    baseline: Dict[int, float],
+    current: Dict[int, float],
+) -> Dict[int, float]:
+    """Per-task relative performance change: (current - baseline) / baseline.
+
+    Negative values indicate forgetting (performance drop).
+    """
+    delta: Dict[int, float] = {}
+    for task_id, base_acc in baseline.items():
+        if base_acc <= 1e-8:
+            cur = current.get(task_id, 0.0)
+            delta[task_id] = 0.0 if cur <= 1e-8 else 1.0
+            continue
+        cur_acc = current.get(task_id, 0.0)
+        delta[task_id] = (cur_acc - base_acc) / base_acc
+    return delta
+
+
+def forgetting_rate(delta: Dict[int, float]) -> float:
+    """Aggregate forgetting rate: max relative performance drop (AT-2-lite).
+
+    Only counts drops (negative Δ_perf). Improvements do not inflate this metric.
+    """
+    if not delta:
+        return 0.0
+    return float(max(max(0.0, -v) for v in delta.values()))
+
+
+def passes_forgetting_gate(
+    delta: Dict[int, float],
+    threshold: float = 0.05,
+) -> bool:
+    """True when max relative drop is within ``threshold`` (default 5%)."""
+    if not delta:
+        return True
+    max_drop = max(-v for v in delta.values())
+    return max_drop <= threshold

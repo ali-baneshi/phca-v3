@@ -32,6 +32,8 @@ from phca.config import (
     ContinuousSpace,
 )
 from phca.asi.sanitizer import ASISanitizer
+from phca.resilience import FailureDetector, RecoveryManager
+from phca.resilience.types import CycleSnapshot
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
 from phca.memory.m3_episodic import M3EpisodicMemory
@@ -91,6 +93,9 @@ class CycleMetrics:
     skill_compiled: bool = False
     fact_count: int = 0
     episode_count: int = 0
+    task_id: int = -1
+    failure_events: List[str] = field(default_factory=list)
+    recovery_active: bool = False
 
 
 class CognitiveCycle:
@@ -203,6 +208,18 @@ class CognitiveCycle:
         self._relevant_facts: list = []
         self._planning_grid: Optional[np.ndarray] = None
         self._task_lock: bool = False
+
+        # Level-4-lite continual learning / anti-forgetting hooks
+        self._current_task_id: int = 0
+        self._forgetting_mitigation_active: bool = False
+        self._task_goal_baselines: Dict[int, float] = {}
+        self._task_eval_history: Dict[int, List[float]] = {}
+        self._last_fact_count: int = 0
+        self._fact_stagnant_cycles: int = 0
+
+        # Cognitive resilience (distinct from Observatory session recovery)
+        self._resilience_detector = FailureDetector()
+        self._resilience_recovery = RecoveryManager()
 
         # RBTA enforcement carry-forward (P1-01): prior cycle action shapes next cycle.
         self._rbta_carry_action: EnforcerAction = EnforcerAction.CONTINUE
@@ -604,6 +621,8 @@ class CognitiveCycle:
                 # LEARN: update G' with observed transition, weighted by attention
                 t_glearn = time.perf_counter()
                 if self.interventions.enable_gprime_learn:
+                    if isinstance(self.gprime, WorldModelMLP):
+                        self.gprime.replay_boost = self._forgetting_mitigation_active
                     attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
                     if hasattr(self.gprime, '_attention_weights'):
                         self.gprime._attention_weights = self._attention_weights.copy()
@@ -623,6 +642,7 @@ class CognitiveCycle:
                         prediction_error=metrics.prediction_error,
                         confidence=metrics.prediction_confidence,
                         drive_id=m3_drive_id,
+                        task_id=self._current_task_id,
                         timestamp=self.cycle_count,
                     )
                 self._last_prediction_error = metrics.prediction_error
@@ -699,6 +719,14 @@ class CognitiveCycle:
             if enforcer_action in (EnforcerAction.INTERRUPT, EnforcerAction.TERMINATE):
                 self._rbta_skip_consolidation = True
 
+            # Cognitive resilience: detect failures and apply recovery protocols
+            snapshot = self._build_resilience_snapshot(metrics)
+            events = self._resilience_detector.detect(snapshot)
+            if events:
+                self._resilience_recovery.apply(self, events)
+            metrics.failure_events = [e.mode_id for e in events]
+            metrics.recovery_active = self._resilience_recovery.any_active()
+
             # Step 15: Logging — also populate dashboard fields
             consol_stats = self.consolidation.get_stats()
             metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
@@ -706,6 +734,12 @@ class CognitiveCycle:
             metrics.skill_compiled = self.tspl.skill_compiled
             metrics.fact_count = consol_stats.get("total_facts_stored", 0)
             metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
+            metrics.task_id = self._current_task_id
+            if metrics.fact_count == self._last_fact_count:
+                self._fact_stagnant_cycles += 1
+            else:
+                self._fact_stagnant_cycles = 0
+            self._last_fact_count = metrics.fact_count
             self.metrics_history.append(metrics)
             # Deep-copy before pushing to prevent dashboard thread from
             # observing a mutating object (G-009: thread-safe monitoring)
@@ -785,6 +819,81 @@ class CognitiveCycle:
             raise
 
         return metrics
+
+    def on_task_boundary(self, task_id: int) -> None:
+        """Called by Level-4 runner on task switch — enable anti-forgetting hooks."""
+        self._current_task_id = task_id
+        self.tspl.protect_parameters(lambda_boost=0.05)
+        self._forgetting_mitigation_active = True
+
+    def on_forgetting_detected(self) -> None:
+        """B4 recovery: replay boost + halve P-Stream learning rate."""
+        self._forgetting_mitigation_active = True
+        if isinstance(self.gprime, WorldModelMLP):
+            self.gprime.replay_boost = True
+        cfg = self.tspl.configs[StreamID.P_STREAM]
+        cfg.alpha = max(0.01, cfg.alpha * 0.5)
+
+    def record_task_baseline(self, task_id: int, goal_rate: float) -> None:
+        """Store end-of-task accuracy baseline for B4 / forgetting metrics."""
+        self._task_goal_baselines[task_id] = goal_rate
+
+    def record_task_eval(self, task_id: int, goal_reached: bool) -> None:
+        """Append eval-cycle goal outcome for per-task tracking."""
+        self._task_eval_history.setdefault(task_id, []).append(float(goal_reached))
+
+    def _current_task_goal_rate(self) -> Optional[float]:
+        tid = self._current_task_id
+        hist = self._task_eval_history.get(tid, [])
+        if not hist:
+            return None
+        window = hist[-20:]
+        return float(np.mean(window))
+
+    def _build_resilience_snapshot(
+        self,
+        metrics: Optional[CycleMetrics] = None,
+    ) -> CycleSnapshot:
+        """Build detector input from current cycle signals."""
+        m = metrics or (self.metrics_history[-1] if self.metrics_history else CycleMetrics())
+        recent = self.metrics_history[-20:]
+        rbta_hist = [h.rbta_action for h in self.metrics_history[-5:]]
+        actions = [h.action_taken for h in recent if h.action_taken >= 0]
+        errors = [h.prediction_error for h in recent]
+        confs = [h.prediction_confidence for h in recent]
+        episode_count = m.episode_count
+        m3_cap = getattr(self.consolidation.m3, "_max_episodes", 10_000)
+        deficits = {}
+        if hasattr(self.mdim, "drives"):
+            deficits = {
+                name: float(d.deficit)
+                for name, d in self.mdim.drives.items()
+            }
+        fact_delta = 0
+        if len(self.metrics_history) >= 2:
+            fact_delta = m.fact_count - self.metrics_history[-2].fact_count
+        return CycleSnapshot(
+            cycle_id=self.cycle_count,
+            prediction_error=m.prediction_error,
+            prediction_confidence=m.prediction_confidence,
+            wm_entropy_proxy=float(
+                np.mean(list(self.belief_entropies.values()))
+                if self.belief_entropies else 0.5
+            ),
+            mdim_deficits=deficits,
+            rbta_action_history=rbta_hist,
+            m3_fill_ratio=episode_count / max(m3_cap, 1),
+            m4_fact_count=m.fact_count,
+            m4_fact_count_delta=fact_delta,
+            module_timings=dict(m.module_timings),
+            unique_actions_recent=len(set(actions)) if actions else 0,
+            per_task_goal_rate=self._current_task_goal_rate(),
+            per_task_baseline_goal_rate=self._task_goal_baselines.get(self._current_task_id),
+            recent_prediction_errors=errors,
+            recent_actions=actions,
+            recent_confidences=confs,
+            fact_count_stagnant_cycles=self._fact_stagnant_cycles,
+        )
 
     def _facts_ids(self) -> list:
         return [f.fact_id for f in self._relevant_facts]

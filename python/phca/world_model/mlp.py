@@ -261,6 +261,11 @@ class WorldModelMLP:
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
         self._replay_idx: int = 0
 
+        # Anti-forgetting: larger replay batches + extra steps when active
+        self.replay_boost: bool = False
+        self._replay_boost_batch_mult: float = 1.5
+        self._replay_boost_extra_steps: int = 4
+
     # ── Public Interface (G'-compatible) ──────────────────────
 
     def predict(
@@ -396,18 +401,16 @@ class WorldModelMLP:
 
         # Steady state: replay-only. The current transition is in the
         # buffer and is learned only if sampled into a mini-batch.
-        # Batched (Phase 5 / D-092): collapse the per-sample Python loop
-        # (train_steps × batch_size separate forward+backward passes) into
-        # `train_steps` batched matmuls over the whole mini-batch. Same
-        # math, same lr*0.5, same hybrid schedule — pure perf. Zero-trust
-        # verification confirmed the dynamic-goal L2 is unchanged by this
-        # (it is ~0.43 on this machine for BOTH the original loop and the
-        # batched version — the D-090 reported 0.573 was machine-specific;
-        # see D-092). The per-sample gradient clip becomes a single clip on
-        # the batch-averaged gradient; verified numerically identical here
-        # because gradient elements are ~0.05 (well within [-1,1]).
-        for _ in range(self.train_steps):
-            indices = self.rng.randint(0, len(self._replay_buffer), size=self.batch_size)
+        batch_size = self.batch_size
+        n_steps = self.train_steps
+        if self.replay_boost:
+            batch_size = min(
+                len(self._replay_buffer),
+                int(self.batch_size * self._replay_boost_batch_mult),
+            )
+            n_steps = self.train_steps + self._replay_boost_extra_steps
+        for _ in range(n_steps):
+            indices = self.rng.randint(0, len(self._replay_buffer), size=batch_size)
             X = np.stack([self._replay_buffer[i][0] for i in indices]).astype(np.float32)
             T = np.stack([self._replay_buffer[i][1] for i in indices]).astype(np.float32)
             Z1, Z2, Out = self._forward_batch(X)

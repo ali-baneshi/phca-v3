@@ -23,6 +23,10 @@ setup:
 
 # ── Testing ───────────────────────────────────────────────────
 
+# Optional pytest plugins (requirements.txt); omit flags when not installed.
+_PYTEST_TIMEOUT := $(shell python -c "import pytest_timeout" 2>/dev/null && echo "--timeout=30")
+_PYTEST_BENCH := $(shell python -c "import pytest_benchmark.plugin" 2>/dev/null && echo "--benchmark-skip")
+
 test-all: test-python
 	@echo "✅ All tests passed"
 
@@ -32,7 +36,7 @@ test-python:
 	    --ignore=python/tests/test_mujoco_env.py \
 	    --ignore=python/tests/test_cycle_with_mujoco.py \
 	    --ignore=python/tests/test_continuous_actions.py \
-	    -v --tb=short -x --timeout=30 --benchmark-skip
+	    -v --tb=short -x $(_PYTEST_TIMEOUT) $(_PYTEST_BENCH)
 
 test-mujoco:
 	@echo "Running MuJoCo integration tests (needs gymnasium[mujoco])..."

@@ -271,6 +271,32 @@ class GridWorld:
     def get_goal_position(self) -> tuple[int, int] | None:
         return self.goal_pos
 
+    def apply_task_layout(
+        self,
+        goal_pos: tuple[int, int],
+        obstacles: list[tuple[int, int]],
+    ) -> None:
+        """Apply a continual-learning task layout without agent notification.
+
+        Resets walls, goal, and agent start position for the new layout.
+        """
+        self.grid.fill(self.EMPTY)
+        for r, c in obstacles:
+            if 0 <= r < self.size and 0 <= c < self.size:
+                self.grid[r, c] = self.WALL
+        gr, gc = goal_pos
+        if 0 <= gr < self.size and 0 <= gc < self.size:
+            self.goal_pos = (gr, gc)
+            self.grid[self.goal_pos] = self.GOAL
+        empty_cells = self._get_empty_cells()
+        start_cells = [c for c in empty_cells if c != self.goal_pos]
+        if start_cells:
+            self.start_pos = tuple(start_cells[self.rng.randint(len(start_cells))])
+        else:
+            self.start_pos = (0, 0)
+        self.agent_pos = self.start_pos
+        self.step_count = 0
+
     def relocate_goal(self) -> tuple[int, int]:
         """Move the goal to a new random empty cell (not a wall, not the agent cell).
 

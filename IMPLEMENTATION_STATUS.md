@@ -13,10 +13,10 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | Criterion | Target | Status | Gate / evidence |
 |---|---|---|---|
 | Cycle latency | < 500 ms | **Measured PASS** | Φ-IQ pass criteria; mean ~10–17 ms MLP |
-| Forgetting rate | < 5% after 100 sequential tasks | **Not implemented** | No 100-task benchmark exists |
+| Forgetting rate | < 5% after 100 sequential tasks | **Partial** | Level-4-lite: `scripts/benchmark_level4.py` (10–20 GridWorld tasks, P-Stream + replay); full 100-task AT-2 not CI-gated |
 | Goal autonomy | ≥ 1 novel goal / 100 cycles | **Partial** | L3 gates drive diversity > 0.1, not novel-goal rate |
 | Criticality maintenance | Φ ∈ [0.9Φc, 1.1Φc] for ≥ 90% cycles | **Not implemented** | APC regulates error volatility, not integrated Φ |
-| Failure recovery | ≥ 80% mitigated within 10 cycles | **Not implemented** | `phca/resilience/` is stub only |
+| Failure recovery | ≥ 80% mitigated within 10 cycles | **Partial (MVP)** | `phca/resilience/` B1/B4/B5/C1/F5 + `scripts/benchmark_recovery.py` |
 
 ---
 
@@ -59,12 +59,13 @@ evidence separate from invariant tests.
 | M4 semantic | Blueprint | `phca/consolidation/scheduler.py` | **Partial** — statistical pattern facts |
 | M5 procedural | Blueprint | — | **Not implemented** |
 | M6 meta-memory | Whitepaper | — | **Not implemented** |
-| Failure matrix A–F | Blueprint | `phca/resilience/` | **Stub** |
+| Failure matrix A–F | Blueprint | `phca/resilience/` | **Partial (MVP)** — B1, B4, B5, C1, F5 detect + recover |
 | GridWorld | Phase 3.1 | `phca/environments/grid_world.py` | **Implemented** |
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
 | Cognitive Observatory | Phase 7–20 | `phca/monitoring/` | **Complete** (schema, replay, report, scrub, compare, anomalies, explain, API, supervisor, multi-agent, query, reproduce) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
-| Φ-IQ L4–L5 | Blueprint | — | **Not implemented** |
+| Φ-IQ L4-lite (forgetting) | Blueprint | `scripts/benchmark_level4.py` | **Partial** — GridWorld continual, AT-2-lite gate |
+| Φ-IQ L5 | Blueprint | — | **Not implemented** |
 
 ---
 
@@ -81,6 +82,8 @@ evidence separate from invariant tests.
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` on `fixtures/multi_agent_short/` and `fixtures/reacher_short/` | **Yes** | PASS |
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
+| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; `--tasks 10` default |
+| Cognitive recovery | `scripts/benchmark_recovery.py` | No | Local gate; B1/C1/F5 injectable scenarios |
 | **Scientific validation suite** | `make validate-science` / `run_validation_suite.py` | Local | **Complete** (2026-07-05); 24 experiments × 30 seeds → `results/validation/` |
 
 ### Scientific metrics (2026-07-05 audit)
@@ -89,7 +92,7 @@ evidence separate from invariant tests.
 |---|---|---|
 | `cross_context_reuse` | `emergence.py` | Uses `env_goal_relocated` + `goal_switched` trace flags (D-128) |
 | H004 interaction | `aggregate_validation.py` | Reads `interaction_test.json`; multiseed traces in `run_experiment.py` |
-| `transfer_efficiency` | `phi_iq.py` | Proxy only — not cross-task transfer |
+| `transfer_efficiency` | `phi_iq.py` | Proxy only — not cross-task transfer; see `forgetting.py` + Level-4-lite |
 | H003 synergy | `synergy.py` | Noisy; smoke (3 seeds) may flip verdict vs full (30) |
 | `goal_thrash_events` | `runner._collect_failures` | MDIM drive changes — not env goal relocation |
 

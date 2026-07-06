@@ -274,6 +274,15 @@ class TSPL:
         rmse = np.sqrt(prediction_error / dim)
         return float(max(0.0, 1.0 - rmse))
 
+    def protect_parameters(self, lambda_boost: float = 0.05) -> None:
+        """Snapshot current parameters for elastic consolidation (task boundary).
+
+        Copies ``theta → theta_protected`` and temporarily raises ``lambda_``
+        on the P-Stream to reduce drift on prior tasks.
+        """
+        self.theta_protected = {key: val.copy() for key, val in self.theta.items()}
+        self.configs[StreamID.P_STREAM].lambda_ = lambda_boost
+
     def _compile_skill(self, skill_id: str) -> None:
         """Compile a skill by freezing current parameters.
 
@@ -283,7 +292,7 @@ class TSPL:
         Args:
             skill_id: Unique identifier for the skill.
         """
-        self.theta_protected = {key: val.copy() for key, val in self.theta.items()}
+        self.protect_parameters(lambda_boost=self.configs[StreamID.P_STREAM].lambda_)
         self.compiled_skill_ids.append(skill_id)
 
     # ── Observability v4: additive snapshot ──
