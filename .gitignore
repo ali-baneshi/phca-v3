@@ -52,3 +52,4 @@ id_rsa.pub
 
 # Validation checkpoints (summaries committed under results/validation/)
 results/validation/*.ckpt
+__pycache__/
