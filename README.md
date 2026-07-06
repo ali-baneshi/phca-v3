@@ -14,9 +14,9 @@
 
 **PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 
-Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by `phca/core/cycle.py`. Each cycle roughly follows: sanitise observations (ASI) → write working memory (M1/M2) → predict the next state (G′ world model) → compute prediction error (PEU) → update via predictive learning (TSPL) → select an action (discrete goal alignment on GridWorld; MPC sampling on continuous MuJoCo tasks) → regulate drives and attention (MDIM, APC, HPM) → enforce budgets (RBTA) → log, consolidate episodic memory (M3), and advance. The Resource-Bounded Turing Supervisor in `phca/regulation/rbta_enforcer.py` checks per-module time, memory, energy, and entropy-floor bounds each cycle and can interrupt or terminate when limits are exceeded.
+Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (discrete geometry on GridWorld, or MPC on continuous MuJoCo) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. Temporal order and discrete vs continuous paths are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log.
 
-The repository aims to make architectural assumptions **explicit and testable**. Five design invariants (A1–A5) are documented in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and exercised by `scripts/assumption_validation.py --ci`. Φ-IQ benchmark results, causal gates, and ablation configs live in this tree; they report what is implemented and measured here, not broader claims about general intelligence.
+**Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, and nightly hardening gates. This is **not** AGI, not a production stack, and not a drop-in RL framework; several whitepaper §1.3 design targets remain unbenchmarked — see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 ### What is in this repository
 
@@ -38,9 +38,7 @@ PHCA is a **research prototype** for exploring bounded, prediction-first agents 
 
 ## Overview
 
-PHCA (Predictive Hierarchical Cognitive Architecture) is a research
-architecture built around five verified invariants (A1–A5, see
-[research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md)):
+PHCA evaluates on **GridWorld** (discrete 5×5 default; scaling at 10×10 and 20×20) and optional **MuJoCo** wrappers (Cartpole, Pendulum, Reacher). Five design invariants (A1–A5) are specified in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and falsified in CI via `assumption_validation.py --ci`:
 
 - **A1 Resource Boundedness** — every module has time/memory/energy/entropy
   budgets, enforced every cycle by the RBTA.
@@ -50,19 +48,13 @@ architecture built around five verified invariants (A1–A5, see
 - **A4 Prediction as Primary** — every cycle computes ŝₜ₊₁ from sₜ.
 - **A5 Feedback-Driven Adaptation** — prediction error drives TSPL learning.
 
-The agent runs in a GridWorld (discrete, 5×5 with walls) or a MuJoCo physics
-environment (Cartpole, Pendulum, Reacher), perceives its state, predicts the
-next state, selects a goal-directed action, learns from the prediction error,
-and self-regulates its exploration/criticality via a PID controller and six
-homeostatic intrinsic drives (MDIM).
-
-It exists to study bounded, autonomous, prediction-first agents that learn
-continually without reward hacking — the formal argument for why each
-component is necessary is in the whitepaper.
+The formal argument for why each component is necessary is in the whitepaper.
 
 ---
 
 ## Quick Start
+
+### Setup & tests
 
 ```bash
 # Install dependencies
@@ -70,11 +62,15 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (766 in python/ + 36 MuJoCo optional; set MUJOCO_GL=disabled for headless)
+# Run all tests (802 total: 766 python + 36 MuJoCo; MUJOCO_GL=disabled for headless)
 MUJOCO_GL=disabled make test-all
 # MuJoCo integration tests (make test-all does not include them):
 MUJOCO_GL=disabled make test-mujoco
+```
 
+### Benchmarks & validation
+
+```bash
 # Canonical benchmark (4 levels, 200 cycles each, MLP mode)
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
 
@@ -98,7 +94,11 @@ MUJOCO_GL=disabled PYTHONPATH=python:scripts python scripts/assumption_validatio
 
 # Phase 6 CI hardening: nightly stress + MuJoCo gate (one command, exit 0 = all green)
 make nightly NIGHTLY_CYCLES=1000          # CI; use NIGHTLY_CYCLES=10000 for a true soak
+```
 
+### Reproduction & gates
+
+```bash
 # Phase 19: one-command scientific reproduction (see docs/reproducibility.md)
 make reproduce-quick                      # ~10-15 min CI-science subset
 make reproduce                            # ~45-90 min full nightly-equivalent suite
@@ -117,10 +117,10 @@ PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 -
 ## Architecture
 
 PHCA executes a **12-step cognitive cycle** at ~95 Hz on consumer hardware
-(~10.6 ms mean latency, MLP path, post-Phase-5). The cycle connects ASI
-(input sanitisation) → working memory → world-model prediction → prediction
-error → learning → action selection → intrinsic motivation → regulation →
-attention → RBTA enforcement → consolidation.
+(~10.6 ms mean latency, MLP path, post-Phase-5). Steps 0–19 are sub-step labels
+in code; **MDIM/APC/attention/HPM regulate before action**; PEU, TSPL, and
+G′.learn run **after** `env.step()` on the new observation. See
+[docs/action_selection.md](docs/action_selection.md) for the temporal sequence diagram.
 
 ### Cognitive Cycle (12 active steps)
 
@@ -147,6 +147,9 @@ flowchart TD
     ACT -- "action (int OR np.ndarray)" --> ENV
     ENV -- "step(action) -> obs, reward, terminal" --> PEU
 ```
+
+*Diagram note:* REG (MDIM/APC/ATTN/HPM) executes before ACT in the live pipeline;
+the flow edges show data dependencies, not strict wall-clock order for every sub-step.
 
 ### Module Map
 
@@ -175,15 +178,18 @@ flowchart TD
 
 | Invariant | Enforcement |
 | :--- | :--- |
-| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle; TERMINATE→STAY enforcement (D-113). **Measured**: inject over-budget → ≥1 violation. |
+| **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle; TERMINATE→STAY and INTERRUPT→limited rollouts **alter cycle behavior** (D-113), not log-only. **Measured**: inject over-budget → ≥1 violation. |
 | **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. **Measured** (D-113): `experiment_a2_temporal_order()` in `--ci`. |
 | **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured**: 100-cyc min entropy ≥ 0.01. |
-| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). **Measured**: continuous MPC selector calls predict per candidate. **OOD measured**: blended confidence drops 0.97→0.26 as σ rises 0→1.0. |
+| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁. **Continuous MPC (Pendulum, Reacher): measured** — predict per candidate (D-101). **Discrete GridWorld with extrinsic goal: partial** — task-lock observed-greedy geometry assists (D-112). **OOD measured**: blended confidence drops 0.97→0.26 as σ rises 0→1.0. |
 | **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured**: no-op learn → frozen weights (rel Δ 0.0000); active learn → weights update (rel Δ 0.043). |
 
 ---
 
 ## Benchmark & Results
+
+> **Scope:** Φ-IQ is a GridWorld task-performance composite (0–1), not psychometric
+> IQ or cross-domain intelligence. See [docs/phi_iq_metric.md](docs/phi_iq_metric.md).
 
 The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 
@@ -191,6 +197,16 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 Φ-IQ = 0.20·PredictionAccuracy + 0.20·AdaptationSpeed + 0.15·GoalComplexity
      + 0.15·TransferEfficiency + 0.20·ResourceEfficiency - 0.10·FailureRate
 ```
+
+`TransferEfficiency` is computed as `adaptation_speed × prediction_accuracy` — a
+within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/phi_iq_metric.md)).
+
+### Measured gates vs whitepaper targets
+
+| Category | Examples | Status |
+| :--- | :--- | :--- |
+| **Measured PASS** | cycle latency &lt;500 ms, Φ-IQ floor, A1–A5 `--ci`, causal L1–L3, nightly soak | gated in CI/nightly |
+| **Design targets, not benchmarked** | 100-task forgetting &lt;5%, criticality band 90%, failure recovery 80% | see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
 
 ### Benchmark Levels
 
@@ -201,7 +217,7 @@ The Φ-IQ metric measures overall cognitive performance as a weighted composite:
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
 
-### Latest Results (MLP G', 200 cycles/level, 2026-07-05)
+### Latest Results (MLP G', seed=42, 200 cycles/level, 2026-07-05, this machine)
 
 ```
   PHCA v3.0 — Φ-IQ Benchmark Report (this machine)
@@ -268,8 +284,13 @@ the vectorisation (see Limitations / D-092).
 Phase 6/7, each env declares its true action space via `get_action_space()`:
 Pendulum-v1 (`ContinuousSpace([-2,2], dim=1)`) and Reacher-v5 (`ContinuousSpace([-1,1]², dim=2)`)
 use an MPC-style, prediction-driven sampler (no reward, no policy gradient).
-Cartpole stays on a discrete 3-bin path. MuJoCo is opt-in (`requirements-mujoco.txt`);
-run headless with `MUJOCO_GL=disabled`.
+Cartpole stays on a discrete 3-bin path — the **clean A4 prediction-primary path**
+is the continuous MPC selector (Pendulum, Reacher). MuJoCo is opt-in
+(`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
+
+**MuJoCo RBTA bounds** (D-128, D-130, `build_for_mujoco` only): G′ time **0.120 s**;
+ACTION time **0.150 s** (MPC K=8 + `env.step()`); ACTION energy **7.5**
+(`runtime × 50`). GridWorld bounds unchanged.
 
 | Env | ID | Action space | State dim | 100-cyc result (D-107) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -279,7 +300,8 @@ run headless with `MUJOCO_GL=disabled`.
 
 CI exercises 36 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly`
 MuJoCo gate (`check_benchmark_gate.py --mujoco`) asserts 0 violations + error↓
-per env, with a `--neg-test` proving the gate catches synthetic violations.
+per env on shared CI runners, with a `--neg-test` proving the gate catches
+synthetic violations.
 
 ### Dynamic-Goal Curriculum (experimental)
 
@@ -351,31 +373,10 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 ## Phase 9–12 — Cognitive Observatory Completion
 
-Phases 9–12 complete the Observatory data contract, performance story, and multi-session
-compare on top of Phase 8 replay/scrub hardening.
-
-### Phase 9 — Schema Governance (D-110)
-
-- `OBSERVABILITY_SCHEMA_VERSION = 1` stamped on each JSONL frame and in `meta.json`.
-- Legacy v0 sessions normalize on replay via `normalize_observability_json()`.
-- Unknown or mixed schema versions fail `--check` (fail-closed).
-
-### Phase 10 — Report Parity
-
-- `session_report.json` shares `format_session_results_lines()` with the Overview panel.
-- Parity test: `python/phca/monitoring/tests/test_session_report.py`.
-
-### Phase 11 — Large-Session Scrub Performance
-
-- Decimated rolling rebuild + lazy per-tab rebuild on seek (`cognitive_panels.py`).
-- Scrub budget tests: ≤2s (live) / ≤4s (review) at 3000+ cycles.
-
-### Phase 12 — Multi-Session Comparison (D-115)
-
-- `phca_replay.py --compare` with `compare_session_reports()` and structured deltas.
-- Optional `--compare-output` JSON export for regression tracking.
-
-See [docs/observability.md](docs/observability.md) and
+Observatory Phases 9–12 delivered schema versioning (v1), offline report parity,
+large-session scrub budgets (≤2s live / ≤4s review @ 3000+ cycles), and
+multi-session `--compare`. Full detail:
+[docs/observability.md](docs/observability.md) and
 [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md).
 
 ---
@@ -384,14 +385,15 @@ See [docs/observability.md](docs/observability.md) and
 
 See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 
+- **Action-selection split (A4).** Continuous MuJoCo (Pendulum, Reacher) uses
+  prediction-primary MPC; discrete GridWorld with an extrinsic goal uses hybrid
+  task-lock observed-greedy geometry (D-112, D-101).
 - **Long-run memory growth (Phase 7 retention).** `make nightly` uses a
   **phase-aware** late-half RSS slope gate (D-112, D-113): ≤5000 B/cyc for runs under
   7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
   `NIGHTLY_CYCLES=10000`). 10k soak PASS (~1257 B/cyc). See
   [docs/limitations.md](docs/limitations.md) and [STATUS.md](STATUS.md).
 - **Observatory Phases 7–20 complete:** live PyQt dashboard, JSONL recording, seek/scrub replay, schema governance, report parity, scrub performance, multi-session `--compare`, anomaly detection, action explainability, stable API, supervisor/recovery, multi-agent timelines, cognitive-moment query, and scientific reproduction — see [docs/observability.md](docs/observability.md).
-- **Discrete GridWorld selector uses goal geometry**, not pure prediction; the
-  **continuous MPC path** (Pendulum, Reacher) is prediction-primary (A4, D-101).
 - **No NLP, vision, multi-agent cognition (shared memory / coordination), or M5 procedural memory.**
   Observatory **display** supports multi-agent replay and per-agent scrub (Phase 17).
 - **Dynamic goals** are experimental at every-75 only.
@@ -406,20 +408,8 @@ change is logged as a `D-XXX` entry in [DECISIONS.md](DECISIONS.md) (kept AND
 reverted attempts), validated by the benchmark suite + gate script + relevant
 unit tests, and must respect the surgical-change mandate (≤50 lines/change,
 ≤3 files/change) and the A1–A5 invariants. See `STATUS.md` for the open issue
-registry and [docs/archive/](docs/archive/) phase sign-offs.
-
-```bash
-# Run tests before any change
-MUJOCO_GL=disabled make test-all
-MUJOCO_GL=disabled make test-mujoco
-
-# Validate with the canonical benchmark + gate
-MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 --output=logs/benchmark_report.json
-python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
-
-# Phase 6 hardening gate (full suite)
-make nightly NIGHTLY_CYCLES=1000
-```
+registry and [docs/archive/](docs/archive/) phase sign-offs. Validation commands:
+see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 
 ---
 
@@ -429,18 +419,17 @@ make nightly NIGHTLY_CYCLES=1000
 | :--- | :--- |
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | Which docs are living vs historical vs aspirational. |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix. |
-| [docs/architecture.md](docs/architecture.md) | Architecture overview — 12-step cycle, module map, invariants. |
-| [docs/archive/phase6_completion_report.md](docs/archive/phase6_completion_report.md) | Phase 6 sign-off (historical). |
-| [docs/archive/phase5_completion_report.md](docs/archive/phase5_completion_report.md) | Phase 5 sign-off (historical). |
-| [docs/archive/phase4_readiness_report.md](docs/archive/phase4_readiness_report.md) | Phase 4 sign-off (historical). |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-127). |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-130). |
+| [docs/architecture.md](docs/architecture.md) | Architecture overview — 12-step cycle, module map, invariants. |
+| [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation caveats. |
+| [docs/action_selection.md](docs/action_selection.md) | Discrete vs continuous selectors; temporal cycle order. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open backlog items. |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Three-level causal behavior evidence gate (L1–L3). |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay/scrub, integrity checks. |
 | [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md) | Full Observatory architecture and 20-phase roadmap. |
-| [docs/archive/phase3.3_full_completion_report.md](docs/archive/phase3.3_full_completion_report.md) | Phase 3.3 gap-closure completion report (historical). |
-| [docs/architectural_audit_report.md](docs/architectural_audit_report.md) | Full audit of 28 issues with resolution status. |
+| [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers (`make reproduce`). |
+| [docs/archive/](docs/archive/) | Phase sign-off reports (historical snapshots; cross-check STATUS.md). |
 | [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1–A5, RBTA, MDIM, failure modes). |
 | [research/glossary.md](research/glossary.md) | Terminology reference. |
 
@@ -497,9 +486,10 @@ make nightly NIGHTLY_CYCLES=1000
 
 ## Cognitive Observatory
 
-Live PyQt dashboard, per-cycle JSONL recording, **seek/scrub replay** (Phases 7–20), and
-offline session reports with schema versioning and Overview parity. PyQt `--qt` replay is the canonical path; matplotlib
-`--from-jsonl` is legacy.
+Phases 9–12 added schema v1, report parity, scrub performance budgets, and
+multi-session `--compare` on top of live PyQt dashboard, per-cycle JSONL
+recording, and seek/scrub replay (Phases 7–20). PyQt `--qt` replay is the
+canonical path; matplotlib `--from-jsonl` is legacy.
 
 See **[docs/observability.md](docs/observability.md)** for JSONL schema, playback/scrub
 semantics, transport controls, replay banners, and `--check` integrity rules.
@@ -522,6 +512,10 @@ PYTHONPATH=python python scripts/phca_replay.py logs/sessions/<ts>/ --report
 
 ## Technical Notes
 
+- **RBTA (Resource-Bounded Temporal Automata).** Each module carries bounds
+  `(B_time, B_mem, B_energy)` plus an entropy floor ε; the enforcer verifies
+  them every cycle (whitepaper §2.1). MuJoCo builds use widened G′/ACTION bounds
+  for CI runner variance (D-128, D-130).
 - **MLP world model.** 38,868 params (hidden_dim=128). Confidence blends
   aleatoric `exp(-MSE)` with epistemic MC-Dropout variance (D-080); empowerment
   `I(s';a|s)` is estimated via MC-Dropout mutual information (D-077, samples=4

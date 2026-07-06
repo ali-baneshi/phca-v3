@@ -59,8 +59,8 @@ def test_mujoco_action_bound_override_matches_ci_headroom():
     """MuJoCo builder widens ACTION time and energy bounds for MPC on CI."""
     cycle = CognitiveCycle.build_for_mujoco("Pendulum-v1", seed=42, use_mlp=True)
     bounds = cycle.rbta._bounds["ACTION"]
-    assert bounds.B_time == pytest.approx(0.120)
-    assert bounds.B_energy == pytest.approx(6.0)
+    assert bounds.B_time == pytest.approx(0.150)
+    assert bounds.B_energy == pytest.approx(7.5)
     cycle.env.close()
 
 
