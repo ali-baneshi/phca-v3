@@ -1,7 +1,7 @@
-# PHCA Maturity Audit — 2026-07-07
+# PHCA Maturity Audit — 2026-07-07 (expanded)
 
 Authoritative **Claim → Evidence → Gap** matrix for maturation Track A.
-Companion: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md).
+Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`maturation_signoff.md`](maturation_signoff.md).
 
 **Trust order:** measured artifacts in `logs/` → this audit → `IMPLEMENTATION_STATUS.md` → README.
 
@@ -11,133 +11,164 @@ Companion: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md).
 
 ---
 
-## Executive summary
+## Executive summary (post-maturation pass)
 
-| Area | Status | Blocking issue |
-|------|--------|----------------|
-| L0–L3 Φ-IQ | Green (T0) | None |
-| A1–A5 invariants | Green (T2) | Not in T0 CI |
-| Observatory Phases 7–20 | Green (T0 replay) | Cognitive resilience fields not in JSONL |
-| Level-4-lite forgetting | **Red (T3)** | `forgetting_rate=1.0` @ 10 tasks; tasks 0,7 collapse |
-| Cognitive resilience injectables | Green (T3) | G3: ≠ full failure matrix |
-| Scientific validation | Complete artifact | T4 regression not automated |
-| M3→G′ replay path | **G5 unwired** | `sample_episodes` has zero callers |
-
-**Root-cause hypothesis (Track E):** Verdict **B + partial C** — M3 task-tagged episodes never feed G′ learning; G′ uses 500-slot FIFO internal buffer overwritten across 800 train cycles/task sequence. Mitigation hooks (`protect_parameters`, `replay_boost`) run but cannot retain early-task transitions.
+| Area | Status | Notes |
+|------|--------|-------|
+| L0–L3 Φ-IQ | Green (T0) | `benchmark_ci_baseline.json` |
+| A1–A5 invariants | Green (T2) | nightly `assumption_validation.py --ci` |
+| Observatory Phases 7–20 | Green (T0 replay) | Resilience fields in JSONL (2026-07-07) |
+| Level-4-lite L4b | **Red (T3)** | Verdict B+C — see `l4_root_cause_verdict.md` |
+| M3→G′ replay | **Wired** | G5-01 closed |
+| Cognitive resilience injectables | Green (T3) | G3: ≠ full matrix |
+| Maturation T1 tests | Green | `make maturation-test` |
 
 ---
 
-## Whitepaper §1.3 success criteria
+## Whitepaper §1.3 (5 rows)
 
 | ID | Claim | Target | Status | Gate | Tier | Last result | Gap | Track |
 |----|-------|--------|--------|------|------|-------------|-----|-------|
-| WP-1 | Cycle latency | <500 ms | Measured PASS | Φ-IQ benchmark logs | T2 | ~10–17 ms mean MLP | — | C |
-| WP-2 | Forgetting rate | <5% @ 100 tasks | Partial | `scripts/benchmark_level4.py` | T3 | **FAIL** 1.0 @ 10 tasks | G2 | E |
-| WP-3 | Goal autonomy | ≥1 novel goal/100 cycles | Partial | L3 diversity >0.1 only | — | Not measured | G0 | G |
-| WP-4 | Criticality Φ | ∈[0.9Φc,1.1Φc] 90% cycles | Not implemented | — | — | APC = error volatility | G0 | — |
-| WP-5 | Failure recovery | ≥80% mitigated /10 cycles | Partial MVP | `benchmark_recovery.py` | T3 | 1.00 injectables | G3 | F |
-
-**Artifact:** `logs/benchmark_level4.json` (2026-07-07 config: 10 tasks, 80 train, 20 eval, 3 seeds, MLP 5×5).
+| WP-1 | Cycle latency | <500 ms | PASS | benchmark logs | T2 | ~10–17 ms mean | — | C |
+| WP-2 | Forgetting rate | <5% @ 100 tasks | Partial | `benchmark_level4.py` | T3 | FAIL 1.0 @ 10 | G2 | E |
+| WP-3 | Goal autonomy | ≥1 novel/100 cyc | Partial | L3 diversity | — | Not measured | G0 | G |
+| WP-4 | Criticality Φ | 90% in band | Not impl | — | — | APC volatility only | G0 | — |
+| WP-5 | Failure recovery | ≥80%/10 cyc | Partial MVP | `benchmark_recovery.py` | T3 | 1.00 inject | G3 | F |
 
 ---
 
-## Verified invariants A1–A5
+## Invariants A1–A5 (5 rows)
 
-| ID | Claim | Gate | Tier | CI? | Last result | Gap | Track |
-|----|-------|------|------|-----|-------------|-----|-------|
-| A1 | Resource boundedness | `assumption_validation.py --ci` | T2 | No | PASS | — | C |
+| ID | Claim | Gate | Tier | CI? | Result | Gap | Track |
+|----|-------|------|------|-----|--------|-----|-------|
+| A1 | Resource boundedness | assumption_validation --ci | T2 | No | PASS | — | C |
 | A2 | Temporal causality | same | T2 | No | PASS | — | C |
 | A3 | Incomplete knowledge | same | T2 | No | PASS | — | C |
-| A4 | Prediction primary | MPC path + causal eval | T1/T3 | Smoke | **Partial** GridWorld | G2 | C,G |
-| A5 | Feedback adaptation | same + weight freeze test | T2 | No | PASS | — | C |
+| A4 | Prediction primary | causal_eval + MPC | T1/T3 | Smoke | Partial GW | G2 | C,G |
+| A5 | Feedback adaptation | same | T2 | No | PASS | — | C |
 
 ---
 
-## Blueprint components (selected)
+## Blueprint components (15 rows)
 
-| ID | Component | Status | Gate / evidence | Tier | Gap | Track |
-|----|-----------|--------|-----------------|------|-----|-------|
-| BP-01 | RBTA enforcer | Implemented | A1 + grid RBTA tests | T0/T1 | — | C |
-| BP-02 | G′ MLP | Implemented | L0–L3, causal smoke | T0/T1 | Internal replay 500 cap | D,E |
-| BP-03 | TSPL P-Stream | Implemented | A5 | T2 | E/S removed D-020 | — |
-| BP-04 | M3 episodic | Implemented | nightly stress | T2 | `sample_episodes` unwired G5 | D |
-| BP-05 | M4 semantic | Partial | consolidation stats | T3 | Statistical facts only | D |
-| BP-06 | Failure matrix | Partial MVP | B1,B4,B5,C1,F5 | T3 | 25+ modes missing | F |
-| BP-07 | Grounding L0/L2 | Not implemented | — | — | — | — |
-| BP-08 | M5 procedural | Not implemented | — | — | — | — |
+| ID | Component | Status | Gate | Tier | Gap | Track |
+|----|-----------|--------|------|------|-----|-------|
+| BP-01 | RBTA enforcer | Impl | grid RBTA tests | T0 | — | C |
+| BP-02 | G′ MLP | Impl | L0–L3 | T0/T2 | FIFO 500 cap | D,E |
+| BP-03 | TSPL P-Stream | Impl | A5 | T2 | E/S removed | — |
+| BP-04 | M3 episodic | Impl | nightly stress | T2 | Wired 2026-07-07 | D |
+| BP-05 | M4 semantic | Partial | consolidation | T3 | Stats only | D |
+| BP-06 | Failure matrix | Partial MVP | recovery bench | T3 | 25+ missing | F |
+| BP-07 | Grounding L0/L2 | Not impl | — | — | — | — |
+| BP-08 | M5 procedural | Not impl | — | — | — | — |
 | BP-09 | Φ-IQ L4-lite | Partial | benchmark_level4 | T3 | G2 | E |
-| BP-10 | Φ-IQ L5 | Not implemented | — | — | — | — |
-| BP-11 | Observatory | Complete | phca_replay --check | T0 | Resilience fields missing JSONL | H |
+| BP-10 | Φ-IQ L5 | Not impl | — | — | — | — |
+| BP-11 | Observatory | Complete | phca_replay | T0 | — | H |
+| BP-12 | ASI sanitizer | Impl | unit tests | T1 | — | C |
+| BP-13 | MDIM | Impl | L3 gate | T2 | ≠ novel goals | G |
+| BP-14 | Attention | Impl | cycle tests | T1 | — | C |
+| BP-15 | HPM runtime | Partial | bounds only | T2 | No full runtime | C |
 
 ---
 
-## Evaluation gates inventory
+## Observatory phases (13 rows)
 
-| Gate | Script | Tier | CI? | Status (2026-07-07) | Owner track |
-|------|--------|------|-----|---------------------|-------------|
-| Φ-IQ L0 quick | `check_benchmark_gate.py` | T0 | Yes | PASS | G |
-| Φ-IQ full MLP | `benchmark.py --use-mlp` | T2 | No | PASS (0.7317) | G |
-| MuJoCo | `check_benchmark_gate.py --mujoco` | T2 | Partial job | PASS | C |
-| Causal L1–L3 | `phca_causal_eval.py --gate` | T1 smoke | No | PASS Gaussian | G |
-| Assumption validation | `assumption_validation.py --ci` | T2 | No | 5/5 PASS | C |
-| OOD calibration | `ood_calibration.py` | T2 | No | Monotonic PASS | G |
-| Nightly stress | `nightly_stress.py` | T2 | Scheduled | PASS @1k/10k | D |
-| Observatory replay | `phca_replay.py --check` | T0 | Yes | PASS | H |
-| Forgetting AT-2-lite | `benchmark_level4.py` | T3 | No | **FAIL** | E |
-| Recovery injectables | `benchmark_recovery.py` | T3 | No | PASS 1.00 | F |
-| Science suite | `make validate-science` | T4 | No | Artifact 2026-07-05 | I |
-| Reproduce | `make reproduce-quick` | T4 | No | Local | I |
-| Unit: forgetting | `test_forgetting.py` | T1 | Via test-python | 11 pass | E |
-| Unit: resilience | `test_resilience.py` | T1 | Via test-python | 11 pass | F |
-| Static contracts | `test_static_contracts.py` | T1 | Via test-python | Documents G5 | B |
-
-**Test count:** 130 collected (`pytest python/tests/` fast path).
+| ID | Phase | Claim | Gate | Tier | Result | Track |
+|----|-------|-------|------|------|--------|-------|
+| OBS-7 | JSONL/replay parity | Done | replay --check | T0 | PASS | H |
+| OBS-8 | Seek/scrub | Done | monitoring tests | T1 | PASS | H |
+| OBS-9 | Schema governance | Done | schema version | T0 | PASS | H |
+| OBS-10 | Report parity | Done | report tests | T1 | PASS | H |
+| OBS-11 | Scrub perf 3k+ | Done | perf tests | T2 | PASS | H |
+| OBS-12 | Multi-session compare | Done | compare tests | T2 | PASS | H |
+| OBS-13 | Anomalies | Done | anomaly tests | T2 | PASS | H |
+| OBS-14 | Explainability | Done | explain tests | T1 | PASS | H |
+| OBS-15 | Public API | Done | public_api tests | T1 | PASS | H |
+| OBS-16 | Session recovery | Done | test_session_recovery | T1 | PASS | H |
+| OBS-17 | Multi-agent | Done | multi_agent fixture | T0 | PASS | H |
+| OBS-18 | Query | Done | query tests | T1 | PASS | H |
+| OBS-19 | Reproduce manifest | Done | reproduce-quick | T4 | Local | I |
 
 ---
 
-## G4 metric conflation register (must not merge in reports)
+## Science hypotheses (6 rows)
 
-| Metric | Location | Actually measures | Does NOT measure |
-|--------|----------|-------------------|------------------|
-| `forgetting_rate` | `forgetting.py` | Max relative drop on prior tasks | Improvement on later tasks |
-| `transfer_efficiency` | `phi_iq.py` | adaptation × prediction | Cross-task retention |
-| `cross_context_reuse` | `emergence.py` | env_goal_relocated + goal_switched | Forgetting rate |
-| `goal_thrash_events` | validation runner | MDIM drive changes | Env goal relocation |
-| RSS nightly soak | `nightly_stress.py` | M3/M4 growth | Cognitive forgetting |
-| Session recovery | `session_recovery.py` | JSONL crash finalize | In-cycle B1–F5 |
-| Recovery rate injectable | `benchmark_recovery.py` | Scripted fault injection | Full failure matrix |
-
----
-
-## Risk priority (Impact × Likelihood)
-
-| Rank | Item | Score | Next action |
-|------|------|-------|-------------|
-| 1 | M3 not wired to G′ learn (G5) | 9 | Track B confirm → Track E wire |
-| 2 | L4 protocol: 0 baselines on many tasks (G1) | 8 | Track E diagnostic + baseline rule |
-| 3 | Observability missing resilience fields (G5) | 7 | Track H export |
-| 4 | B4 uses eval history only during eval pass | 7 | Track F verify detector timing |
-| 5 | A4 partial GridWorld | 6 | Track C causal eval MLP |
-| 6 | Injectable recovery ≠ §1.3 (G3) | 5 | Track F document + false-positive test |
-| 7 | Science suite T4 drift | 5 | Track I golden checksums |
+| ID | Hypothesis | Gate | Tier | Artifact | Gap | Track |
+|----|------------|------|------|----------|-----|-------|
+| SCI-H001 | Memory → cross_context_reuse | validate-science | T4 | summary.json | Fixed D-128 | I |
+| SCI-H002 | Transfer beyond reward | phi_iq proxy | T4 | G4 | Not retention | G |
+| SCI-H003 | Synergy | synergy.py | T4 | smoke may flip | Noisy | I |
+| SCI-H004 | Interaction | interaction_test | T4 | verdicts.json | Wired | I |
+| SCI-repro | reproduce manifest | make reproduce-quick | T4 | reproduce_report | Local | I |
+| SCI-checksum | aggregate drift | golden manifest | T4 | sha256 | Tolerance 0 | I |
 
 ---
 
-## Baseline commands (reproducibility)
+## Evaluation gates (15 rows)
+
+| Gate | Script | Tier | CI? | Status | Track |
+|------|--------|------|-----|--------|-------|
+| Lint | ruff | T0 | Yes | PASS | J |
+| Unit all | test-python | T0 | Yes | PASS | J |
+| L0 quick | check_benchmark_gate | T0 | Yes | PASS | G |
+| Observatory replay | phca_replay --check | T0 | Yes | PASS | H |
+| Maturation T1 | make maturation-test | T1 | Via pytest | PASS | J |
+| Forgetting unit | test_forgetting | T1 | Via pytest | PASS | E |
+| Resilience unit | test_resilience | T1 | Via pytest | PASS | F |
+| Static contracts | test_static_contracts | T1 | Via pytest | PASS | B |
+| Causal smoke | phca_causal_eval | T1 | ci-local | PASS | G |
+| Assumption validation | assumption_validation --ci | T2 | nightly | PASS | C |
+| Full Φ-IQ MLP | benchmark.py --use-mlp | T2 | nightly | PASS | G |
+| OOD calibration | ood_calibration | T2 | nightly | PASS | G |
+| Nightly stress | nightly_stress | T2 | nightly | PASS | D |
+| L4 ablation | run_l4_ablation | T3 | No | Local | E |
+| Recovery injectables | benchmark_recovery | T3 | No | PASS | F |
+
+**Total claim rows:** 59
+
+---
+
+## G4 conflation register
+
+| Metric | Measures | Does NOT measure |
+|--------|----------|------------------|
+| forgetting_rate | Max drop on prior tasks | Improvements |
+| transfer_efficiency | adapt × prediction | Cross-task retention |
+| cross_context_reuse | trace flags | Forgetting |
+| recovery_rate injectable | Script faults | Full matrix |
+
+---
+
+## G5 register (updated)
+
+| ID | Hook | Status |
+|----|------|--------|
+| G5-01 | M3→G′ replay | **Wired** |
+| G5-02..04 | Observability resilience fields | **Wired** |
+| G5-05 | Eval on_task_boundary | **Wired** (2026-07-07) |
+| G5-06 | B4 during train | Partial — use `--interleaved-eval` |
+
+---
+
+## Risk priority
+
+| Rank | Item | Score | Action |
+|------|------|-------|--------|
+| 1 | L4b capacity (G2) | 9 | Document C; no hack pass |
+| 2 | A4 GridWorld gap | 6 | Causal eval MLP T3 |
+| 3 | Injectable ≠ §1.3 (G3) | 5 | limitations + tests |
+| 4 | Science T4 drift | 5 | golden manifest |
+
+---
+
+## Commands
 
 ```bash
-# T1 fast
-ruff check python/ --no-cache
-PYTHONPATH=python python -m pytest python/tests/test_forgetting.py python/tests/test_resilience.py python/tests/test_static_contracts.py -q
-
-# T0 CI equivalent
+make maturation-test
+make bench-level-0
+make bench-level4-ablation
+make bench-recovery
 make ci-local
-
-# T3 continual
-PYTHONPATH=python python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --eval-cycles 20 --seeds 3 --use-mlp --output logs/benchmark_level4.json
-
-# T3 recovery
-PYTHONPATH=python python scripts/benchmark_recovery.py --scenarios b1,c1,f5 --output logs/benchmark_recovery.json
 ```
 
 ---
@@ -146,4 +177,5 @@ PYTHONPATH=python python scripts/benchmark_recovery.py --scenarios b1,c1,f5 --ou
 
 | Date | Change |
 |------|--------|
-| 2026-07-07 | Initial maturation audit (Track A); L4 FAIL from `logs/benchmark_level4.json`; G5 M3 replay identified |
+| 2026-07-07 | Initial audit |
+| 2026-07-07 | Expanded to 59 rows; M3/Obs wired; sign-off doc |

@@ -1,13 +1,15 @@
-# Golden benchmark artifacts (Track J)
+# Golden benchmark artifacts (Track G / J)
 
-Reference outputs for regression comparison. Regenerate after intentional behavior changes.
+Reference outputs for regression comparison. See [`manifest.json`](manifest.json) for SHA256 checksums.
 
-| Artifact | Source command | Purpose |
-|----------|----------------|---------|
-| `../benchmark_ci_baseline.json` | CI `check_benchmark_gate.py` | T0 Φ-IQ L0 composite |
-| `../benchmark_level4.json` | `benchmark_level4.py --tasks 10 ...` | T3 continual forgetting (current: FAIL) |
-| `../benchmark_recovery.json` | `benchmark_recovery.py` | T3 injectable recovery |
+| Artifact | Source | Tier |
+|----------|--------|------|
+| `../benchmark_ci_baseline.json` | CI L0 gate | T0 |
+| `../benchmark_level4_smoke.json` | `make bench-level4-smoke` | T1 |
+| `../l4_ablation.json` | `make bench-level4-ablation` | T3 |
+| `../benchmark_recovery.json` | `make bench-recovery` | T3 |
+| `../../results/validation/summary.json` | validate-science | T4 |
 
-**Local CI:** use `make setup` (venv) then `make ci-local` — system Python may lack `pytest-timeout` (PEP 668).
+Bisection: [`docs/maturation_bisection.md`](../../docs/maturation_bisection.md)
 
-**Last full fast suite (2026-07-07):** 95 passed, 3 xfailed (`test_static_contracts` G5 debt).
+**Last maturation-test:** 45 passed (`make maturation-test`)

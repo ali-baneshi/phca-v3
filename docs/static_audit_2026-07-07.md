@@ -53,7 +53,7 @@ flowchart TB
 | C9 | `recovery_active` in JSONL | Exported | **PASS** (2026-07-07) | Same |
 | C10 | `task_id` in JSONL | Exported | **PASS** (2026-07-07) | Same |
 | C11 | Resilience after RBTA | Step 14+ | **PASS** | `cycle.py:722-728` before metrics push |
-| C12 | Eval phase calls `on_task_boundary` | Should reset mitigation context | **FAIL** | Eval sets `_current_task_id` only (`benchmark_level4.py:83`) |
+| C12 | Eval phase calls `on_task_boundary` | Should reset mitigation context | **PASS** | Eval path calls `on_task_boundary` when mitigation=True |
 | C13 | G′ replay buffer retains cross-task diversity | Old tasks sampleable | **FAIL** | FIFO 500 slots; 10×80=800 cycles/train phase overwrites |
 
 ---

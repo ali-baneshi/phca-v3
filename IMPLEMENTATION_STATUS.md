@@ -85,7 +85,9 @@ evidence separate from invariant tests.
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` on `fixtures/multi_agent_short/` and `fixtures/reacher_short/` | **Yes** | PASS |
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
-| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; `--tasks 10` default |
+| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; L4b **FAIL** — see `docs/l4_root_cause_verdict.md` |
+| L4 ablation matrix | `scripts/run_l4_ablation.py` | No | T3 local; `make bench-level4-ablation` |
+| Maturation T1 gates | `make maturation-test` | No | 45 tests static+forgetting+resilience+maturation |
 | Cognitive recovery | `scripts/benchmark_recovery.py` | No | Local gate; B1/C1/F5 injectable scenarios |
 | **Scientific validation suite** | `make validate-science` / `run_validation_suite.py` | Local | **Complete** (2026-07-05); 24 experiments × 30 seeds → `results/validation/` |
 

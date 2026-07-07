@@ -20,6 +20,7 @@ This document states what PHCA cannot do, so you can decide if it is the right t
 | **Long-term procedural memory (M5)** | ❌ Not implemented | Skills are compiled in TSPL but not stored in a persistent library. |
 | **Dual G′+V ensemble / VSA** | ❌ Not implemented | Blueprint items; only G′ (Gaussian / discrete graph / MLP) is implemented. |
 | **Resilience failure matrix** | ⚠️ Partial (MVP) | B1, B4, B5, C1, F5 detect + recover in `phca/resilience/`; see [resilience.md](resilience.md) |
+| **Continual learning (AT-2-lite)** | ⚠️ Measured FAIL @ L4b | Level-4-lite gate `<5%` forgetting at 10 tasks not met under P-Stream + M3 replay; see [l4_root_cause_verdict.md](l4_root_cause_verdict.md) |
 
 ---
 
@@ -116,6 +117,7 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 | Large-session scrub performance (3000+ cycles) | Done (Phase 11) |
 | Grounding adapter (levels 0/2) | Deferred |
 | M5 procedural memory | Not implemented |
+| Level-4-lite forgetting gate (10-task L4b) | **Measured FAIL** — honest capacity limit; maturation 2026-07-07 |
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 

@@ -74,6 +74,63 @@ def _m3_counts_by_task(cycle: CognitiveCycle, n_tasks: int) -> Dict[int, int]:
     return {tid: m3.count_for_task(tid) for tid in range(n_tasks)}
 
 
+def _run_eval_on_task(
+    cycle: CognitiveCycle,
+    task: Any,
+    *,
+    mitigation: bool,
+    warmup_cycles: int,
+    eval_cycles: int,
+    diagnostic: bool,
+    b4_events: int,
+) -> tuple[List[CycleMetrics], int]:
+    cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
+    if mitigation:
+        cycle.on_task_boundary(task.task_id)
+    else:
+        cycle._current_task_id = task.task_id
+
+    for _ in range(warmup_cycles):
+        cycle.step()
+
+    eval_hist: List[CycleMetrics] = []
+    for _ in range(eval_cycles):
+        m = cycle.step()
+        m.task_id = task.task_id
+        eval_hist.append(m)
+        cycle.record_task_eval(task.task_id, m.goal_reached)
+        if diagnostic and m.failure_events and "B4" in m.failure_events:
+            b4_events += 1
+    return eval_hist, b4_events
+
+
+def _interleaved_eval_prior_tasks(
+    cycle: CognitiveCycle,
+    tasks: List[Any],
+    *,
+    through_task_id: int,
+    eval_cycles: int,
+    warmup_cycles: int,
+    mitigation: bool,
+    diagnostic: bool,
+    b4_events: int,
+) -> int:
+    """Brief eval on tasks 0..through_task_id after training each new task."""
+    for t in tasks:
+        if t.task_id > through_task_id:
+            break
+        _, b4_events = _run_eval_on_task(
+            cycle,
+            t,
+            mitigation=mitigation,
+            warmup_cycles=warmup_cycles,
+            eval_cycles=eval_cycles,
+            diagnostic=diagnostic,
+            b4_events=b4_events,
+        )
+    return b4_events
+
+
 def run_level4_benchmark(
     *,
     n_tasks: int = 10,
@@ -89,6 +146,9 @@ def run_level4_benchmark(
     baseline_window: int = 20,
     baseline_min_valid: float = DEFAULT_BASELINE_MIN_VALID,
     diagnostic: bool = False,
+    m3_replay_budget: int = 4,
+    interleaved_eval_cycles: int = 0,
+    interleaved_warmup_cycles: int = 0,
 ) -> Dict[str, Any]:
     """Run continual task sequence and measure forgetting rate."""
     tasks = build_task_sequence(n_tasks=n_tasks, grid_size=grid_size, base_seed=base_seed)
@@ -104,6 +164,7 @@ def run_level4_benchmark(
         )
         if grid_size > 5:
             apply_grid_rbta_bounds(cycle, b_time=0.080 if use_mlp else 0.020)
+        cycle.set_m3_replay_budget(m3_replay_budget)
 
         per_task_train: Dict[int, List[CycleMetrics]] = {}
         baselines: Dict[int, float] = {}
@@ -139,26 +200,30 @@ def run_level4_benchmark(
                 train_curves[task.task_id] = _train_goal_rate_curve(train_hist)
                 m3_replay_at_train_end = cycle._m3_replay_total
 
+            if interleaved_eval_cycles > 0:
+                b4_events = _interleaved_eval_prior_tasks(
+                    cycle,
+                    tasks,
+                    through_task_id=task.task_id,
+                    eval_cycles=interleaved_eval_cycles,
+                    warmup_cycles=interleaved_warmup_cycles,
+                    mitigation=mitigation,
+                    diagnostic=diagnostic,
+                    b4_events=b4_events,
+                )
+
         current: Dict[int, float] = {}
         per_task_history: Dict[int, List[CycleMetrics]] = {}
         for task in tasks:
-            cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
-            if mitigation:
-                cycle.on_task_boundary(task.task_id)
-            else:
-                cycle._current_task_id = task.task_id
-
-            for _ in range(eval_warmup_cycles):
-                cycle.step()
-
-            eval_hist: List[CycleMetrics] = []
-            for _ in range(eval_cycles):
-                m = cycle.step()
-                m.task_id = task.task_id
-                eval_hist.append(m)
-                cycle.record_task_eval(task.task_id, m.goal_reached)
-                if diagnostic and m.failure_events and "B4" in m.failure_events:
-                    b4_events += 1
+            eval_hist, b4_events = _run_eval_on_task(
+                cycle,
+                task,
+                mitigation=mitigation,
+                warmup_cycles=eval_warmup_cycles,
+                eval_cycles=eval_cycles,
+                diagnostic=diagnostic,
+                b4_events=b4_events,
+            )
 
             per_task_history[task.task_id] = eval_hist
             current[task.task_id] = eval_window_accuracy(
@@ -193,6 +258,8 @@ def run_level4_benchmark(
                 "baseline_method": baseline_method,
                 "baseline_window": baseline_window,
                 "baseline_min_valid": baseline_min_valid,
+                "m3_replay_budget": m3_replay_budget,
+                "interleaved_eval_cycles": interleaved_eval_cycles,
             }
         seed_results.append(seed_entry)
 
@@ -216,6 +283,9 @@ def run_level4_benchmark(
             "baseline_window": baseline_window,
             "baseline_min_valid": baseline_min_valid,
             "diagnostic": diagnostic,
+            "m3_replay_budget": m3_replay_budget,
+            "interleaved_eval_cycles": interleaved_eval_cycles,
+            "interleaved_warmup_cycles": interleaved_warmup_cycles,
         },
         "tasks": [
             {
@@ -256,6 +326,9 @@ def main() -> int:
     parser.add_argument("--baseline-window", type=int, default=20)
     parser.add_argument("--baseline-min-valid", type=float, default=DEFAULT_BASELINE_MIN_VALID)
     parser.add_argument("--diagnostic", action="store_true")
+    parser.add_argument("--m3-replay-budget", type=int, default=4)
+    parser.add_argument("--interleaved-eval", type=int, default=0, dest="interleaved_eval_cycles")
+    parser.add_argument("--interleaved-warmup", type=int, default=0, dest="interleaved_warmup_cycles")
     parser.add_argument("--output", type=str, default="logs/benchmark_level4.json")
     args = parser.parse_args()
 
@@ -273,6 +346,9 @@ def main() -> int:
         baseline_window=args.baseline_window,
         baseline_min_valid=args.baseline_min_valid,
         diagnostic=args.diagnostic,
+        m3_replay_budget=args.m3_replay_budget,
+        interleaved_eval_cycles=args.interleaved_eval_cycles,
+        interleaved_warmup_cycles=args.interleaved_warmup_cycles,
     )
     report["duration_s"] = time.perf_counter() - t0
 

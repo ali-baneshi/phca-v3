@@ -47,11 +47,8 @@ class TestContinualLearningContracts:
 
     def test_m3_sample_episodes_wired_to_learning_path(self):
         def_file = _PHCA / "memory" / "m3_episodic.py"
-        callers = _grep_callers("sample_episodes", exclude_def=def_file)
-        assert callers, (
-            "sample_episodes must be called from cycle/gprime learning path; "
-            f"found no callers outside {def_file.name}"
-        )
+        callers = _grep_callers("sample_prior_task_episodes", exclude_def=def_file)
+        assert callers, "sample_prior_task_episodes must be called from cycle learning path"
         assert any("cycle.py" in c for c in callers)
 
 
@@ -109,5 +106,5 @@ class TestReplayArchitecture:
     def test_m3_and_gprime_both_used_in_learn(self):
         cycle_src = (_PHCA / "core" / "cycle.py").read_text(encoding="utf-8")
         mlp_src = (_PHCA / "world_model" / "mlp.py").read_text(encoding="utf-8")
-        assert ".sample_episodes(" in cycle_src
+        assert ".sample_episodes(" in cycle_src or ".sample_prior_task_episodes(" in cycle_src
         assert "learn_m3_episodes" in mlp_src

@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick validate-science
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -78,6 +78,35 @@ causal-smoke:
 	    --levels level2 --cycles 10 --seeds 1 \
 	    --output logs/phca_causal_eval_smoke.json
 	@echo "✅ causal-smoke: completed (see logs/phca_causal_eval_smoke.json)"
+
+# ── Maturation gates (plan v2) ───────────────────────────────
+
+maturation-test:
+	@echo "Running maturation verification tests (Tracks B,C,D,F,G,H)..."
+	PYTHONPATH=python:$$PYTHONPATH python -m pytest \
+	    python/tests/test_static_contracts.py \
+	    python/tests/test_maturation.py \
+	    python/tests/test_forgetting.py \
+	    python/tests/test_resilience.py \
+	    -q --tb=short
+	@echo "✅ maturation-test: PASS"
+
+bench-level4-smoke:
+	mkdir -p logs
+	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark_level4.py \
+	    --tasks 2 --task-cycles 30 --eval-cycles 10 --seeds 1 \
+	    --diagnostic --output logs/benchmark_level4_smoke.json
+
+bench-level4-ablation:
+	mkdir -p logs
+	PYTHONPATH=python:$$PYTHONPATH python scripts/run_l4_ablation.py \
+	    --runs R0,R2,R3,R6 --tasks 10 --task-cycles 80 --eval-cycles 20 --seeds 1 \
+	    --output logs/l4_ablation.json
+
+bench-recovery:
+	mkdir -p logs
+	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark_recovery.py \
+	    --scenarios b1,b4,b5,c1,f5 --output logs/benchmark_recovery.json
 
 # ── Benchmarks ───────────────────────────────────────────────
 
@@ -232,6 +261,10 @@ help:
 	@echo "  make reproduce      One-command scientific reproduction (full nightly-equivalent)"
 	@echo "  make reproduce-quick  CI-science subset (~10-15 min)"
 	@echo "  make validate-science Full validation suite + aggregation"
+	@echo "  make maturation-test  Maturation plan v2 unit gates (T1)"
+	@echo "  make bench-level4-smoke  L4-lite 2-task diagnostic smoke"
+	@echo "  make bench-level4-ablation  L4 ablation R0,R2,R3,R6 (T3 local)"
+	@echo "  make bench-recovery  Cognitive resilience injectables (T3)"
 	@echo "  make test-mujoco    Run MuJoCo integration tests (needs gymnasium[mujoco])"
 	@echo "  make clean          Remove build artifacts"
 	@echo "  make help           Show this message"

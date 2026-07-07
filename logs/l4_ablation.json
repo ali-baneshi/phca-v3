@@ -1,0 +1,106 @@
+{
+  "duration_s": 164.8855141090462,
+  "matrix": {
+    "R0": {
+      "label": "default",
+      "forgetting_rate": 1.0,
+      "passes_gate": false,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 0.85,
+        "2": 1.0,
+        "3": 0.0,
+        "4": 0.85,
+        "5": 0.95,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 0.9,
+        "9": 0.0
+      },
+      "config": {
+        "label": "default",
+        "eval_warmup_cycles": 0,
+        "baseline_method": "last_window",
+        "m3_replay_budget": 0,
+        "interleaved_eval_cycles": 0,
+        "mitigation": true
+      }
+    },
+    "R2": {
+      "label": "max_rolling_baseline",
+      "forgetting_rate": 1.0,
+      "passes_gate": false,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 0.85,
+        "2": 1.0,
+        "3": 0.0,
+        "4": 0.85,
+        "5": 0.95,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 0.9,
+        "9": 0.0
+      },
+      "config": {
+        "label": "max_rolling_baseline",
+        "eval_warmup_cycles": 0,
+        "baseline_method": "max_rolling",
+        "m3_replay_budget": 0,
+        "interleaved_eval_cycles": 0,
+        "mitigation": true
+      }
+    },
+    "R3": {
+      "label": "m3_replay_wired",
+      "forgetting_rate": 1.0,
+      "passes_gate": false,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 0.85,
+        "2": 1.0,
+        "3": 0.0,
+        "4": 0.85,
+        "5": 0.95,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 0.9,
+        "9": 0.0
+      },
+      "config": {
+        "label": "m3_replay_wired",
+        "eval_warmup_cycles": 0,
+        "baseline_method": "max_rolling",
+        "m3_replay_budget": 4,
+        "interleaved_eval_cycles": 0,
+        "mitigation": true
+      }
+    },
+    "R6": {
+      "label": "combined",
+      "forgetting_rate": 1.0,
+      "passes_gate": false,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 0.0,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 0.0,
+        "9": 0.0
+      },
+      "config": {
+        "label": "combined",
+        "eval_warmup_cycles": 10,
+        "baseline_method": "max_rolling",
+        "m3_replay_budget": 8,
+        "interleaved_eval_cycles": 5,
+        "interleaved_warmup_cycles": 2,
+        "mitigation": true
+      }
+    }
+  }
+}

@@ -30,6 +30,15 @@ jobs:
           MUJOCO_GL: disabled
         run: make nightly NIGHTLY_CYCLES=11000
 
+      - name: Cognitive recovery injectables (T3 soft)
+        if: always()
+        env:
+          MUJOCO_GL: disabled
+        run: |
+          mkdir -p logs
+          PYTHONPATH=python:$PYTHONPATH python scripts/benchmark_recovery.py \
+            --scenarios b1,c1,f5 --output logs/nightly_recovery.json || true
+
       - name: Upload nightly artifacts
         if: always()
         uses: actions/upload-artifact@v4

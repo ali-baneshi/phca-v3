@@ -360,6 +360,29 @@ class M3EpisodicMemory:
             _log(logger, "warning", "m3.sample_episodes_failed", error=str(e))
             return []
 
+    def sample_prior_task_episodes(
+        self,
+        n: int,
+        before_task_id: int,
+    ) -> List[EpisodeRecord]:
+        """Sample up to ``n`` episodes from tasks with ``task_id < before_task_id``."""
+        n = max(0, int(n))
+        if n == 0 or before_task_id <= 0:
+            return []
+        try:
+            cursor = self._connection.execute(
+                "SELECT * FROM episodes WHERE task_id IS NOT NULL "
+                "AND task_id < ? ORDER BY RANDOM() LIMIT ?",
+                (int(before_task_id), n),
+            )
+            return [
+                r for r in (self._row_to_episode(row) for row in cursor.fetchall())
+                if r is not None
+            ]
+        except Exception as e:
+            _log(logger, "warning", "m3.sample_prior_task_episodes_failed", error=str(e))
+            return []
+
     # ── Observability v4: cheap indexed reads for the Memory tab ──
 
     def recent_episodes(self, n: int = 5) -> List[EpisodeRecord]:

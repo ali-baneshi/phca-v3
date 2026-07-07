@@ -1,7 +1,7 @@
 # PHCA v3.0 — Project Status
 
-**Last updated:** 2026-07-05  
-**Phase:** 20 COMPLETE — Observatory Phases 7–20 signed off (D-108–D-127)  
+**Last updated:** 2026-07-07  
+**Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07)  
 **Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-127)
 
 ---

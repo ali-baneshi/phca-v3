@@ -218,6 +218,7 @@ class CognitiveCycle:
         self._fact_stagnant_cycles: int = 0
         self._last_m3_replay_steps: int = 0
         self._m3_replay_total: int = 0
+        self._m3_replay_budget: int = 4
 
         # Cognitive resilience (distinct from Observatory session recovery)
         self._resilience_detector = FailureDetector()
@@ -829,6 +830,13 @@ class CognitiveCycle:
         self._current_task_id = task_id
         self.tspl.protect_parameters(lambda_boost=0.05)
         self._forgetting_mitigation_active = True
+        self._last_goal_pos = None
+        if hasattr(self.gprime, "reset"):
+            self.gprime.reset()
+
+    def set_m3_replay_budget(self, budget: int) -> None:
+        """Cap M3 episodic replay steps injected into G′ per learn cycle."""
+        self._m3_replay_budget = max(0, int(budget))
 
     def on_forgetting_detected(self) -> None:
         """B4 recovery: replay boost + halve P-Stream learning rate."""
@@ -858,14 +866,12 @@ class CognitiveCycle:
         if not self.interventions.enable_m3_write:
             return 0
         m3 = self.consolidation.m3
-        n_budget = 8 if self.gprime.replay_boost else 4
-        per_task = max(1, n_budget // prior_id)
-        episodes = []
-        for tid in range(prior_id):
-            episodes.extend(m3.sample_episodes(per_task, task_id=tid))
+        boost_mult = 2 if self.gprime.replay_boost else 1
+        n_budget = self._m3_replay_budget * boost_mult
+        episodes = m3.sample_prior_task_episodes(n_budget, self._current_task_id)
         if not episodes:
             return 0
-        return self.gprime.learn_m3_episodes(episodes[:n_budget])
+        return self.gprime.learn_m3_episodes(episodes)
 
     def _current_task_goal_rate(self) -> Optional[float]:
         tid = self._current_task_id

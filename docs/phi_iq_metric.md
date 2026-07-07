@@ -72,10 +72,20 @@ action diversity if MDIM is disabled.
 
 ### Level 4-lite — Continual learning (forgetting rate)
 
-Sequential GridWorld goal-pursuit tasks without task-boundary signals to the
-agent. **Forgetting rate** = `max_k |Δ_perf_k|` where Δ_perf is relative goal-rate
-drop vs end-of-training baseline. Anti-forgetting uses P-Stream protection +
-G′ replay (no EWC/GEM). See [`scripts/benchmark_level4.py`](../scripts/benchmark_level4.py).
+Sequential GridWorld layouts (`build_task_sequence`) trained one after another.
+
+**Protocol (2026-07-07 maturation):**
+
+1. **Train:** `task_cycles` per task; `on_task_boundary(task_id)` when mitigation enabled.
+2. **Baseline:** default `max_rolling` goal rate over window (not last-20 only); tasks with baseline < 0.2 excluded from Δ.
+3. **Eval:** `apply_task_layout` → optional `--eval-warmup` (not scored) → `--eval-cycles` scored.
+4. **Metric:** `forgetting_rate` = max drop only (negative Δ_perf); gate < 0.05.
+5. **Diagnostic:** `--diagnostic` logs train curves, M3 counts, replay totals, B4 counts.
+6. **Ablation:** `make bench-level4-ablation` (R0–R6 matrix).
+
+Anti-forgetting: P-Stream `protect_parameters`, M3→G′ replay (`sample_prior_task_episodes`), G′ `replay_boost` on B4. No EWC/GEM (D-020).
+
+Verdict doc: [`docs/l4_root_cause_verdict.md`](l4_root_cause_verdict.md).
 
 ### Emergence trace metrics
 
