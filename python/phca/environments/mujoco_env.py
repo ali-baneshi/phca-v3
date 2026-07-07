@@ -144,6 +144,15 @@ class MuJoCoSimpleEnv:
         """Return list of action names."""
         return list(self.get_action_names())
 
+    def get_observation(self) -> np.ndarray:
+        """Public observation accessor (EnvironmentProtocol).
+
+        Returns the observation cached from the previous ``step()`` or
+        ``reset()`` without stepping the simulation.
+        Delegates to ``_get_observation()``.
+        """
+        return self._get_observation()
+
     def get_goal_position(self) -> Optional[Tuple[int, int]]:
         """Return None — MuJoCo environments don't have grid positions.
 

@@ -152,6 +152,9 @@ class ScenarioGridWorld:
     def get_action_names(self) -> List[str]:
         return list(ACTION_NAMES)
 
+    def get_action_deltas(self):
+        return self.base.get_action_deltas()
+
     def get_action_space(self):
         return DiscreteSpace(n=self.action_space_size)
 
@@ -194,6 +197,10 @@ class ScenarioGridWorld:
         wrapped_info["agent_pos"] = self.true_agent_pos
         wrapped_info["goal_pos"] = self.true_goal_pos
         return self._transform_observation(obs), reward, False, wrapped_info
+
+    def get_observation(self) -> np.ndarray:
+        """Public observation accessor (EnvironmentProtocol)."""
+        return self._get_observation()
 
     def _get_observation(self) -> np.ndarray:
         return self._transform_observation(self.base._get_observation())

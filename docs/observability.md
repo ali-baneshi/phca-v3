@@ -488,6 +488,32 @@ Install the system decoration plugin (`libdecor-gtk` on Arch/Manjaro) or run wit
   hardening; if it does, use a venv from `requirements.txt`.
 - **No video file on `--check`:** expected unless you passed `--record-video`.
 
+### Live camera diagnostics and fallback states
+
+For MuJoCo live camera runs (`--camera live` or `--camera auto`), startup now logs:
+
+- backend context: `MUJOCO_GL`, `QT_QPA_PLATFORM`
+- warmup self-test status (`ok`, attempt count, reason)
+- first-N frame diagnostics (`shape`, `std`, `green_frac`, `glitchy`)
+- explicit fallback reason when live capture is disabled
+
+Overview camera badge states:
+
+- `LIVE`: valid camera frames accepted
+- `RECOVERING`: temporary schematic fallback while periodic live probes run
+- `2D fallback`: live capture failed repeatedly; schematic active
+- `UNAVAILABLE`: no valid live or schematic camera payload available yet
+
+### Camera troubleshooting matrix
+
+| Symptom | Most likely layer | What to check |
+|---------|-------------------|---------------|
+| Immediate `2D fallback` on startup | self-test / backend | self-test reason in stderr; run `scripts/camera_probe_qt.py` with same env vars |
+| `Camera unavailable` with no fallback badge | provider path | verify provider returns frame packet and `camera_diag` samples exist |
+| Frequent `RECOVERING` flips | transient GL or pixmap failures | inspect `/tmp/phca_obs_numpy_*.png` and `/tmp/phca_obs_pixmap_*.png` |
+| Green/purple slabs accepted | glitch thresholds too lax | check `camera_render.is_glitchy_rgb_frame()` profile and frame stats |
+| Valid probe but no live image in Overview | UI conversion path | check pixmap validity (`is_glitchy_pixmap`) and Qt backend (`xcb` vs Wayland) |
+
 ## Related documents
 
 - [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory architecture and 20-phase roadmap

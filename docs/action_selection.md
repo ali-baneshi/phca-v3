@@ -66,6 +66,11 @@ action selection on grid tasks.
 
 See [limitations.md](limitations.md) and [phca_causal_evidence.md](phca_causal_evidence.md).
 
+**D5 energy-stay guard:** In cycle.py, the D5 energy-efficiency action (STAY when
+energy is low) fires only when `hasattr(self.env, 'grid')` is true (GridWorld
+environments). For non-grid environments (BanditEnv, MuJoCo), the guard falls
+through to normal action selection so the stay_action is never returned (D-135).
+
 ---
 
 ## Continuous MPC Path (Pendulum, Reacher)

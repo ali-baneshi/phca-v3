@@ -199,17 +199,72 @@ def _run_session_verify(session_dir: Path, *, allow_incomplete: bool = False) ->
 
 
 def _camera_self_test(env: Any) -> bool:
-    """One-shot MuJoCo RGB capture; False on EGL green slab or missing GL."""
-    from phca.monitoring.camera_render import is_glitchy_rgb_frame
+    """Compatibility wrapper for camera self-test status only."""
+    return bool(_camera_self_test_report(env).get("ok", False))
+
+
+def _camera_frame_diag(frame: Any, *, profile: str = "default") -> dict:
+    from phca.monitoring.camera_render import camera_frame_stats, is_glitchy_rgb_frame
+
+    stats = camera_frame_stats(frame)
+    arr = stats.get("shape") is not None
+    glitchy = True if not arr else is_glitchy_rgb_frame(frame, profile=profile)
+    stats["glitchy"] = glitchy
+    stats["reason"] = "glitchy_rgb" if glitchy else "ok"
+    return stats
+
+
+def _camera_self_test_report(
+    env: Any,
+    *,
+    profile: str = "default",
+    attempts: int = 5,
+    delay_s: float = 0.2,
+) -> dict:
+    """Warmup self-test with multiple attempts; returns structured diagnostics."""
 
     render_rgb = getattr(env, "render_rgb", None)
     if not callable(render_rgb):
-        return False
-    try:
-        frame = render_rgb()
-    except Exception:
-        return False
-    return frame is not None and not is_glitchy_rgb_frame(frame)
+        return {
+            "ok": False,
+            "reason": "render_rgb_missing",
+            "attempts": 0,
+            "samples": [],
+        }
+    samples: list[dict] = []
+    max_attempts = max(int(attempts), 1)
+    for idx in range(max_attempts):
+        try:
+            frame = render_rgb()
+        except Exception as exc:
+            samples.append({
+                "attempt": idx + 1,
+                "reason": "render_exception",
+                "error": str(exc),
+            })
+            time.sleep(delay_s)
+            continue
+        if frame is None:
+            samples.append({"attempt": idx + 1, "reason": "render_none"})
+            time.sleep(delay_s)
+            continue
+        diag = _camera_frame_diag(frame, profile=profile)
+        diag["attempt"] = idx + 1
+        samples.append(diag)
+        if not diag.get("glitchy", True):
+            return {
+                "ok": True,
+                "reason": "ok",
+                "attempts": idx + 1,
+                "samples": samples,
+            }
+        time.sleep(delay_s)
+    return {
+        "ok": False,
+        "reason": samples[-1].get("reason", "unknown") if samples else "no_samples",
+        "attempts": max_attempts,
+        "samples": samples,
+    }
 
 
 def _camera_capture_period(camera_hz: float) -> float:
@@ -304,7 +359,8 @@ class _VideoPipe:
                 img = img.convertToFormat(fmt_rgb888)
             w, h = img.width(), img.height()
             bpl = img.bytesPerLine()
-            ptr = img.constBits(); ptr.setsize(img.byteCount())
+            ptr = img.constBits()
+            ptr.setsize(img.byteCount())
             raw = np.frombuffer(ptr, dtype=np.uint8)
             # v6: respect the per-scanline stride (Format_RGB888 may be padded
             # to 4 bytes on some platforms — a naive (h,w,3) reshape drops every
@@ -372,6 +428,10 @@ def main() -> None:
                         help="live camera capture rate on cycle thread (Hz)")
     parser.add_argument("--camera-fail-cooldown-ms", type=int, default=250,
                         help="cooldown after burst camera capture failures (ms)")
+    parser.add_argument("--camera-selftest-attempts", type=int, default=5,
+                        help="startup self-test attempts before fallback")
+    parser.add_argument("--camera-diag-samples", type=int, default=8,
+                        help="number of startup capture diagnostics to record")
     parser.add_argument("--no-verify", action="store_true",
                         help="skip post-run phca_replay.py --check (report still written)")
     parser.add_argument("--close-at-end", action="store_true",
@@ -447,8 +507,10 @@ def main() -> None:
         print(f"Recording session -> {session_dir}")
 
     gl_backend = os.environ.get("MUJOCO_GL", "(default)")
+    qt_platform_env = os.environ.get("QT_QPA_PLATFORM", "(auto)")
     if args.env != "gridworld":
         print(f"MuJoCo GL: {gl_backend} (camera via mujoco.Renderer, not gym viewer)")
+        print(f"Qt platform env: {qt_platform_env}")
         print(f"Runtime profile: {args.profile}")
         if args.env == "Reacher-v5" and args.camera == "schematic":
             print("Reacher default: 2D schematic (no green screen)")
@@ -498,13 +560,36 @@ def main() -> None:
             fail_streak = 0
             cap_period = _camera_capture_period(args.camera_hz)
             fail_cooldown = max(float(args.camera_fail_cooldown_ms), 0.0) / 1000.0
+            diag_limit = max(int(args.camera_diag_samples), 0)
+            cycle_holder["camera_diag"] = {"samples": [], "fallback_reason": None}
             primary = cycles[0]
             if want_live_camera:
-                ok = _camera_self_test(primary.env)
+                profile = "pendulum" if args.env == "Pendulum-v1" else "default"
+                report = _camera_self_test_report(
+                    primary.env,
+                    profile=profile,
+                    attempts=max(int(args.camera_selftest_attempts), 1),
+                )
+                ok = bool(report.get("ok", False))
                 cycle_holder["camera_ok"] = ok
+                cycle_holder["camera_self_test"] = report
                 if ok:
                     cycle_holder["camera_lock"] = threading.Lock()
                     cycle_holder["camera_frame"] = None
+                    print(
+                        f"[camera] self-test PASS attempts={report.get('attempts')} "
+                        f"reason={report.get('reason')}",
+                        file=sys.stderr,
+                    )
+                else:
+                    cycle_holder["camera_diag"]["fallback_reason"] = (
+                        f"self_test_failed:{report.get('reason', 'unknown')}"
+                    )
+                    print(
+                        f"[camera] self-test FAIL attempts={report.get('attempts')} "
+                        f"reason={report.get('reason')}",
+                        file=sys.stderr,
+                    )
             else:
                 cycle_holder["camera_ok"] = False
             cycle_ready.set()
@@ -534,6 +619,12 @@ def main() -> None:
                         except Exception:
                             frame = None
                         if frame is not None:
+                            profile = "pendulum" if args.env == "Pendulum-v1" else "default"
+                            diag = _camera_frame_diag(frame, profile=profile)
+                            diag["cycle_id"] = cycle_id_for_step
+                            if len(cycle_holder["camera_diag"]["samples"]) < diag_limit:
+                                cycle_holder["camera_diag"]["samples"].append(diag)
+                        if frame is not None and not diag.get("glitchy", False):
                             fail_streak = 0
                             next_capture_t = now_t + cap_period
                             with cycle_holder["camera_lock"]:
@@ -541,11 +632,16 @@ def main() -> None:
                                     frame, dtype=np.uint8).copy()
                                 cycle_holder["camera_cycle_id"] = cycle_id_for_step
                         else:
+                            if frame is None:
+                                diag = {"reason": "render_none", "cycle_id": cycle_id_for_step}
+                                if len(cycle_holder["camera_diag"]["samples"]) < diag_limit:
+                                    cycle_holder["camera_diag"]["samples"].append(diag)
                             fail_streak += 1
                             next_capture_t = now_t + cap_period
                             if fail_streak >= 3:
                                 cooldown_until_t = now_t + fail_cooldown
                                 fail_streak = 0
+                                cycle_holder["camera_diag"]["fallback_reason"] = "capture_fail_streak"
         except Exception as e:
             cycle_holder["error"] = str(e)
             print(f"[cycle thread] error: {e}", file=sys.stderr)
@@ -600,7 +696,11 @@ def main() -> None:
     camera_wired = False
 
     if args.camera == "schematic":
-        win.set_camera_provider(None, mode="schematic")
+        win.set_camera_provider(
+            None,
+            mode="schematic",
+            glitch_profile="pendulum" if args.env == "Pendulum-v1" else "default",
+        )
         camera_wired = True
     else:
         win.overview.bind_camera_tabs(win._tabs, overview_tab_index=0)
@@ -618,9 +718,20 @@ def main() -> None:
         if mode in ("live", "auto"):
             if "camera_ok" not in cycle_holder:
                 return
-            if not cycle_holder.get("camera_ok"):
+            diag_samples = cycle_holder.get("camera_diag", {}).get("samples", [])
+            if diag_samples:
                 print(
-                    "[camera] capture failed on this system; using 2D schematic",
+                    "[camera] startup diagnostics: "
+                    + json.dumps(diag_samples[: max(int(args.camera_diag_samples), 0)]),
+                    file=sys.stderr,
+                )
+            if not cycle_holder.get("camera_ok"):
+                report = cycle_holder.get("camera_self_test", {})
+                fallback_reason = cycle_holder.get("camera_diag", {}).get("fallback_reason")
+                print(
+                    "[camera] capture failed on this system; using 2D schematic "
+                    f"(reason={fallback_reason or report.get('reason', 'unknown')}). "
+                    "Probe with: PYTHONPATH=python python scripts/camera_probe_qt.py --env pendulum",
                     file=sys.stderr,
                 )
                 mode = "schematic"
@@ -633,9 +744,19 @@ def main() -> None:
                 provider = _camera_provider_from_holder
 
         if mode == "schematic":
-            win.set_camera_provider(None, debug=args.camera_debug, mode="schematic")
+            win.set_camera_provider(
+                None,
+                debug=args.camera_debug,
+                mode="schematic",
+                glitch_profile="pendulum" if args.env == "Pendulum-v1" else "default",
+            )
         else:
-            win.set_camera_provider(provider, debug=args.camera_debug, mode=mode)
+            win.set_camera_provider(
+                provider,
+                debug=args.camera_debug,
+                mode=mode,
+                glitch_profile="pendulum" if args.env == "Pendulum-v1" else "default",
+            )
         camera_wired = True
         win.overview._sync_camera_from_provider()
         win.overview.mark_dirty()
@@ -706,8 +827,6 @@ def main() -> None:
     n_tabs = tabs.count()
     cycle_tab_ms = args.video_cycle_ms if (args.record_video and args.video_cycle_ms > 0) else 0
     last_tab_switch = 0.0
-    user_tab = {"i": tabs.currentIndex()}  # remember user's tab when not auto-cycling
-
     def _tick():
         nonlocal last_recorded_by_agent, last_grab, last_tab_switch
         try:
@@ -742,7 +861,8 @@ def main() -> None:
             if err:
                 clock.error = err
                 ctrl.update(store.latest(), None, err)
-                _on_run_complete(); return
+                _on_run_complete()
+                return
             from phca.monitoring.multi_agent import frames_for_agent
             snap = store.snapshot()
             if args.agents <= 1:
@@ -753,7 +873,8 @@ def main() -> None:
                     for aid in range(args.agents)
                 )
             if done:
-                _on_run_complete(); return
+                _on_run_complete()
+                return
             if video is not None:
                 now = time.monotonic()
                 # Auto-cycle tabs so the mp4 records every tab.

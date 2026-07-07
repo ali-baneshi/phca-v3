@@ -102,7 +102,7 @@ Details: [action_selection.md](action_selection.md).
 
 ```
 Cycle N:
-  _get_observation() → obs_N       (cached from previous step)
+  get_observation() → obs_N        (cached from previous step)
   sanitize(obs_N) → M2
   predict(obs_N) → predicted_N+1
   select_action (discrete or MPC)

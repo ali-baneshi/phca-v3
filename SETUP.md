@@ -144,6 +144,30 @@ ls logs/sessions/<ts>/session_report.json
 PYTHONPATH=python python scripts/phca_replay.py --check logs/sessions/<ts>/
 ```
 
+### Pendulum live camera troubleshooting (Manjaro / X11/Wayland)
+
+```bash
+# Recommended live camera run with startup diagnostics:
+QT_QPA_PLATFORM=xcb MUJOCO_GL=glx PYTHONPATH=python \
+  python scripts/phca_observatory.py \
+  --env pendulum --cycles=10000 --mlp --camera live --profile near_real \
+  --record-video --camera-debug --camera-selftest-attempts 5 --camera-diag-samples 8
+
+# Qt-in-context probe (quickly classify backend vs app issue):
+QT_QPA_PLATFORM=xcb MUJOCO_GL=glx PYTHONPATH=python \
+  python scripts/camera_probe_qt.py --env pendulum --samples 6
+```
+
+Expected startup logs include:
+- `MUJOCO_GL` and `QT_QPA_PLATFORM`
+- self-test result (`PASS/FAIL`, attempt count, reason)
+- startup frame diagnostics (`std`, `green_frac`, `glitchy`, `shape`)
+- explicit fallback reason + probe command if live capture is disabled
+
+If the Overview still shows `Camera unavailable`, inspect `/tmp/phca_obs_numpy_*.png`
+and `/tmp/phca_obs_pixmap_*.png` to determine whether failure is at capture
+or pixmap conversion.
+
 ## Benchmarks
 
 Use the canonical CLI (not `python -m phca.benchmarks.runner`):

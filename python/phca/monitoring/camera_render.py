@@ -20,6 +20,28 @@ _LEGACY_TAU_PURPLE = (155, 89, 182)
 _MIN_CAMERA_STD = 8.0
 
 
+def camera_frame_stats(frame: Any) -> dict:
+    """Compact diagnostics for camera debug logs."""
+    arr = _normalize_rgb_frame(frame)
+    if arr is None:
+        return {
+            "shape": None,
+            "std": None,
+            "mean_rgb": None,
+            "green_frac": None,
+            "glitch_frac": None,
+            "glitchy": True,
+        }
+    return {
+        "shape": tuple(arr.shape),
+        "std": float(arr.std()),
+        "mean_rgb": arr.mean(axis=(0, 1)).tolist(),
+        "green_frac": _green_dominance_frac(arr),
+        "glitch_frac": _glitch_fraction_rgb(arr),
+        "glitchy": False,
+    }
+
+
 def _glitch_fraction_rgb(arr: np.ndarray, *, tol: int = 35) -> float:
     r = arr[:, :, 0].astype(np.int16)
     g = arr[:, :, 1].astype(np.int16)
@@ -84,20 +106,24 @@ def _is_gl_clear_slab(arr: np.ndarray) -> bool:
     return False
 
 
-def is_glitchy_rgb_frame(frame: Any, *, min_glitch_frac: float = 0.15) -> bool:
+def is_glitchy_rgb_frame(frame: Any, *, min_glitch_frac: float = 0.15,
+                         profile: str = "default") -> bool:
     """True when the frame is unusable (purple/magenta placeholder or uniform GL)."""
     arr = _normalize_rgb_frame(frame)
     if arr is None:
         return True
+    p = (profile or "default").lower()
+    min_spatial_std = 5.0 if p in ("pendulum", "pendulum-v1") else _MIN_CAMERA_STD
+    green_dom_thresh = 0.62 if p in ("pendulum", "pendulum-v1") else 0.45
     glitch_frac = _glitch_fraction_rgb(arr)
     if glitch_frac >= min_glitch_frac:
         return True
     if float(arr.std()) < 2.0 and glitch_frac > 0.05:
         return True
-    if is_uniform_rgb_frame(arr):
+    if is_uniform_rgb_frame(arr, min_spatial_std=min_spatial_std):
         return True
     # EGL failure: mostly-green slab that still has channel variance.
-    if _green_dominance_frac(arr) > 0.45:
+    if _green_dominance_frac(arr) > green_dom_thresh:
         mean = arr.mean(axis=(0, 1))
         if float(mean[1]) > float(mean[0]) + 35 and float(mean[1]) > float(mean[2]) + 35:
             return True

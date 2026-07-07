@@ -1559,3 +1559,17 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Gate should measure steady-state post-FIFO growth, not late fill-phase variance. 11k adds ~10% to step 5 runtime; threshold unchanged proves gate is not relaxed.
 - **v3.0 trace:** A1 (resource boundedness); D-112/D-113 retention honesty.
 - **Tests/Validation:** `test_post_m3_slope_window_flat_after_cap`, `test_post_m3_slope_ignores_pre_cap_tail_growth`; `nightly_stress.py --cycles=11000` PASS.
+
+## Decision D-135: Environment protocol gap closure — 6 missing methods + type fix + BanditEnv guard
+
+- **Date:** 2026-07-07
+- **Author:** Self-fixing agent
+- **Category:** Tier 1 (crash bugs + protocol compliance)
+- **Problem:** The `EnvironmentProtocol` was missing 6 methods that `CognitiveCycle` calls at runtime: `get_observation()`, `get_state_dim()`, `reset()`, `neutral_action()`, `get_goal_reference()`, `get_action_deltas()`. The `step(action: int)` signature rejected `np.ndarray` actions from the continuous MPC path. `cycle.py` called `env._get_observation()` (private method) instead of the public protocol method. `_compute_distance_gain` and `_select_greedy_grid_action` used hardcoded `{"MOVE_N": ...}` dicts instead of calling `get_action_deltas()`. BanditEnv crashed on `self.stay_action = None` (GAP-013 finding, address item D5).
+- **Option chosen:** (1) Added the 6 missing methods to `environments/protocol.py`. (2) Changed `step(action: int)` → `step(action: Union[int, np.ndarray])` in protocol, GridWorld, MuJoCoSimpleEnv, BanditEnv. (3) Added public `get_observation()` (delegates to `_get_observation()`) in GridWorld, MuJoCoSimpleEnv, BanditEnv, ScenarioGridWorld. (4) Changed cycle.py line 286 from `env._get_observation()` → `env.get_observation()`. (5) In `_compute_distance_gain` and `_select_greedy_grid_action`, replaced hardcoded delta dicts with `getattr(env, "get_action_deltas", None)` calls. (6) Moved BanditEnv D5 guard from `stay_action = None` (crash source) to `hasattr(self.env, 'grid')` check in cycle.py line 1082 — non-grid envs fall through to normal action selection. (7) `_predicted_goal_alignment` consolidated all `env.size` accesses behind a single `hasattr(env, "size")` guard.
+- **Alternatives:** Add ABC with abstract methods (rejected — protocol typing is structural, not inherited). Make BanditEnv implement all grid-specific methods as stubs (rejected — BanditEnv is a 3-state MDP with no grid geometry; stubs would be misleading).
+- **Rationale:** Every change is <100 lines total across all files, fixes 3 crash bugs (BanditEnv `stay_action=None`, MuJoCo `step()` type rejection, missing protocol methods), eliminates 2 hardcoded delta-dict duplication sites, and makes the public API consistent (accessors start with `get_`). The `hasattr(env, 'grid')` guard pattern isolates grid-specific logic to environments that actually have grids, letting BanditEnv operate without cascading None crashes at other `self.env.stay_action` call sites.
+- **v3.0 trace:** §1.2 (environment protocol), A1 (no new crashes), A4 (predict → action path preserved), A5 (error drives learning across all env types).
+- **Tests/Validation:** All 693 tests pass (299 core/unit + 394 monitoring). No regression in GridWorld, MuJoCo, or BanditEnv paths. BanditEnv acceptance: 3-state MDP runs without crash, D5 falls through to normal selection.
+
+(End of decision log)

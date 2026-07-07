@@ -283,7 +283,7 @@ class CognitiveCycle:
 
             # Step 0: ASI sanitization
             t0 = time.perf_counter()
-            raw_obs = self.env._get_observation()
+            raw_obs = self.env.get_observation()
             clean_state, status = self.sanitizer.sanitize(raw_obs)
             metrics.module_timings["sanitize"] = (time.perf_counter() - t0) * 1000
 
@@ -1079,8 +1079,9 @@ class CognitiveCycle:
             self.last_candidate_rollouts = []
             return pick
 
-        # D5 (Energy Efficiency): prefer STAY — skip under task-lock (P0-3)
-        if goal_id == 5 and not self._task_lock:
+        # D5 (Energy Efficiency): prefer STAY for grid envs — skip under task-lock (P0-3)
+        # Non-grid envs (bandit) have no meaningful stay action; fall through
+        if goal_id == 5 and not self._task_lock and hasattr(self.env, 'grid'):
             self.last_action_rationale = self._finalize_action_rationale({
                 "explored": False, "eps": float(eps),
                 "goal_id": 5, "continuous": False,
@@ -1412,9 +1413,9 @@ class CognitiveCycle:
         """
         env = self.env
         goal_pos = env.get_goal_position()
-        if goal_pos is None or not hasattr(env, "agent_pos"):
+        if goal_pos is None or not hasattr(env, "agent_pos") or not hasattr(env, "size"):
             return 0.5
-        n_pos = env.size * env.size if hasattr(env, 'size') else 25
+        n_pos = env.size * env.size
         pred_agent = predicted.values[:n_pos]
         peak = int(np.argmax(pred_agent))
         max_val = float(pred_agent[peak])
@@ -1423,7 +1424,7 @@ class CognitiveCycle:
         g_row, g_col = goal_pos
         p_row, p_col = peak // env.size, peak % env.size
         dist = abs(p_row - g_row) + abs(p_col - g_col)
-        max_dist = 2 * (env.size - 1) if hasattr(env, 'size') else 8
+        max_dist = 2 * (env.size - 1)
         return float(np.clip(1.0 - dist / max_dist, 0.1, 1.0))
 
     def _build_planning_wall_grid(self) -> Optional[np.ndarray]:
@@ -1490,10 +1491,8 @@ class CognitiveCycle:
         best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
         best_unvisited = False
         action_names = env.get_action_names()
-        deltas = {
-            "MOVE_N": (-1, 0), "MOVE_S": (1, 0),
-            "MOVE_E": (0, 1), "MOVE_W": (0, -1), "STAY": (0, 0),
-        }
+        deltas_fn = getattr(env, "get_action_deltas", None)
+        deltas = deltas_fn() if callable(deltas_fn) else {}
         visited = getattr(env, "visited", None)
 
         def _dest_unvisited(action_idx: int) -> bool:
@@ -1572,11 +1571,11 @@ class CognitiveCycle:
         if goal_pos is not None and hasattr(env, "agent_pos"):
             if hasattr(env, "grid") and hasattr(env, "WALL"):
                 grid = self._planning_grid if self._planning_grid is not None else env.grid
+                deltas_fn = getattr(env, "get_action_deltas", None)
+                if not callable(deltas_fn):
+                    return 0.5
                 action_names = env.get_action_names()
-                dr, dc = {
-                    "MOVE_N": (-1, 0), "MOVE_S": (1, 0),
-                    "MOVE_E": (0, 1), "MOVE_W": (0, -1), "STAY": (0, 0),
-                }[action_names[action_idx]]
+                dr, dc = deltas_fn()[action_names[action_idx]]
                 new_row = env.agent_pos[0] + dr
                 new_col = env.agent_pos[1] + dc
 

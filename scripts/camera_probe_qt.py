@@ -7,8 +7,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
+import os
 
 import _bootstrap  # noqa: F401
 
@@ -16,21 +15,13 @@ import numpy as np
 from PyQt5 import QtWidgets
 
 from phca.core.cycle import CognitiveCycle
-from phca.monitoring.camera_render import is_glitchy_rgb_frame
+from phca.monitoring.camera_render import camera_frame_stats, is_glitchy_rgb_frame
 
 
 def _stats(arr: np.ndarray) -> dict:
-    g_frac = float(
-        ((arr[:, :, 1] > 120) & (arr[:, :, 1] > arr[:, :, 0] + 30)
-         & (arr[:, :, 1] > arr[:, :, 2] + 30)).mean()
-    )
-    return {
-        "shape": tuple(arr.shape),
-        "std": float(arr.std()),
-        "mean_rgb": arr.mean(axis=(0, 1)).tolist(),
-        "green_frac": g_frac,
-        "glitchy": is_glitchy_rgb_frame(arr),
-    }
+    stats = camera_frame_stats(arr)
+    stats["glitchy"] = is_glitchy_rgb_frame(arr)
+    return stats
 
 
 def main() -> None:
@@ -38,6 +29,7 @@ def main() -> None:
     parser.add_argument("--env", default="reacher", choices=["pendulum", "reacher", "cartpole"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--steps", type=int, default=6)
+    parser.add_argument("--samples", type=int, default=4)
     args = parser.parse_args()
 
     env_name = {
@@ -47,6 +39,8 @@ def main() -> None:
     }[args.env]
 
     print(f"Building {env_name} …")
+    print(f"MUJOCO_GL={os.environ.get('MUJOCO_GL', '(default)')}")
+    print(f"QT_QPA_PLATFORM={os.environ.get('QT_QPA_PLATFORM', '(auto)')}")
     cycle = CognitiveCycle.build_for_mujoco(
         env_name, seed=args.seed, use_mlp=True, enable_camera=True)
     for _ in range(args.steps):
@@ -74,6 +68,18 @@ def main() -> None:
     else:
         for k, v in _stats(np.asarray(arr1, dtype=np.uint8)).items():
             print(f"  {k}: {v}")
+
+    print("\n=== probe sequence ===")
+    for idx in range(max(int(args.samples), 1)):
+        arr = cycle.env.render_rgb()
+        if arr is None:
+            print(f"  sample[{idx}] none")
+            continue
+        st = _stats(np.asarray(arr, dtype=np.uint8))
+        print(
+            f"  sample[{idx}] std={st['std']:.2f} green_frac={st['green_frac']:.3f} "
+            f"glitchy={st['glitchy']} shape={st['shape']}"
+        )
 
     try:
         cycle.env.close()

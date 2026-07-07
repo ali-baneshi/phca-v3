@@ -33,6 +33,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 import numpy as np
 
 from .camera_render import (
+    camera_frame_stats,
     fit_pixmap_to_box,
     is_glitchy_pixmap,
     is_glitchy_rgb_frame,
@@ -2350,8 +2351,15 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_fail_count: int = 0
         self._camera_provider: Optional[Callable[[], Any]] = None
         self._camera_debug: bool = False
+        self._camera_glitch_profile: str = "default"
         self._camera_mode: str = "auto"  # auto | live | schematic
         self._camera_gl_disabled: bool = False
+        self._camera_status: str = "unavailable"  # live|recovering|schematic_fallback|unavailable
+        self._camera_probe_countdown: int = 0
+        self._camera_probe_every: int = 18
+        self._camera_diag_limit: int = 8
+        self._camera_diag_samples: List[Dict[str, Any]] = []
+        self._camera_last_reason: str = "not_started"
         self._capture_timer = CameraCaptureTimer(self)
         self._last_active_drive: Optional[int] = None
         self._drive_change: Optional[Tuple[int, int]] = None
@@ -2430,27 +2438,35 @@ class OverviewAgentView(_BaseCanvas):
 
     def set_camera_provider(self, provider: Optional[Callable[[], Any]],
                             *, debug: bool = False,
-                            mode: str = "auto") -> None:
+                            mode: str = "auto",
+                            glitch_profile: str = "default") -> None:
         self._camera_provider = provider
         self._camera_debug = bool(debug)
+        self._camera_glitch_profile = (glitch_profile or "default").lower()
         self._camera_mode = (mode or "auto").lower()
         if self._camera_mode == "schematic":
             self._camera_gl_disabled = True
+            self._camera_status = "schematic_fallback"
             self._capture_timer.stop()
+        else:
+            self._camera_status = "recovering"
         self._dirty = True
         self._update_camera_label()
         self.update()
 
     def _fail_threshold(self) -> int:
-        return 1
+        return 3
 
     def _maybe_disable_gl(self) -> None:
         if self._camera_fail_count >= self._fail_threshold():
             self._camera_gl_disabled = True
+            self._camera_status = "schematic_fallback"
+            self._camera_probe_countdown = self._camera_probe_every
             self._capture_timer.stop()
             if self._camera_debug:
                 import sys
-                print("[camera] GL disabled; using 2D schematic fallback",
+                print(f"[camera] GL disabled; using 2D schematic fallback "
+                      f"(reason={self._camera_last_reason})",
                       file=sys.stderr)
 
     def set_projection(self, proj: "BeliefProjection") -> None:
@@ -2569,6 +2585,10 @@ class OverviewAgentView(_BaseCanvas):
         f = self.frame
         if schematic:
             if self._camera_gl_disabled and self._camera_mode == "live":
+                if self._camera_status == "recovering":
+                    return "RECOVERING"
+                if self._camera_status == "unavailable":
+                    return "UNAVAILABLE"
                 return "2D fallback"
             return "2D"
         if self._camera_stale:
@@ -2654,8 +2674,8 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_label.setPixmap(pm)
         self._camera_label.show()
 
-    def _live_camera_frame(self) -> Optional[np.ndarray]:
-        if self._camera_gl_disabled or self._camera_mode == "schematic":
+    def _live_camera_frame(self, *, allow_disabled_probe: bool = False) -> Optional[np.ndarray]:
+        if (self._camera_gl_disabled and not allow_disabled_probe) or self._camera_mode == "schematic":
             return None
         if self._camera_provider is None:
             return None
@@ -2666,65 +2686,94 @@ class OverviewAgentView(_BaseCanvas):
         arr, cid = self._parse_camera_provider_result(raw)
         self._camera_cycle_id = int(cid) if cid is not None else None
         if arr is None:
+            self._camera_last_reason = "provider_none"
             return None
+        glitchy = is_glitchy_rgb_frame(arr, profile=self._camera_glitch_profile)
+        stats = camera_frame_stats(arr)
+        stats["cycle_id"] = self._camera_cycle_id
+        stats["reason"] = "glitchy_rgb" if glitchy else "ok"
+        if len(self._camera_diag_samples) < self._camera_diag_limit:
+            self._camera_diag_samples.append(stats)
         if self._camera_debug:
             import sys
-            g_frac = float(
-                ((arr[:, :, 1] > 120) & (arr[:, :, 1] > arr[:, :, 0] + 30)
-                 & (arr[:, :, 1] > arr[:, :, 2] + 30)).mean()
-            )
             print(
-                f"[camera] shape={arr.shape} std={float(arr.std()):.1f} "
-                f"mean={arr.mean(axis=(0, 1))} green_frac={g_frac:.2f} "
-                f"glitchy={is_glitchy_rgb_frame(arr)}",
+                f"[camera] shape={stats['shape']} std={stats['std']:.1f} "
+                f"mean={stats['mean_rgb']} green_frac={stats['green_frac']:.2f} "
+                f"glitchy={glitchy} reason={stats['reason']}",
                 file=sys.stderr,
             )
         return arr
 
-    def _save_camera_debug(self, frame: np.ndarray, pm: QtGui.QPixmap) -> None:
+    def _save_camera_debug(self, frame: np.ndarray, pm: QtGui.QPixmap,
+                           *, reason: str = "ok") -> None:
         try:
             from PIL import Image
-            Image.fromarray(frame).save("/tmp/phca_obs_numpy.png")
+            Image.fromarray(frame).save(f"/tmp/phca_obs_numpy_{reason}.png")
         except Exception:
             pass
         try:
-            pm.toImage().save("/tmp/phca_obs_pixmap.png")
+            pm.toImage().save(f"/tmp/phca_obs_pixmap_{reason}.png")
         except Exception:
             pass
 
     def _sync_camera_from_provider(self) -> Optional[np.ndarray]:
-        frame = self._live_camera_frame()
-        if frame is not None and is_glitchy_rgb_frame(frame):
+        allow_probe = False
+        if self._camera_gl_disabled and self._camera_mode == "live":
+            if self._camera_probe_countdown > 0:
+                self._camera_probe_countdown -= 1
+                self._camera_status = "recovering"
+                self._update_camera_label()
+                return self._camera_numpy
+            allow_probe = True
+        frame = self._live_camera_frame(allow_disabled_probe=allow_probe)
+        if frame is not None and is_glitchy_rgb_frame(frame, profile=self._camera_glitch_profile):
             self._camera_fail_count += 1
+            self._camera_last_reason = "glitchy_rgb"
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
             self._maybe_disable_gl()
+            self._camera_status = "recovering" if self._camera_gl_disabled else "unavailable"
             self._update_camera_label()
             return None
-        if frame is not None and not is_glitchy_rgb_frame(frame):
+        if frame is not None and not is_glitchy_rgb_frame(frame, profile=self._camera_glitch_profile):
             pm = rgb_frame_to_pixmap(frame)
             if not pm.isNull() and not is_glitchy_pixmap(pm):
                 self._camera_fail_count = 0
                 self._camera_numpy = frame
                 self._camera_pixmap = pm
                 self._camera_stale = False
+                self._camera_gl_disabled = False
+                self._camera_probe_countdown = self._camera_probe_every
+                self._camera_status = "live"
+                self._camera_last_reason = "ok"
                 if self._camera_debug:
-                    self._save_camera_debug(frame, pm)
+                    self._save_camera_debug(frame, pm, reason="ok")
                 self._update_camera_label()
                 return frame
             self._camera_fail_count += 1
+            self._camera_last_reason = "pixmap_invalid"
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
             self._maybe_disable_gl()
+            self._camera_status = "recovering" if self._camera_gl_disabled else "unavailable"
+            if self._camera_debug:
+                self._save_camera_debug(frame, pm, reason="pixmap_invalid")
             self._update_camera_label()
             return None
         self._camera_fail_count += 1
+        self._camera_last_reason = "provider_none"
         self._maybe_disable_gl()
+        if self._camera_gl_disabled:
+            self._camera_status = "recovering"
+            self._camera_probe_countdown = self._camera_probe_every
         if self._camera_pixmap is not None and self._camera_numpy is not None:
             self._camera_stale = True
+            if self._camera_status == "unavailable":
+                self._camera_status = "recovering"
         else:
+            self._camera_status = "recovering" if self._camera_gl_disabled else "unavailable"
             self._camera_stale = False
             self._camera_pixmap = None
             self._camera_numpy = None
@@ -2748,7 +2797,8 @@ class OverviewAgentView(_BaseCanvas):
                 self._camera_numpy is None
                 or self._camera_pixmap is None
                 or self._camera_pixmap.isNull()
-                or is_glitchy_rgb_frame(self._camera_numpy)
+                or is_glitchy_rgb_frame(
+                    self._camera_numpy, profile=self._camera_glitch_profile)
             )
         if self._camera_fail_count < 1:
             return False

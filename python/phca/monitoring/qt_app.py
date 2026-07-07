@@ -760,10 +760,12 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
 
     def set_camera_provider(self, provider: Optional[Callable[[], Any]],
                             *, debug: bool = False,
-                            mode: str = "auto") -> None:
+                            mode: str = "auto",
+                            glitch_profile: str = "default") -> None:
         self._camera_provider = provider
         self._camera_debug = bool(debug)
-        self.overview.set_camera_provider(provider, debug=debug, mode=mode)
+        self.overview.set_camera_provider(
+            provider, debug=debug, mode=mode, glitch_profile=glitch_profile)
         if mode != "schematic":
             self.overview.start_camera_capture()
 

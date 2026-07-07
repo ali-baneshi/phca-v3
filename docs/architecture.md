@@ -166,7 +166,9 @@ Dynamic mode is experimental and measured separately from the canonical static b
 
 - **EnvironmentProtocol** (`phca/environments/protocol.py`) decouples `CognitiveCycle` from
   any concrete environment. Any object implementing `get_action_names()`, `get_possible_actions()`,
-  and `get_goal_position()` can drive the cycle. Both `GridWorld` and `MuJoCoSimpleEnv` implement it.
+  `get_goal_position()`, `get_observation()`, `get_action_space()`, `get_action_deltas()`,
+  `neutral_action()`, `get_goal_reference()`, `get_state_dim()`, and `reset()` can drive
+  the cycle (D-135). Both `GridWorld` and `MuJoCoSimpleEnv` implement it.
 - **No terminal-on-goal.** The environment does not return terminal=True when the agent reaches
   the goal (D-070). Unlike RL episodic conventions, the PHCA cognitive architecture sustains
   goal achievement rather than resetting on success. The `goal_reached` flag is still reported
@@ -174,6 +176,9 @@ Dynamic mode is experimental and measured separately from the canonical static b
 - **STAY preferred at goal.** When the agent is at the goal position, `_compute_distance_gain()`
   assigns distance_gain=0.0 (best) to STAY and 1.0 (worst) to any move away from the goal
   (D-071). This prevents the agent from leaving the goal immediately after reaching it.
+  The D5 energy-efficiency STAY preference is gated behind `hasattr(env, 'grid')` so non-grid
+  environments (BanditEnv) fall through to normal action selection instead of hard-returning
+  a stay action (D-135).
 - **P-Stream only.** E-Stream and S-Stream were removed in Phase 3.3 (D-020). Consolidation
   runs on a fixed 10-cycle timer (Steps 16-18) with batch SQLite commits (D-014).
 - **HPM validation layer** stripped. Only `compute_bounds()` (resource additivity per v3.0

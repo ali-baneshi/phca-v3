@@ -492,6 +492,34 @@ def test_camera_self_test_rejects_green():
     assert not mod._camera_self_test(_Env())
 
 
+def test_camera_self_test_warmup_accepts_late_valid_frame():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[4] / "scripts" / "phca_observatory.py"
+    spec = importlib.util.spec_from_file_location("phca_observatory", script)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    class _Env:
+        def __init__(self):
+            self.calls = 0
+
+        def render_rgb(self):
+            self.calls += 1
+            if self.calls < 3:
+                return np.full((64, 80, 3), (0, 255, 0), dtype=np.uint8)
+            return np.random.randint(20, 200, (64, 80, 3), dtype=np.uint8)
+
+    report = mod._camera_self_test_report(_Env(), attempts=5, delay_s=0.0)
+    assert report["ok"] is True
+    assert report["attempts"] == 3
+    assert len(report["samples"]) == 3
+    assert report["samples"][0]["reason"] == "glitchy_rgb"
+    assert report["samples"][-1]["reason"] == "ok"
+
+
 def test_camera_capture_gate_cadence_and_cooldown():
     import importlib.util
     from pathlib import Path
@@ -526,6 +554,36 @@ def test_read_latest_camera_packet_returns_latest_reference():
     assert pkt is not None
     assert pkt["cycle_id"] == 7
     assert pkt["frame"] is frame
+
+
+def test_camera_recovery_reenables_live_after_probe(qt_app):
+    ov = OverviewAgentView()
+    ov.resize(400, 300)
+    ov.show()
+    f = _reacher_frame(cycle_id=11)
+    good = np.random.randint(30, 180, (120, 160, 3), dtype=np.uint8)
+
+    state = {"n": 0}
+
+    def _provider():
+        state["n"] += 1
+        if state["n"] <= 3:
+            return None
+        return {"frame": good.copy(), "cycle_id": 11}
+
+    ov.set_camera_provider(_provider, mode="live")
+    ov.set_frame(f)
+    ov._sync_camera_from_provider()
+    ov._sync_camera_from_provider()
+    ov._sync_camera_from_provider()
+    assert ov._camera_gl_disabled is True
+    assert ov._camera_status in ("recovering", "schematic_fallback")
+
+    ov._camera_probe_countdown = 0
+    ov._sync_camera_from_provider()
+    assert ov._camera_gl_disabled is False
+    assert ov._camera_status == "live"
+    assert ov._camera_numpy is not None
 
 
 def test_draw_never_shows_green_when_implausible(qt_app):

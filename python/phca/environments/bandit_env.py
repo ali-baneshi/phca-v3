@@ -44,6 +44,14 @@ class BanditEnv:
     def get_action_space(self):
         return DiscreteSpace(n=self.n_arms)
 
+    def get_observation(self) -> np.ndarray:
+        """Public observation accessor (EnvironmentProtocol).
+
+        Returns the current observation vector without stepping the simulation.
+        Delegates to ``_get_observation()``.
+        """
+        return self._get_observation()
+
     def get_goal_position(self) -> Optional[Tuple[int, int]]:
         return None
 

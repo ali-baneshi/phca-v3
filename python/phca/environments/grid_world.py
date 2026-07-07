@@ -268,6 +268,18 @@ class GridWorld:
     def get_action_names(self) -> list[str]:
         return list(ACTION_NAMES)
 
+    def get_observation(self) -> np.ndarray:
+        """Public observation accessor (EnvironmentProtocol).
+
+        Returns the current state vector without stepping the simulation.
+        Delegates to ``_get_observation()``.
+        """
+        return self._get_observation()
+
+    def get_action_deltas(self) -> dict[str, tuple[int, int]]:
+        """Return mapping of action names to (row_delta, col_delta)."""
+        return dict(zip(ACTION_NAMES, ACTION_DELTAS))
+
     def get_goal_position(self) -> tuple[int, int] | None:
         return self.goal_pos
 
