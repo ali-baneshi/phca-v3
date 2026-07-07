@@ -96,6 +96,7 @@ jobs:
 
   mujoco-gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [test-python]
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +109,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-mujoco.txt
-      - name: MuJoCo nightly gate (Pendulum + Cartpole + Reacher)
+      - name: MuJoCo CI gate (Pendulum + Cartpole + Reacher)
         env:
           MUJOCO_GL: disabled
-        run: make nightly-mujoco
+        run: make mujoco-ci
+      - name: Upload MuJoCo logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mujoco-logs
+          path: logs/nightly_mujoco_*.json

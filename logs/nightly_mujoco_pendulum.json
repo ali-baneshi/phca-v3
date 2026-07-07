@@ -2,11 +2,11 @@
   "env": "Pendulum-v1",
   "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 7.983079487457871,
-  "p95_latency_ms": 12.717372918268666,
-  "max_latency_ms": 13.131638988852501,
-  "action_selection_p99_ms": 3.799919675802812,
-  "env_step_p99_ms": 0.12265066965483135,
+  "mean_latency_ms": 5.886249563191086,
+  "p95_latency_ms": 8.941944473190233,
+  "max_latency_ms": 9.221769985742867,
+  "action_selection_p99_ms": 2.7713564061559737,
+  "env_step_p99_ms": 0.054634979460388436,
   "mean_error": 8.568157393562215,
   "early_error": 29.628463968934906,
   "late_error": 0.6829782916736579,
@@ -28,6 +28,6 @@
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 46
+    "goal_thrash_events": 24
   }
 }

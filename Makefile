@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -201,6 +201,22 @@ nightly-mujoco:
 	    logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json logs/nightly_mujoco_reacher.json
 	@python scripts/check_benchmark_gate.py --neg-test >/dev/null
 
+# CI MuJoCo gate — verbose output (no >/dev/null) for GitHub Actions logs.
+MUJOCO_CI_CYCLES ?= 100
+
+mujoco-ci:
+	@mkdir -p logs
+	@echo "MuJoCo CI gate ($(MUJOCO_CI_CYCLES) cycles per env)..."
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env pendulum --use-mlp --cycles=$(MUJOCO_CI_CYCLES) --output=logs/nightly_mujoco_pendulum.json
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env cartpole --use-mlp --cycles=$(MUJOCO_CI_CYCLES) --output=logs/nightly_mujoco_cartpole.json
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env reacher --use-mlp --cycles=$(MUJOCO_CI_CYCLES) --output=logs/nightly_mujoco_reacher.json
+	python scripts/check_benchmark_gate.py --mujoco \
+	    logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json logs/nightly_mujoco_reacher.json
+	python scripts/check_benchmark_gate.py --neg-test
+
 # Set default stress length for `make nightly` (override on the command line).
 # Use 11000 for post-M3 retention gate (D-134); 1000 uses fill-phase threshold (D-112).
 NIGHTLY_CYCLES ?= 11000
@@ -262,6 +278,7 @@ help:
 	@echo "  make reproduce-quick  CI-science subset (~10-15 min)"
 	@echo "  make validate-science Full validation suite + aggregation"
 	@echo "  make maturation-test  Maturation plan v2 unit gates (T1)"
+	@echo "  make mujoco-ci        MuJoCo gate (verbose, for CI)"
 	@echo "  make bench-level4-smoke  L4-lite 2-task diagnostic smoke"
 	@echo "  make bench-level4-ablation  L4 ablation R0,R2,R3,R6 (T3 local)"
 	@echo "  make bench-recovery  Cognitive resilience injectables (T3)"

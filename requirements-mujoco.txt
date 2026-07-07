@@ -2,6 +2,8 @@
 # Enables Cartpole/Pendulum/Reacher via MuJoCoSimpleEnv.
 # Install: pip install -r requirements-mujoco.txt
 # Headless servers: export MUJOCO_GL=disabled  (or egl; osmesa needs libOSMesa)
+#
+# Pinned for CI reproducibility (mujoco-gate job).
 
-gymnasium[mujoco]>=1.0
-mujoco>=3.2
+gymnasium[mujoco]==1.0.0
+mujoco==3.2.7

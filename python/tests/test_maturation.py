@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pytest
 
-from phca.core.cycle import CognitiveCycle, CycleMetrics
+from phca.core.cycle import CognitiveCycle
 from phca.evaluation.metrics.forgetting import forgetting_rate
 from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.monitoring.observability import ObservabilityFrame

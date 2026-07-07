@@ -17,14 +17,28 @@
 
 Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (discrete geometry on GridWorld, or MPC on continuous MuJoCo) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. Temporal order and discrete vs continuous paths are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log.
 
-**Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, and nightly hardening gates. This is **not** AGI, not a production stack, and not a drop-in RL framework; several whitepaper §1.3 design targets remain unbenchmarked — see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+**Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`, run on **nightly** / extended local CI — not every PR job). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, Level-4-lite continual metrics, cognitive resilience injectables, and nightly hardening gates. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) for honest gate status.
+
+### Continuous integration (GitHub Actions)
+
+Every push/PR to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+| Job | Tier | What it checks |
+| :--- | :--- | :--- |
+| **lint** | T0 | `ruff check python/` |
+| **test-python** | T0 | ~792 tests (fast path; MuJoCo integration files excluded) |
+| **observatory-check** | T0 | `phca_replay.py --check` on session fixtures |
+| **benchmark-level-0** | T0 | Φ-IQ quick regression vs [`logs/benchmark_ci_baseline.json`](logs/benchmark_ci_baseline.json) |
+| **mujoco-gate** | T0 | Pendulum + Cartpole + Reacher smoke via `make mujoco-ci` |
+
+**Nightly** ([`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)): full `make nightly` (A1–A5 `--ci`, OOD, stress soak, causal gate). Assumption validation is **not** in the default PR CI slice — use `make ci-local` locally for a broader check.
 
 ### What is in this repository
 
 | Area | Contents |
 | :--- | :--- |
 | **Environments** | `GridWorld` (default 5×5 with walls; scaling experiments at 10×10 and 20×20) and optional MuJoCo wrappers (Cartpole, Pendulum, Reacher) |
-| **Evaluation** | Φ-IQ benchmark (`scripts/benchmark.py`), causal eval (`scripts/phca_causal_eval.py`), OOD calibration, nightly hardening (`make nightly`), ablation configs under `experiments/` |
+| **Evaluation** | Φ-IQ (`scripts/benchmark.py`), Level-4-lite forgetting (`scripts/benchmark_level4.py`), cognitive resilience (`scripts/benchmark_recovery.py`), causal eval, maturation gates (`make maturation-test`) |
 | **Observability** | Cognitive Observatory — live PyQt dashboard, per-cycle JSONL, replay/scrub (`scripts/phca_observatory.py`, `phca_replay.py`) |
 | **Documentation** | Architecture notes, limitations, decision log (`DECISIONS.md`), reproducibility guide |
 
@@ -39,7 +53,7 @@ PHCA is a **research prototype** for exploring bounded, prediction-first agents 
 
 ## Overview
 
-PHCA evaluates on **GridWorld** (discrete 5×5 default; scaling at 10×10 and 20×20) and optional **MuJoCo** wrappers (Cartpole, Pendulum, Reacher). Five design invariants (A1–A5) are specified in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and falsified in CI via `assumption_validation.py --ci`:
+PHCA evaluates on **GridWorld** (discrete 5×5 default; scaling at 10×10 and 20×20) and optional **MuJoCo** wrappers (Cartpole, Pendulum, Reacher). Five design invariants (A1–A5) are specified in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and falsified via `scripts/assumption_validation.py --ci` (**nightly** and `make ci-local`; not the default PR CI job list):
 
 - **A1 Resource Boundedness** — every module has time/memory/energy/entropy
   budgets, enforced every cycle by the RBTA.
@@ -63,10 +77,11 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Run all tests (802 total: 766 python + 36 MuJoCo; MUJOCO_GL=disabled for headless)
-MUJOCO_GL=disabled make test-all
-# MuJoCo integration tests (make test-all does not include them):
-MUJOCO_GL=disabled make test-mujoco
+# Fast CI-equivalent tests (~792 collected; MuJoCo integration tests separate)
+MUJOCO_GL=disabled make test-python
+make test-mujoco              # +36 MuJoCo integration tests
+make maturation-test          # 45 tests: static contracts + forgetting + resilience + maturation
+make ci-local                 # lint + test-python + observatory + L0 bench + causal-smoke
 ```
 
 ### Benchmarks & validation
@@ -116,6 +131,12 @@ python scripts/check_benchmark_gate.py --neg-test   # proves the gate catches vi
 
 # Causal behavior gate: PHCA vs non-PHCA GridWorld controls, levels 1-3
 python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output .tmp/phca_causal_eval_levels_200x5.json
+
+# Maturation / continual learning (T3 local — not PR CI)
+make bench-level4-smoke         # 2-task diagnostic (not retention proof)
+make bench-level4-ablation    # R0,R2,R3,R6 ablation matrix
+make bench-recovery             # injectable B1/C1/F5 cognitive resilience
+make mujoco-ci                  # verbose MuJoCo gate (same as CI mujoco-gate job)
 ```
 
 ---
@@ -211,8 +232,10 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 
 | Category | Examples | Status |
 | :--- | :--- | :--- |
-| **Measured PASS** | cycle latency &lt;500 ms, Φ-IQ floor, A1–A5 `--ci`, causal L1–L3, nightly soak | gated in CI/nightly |
-| **Design targets, not benchmarked** | 100-task forgetting &lt;5%, criticality band 90%, failure recovery 80% | see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
+| **Measured PASS (CI/nightly)** | L0 Φ-IQ, MuJoCo smoke, Observatory replay, A1–A5 `--ci` (nightly) | green |
+| **Measured FAIL (documented)** | Level-4-lite L4b forgetting @ 10 tasks | red — [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) |
+| **Partial MVP** | Cognitive resilience injectables; GridWorld A4 | see [docs/limitations.md](docs/limitations.md) |
+| **Not implemented** | 100-task AT-2, criticality Φ band, M5 procedural memory | backlog — [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
 
 ### Benchmark Levels
 
@@ -222,6 +245,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 | **L1** | Reactive Control | Prediction accuracy under active control + action diversity. |
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
+| **L4-lite** | Continual learning (forgetting) | Sequential GridWorld tasks; `forgetting_rate` gate &lt;5% (10-task L4b **FAIL** as of 2026-07-07). |
 
 ### Latest Results (MLP G', seed=42, 200 cycles/level, 2026-07-05, this machine)
 
@@ -305,10 +329,11 @@ ACTION energy **4.0**, ENV energy **12.5**
 | Pendulum | `Pendulum-v1` | **Continuous** (torque ∈ [-2,2], dim 1) | 3 | PASS — 7.1 ms, 0 violations, error 29.6→0.68 |
 | Reacher  | `Reacher-v5` | **Continuous** (actuator ∈ [-1,1]², dim 2) | 10 | PASS — 4.4 ms, 0 violations, error 105.7→8.4 |
 
-CI exercises 36 MuJoCo tests with `MUJOCO_GL=disabled`; the `make nightly`
-MuJoCo gate (`check_benchmark_gate.py --mujoco`) asserts 0 violations + error↓
-per env on shared CI runners, with a `--neg-test` proving the gate catches
-synthetic violations.
+CI exercises 36 MuJoCo integration tests with `MUJOCO_GL=disabled`; the PR
+**mujoco-gate** job runs `make mujoco-ci` (verbose, pinned deps in
+`requirements-mujoco.txt`). Nightly also runs the same gate via `make nightly`.
+`check_benchmark_gate.py --mujoco` asserts 0 violations + error↓ per env, with
+a `--neg-test` proving the gate catches synthetic violations.
 
 ### Dynamic-Goal Curriculum (experimental)
 
@@ -378,6 +403,27 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 
 ---
 
+## Maturation v2 (2026-07-07)
+
+Maturation work added **honest claim tracking**, static contract tests, Level-4-lite
+continual-learning benchmarks, and in-cycle cognitive resilience injectables.
+It does **not** change the L4b forgetting gate outcome — measured **FAIL**
+(`forgetting_rate=1.0` on 10-task L4b; ablation R0–R6 unchanged).
+
+| Artifact | Purpose |
+| :--- | :--- |
+| [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) | 59-row claim matrix (PASS/FAIL/PARTIAL/BACKLOG) |
+| [docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md) | Contract map + G5 hook inventory |
+| [docs/maturation_signoff.md](docs/maturation_signoff.md) | Sign-off checklist for maturation tracks |
+| [docs/maturation_bisection.md](docs/maturation_bisection.md) | L4 bisection methodology |
+| [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | Root-cause verdict (B+C); L4b still FAIL |
+| [docs/resilience.md](docs/resilience.md) | Cognitive vs Observatory session recovery |
+
+**Commands:** `make maturation-test` (45 tests), `make bench-level4-smoke`,
+`make bench-level4-ablation`, `make bench-recovery`.
+
+---
+
 ## Phase 9–12 — Cognitive Observatory Completion
 
 Observatory Phases 9–12 delivered schema versioning (v1), offline report parity,
@@ -392,6 +438,10 @@ multi-session `--compare`. Full detail:
 
 See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 
+- **Continual learning (L4-lite).** 10-task sequential GridWorld forgetting is
+  **benchmarked** (`scripts/benchmark_level4.py`); L4b gate **FAIL** as of
+  2026-07-07 — see [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md)
+  and [docs/limitations.md](docs/limitations.md).
 - **Action-selection split (A4).** Continuous MuJoCo (Pendulum, Reacher) uses
   prediction-primary MPC; discrete GridWorld with an extrinsic goal uses hybrid
   task-lock observed-greedy geometry (D-112, D-101).
@@ -427,11 +477,17 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | Which docs are living vs historical vs aspirational. |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix. |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through D-131). |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (D-001 through latest). |
 | [docs/architecture.md](docs/architecture.md) | Architecture overview — 12-step cycle, module map, invariants. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation caveats. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs continuous selectors; temporal cycle order. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot do; open backlog items. |
+| [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) | Maturation claim matrix (PASS/FAIL/PARTIAL). |
+| [docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md) | Static contract map (maturation Track A). |
+| [docs/maturation_signoff.md](docs/maturation_signoff.md) | Maturation sign-off checklist. |
+| [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | L4 forgetting root-cause verdict (B+C). |
+| [docs/maturation_bisection.md](docs/maturation_bisection.md) | L4 bisection / ablation methodology. |
+| [docs/resilience.md](docs/resilience.md) | Cognitive resilience vs Observatory recovery. |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Three-level causal behavior evidence gate (L1–L3). |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay/scrub, integrity checks. |
 | [docs/PHCA_Cognitive_Observatory_Architecture.md](docs/PHCA_Cognitive_Observatory_Architecture.md) | Full Observatory architecture and 20-phase roadmap. |
@@ -457,6 +513,8 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 │   │   ├── attention/           # Goal-driven sparse attention
 │   │   ├── motivation/          # MDIM (6 drives)
 │   │   ├── regulation/          # RBTA enforcer + adaptive parameter control
+│   │   ├── resilience/          # In-cycle failure detect/recover (B1,B4,B5,C1,F5)
+│   │   ├── evaluation/          # Φ-IQ, continual/, metrics/forgetting.py
 │   │   ├── hpm/                 # HPM composition grammar
 │   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
 │   │   ├── monitoring/          # Cognitive Observatory (ObservabilityFrame, Qt dashboard)
@@ -465,6 +523,9 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 │   └── benchmarks/              # Legacy runner (use scripts/benchmark.py)
 ├── scripts/
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary; --env gridworld/cartpole/pendulum/reacher)
+│   ├── benchmark_level4.py      # Level-4-lite forgetting gate
+│   ├── benchmark_recovery.py    # Cognitive resilience injectables
+│   ├── run_l4_ablation.py       # Ablation matrix R0–R6
 │   ├── check_benchmark_gate.py  # CI gate: static Φ-IQ + --mujoco + --neg-test (Phase 6)
 │   ├── ood_calibration.py       # OOD σ-sweep confidence curve (Phase 6 / B1)
 │   ├── assumption_validation.py # A1–A5 falsifiable experiments + --ci (Phase 6 / D-113)
@@ -571,3 +632,7 @@ limitations under the License.
 SPDX-License-Identifier: Apache-2.0
 
 Full license text and third-party dependency licenses: [docs/license.md](docs/license.md).
+
+---
+
+*Last verified: 2026-07-07 — CI jobs lint, test-python, observatory-check, benchmark-level-0, mujoco-gate.*

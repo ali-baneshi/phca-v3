@@ -2,14 +2,14 @@
   "env": "InvertedPendulum-v5",
   "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 6.0324148973450065,
-  "p95_latency_ms": 9.073352220002562,
-  "max_latency_ms": 10.206365957856178,
-  "action_selection_p99_ms": 1.3478823367040609,
-  "env_step_p99_ms": 0.18821017234586224,
-  "mean_error": 2.117808815921202,
-  "early_error": 5.516414829546578,
-  "late_error": 0.14572396516240999,
+  "mean_latency_ms": 5.424835953162983,
+  "p95_latency_ms": 7.959637965541333,
+  "max_latency_ms": 8.423116989433765,
+  "action_selection_p99_ms": 1.2636553891934457,
+  "env_step_p99_ms": 0.10000999784097084,
+  "mean_error": 2.894115461124711,
+  "early_error": 6.321655004701012,
+  "late_error": 0.2491483741097389,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
@@ -17,17 +17,17 @@
   "synergy": 0.0,
   "emergence": {
     "novel_behaviour": 0.0,
-    "strategy_diversity": 0.5502972046234315,
-    "behavioral_compression": 0.30645161290322576,
+    "strategy_diversity": 0.5596283616939008,
+    "behavioral_compression": 0.3770491803278688,
     "adaptation_stability": 0.0,
     "cross_context_reuse": 0.0,
     "self_generated_goals": 1.0,
     "unexpected_skill_chains": 0.0,
-    "emergence_composite": 0.26524983107523675
+    "emergence_composite": 0.27666822028882426
   },
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 33
+    "goal_thrash_events": 28
   }
 }

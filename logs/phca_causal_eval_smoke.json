@@ -36,7 +36,7 @@
       "cumulative_reward": 6.97,
       "coverage_rate": 0.16,
       "switch_recovery_cycle": null,
-      "rbta_violation_rate": 0.1,
+      "rbta_violation_rate": 0.0,
       "model": "Gaussian",
       "prediction_error_mean": 3.594199824153708,
       "episode_count": 10,
@@ -117,7 +117,7 @@
       "cumulative_reward_mean": 6.97,
       "cumulative_reward_median": 6.97,
       "success_rate": 1.0,
-      "rbta_violation_rate_mean": 0.1,
+      "rbta_violation_rate_mean": 0.0,
       "prediction_error_mean": 3.594199824153708,
       "episode_count_mean": 10.0,
       "fact_count_mean": 0.0
