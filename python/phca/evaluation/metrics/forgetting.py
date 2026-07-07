@@ -57,6 +57,60 @@ def eval_window_accuracy(
     )
 
 
+def max_rolling_task_accuracy(
+    history: HistoryInput,
+    *,
+    task_id: int,
+    metric: str = "goal_rate",
+    window: int = 20,
+) -> float:
+    """Best goal-rate over any contiguous ``window`` in train history."""
+    records = _metrics_for_task(history, task_id)
+    if not records:
+        return 0.0
+    if window <= 0 or len(records) <= window:
+        return task_accuracy(history, task_id=task_id, metric=metric)
+    best = 0.0
+    for i in range(len(records) - window + 1):
+        chunk = records[i : i + window]
+        if metric == "goal_rate":
+            acc = float(np.mean([float(m.goal_reached) for m in chunk]))
+        elif metric == "prediction_accuracy":
+            errors = [m.prediction_error for m in chunk]
+            mean_err = float(np.mean(errors)) if errors else 0.0
+            acc = max(0.0, 1.0 - min(mean_err / 10.0, 1.0))
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+        best = max(best, acc)
+    return best
+
+
+DEFAULT_BASELINE_MIN_VALID = 0.2
+
+
+def is_valid_baseline(goal_rate: float, *, min_valid: float = DEFAULT_BASELINE_MIN_VALID) -> bool:
+    """Task was learned enough to measure forgetting."""
+    return goal_rate >= min_valid
+
+
+def delta_perf_valid_only(
+    baseline: Dict[int, float],
+    current: Dict[int, float],
+    *,
+    min_valid: float = DEFAULT_BASELINE_MIN_VALID,
+) -> tuple[Dict[int, float], List[int]]:
+    """Like ``delta_perf`` but excludes tasks with invalid baselines."""
+    filtered = {
+        tid: base
+        for tid, base in baseline.items()
+        if is_valid_baseline(base, min_valid=min_valid)
+    }
+    return delta_perf(filtered, current), [
+        tid for tid, base in baseline.items()
+        if not is_valid_baseline(base, min_valid=min_valid)
+    ]
+
+
 def delta_perf(
     baseline: Dict[int, float],
     current: Dict[int, float],

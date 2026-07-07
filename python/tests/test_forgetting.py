@@ -9,8 +9,10 @@ from phca.core.cycle import CognitiveCycle, CycleMetrics
 from phca.evaluation.continual.gridworld_tasks import build_task_sequence
 from phca.evaluation.metrics.forgetting import (
     delta_perf,
+    delta_perf_valid_only,
     eval_window_accuracy,
     forgetting_rate,
+    max_rolling_task_accuracy,
     passes_forgetting_gate,
     task_accuracy,
 )
@@ -35,6 +37,28 @@ class TestForgettingMetrics:
     def test_passes_gate_threshold(self):
         assert passes_forgetting_gate({0: -0.04, 1: -0.03})
         assert not passes_forgetting_gate({0: -0.04, 1: -0.06})
+
+    def test_max_rolling_beats_last_window(self):
+        hist = {
+            0: [
+                CycleMetrics(goal_reached=False),
+                CycleMetrics(goal_reached=True),
+                CycleMetrics(goal_reached=True),
+                CycleMetrics(goal_reached=False),
+                CycleMetrics(goal_reached=False),
+            ]
+        }
+        last = task_accuracy(hist, task_id=0, window=2)
+        best = max_rolling_task_accuracy(hist, task_id=0, window=2)
+        assert best >= last
+
+    def test_delta_perf_valid_only_excludes_low_baselines(self):
+        baseline = {0: 0.8, 1: 0.0}
+        current = {0: 0.7, 1: 0.5}
+        delta, excluded = delta_perf_valid_only(baseline, current)
+        assert 1 in excluded
+        assert 0 in delta
+        assert 1 not in delta
 
     def test_task_accuracy_goal_rate(self):
         hist = {
@@ -78,6 +102,17 @@ class TestMitigationHooks:
         cycle.on_forgetting_detected()
         assert cycle.tspl.configs[StreamID.P_STREAM].alpha == pytest.approx(alpha_before * 0.5)
         assert cycle.gprime.replay_boost
+
+    def test_m3_replay_prior_tasks_after_boundary(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        cycle.on_task_boundary(0)
+        for _ in range(30):
+            cycle.step()
+        before = cycle._m3_replay_total
+        cycle.on_task_boundary(1)
+        for _ in range(30):
+            cycle.step()
+        assert cycle._m3_replay_total > before
 
 
 @pytest.mark.slow

@@ -45,10 +45,6 @@ class TestContinualLearningContracts:
         src = (_PHCA / "core" / "cycle.py").read_text(encoding="utf-8")
         assert "task_id=self._current_task_id" in src
 
-    @pytest.mark.xfail(
-        reason="G5-01: M3 sample_episodes has no callers outside m3_episodic.py",
-        strict=True,
-    )
     def test_m3_sample_episodes_wired_to_learning_path(self):
         def_file = _PHCA / "memory" / "m3_episodic.py"
         callers = _grep_callers("sample_episodes", exclude_def=def_file)
@@ -56,6 +52,7 @@ class TestContinualLearningContracts:
             "sample_episodes must be called from cycle/gprime learning path; "
             f"found no callers outside {def_file.name}"
         )
+        assert any("cycle.py" in c for c in callers)
 
 
 class TestObservabilityContracts:
@@ -75,10 +72,6 @@ class TestObservabilityContracts:
                 return
         pytest.fail("CycleMetrics class not found")
 
-    @pytest.mark.xfail(
-        reason="G5-02..04: ObservabilityFrame does not export resilience/task fields",
-        strict=True,
-    )
     def test_observability_frame_exports_resilience_fields(self):
         src = (_PHCA / "monitoring" / "observability.py").read_text(encoding="utf-8")
         tree = ast.parse(src)
@@ -113,12 +106,8 @@ class TestReplayArchitecture:
         assert "replay_capacity" in src
         assert "_replay_buffer" in src
 
-    @pytest.mark.xfail(
-        reason="G5-01: continual learning relies on G' FIFO only; M3 not wired",
-        strict=True,
-    )
     def test_m3_and_gprime_both_used_in_learn(self):
         cycle_src = (_PHCA / "core" / "cycle.py").read_text(encoding="utf-8")
-        assert ".sample_episodes(" in cycle_src, (
-            "cycle.py should call m3.sample_episodes for continual replay"
-        )
+        mlp_src = (_PHCA / "world_model" / "mlp.py").read_text(encoding="utf-8")
+        assert ".sample_episodes(" in cycle_src
+        assert "learn_m3_episodes" in mlp_src

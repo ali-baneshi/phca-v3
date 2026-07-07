@@ -216,6 +216,8 @@ class CognitiveCycle:
         self._task_eval_history: Dict[int, List[float]] = {}
         self._last_fact_count: int = 0
         self._fact_stagnant_cycles: int = 0
+        self._last_m3_replay_steps: int = 0
+        self._m3_replay_total: int = 0
 
         # Cognitive resilience (distinct from Observatory session recovery)
         self._resilience_detector = FailureDetector()
@@ -630,6 +632,8 @@ class CognitiveCycle:
                         self.current_state, action_vec, next_state,
                         error=attn_weighted_error,
                     )
+                    self._last_m3_replay_steps = self._replay_m3_prior_tasks()
+                    self._m3_replay_total += self._last_m3_replay_steps
                 metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
                 # Store episode in M3 episodic memory (Task B fix)
@@ -841,6 +845,27 @@ class CognitiveCycle:
     def record_task_eval(self, task_id: int, goal_reached: bool) -> None:
         """Append eval-cycle goal outcome for per-task tracking."""
         self._task_eval_history.setdefault(task_id, []).append(float(goal_reached))
+
+    def _replay_m3_prior_tasks(self) -> int:
+        """Sample prior-task M3 episodes into G′ when forgetting mitigation is active."""
+        if not self._forgetting_mitigation_active:
+            return 0
+        if not isinstance(self.gprime, WorldModelMLP):
+            return 0
+        prior_id = self._current_task_id
+        if prior_id <= 0:
+            return 0
+        if not self.interventions.enable_m3_write:
+            return 0
+        m3 = self.consolidation.m3
+        n_budget = 8 if self.gprime.replay_boost else 4
+        per_task = max(1, n_budget // prior_id)
+        episodes = []
+        for tid in range(prior_id):
+            episodes.extend(m3.sample_episodes(per_task, task_id=tid))
+        if not episodes:
+            return 0
+        return self.gprime.learn_m3_episodes(episodes[:n_budget])
 
     def _current_task_goal_rate(self) -> Optional[float]:
         tid = self._current_task_id

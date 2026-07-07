@@ -417,6 +417,41 @@ class WorldModelMLP:
             avg_grad = self._backward_batch(X, Z1, Z2, Out, T)
             self._apply_gradient(avg_grad, lr=effective_lr)
 
+    def learn_m3_episodes(self, episodes: list) -> int:
+        """Extra gradient steps from M3 episodic transitions (continual replay).
+
+        Also injects transitions into the internal FIFO buffer so later
+        mini-batch replay can resample them.
+        """
+        if not episodes:
+            return 0
+        effective_lr = self.lr * 0.5
+        steps = 0
+        for ep in episodes:
+            state_before = getattr(ep, "state_before", None)
+            state_after = getattr(ep, "state_after", None)
+            action = getattr(ep, "action_taken", None)
+            if state_before is None or state_after is None or action is None:
+                continue
+            x = np.concatenate([
+                state_before.values.astype(np.float32),
+                np.asarray(action, dtype=np.float32).reshape(-1),
+            ])
+            target = state_after.values.astype(np.float32)
+            if len(self._replay_buffer) < self.replay_capacity:
+                self._replay_buffer.append((x.copy(), target.copy()))
+            else:
+                self._replay_buffer[self._replay_idx % self.replay_capacity] = (
+                    x.copy(),
+                    target.copy(),
+                )
+            self._replay_idx += 1
+            z1, z2, out = self._forward(x)
+            grad = self._backward(x, z1, z2, out, target)
+            self._apply_gradient(grad, lr=effective_lr)
+            steps += 1
+        return steps
+
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
         self._last_input = None

@@ -243,6 +243,10 @@ class ObservabilityFrame:
     drive_id: int = 1
     episode_count: int = 0
     fact_count: int = 0
+    # Continual learning + cognitive resilience (Level-4-lite / observability)
+    task_id: int = -1
+    failure_events: List[str] = field(default_factory=list)
+    recovery_active: bool = False
     # Retention caps (so the dashboard can show cap engagement)
     m3_cap: int = 0
     m4_cap: int = 0
@@ -584,6 +588,9 @@ class ObservabilityFrame:
             drive_id=getattr(m, "drive_id", 1),
             episode_count=getattr(m, "episode_count", 0),
             fact_count=getattr(m, "fact_count", 0),
+            task_id=getattr(m, "task_id", -1),
+            failure_events=list(getattr(m, "failure_events", []) or []),
+            recovery_active=bool(getattr(m, "recovery_active", False)),
             m3_cap=m3_cap,
             m4_cap=m4_cap,
             m4_prune_target=m4_prune_target,

@@ -323,6 +323,14 @@ class M3EpisodicMemory:
             cursor = self._connection.execute("SELECT COUNT(*) FROM episodes")
         return cursor.fetchone()[0] or 0
 
+    def count_for_task(self, task_id: int) -> int:
+        """Count episodes tagged with ``task_id``."""
+        cursor = self._connection.execute(
+            "SELECT COUNT(*) FROM episodes WHERE task_id = ?",
+            (int(task_id),),
+        )
+        return int(cursor.fetchone()[0] or 0)
+
     def sample_episodes(
         self,
         n: int,

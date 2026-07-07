@@ -1,0 +1,538 @@
+{
+  "config": {
+    "tasks": 10,
+    "task_cycles": 80,
+    "eval_cycles": 20,
+    "eval_warmup_cycles": 10,
+    "seeds": 1,
+    "use_mlp": true,
+    "grid_size": 5,
+    "mitigation": true,
+    "baseline_method": "max_rolling",
+    "baseline_window": 20,
+    "baseline_min_valid": 0.2,
+    "diagnostic": true
+  },
+  "tasks": [
+    {
+      "task_id": 0,
+      "goal_pos": [
+        1,
+        3
+      ],
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 1,
+      "goal_pos": [
+        4,
+        1
+      ],
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 2,
+      "goal_pos": [
+        0,
+        1
+      ],
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 3,
+      "goal_pos": [
+        1,
+        3
+      ],
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 4,
+      "goal_pos": [
+        0,
+        1
+      ],
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 5,
+      "goal_pos": [
+        2,
+        0
+      ],
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 6,
+      "goal_pos": [
+        1,
+        4
+      ],
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 7,
+      "goal_pos": [
+        3,
+        3
+      ],
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 8,
+      "goal_pos": [
+        0,
+        4
+      ],
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 9,
+      "goal_pos": [
+        2,
+        0
+      ],
+      "n_obstacles": 5
+    }
+  ],
+  "seed_results": [
+    {
+      "seed": 42,
+      "baselines": {
+        "0": 1.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 0.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 0.0,
+        "9": 0.0
+      },
+      "current": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 1.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 1.0,
+        "9": 0.0
+      },
+      "delta_perf": {
+        "0": -1.0,
+        "4": 0.0,
+        "7": -1.0
+      },
+      "excluded_tasks": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9
+      ],
+      "forgetting_rate": 1.0,
+      "passes_gate": false,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 1.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 1.0,
+        "7": 0.0,
+        "8": 1.0,
+        "9": 0.0
+      },
+      "diagnostic": {
+        "train_curves": {
+          "0": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.9
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.95
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 1.0
+            }
+          ],
+          "1": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "2": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "3": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "4": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.6
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.8
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 1.0
+            }
+          ],
+          "5": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "6": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "7": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.8
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.9
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 1.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 1.0
+            }
+          ],
+          "8": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ],
+          "9": [
+            {
+              "cycle": 10,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 20,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 30,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 40,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 50,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 60,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 70,
+              "goal_rate": 0.0
+            },
+            {
+              "cycle": 80,
+              "goal_rate": 0.0
+            }
+          ]
+        },
+        "m3_counts_by_task": {
+          "0": 30,
+          "1": 30,
+          "2": 30,
+          "3": 30,
+          "4": 30,
+          "5": 30,
+          "6": 30,
+          "7": 78,
+          "8": 110,
+          "9": 110
+        },
+        "m3_replay_total": 6706,
+        "m3_replay_at_train_end": 4786,
+        "b4_event_cycles": 38,
+        "mitigation_active": true,
+        "baseline_method": "max_rolling",
+        "baseline_window": 20,
+        "baseline_min_valid": 0.2
+      }
+    }
+  ],
+  "delta_perf": {
+    "0": -1.0,
+    "4": 0.0,
+    "7": -1.0
+  },
+  "forgetting_rate": 1.0,
+  "passes_gate": false,
+  "per_task_accuracy": {
+    "0": 0.0,
+    "1": 1.0,
+    "2": 1.0,
+    "3": 0.0,
+    "4": 1.0,
+    "5": 1.0,
+    "6": 1.0,
+    "7": 0.0,
+    "8": 1.0,
+    "9": 0.0
+  },
+  "duration_s": 44.061848242999986
+}

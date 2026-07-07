@@ -44,14 +44,14 @@ flowchart TB
 |---|----------|----------|--------|----------|
 | C1 | `on_task_boundary` called on task switch in L4 runner | Yes when mitigation=True | **PASS** | `benchmark_level4.py:59-60` |
 | C2 | `task_id` stored in M3 on each episode | Yes | **PASS** | `cycle.py:645` → `m3.store_episode(..., task_id=)` |
-| C3 | `sample_episodes(task_id)` feeds G′ `learn()` | Yes for continual replay | **FAIL G5** | Zero callers outside `m3_episodic.py` |
+| C3 | `sample_episodes(task_id)` feeds G′ `learn()` | Yes for continual replay | **PASS** (2026-07-07) | `cycle._replay_m3_prior_tasks` → `learn_m3_episodes` |
 | C4 | `protect_parameters` on task boundary | Yes | **PASS** | `cycle.on_task_boundary` → `tspl.protect_parameters` |
 | C5 | `replay_boost` during forgetting mitigation | Flag set on boundary | **PARTIAL** | Sets `_forgetting_mitigation_active`; boosts **internal** buffer only |
 | C6 | B4 → `on_forgetting_detected` | During measurable drop | **PARTIAL** | `recovery.py:62`; detector uses `_task_eval_history` populated in eval pass only |
 | C7 | `failure_events` in CycleMetrics | Each cycle post-RBTA | **PASS** | `cycle.py:727-728` |
-| C8 | `failure_events` in ObservabilityFrame / JSONL | Exported | **FAIL G5** | No fields on `ObservabilityFrame` dataclass |
-| C9 | `recovery_active` in JSONL | Exported | **FAIL G5** | Same as C8 |
-| C10 | `task_id` in JSONL | Exported | **FAIL G5** | `CycleMetrics.task_id` not mapped in `from_cycle` |
+| C8 | `failure_events` in ObservabilityFrame / JSONL | Exported | **PASS** (2026-07-07) | Fields on `ObservabilityFrame` + `from_cycle` |
+| C9 | `recovery_active` in JSONL | Exported | **PASS** (2026-07-07) | Same |
+| C10 | `task_id` in JSONL | Exported | **PASS** (2026-07-07) | Same |
 | C11 | Resilience after RBTA | Step 14+ | **PASS** | `cycle.py:722-728` before metrics push |
 | C12 | Eval phase calls `on_task_boundary` | Should reset mitigation context | **FAIL** | Eval sets `_current_task_id` only (`benchmark_level4.py:83`) |
 | C13 | G′ replay buffer retains cross-task diversity | Old tasks sampleable | **FAIL** | FIFO 500 slots; 10×80=800 cycles/train phase overwrites |
@@ -62,10 +62,10 @@ flowchart TB
 
 | ID | Hook | Defined | Called from hot path? | Impact |
 |----|------|---------|----------------------|--------|
-| G5-01 | `M3Episodic.sample_episodes` | `m3_episodic.py:326` | **Never** | No M3-based replay for continual learning |
-| G5-02 | `ObservabilityFrame.failure_events` | — | Field missing | Observatory cannot audit in-cycle failures |
-| G5-03 | `ObservabilityFrame.recovery_active` | — | Field missing | Same |
-| G5-04 | `ObservabilityFrame.task_id` | — | Field missing | Continual task not visible in JSONL |
+| G5-01 | `M3Episodic.sample_episodes` | `m3_episodic.py:326` | **Wired** (2026-07-07) | `cycle._replay_m3_prior_tasks` |
+| G5-02 | `ObservabilityFrame.failure_events` | observability.py | **Wired** | `from_cycle` |
+| G5-03 | `ObservabilityFrame.recovery_active` | observability.py | **Wired** | Same |
+| G5-04 | `ObservabilityFrame.task_id` | observability.py | **Wired** | Same |
 | G5-05 | L4 eval `on_task_boundary` | `cycle.on_task_boundary` | Not called in eval loop | Eval context differs from train |
 | G5-06 | B4 during training | `FailureDetector._detect_b4` | Needs `record_task_eval` history | Only accumulates during final eval pass |
 
