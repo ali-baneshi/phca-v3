@@ -763,9 +763,21 @@ def format_session_results_lines(
     active = anom.get("active") or []
     if active:
         lines.append("anomalies: " + ", ".join(active))
+    cls = report.get("report_classification") or {}
+    expected_limits = cls.get("expected_limitations") or []
+    if expected_limits:
+        lines.append("limits: " + ", ".join(expected_limits[:2]))
 
     action_m = report.get("action_metrics") or {}
     mech_pct = action_m.get("mechanism_pct") or {}
+    selector_pct = action_m.get("selector_mode_pct") or {}
+    selector_top = _top_pct_items(selector_pct, 2)
+    if selector_top:
+        lines.append(
+            "selector: " + " · ".join(f"{k} {v:.0f}%" for k, v in selector_top)
+        )
+    if action_m.get("task_lock_planner_dominant"):
+        lines.append("mode: task-lock planner dominated (discrete fallback path)")
     mech_top = _top_pct_items(mech_pct, 3)
     if mech_top:
         lines.append(

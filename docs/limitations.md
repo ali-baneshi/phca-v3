@@ -71,6 +71,10 @@ The nightly stress test uses a **phase-aware late RSS slope** gate (D-112, D-113
 
 When an extrinsic goal is present, **`task_lock`** routes action selection through an observed-greedy Manhattan controller **when G′ prediction confidence ≥ 0.6** (fair vs `greedy_observed` baseline); below that threshold the blended per-candidate G′ scorer is used instead. A sparse L3 coverage probe every 50 cycles on-goal (D-112). G′ prediction drives the **continuous MPC path** (Pendulum, Reacher) — the clean prediction-primary mechanism (A4 measured there, D-101).
 
+Session reporting now exposes this explicitly through selector-path metadata such as
+`task_lock_planner` vs `prediction_scored`; a GridWorld run can therefore be goal-successful
+while still being planner-dominated rather than prediction-dominated.
+
 ### MLP default hidden_dim = 128
 
 The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-028/D-072. This is the canonical capacity for GridWorld-scale environments.

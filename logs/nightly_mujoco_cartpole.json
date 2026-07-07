@@ -2,14 +2,14 @@
   "env": "InvertedPendulum-v5",
   "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 5.424835953162983,
-  "p95_latency_ms": 7.959637965541333,
-  "max_latency_ms": 8.423116989433765,
-  "action_selection_p99_ms": 1.2636553891934457,
-  "env_step_p99_ms": 0.10000999784097084,
-  "mean_error": 2.894115461124711,
+  "mean_latency_ms": 7.127664509462193,
+  "p95_latency_ms": 18.85587017168291,
+  "max_latency_ms": 19.85571696422994,
+  "action_selection_p99_ms": 1.3103127863723913,
+  "env_step_p99_ms": 0.21434879396110787,
+  "mean_error": 2.894449423301124,
   "early_error": 6.321655004701012,
-  "late_error": 0.2491483741097389,
+  "late_error": 0.23718157370295606,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
@@ -28,6 +28,6 @@
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 28
+    "goal_thrash_events": 22
   }
 }

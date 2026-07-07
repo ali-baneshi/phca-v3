@@ -210,6 +210,7 @@ def _build_agent_report_from_frames(
         "rbta_safe": 0,
         "other": 0,
     }
+    selector_mode_counts: Dict[str, int] = {}
     decision_reason_counts: Dict[str, int] = {}
     anchor_explain: Dict[str, Dict[str, Any]] = {}
     terminate_cycle_count = 0
@@ -227,6 +228,9 @@ def _build_agent_report_from_frames(
 
         r = dict(getattr(f, "action_rationale", {}) or {})
         mechanism_counts[classify_action_mechanism(r)] += 1
+        selector_mode = str(r.get("selector_mode") or "")
+        if selector_mode:
+            selector_mode_counts[selector_mode] = selector_mode_counts.get(selector_mode, 0) + 1
         dr = infer_decision_reason(r)
         decision_reason_counts[dr] = decision_reason_counts.get(dr, 0) + 1
         rbta_act = str(getattr(f, "rbta_action", "") or "").upper()
@@ -433,9 +437,13 @@ def _build_agent_report_from_frames(
     moment_totals = count_moments(moment_series)
     anchor_moment_flags: Dict[str, Dict[str, Any]] = {}
     mechanism_pct: Dict[str, float] = {}
+    selector_mode_pct: Dict[str, float] = {}
     if n:
         mechanism_pct = {
             k: round(100.0 * v / n, 2) for k, v in mechanism_counts.items()
+        }
+        selector_mode_pct = {
+            k: round(100.0 * v / n, 2) for k, v in selector_mode_counts.items()
         }
     for anchor_key, target_idx in anchor_targets.items():
         if 0 <= target_idx < len(moment_series):
@@ -459,6 +467,27 @@ def _build_agent_report_from_frames(
         "goals_metrics": {"active_drive_switch_count": active_drive_switch_count},
     }
     anomalies = detect_session_anomalies(frames, partial_report)
+    report_classification = {
+        "evidence_quality": (
+            "forensic_only"
+            if str(meta.get("status", "") or "").lower() in {"incomplete", "crashed", "corrupt", "empty"}
+            else "trusted"
+        ),
+        "core_runtime_signals": list(anomalies.get("active") or []),
+        "observability_limitations": [],
+        "expected_limitations": [],
+    }
+    if float(selector_mode_pct.get("task_lock_planner", 0.0)) >= 50.0:
+        report_classification["expected_limitations"].append(
+            "discrete_task_lock_planner_dominant"
+        )
+        report_classification["observability_limitations"].append(
+            "goal_success_can_mask_prediction_path_quality"
+        )
+    if str(meta.get("status", "") or "").lower() == "incomplete":
+        report_classification["observability_limitations"].append(
+            "incomplete_session_trend_claims_are_limited"
+        )
 
     return {
         "meta": dict(meta),
@@ -509,6 +538,11 @@ def _build_agent_report_from_frames(
             "best_score_late_median": _median(bs_late),
             "mechanism_histogram": mechanism_counts,
             "mechanism_pct": mechanism_pct,
+            "selector_mode_histogram": selector_mode_counts,
+            "selector_mode_pct": selector_mode_pct,
+            "task_lock_planner_dominant": (
+                float(selector_mode_pct.get("task_lock_planner", 0.0)) >= 50.0
+            ),
             "anchor_action_status": anchor_action_status,
             "anchor_action_moments": anchor_moment_flags,
             "explain_metrics": {
@@ -546,6 +580,7 @@ def _build_agent_report_from_frames(
         "anchor_narratives": anchor_narratives,
         "notable_cycles": notable_cycles,
         "anomalies": anomalies,
+        "report_classification": report_classification,
     }
 
 

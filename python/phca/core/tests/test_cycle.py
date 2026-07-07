@@ -222,6 +222,22 @@ class TestCognitiveCycleCollectLogs:
             assert cycle.last_action_rationale.get("decision_reason") == "greedy_fallback"
         finally:
             PredictionEngine.predict = orig
+        assert cycle.last_action_rationale.get("selector_mode") == "task_lock_planner"
+
+    def test_prediction_path_marks_selector_mode(self):
+        """Low-confidence discrete selection reports prediction_scored path."""
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        cycle._task_lock = True
+        cycle.current_state = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.ones(cycle.state_dim, dtype=np.float32),
+        )
+        cycle.last_prediction = StateVector(
+            values=np.ones(cycle.state_dim, dtype=np.float32),
+            precision=np.full(cycle.state_dim, 0.2, dtype=np.float32),
+        )
+        cycle._select_action()
+        assert cycle.last_action_rationale.get("selector_mode") == "prediction_scored"
 
 
 class TestRBTAEnforcement:

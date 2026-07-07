@@ -1,0 +1,4 @@
+{"ts": "2026-07-07T07:10:24+00:00", "event": "supervisor_start", "record_dir": "logs/sessions", "child_cmd": ["python", "scripts/phca_observatory.py", "--env", "gridworld", "--grid-size", "10", "--cycles", "4000", "--mlp", "--profile", "readable", "--record-video"]}
+{"ts": "2026-07-07T07:10:24+00:00", "event": "child_spawn", "pid": 3879893, "record_dir": "logs/sessions"}
+{"ts": "2026-07-07T07:17:29+00:00", "event": "child_exit", "returncode": 0, "signal": null}
+{"ts": "2026-07-07T07:17:29+00:00", "event": "recover_skip", "reason": "no_latest_pointer"}

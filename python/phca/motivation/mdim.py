@@ -133,6 +133,7 @@ class MDIM:
 
         # CR-controlled temperature (set externally by CognitiveCycle)
         self.temperature: float = 1.0
+        self._goal_switch_hysteresis_ratio: float = 0.85
 
         # Last generated goal
         self.current_goal: Optional[GoalVector] = None
@@ -433,6 +434,18 @@ class MDIM:
         else:
             rng = np.random.RandomState(self._cycle)
             winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
+            prev_goal = self.current_goal
+            prev_drive_id = int(getattr(prev_goal, "drive_id", 0) or 0)
+            if prev_drive_id:
+                prev_weight = float(weights[prev_drive_id - 1])
+                winner_weight = float(weights[winner - 1])
+                if (
+                    prev_goal is not None
+                    and winner != prev_drive_id
+                    and not context.get("goal_switch_boost")
+                    and prev_weight >= winner_weight * self._goal_switch_hysteresis_ratio
+                ):
+                    winner = prev_drive_id
 
         # Generate goal from winning drive
         goal = self._goal_from_drive(winner, weights[int(winner) - 1], context)

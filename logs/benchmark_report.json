@@ -30,14 +30,14 @@
       "adaptation_speed": 0.922250001072882,
       "goal_complexity": 1.0,
       "transfer_efficiency": 0.8505450644789309,
-      "resource_efficiency": 0.987568591570016,
+      "resource_efficiency": 0.9871742936782539,
       "failure_rate": 0.0,
-      "phi_iq": 0.8439954784149957,
+      "phi_iq": 0.8439166188366433,
       "raw_metrics": {
         "mean_error": 0.7774999892711797,
         "mean_confidence": 0.8,
-        "mean_latency_ms": 6.215704214992002,
-        "p95_latency_ms": 8.679758594371378,
+        "mean_latency_ms": 6.4128531608730555,
+        "p95_latency_ms": 8.813693415140733,
         "violations": 0,
         "skill_accuracy": 0.9037921403770548,
         "skill_compiled": false,
@@ -46,9 +46,9 @@
       "emergence": {}
     }
   ],
-  "overall_phi_iq": 0.8439954784149957,
+  "overall_phi_iq": 0.8439166188366433,
   "total_cycles": 20,
-  "duration_s": 1.653363702003844,
+  "duration_s": 1.5657403450459242,
   "pass_criteria": {
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,

@@ -292,3 +292,27 @@ def test_format_session_results_lines_compare_and_benchmark():
     assert "vs prev" in text
     assert "Φ-IQ" in text
     assert "verify: PASS" in text
+
+
+def test_format_session_results_lines_task_lock_mode():
+    report = {
+        "cycles": 50,
+        "explore_ratio": 0.0,
+        "goal_reached_count": 45,
+        "spike_count": 0,
+        "error_early_median": 4.0,
+        "error_late_median": 4.0,
+        "flow_metrics": {"violation_cycle_count": 0},
+        "action_metrics": {
+            "selector_mode_pct": {"task_lock_planner": 100.0},
+            "task_lock_planner_dominant": True,
+            "mechanism_pct": {"greedy_fallback": 100.0},
+        },
+        "report_classification": {
+            "expected_limitations": ["discrete_task_lock_planner_dominant"],
+        },
+    }
+    text = "\n".join(format_session_results_lines(report))
+    assert "selector: task_lock_planner 100%" in text
+    assert "task-lock planner dominated" in text
+    assert "limits:" in text

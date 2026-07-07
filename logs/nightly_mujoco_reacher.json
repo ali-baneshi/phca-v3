@@ -2,14 +2,14 @@
   "env": "Reacher-v5",
   "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 6.256770974723622,
-  "p95_latency_ms": 9.109817404532805,
-  "max_latency_ms": 9.306782972998917,
-  "action_selection_p99_ms": 2.7733084000647072,
-  "env_step_p99_ms": 0.1300870720297099,
-  "mean_error": 31.89536952106658,
+  "mean_latency_ms": 9.447091969195753,
+  "p95_latency_ms": 14.449361164588481,
+  "max_latency_ms": 15.746418968774378,
+  "action_selection_p99_ms": 4.911312372423708,
+  "env_step_p99_ms": 0.18993048695847392,
+  "mean_error": 31.873609747158312,
   "early_error": 42.87732676770842,
-  "late_error": 7.959634398468234,
+  "late_error": 7.872595302835187,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
@@ -21,13 +21,13 @@
     "behavioral_compression": 0.0,
     "adaptation_stability": 0.5898100389520571,
     "cross_context_reuse": 0.0,
-    "self_generated_goals": 0.2727272727272727,
+    "self_generated_goals": 0.09090909090909091,
     "unexpected_skill_chains": 0.0,
-    "emergence_composite": 0.12321961595418997
+    "emergence_composite": 0.097245589980164
   },
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 3
+    "goal_thrash_events": 1
   }
 }

@@ -131,6 +131,7 @@ Nested object per cycle. Legacy keys remain; new keys are optional.
 | `drive_id` | int | Active drive at selection (usually equals `goal_id`) |
 | `mechanism` | str | `explore`, `prediction`, `greedy_fallback`, `stay`, `continuous`, `rbta_safe`, `other` |
 | `decision_reason` | str | Finer grain: `explore`, `d5_stay`, `rbta_safe`, `greedy_fallback`, `prediction`, `continuous_mpc`, `continuous_explore` |
+| `selector_mode` | str | Action-path label: `task_lock_planner`, `prediction_scored`, `continuous_mpc`, `continuous_explore`, or safe/explore variants |
 | `relevant_facts_summary` | list | `[{fact_id, confidence}]`, cap 5 |
 | `chosen_label` | str | Human label: `MOVE_E #2` or `τ#3` |
 
@@ -253,6 +254,11 @@ PYTHONPATH=python python scripts/phca_query.py logs/sessions/<ts>/ --spike --age
 Banners appear when `PlaybackClock.mode == "replay"` and mark genuinely unavailable live-only data. They must **not** appear during live observatory scrubbing (the ring buffer retains live-only fields).
 
 Panels that draw replay banners include Action Selection, Cognitive Flow, Phase Space, and Memory & Belief. Recorded fields (`module_timings`, `rbta_bounds`, `candidate_scores`, `gprime_uncertainty`, `goal_ref`, counts/caps, `m3_top_error`) remain authoritative in replay without banners.
+
+### Report honesty notes
+
+- `session_report.json` distinguishes selector-path dominance from mechanism labels, so fallback-dominated GridWorld runs can be identified explicitly.
+- `report_classification` separates trusted vs forensic sessions and marks expected limitations such as `discrete_task_lock_planner_dominant`.
 
 ## Session integrity (`--check`)
 

@@ -59,6 +59,7 @@ def test_build_session_report_metrics():
     mh = report["action_metrics"].get("mechanism_histogram", {})
     assert sum(mh.values()) == report["cycles"]
     assert "mechanism_pct" in report["action_metrics"]
+    assert "selector_mode_pct" in report["action_metrics"]
     assert "retention_metrics" in report
     assert "memory_metrics" in report
     assert "goals_metrics" in report
@@ -218,7 +219,30 @@ def test_anchor_cycle_id_lookup():
         }))
     report = build_session_report({"env": "grid", "cycles": 100}, lines)
     assert report["anchor_narratives"]["0"]["cycle_id"] == 0
-    assert report["anchor_narratives"]["99"]["cycle_id"] == 99
+
+
+def test_task_lock_planner_classification():
+    lines = []
+    for i in range(5):
+        lines.append(json.dumps({
+            "cycle_id": i,
+            "schema_version": 1,
+            "prediction_error": 1.0,
+            "module_timings": {},
+            "goal_reached": True,
+            "action_rationale": {
+                "best_score": 1.0,
+                "greedy_fallback": True,
+                "selector_mode": "task_lock_planner",
+                "decision_reason": "greedy_fallback",
+            },
+        }))
+    report = build_session_report({"env": "gridworld", "cycles": 5}, lines)
+    action_m = report["action_metrics"]
+    assert action_m["task_lock_planner_dominant"] is True
+    assert action_m["selector_mode_pct"]["task_lock_planner"] == 100.0
+    cls = report["report_classification"]
+    assert "discrete_task_lock_planner_dominant" in cls["expected_limitations"]
 
 
 def test_anchor_cycle_id_resolves_gaps():

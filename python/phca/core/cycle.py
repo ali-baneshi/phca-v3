@@ -72,6 +72,8 @@ ENERGY_NORM_FLOPS = 60_000_000.0
 
 # Task-lock uses geometry-primary greedy only when G' confidence is high (P0-2 aligned).
 TASK_LOCK_CONFIDENCE_THRESHOLD = 0.6
+STEADY_STATE_GPRIME_ERROR_THRESHOLD = 1.5
+STEADY_STATE_GPRIME_SKIP_MOD = 2
 
 
 @dataclass
@@ -534,6 +536,9 @@ class CognitiveCycle:
                     ),
                     "task_lock": bool(self._task_lock),
                     "rbta_safe_mode": True,
+                    "selector_mode": (
+                        "continuous_safe_mode" if self._is_continuous else "discrete_safe_mode"
+                    ),
                     "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
                 }, decision_reason="rbta_safe")
             else:
@@ -626,15 +631,18 @@ class CognitiveCycle:
                 if self.interventions.enable_gprime_learn:
                     if isinstance(self.gprime, WorldModelMLP):
                         self.gprime.replay_boost = self._forgetting_mitigation_active
-                    attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
-                    if hasattr(self.gprime, '_attention_weights'):
-                        self.gprime._attention_weights = self._attention_weights.copy()
-                    self.gprime.learn(
-                        self.current_state, action_vec, next_state,
-                        error=attn_weighted_error,
-                    )
-                    self._last_m3_replay_steps = self._replay_m3_prior_tasks()
-                    self._m3_replay_total += self._last_m3_replay_steps
+                    if self._should_skip_gprime_learn(metrics):
+                        self._last_m3_replay_steps = 0
+                    else:
+                        attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
+                        if hasattr(self.gprime, '_attention_weights'):
+                            self.gprime._attention_weights = self._attention_weights.copy()
+                        self.gprime.learn(
+                            self.current_state, action_vec, next_state,
+                            error=attn_weighted_error,
+                        )
+                        self._last_m3_replay_steps = self._replay_m3_prior_tasks()
+                        self._m3_replay_total += self._last_m3_replay_steps
                 metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
                 # Store episode in M3 episodic memory (Task B fix)
@@ -881,6 +889,22 @@ class CognitiveCycle:
         window = hist[-20:]
         return float(np.mean(window))
 
+    def _should_skip_gprime_learn(self, metrics: CycleMetrics) -> bool:
+        """Throttle replay-only G' learning once the model is in steady state."""
+        if not isinstance(self.gprime, WorldModelMLP):
+            return False
+        if self._forgetting_mitigation_active:
+            return False
+        if self.cycle_count < 64:
+            return False
+        if metrics.prediction_error > STEADY_STATE_GPRIME_ERROR_THRESHOLD:
+            return False
+        if self._is_continuous and metrics.prediction_error > 2.0:
+            return False
+        if len(getattr(self.gprime, "_replay_buffer", [])) < self.gprime.batch_size:
+            return False
+        return (self.cycle_count % STEADY_STATE_GPRIME_SKIP_MOD) != 0
+
     def _build_resilience_snapshot(
         self,
         metrics: Optional[CycleMetrics] = None,
@@ -1048,6 +1072,7 @@ class CognitiveCycle:
                 "k_candidates": int(self.env.action_space_size),
                 "chosen_idx": pick,
                 "task_lock": bool(self._task_lock),
+                "selector_mode": "discrete_explore",
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="explore")
             self.last_candidate_scores = []
@@ -1063,6 +1088,7 @@ class CognitiveCycle:
                 "note": "D5 energy: STAY",
                 "chosen_idx": int(self.env.stay_action),
                 "task_lock": bool(self._task_lock),
+                "selector_mode": "energy_stay",
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="d5_stay")
             self.last_candidate_scores = []
@@ -1109,6 +1135,7 @@ class CognitiveCycle:
                 "chosen_idx": int(greedy_action),
                 "task_lock": True,
                 "greedy_fallback": True,
+                "selector_mode": "task_lock_planner",
                 "score_components": greedy_comp,
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="greedy_fallback")
@@ -1229,6 +1256,7 @@ class CognitiveCycle:
             "chosen_idx": int(best_action),
             "task_lock": bool(self._task_lock),
             "prediction_gated_fallback": bool(_gated_fallback),
+            "selector_mode": "prediction_scored",
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
         }, decision_reason="prediction")
@@ -1262,6 +1290,7 @@ class CognitiveCycle:
                 "goal_id": int(goal_id) if goal_id is not None else None,
                 "continuous": True,
                 "best_score": None, "k_candidates": int(K),
+                "selector_mode": "continuous_explore",
             }, decision_reason="continuous_explore")
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
@@ -1324,6 +1353,7 @@ class CognitiveCycle:
             "best_score": float(best_score) if best_a is not None else None,
             "k_candidates": int(K),
             "chosen_idx": int(best_idx),
+            "selector_mode": "continuous_mpc",
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
         }, decision_reason="continuous_mpc")
@@ -1997,6 +2027,22 @@ class CognitiveCycle:
         cycle.rbta.update_bounds(
             "ENV",
             ResourceBounds(B_time=0.250, B_mem=10_000, B_energy=12.5),
+        )
+        # MuJoCo live/replay runs add small but repeatable regulator overhead on
+        # shared runners, especially around Reacher camera/continuous-control
+        # sessions. Widen only the lightweight regulator modules here rather than
+        # masking the main ACTION/ENV/G' bounds globally.
+        cycle.rbta.update_bounds(
+            "CR",
+            ResourceBounds(B_time=0.010, B_mem=50_000, B_energy=5.0),
+        )
+        cycle.rbta.update_bounds(
+            "ATTN",
+            ResourceBounds(B_time=0.008, B_mem=20_000, B_energy=2.0),
+        )
+        cycle.rbta.update_bounds(
+            "HPM",
+            ResourceBounds(B_time=0.008, B_mem=50_000, B_energy=5.0),
         )
         return cycle
 

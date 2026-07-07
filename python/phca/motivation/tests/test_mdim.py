@@ -221,6 +221,34 @@ class TestGoalGeneration:
         mdim.generate_goal(default_context)
         assert len(mdim._goal_history) == 1
 
+    def test_goal_hysteresis_keeps_near_tie_drive(self, mdim, monkeypatch):
+        """Near-tie winners should keep the current drive to reduce oscillation."""
+        mdim.current_goal = GoalVector(
+            drive_id=3,
+            target_state=None,
+            tolerance=0.1,
+            creation_cycle=0,
+            priority=0.5,
+        )
+        class _FakeRng:
+            def choice(self, a, size=None, replace=True, p=None):
+                return 0  # drive_id 1 before hysteresis adjustment
+
+            def uniform(self, low=0.0, high=1.0, size=None):
+                if size is None:
+                    return 0.0
+                return np.zeros(size, dtype=np.float32)
+
+        monkeypatch.setattr("phca.motivation.mdim.np.random.RandomState", lambda seed: _FakeRng())
+        goal = mdim.generate_goal({
+            "prediction_error": 0.6,
+            "error_volatility": 0.3,
+            "skill_accuracy": 0.45,
+            "model_entropy": 0.4,
+            "energy_cost": 0.1,
+        })
+        assert goal.drive_id == 3
+
     def test_softmax_deficit_normalization_balanced(self, mdim):
         """Normalized deficits prevent D1 from monopolizing softmax weights."""
         mdim.compute_drives({

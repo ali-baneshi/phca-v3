@@ -1,0 +1,4 @@
+{"ts": "2026-07-07T07:25:48+00:00", "event": "supervisor_start", "record_dir": "logs/sessions", "child_cmd": ["/usr/bin/python", "/home/manjaruhp/Pictures/Autonomous-AI-june2026/new-ai/scripts/phca_observatory.py", "--", "python", "scripts/phca_observatory.py", "--env"]}
+{"ts": "2026-07-07T07:25:48+00:00", "event": "child_spawn", "pid": 3882830, "record_dir": "logs/sessions"}
+{"ts": "2026-07-07T07:25:48+00:00", "event": "child_exit", "returncode": 2, "signal": null}
+{"ts": "2026-07-07T07:25:48+00:00", "event": "recover_skip", "reason": "no_latest_pointer"}
