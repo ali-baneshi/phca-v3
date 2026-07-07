@@ -4,6 +4,9 @@ Maps **whitepaper success criteria** and **blueprint components** to current
 code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
 2026-07-06.
 
+**Maturation audits (2026-07-07):** [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md),
+[docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md).
+
 Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **Stub** | ✅ **Done**
 
 ---
