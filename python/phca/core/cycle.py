@@ -825,7 +825,10 @@ class CognitiveCycle:
                 metrics.module_timings["consolidation"] = 0.0
             else:
                 t_consol = time.perf_counter()
-                consol_report = self.consolidation.step(self.cycle_count)
+                consol_report = self.consolidation.step(
+                    self.cycle_count,
+                    gprime=self.gprime if self.interventions.enable_gprime_learn else None,
+                )
                 metrics.module_timings["consolidation"] = (
                     time.perf_counter() - t_consol
                 ) * 1000

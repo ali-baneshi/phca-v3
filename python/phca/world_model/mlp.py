@@ -423,15 +423,19 @@ class WorldModelMLP:
             avg_grad = self._backward_batch(X, Z1, Z2, Out, T)
             self._apply_gradient(avg_grad, lr=effective_lr)
 
-    def learn_m3_episodes(self, episodes: list) -> int:
+    def learn_m3_episodes(self, episodes: list, lr_scale: float = 1.0) -> int:
         """Extra gradient steps from M3 episodic transitions (continual replay).
 
         Also injects transitions into the internal FIFO buffer so later
         mini-batch replay can resample them.
+
+        Args:
+            episodes: List of EpisodeRecord objects.
+            lr_scale: Additional LR multiplier (default 1.0; consolidation uses 0.1).
         """
         if not episodes:
             return 0
-        effective_lr = self.lr * 0.5
+        effective_lr = self.lr * 0.5 * lr_scale
         steps = 0
         for ep in episodes:
             state_before = getattr(ep, "state_before", None)

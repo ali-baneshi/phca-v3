@@ -11,7 +11,7 @@ v3.0 Patch §2.4 (Pareto front + meta-stable state)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 

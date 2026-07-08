@@ -25,13 +25,16 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
 from phca.config import StateVector
 from phca.memory.m3_episodic import M3EpisodicMemory, EpisodeRecord
 from phca.logging import logger, _log
+
+if TYPE_CHECKING:
+    from phca.world_model.mlp import WorldModelMLP
 
 # M4 write-lock constants (v3.0 Patch §2.3.2)
 # Phase 7 / B2: cap tightened from 10_000/5_000 to 1_000/500 so the retention
@@ -153,6 +156,7 @@ class ConsolidationScheduler:
         self,
         cycle_count: int,
         force: bool = False,
+        gprime: Optional["WorldModelMLP"] = None,
     ) -> ConsolidationReport:
         """Run consolidation if it's time (or force=True).
 
@@ -195,6 +199,12 @@ class ConsolidationScheduler:
 
             # Step 18: Write facts to S-Stream (log and mark consolidated)
             n_facts = self._store_facts(facts)
+            # Replay consolidated transitions back into G' before marking,
+            # so the raw episodic data contributes a gradient signal (Gap B).
+            if gprime is not None and isinstance(gprime, WorldModelMLP):
+                replayed = gprime.learn_m3_episodes(snapshot.episodes, lr_scale=0.1)
+                _log(logger, "debug", "consolidation.replay",
+                     episodes=replayed, lr_scale=0.1)
             # Flush pending M3 writes so episodes are durable before marking
             self.m3.flush()
             marked = self.m3.mark_consolidated(episode_ids)

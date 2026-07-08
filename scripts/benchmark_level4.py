@@ -197,7 +197,7 @@ def run_level4_benchmark(
     baseline_window: int = 20,
     baseline_min_valid: float = DEFAULT_BASELINE_MIN_VALID,
     diagnostic: bool = False,
-    m3_replay_budget: int = 4,
+    m3_replay_budget: int = 16,
     interleaved_eval_cycles: int = 0,
     interleaved_warmup_cycles: int = 0,
     noise_profile: Optional[str] = None,
@@ -340,6 +340,7 @@ def run_level4_benchmark(
             "per_task_accuracy": current,
             "forward_transfer": _forward_transfer,
             "m3_replay_total": cycle._m3_replay_total,
+            "novel_goal_rate": cycle.mdim.snapshot().get("novel_goal_rate", 0.0) if hasattr(cycle, "mdim") and cycle.mdim is not None else 0.0,
         }
         if diagnostic:
             seed_entry["diagnostic"] = {
@@ -404,6 +405,7 @@ def run_level4_benchmark(
             tid: float(np.mean([r["forward_transfer"].get(tid, 0.0) for r in seed_results]))
             for tid in range(n_tasks)
         },
+        "novel_goal_rate": float(np.mean([r.get("novel_goal_rate", 0.0) for r in seed_results])),
         "duration_s": 0.0,
     }
 
@@ -429,7 +431,7 @@ def main() -> int:
     parser.add_argument("--baseline-window", type=int, default=20)
     parser.add_argument("--baseline-min-valid", type=float, default=DEFAULT_BASELINE_MIN_VALID)
     parser.add_argument("--diagnostic", action="store_true")
-    parser.add_argument("--m3-replay-budget", type=int, default=4)
+    parser.add_argument("--m3-replay-budget", type=int, default=16)
     parser.add_argument("--interleaved-eval", type=int, default=0, dest="interleaved_eval_cycles")
     parser.add_argument("--interleaved-warmup", type=int, default=0, dest="interleaved_warmup_cycles")
     parser.add_argument("--noise-profile", type=str, default=None, choices=["gaussian", "dropout", "drift", "salt_pepper"])

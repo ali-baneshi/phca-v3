@@ -126,11 +126,14 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 ## Fixes (2026-07-08)
 
 | Feature | Code | Status | Evidence |
-|---|---|---|---|
+|---|---|---|---|---|
 | Goal novelty metric (replace drive-diversity proxy) | `python/phca/motivation/mdim.py` — `_seen_goal_signatures`, `_novel_goal_count`, `snapshot()` | ✅ **Done** | `novel_goal_rate` in MDIM snapshot; L3 pass criteria uses `novel_goal_rate > 0.01` instead of `active_drives > 0.1` |
 | B1 eta boost timing (applied before TSPL, not after) | `python/phca/core/cycle.py` — APC regulation skips eta overwrite when B1 recovery active | ✅ **Done** | Recovery B1 eta boost persists through APC regulation phase |
 | Eval contamination (learn disabled during benchmark eval phase) | `scripts/benchmark_level4.py` — `_run_eval_on_task` sets `interventions.enable_gprime_learn=False` | ✅ **Done** | gprime_learn + M3 replay frozen during eval; weights uncontaminated |
 | M3 replay total visible in default benchmark output | `scripts/benchmark_level4.py` — `m3_replay_total` printed always, not only under `--diagnostic` | ✅ **Done** | Print unconditional; stored in seed_entry |
+| M3 replay budget increased from 4→16 (Gap A) | `scripts/benchmark_level4.py` — `m3_replay_budget` default | ✅ **Done** | ~142 samples/prior-task vs ~35; addresses root cause of 100% measured forgetting |
+| Consolidation gradient feedback into G' (Gap B) | `python/phca/consolidation/scheduler.py` — `step()` takes optional `gprime`, replays episodes at `lr_scale=0.1` before marking consolidated | ✅ **Done** | M3 transitions now contribute gradient signal before eviction; eval-leak guarded by `enable_gprime_learn` |
+| Novel goal rate in benchmark JSON output (Gap C) | `scripts/benchmark_level4.py` — `novel_goal_rate` in seed_entry + aggregated return | ✅ **Done** | Enables CI trend tracking for A4 autonomy criterion |
 
 ## Core Infrastructure Fixes (2026-07-06)
 
