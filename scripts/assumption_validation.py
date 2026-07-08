@@ -187,12 +187,15 @@ def experiment_a5_feedback_driven() -> dict:
     # (a) Frozen: no-op learn.
     mse0_frozen = _deterministic_probe_mse(cycle, probe)
     orig_learn = cycle.gprime.learn
+    orig_enable = cycle.interventions.enable_gprime_learn
+    cycle.interventions.enable_gprime_learn = False
     cycle.gprime.learn = lambda *a, **k: None
     try:
         for _ in range(100):
             cycle.step()
     finally:
         cycle.gprime.learn = orig_learn
+        cycle.interventions.enable_gprime_learn = orig_enable
     mse1_frozen = _deterministic_probe_mse(cycle, probe)
     frozen_rel = abs(mse1_frozen - mse0_frozen) / max(mse0_frozen, 1e-6)
 

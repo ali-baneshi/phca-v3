@@ -13,7 +13,7 @@
       "cross_context_reuse_ablated": 0,
       "cross_context_reuse_full": 0
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   },
   {
     "id": "H002",
@@ -27,7 +27,7 @@
     "observed": {
       "transfer_drop_fraction": -0.5191474537073012
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   },
   {
     "id": "H003",
@@ -42,7 +42,7 @@
       "synergy_ablated": 0.029365389153189318,
       "synergy_full": 0.01492108702795083
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   },
   {
     "id": "H004",
@@ -59,7 +59,7 @@
       "interaction_supported": 0.0,
       "n_seeds": 30
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   },
   {
     "id": "H005",
@@ -73,7 +73,7 @@
     "observed": {
       "emergence_ratio": 1.2992525641235948
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   },
   {
     "id": "H006",
@@ -86,6 +86,6 @@
     "observed": {
       "pearson_r": 0.9920960020349829
     },
-    "verdict_date": "2026-07-05"
+    "verdict_date": "2026-07-08"
   }
 ]

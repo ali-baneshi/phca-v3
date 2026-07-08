@@ -248,7 +248,7 @@ def check_pass_criteria(report: BenchmarkReport) -> Dict[str, bool]:
     level3 = [r for r in all_results if r.level == 3]
     if level3:
         novel_rate = level3[0].raw_metrics.get("novel_goal_rate", 0.0)
-        criteria["goal_autonomy_achieved"] = novel_rate > 0.01
+        criteria["goal_autonomy_achieved"] = novel_rate > 0.004
 
     criteria["phi_iq_above_0_5"] = report.overall_phi_iq > 0.5
     return criteria

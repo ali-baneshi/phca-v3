@@ -2,14 +2,14 @@
   "env": "Pendulum-v1",
   "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 5.409267343347892,
-  "p95_latency_ms": 10.080194793408737,
-  "max_latency_ms": 32.64672996010631,
-  "action_selection_p99_ms": 3.9086663478519776,
-  "env_step_p99_ms": 0.06182538229040803,
-  "mean_error": 8.685956241576243,
-  "early_error": 29.628463968934906,
-  "late_error": 1.0326486427282082,
+  "mean_latency_ms": 4.279439102392644,
+  "p95_latency_ms": 5.498719424940646,
+  "max_latency_ms": 6.915863021276891,
+  "action_selection_p99_ms": 1.671109505696228,
+  "env_step_p99_ms": 0.05242851679213345,
+  "mean_error": 20.184166176259758,
+  "early_error": 78.89655935782665,
+  "late_error": 0.8790647196319354,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
@@ -28,6 +28,6 @@
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 21
+    "goal_thrash_events": 31
   }
 }
