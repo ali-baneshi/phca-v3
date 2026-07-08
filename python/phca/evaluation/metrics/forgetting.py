@@ -140,6 +140,49 @@ def forgetting_rate(delta: Dict[int, float]) -> float:
     return float(max(max(0.0, -v) for v in delta.values()))
 
 
+def cycles_to_threshold(
+    train_curve: List[float],
+    threshold: float = 0.8,
+    min_cycles: int = 5,
+) -> int:
+    """First cycle where a ``min_cycles``-rolling average crosses ``threshold``.
+
+    Returns ``len(train_curve)`` if threshold is never reached (capped).
+    """
+    if len(train_curve) < min_cycles:
+        return len(train_curve)
+    for i in range(len(train_curve) - min_cycles + 1):
+        avg = float(np.mean(train_curve[i : i + min_cycles]))
+        if avg >= threshold:
+            return i + min_cycles  # last cycle of the window
+    return len(train_curve)
+
+
+def forward_transfer(
+    train_curves: Dict[int, List[float]],
+    threshold: float = 0.8,
+    min_cycles: int = 5,
+) -> Dict[int, float]:
+    """Speedup ratio per task relative to task 0 learning speed.
+
+    Speedup = cycles(task_0) / cycles(task_N).
+    Values > 1.0 indicate forward transfer (faster learning).
+    Values < 1.0 indicate negative transfer (slower learning).
+    """
+    if 0 not in train_curves:
+        return {}
+    base_cycles = cycles_to_threshold(
+        train_curves[0], threshold=threshold, min_cycles=min_cycles,
+    )
+    if base_cycles <= 0:
+        base_cycles = 1  # avoid division by zero
+    result: Dict[int, float] = {}
+    for tid, curve in train_curves.items():
+        c = cycles_to_threshold(curve, threshold=threshold, min_cycles=min_cycles)
+        result[tid] = round(base_cycles / max(c, 1), 3)
+    return result
+
+
 def passes_forgetting_gate(
     delta: Dict[int, float],
     threshold: float = 0.05,

@@ -25,6 +25,7 @@ from phca.evaluation.metrics.forgetting import (
     delta_perf_valid_only,
     eval_window_accuracy,
     forgetting_rate,
+    forward_transfer,
     max_rolling_task_accuracy,
     passes_forgetting_gate,
     task_accuracy,
@@ -320,8 +321,19 @@ def run_level4_benchmark(
             "per_task_accuracy": current,
         }
         if diagnostic:
+            _forward_transfer = {}
+            if train_curves:
+                _perf_only = {
+                    tid: [p["perf"] for p in pts]
+                    for tid, pts in train_curves.items()
+                }
+                try:
+                    _forward_transfer = forward_transfer(_perf_only)
+                except Exception:
+                    pass
             seed_entry["diagnostic"] = {
                 "train_curves": train_curves,
+                "forward_transfer": _forward_transfer,
                 "m3_counts_by_task": _m3_counts_by_task(cycle, n_tasks),
                 "m3_replay_total": cycle._m3_replay_total,
                 "m3_replay_at_train_end": m3_replay_at_train_end,

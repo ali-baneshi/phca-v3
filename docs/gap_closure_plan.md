@@ -775,7 +775,28 @@ No code change needed. Documented as intentional design margin.
 
 ---
 
-**Grand total:** ~8.5 engineering hours (approximately 1-2 days + hardening)
+### Fix F: Forward transfer metric (learning speed) (P3)
+
+**Files:**
+- `python/phca/evaluation/metrics/forgetting.py` — added `cycles_to_threshold()`, `forward_transfer()`
+- `scripts/benchmark_level4.py` — compute and store `forward_transfer` in diagnostic output
+
+**What:**
+Forward transfer measures whether prior-task learning accelerates new-task learning.
+Added two functions:
+- `cycles_to_threshold(train_curve, threshold, min_cycles)` — first cycle where a
+  rolling-window performance crosses threshold.
+- `forward_transfer(train_curves, threshold, min_cycles)` — speedup ratio per task
+  relative to task 0 (which has no prior-task advantage).
+
+Values > 1.0 = forward transfer (faster learning), < 1.0 = negative transfer (slower).
+Computed from existing `train_curves` diagnostic data — no extra benchmark runs needed.
+
+**Effort:** 0.5 hours.
+
+---
+
+**Grand total:** ~9 engineering hours (approximately 1-2 days + hardening)
 
 ---
 

@@ -380,6 +380,7 @@ class M3EpisodicMemory:
 
         # Phase 1: allocate one per task, round-robin for surplus
         while remain > 0 and prior_ids:
+            found_any = False
             for tid in prior_ids:
                 if remain <= 0:
                     break
@@ -395,8 +396,11 @@ class M3EpisodicMemory:
                         if ep is not None:
                             result.append(ep)
                             remain -= 1
+                            found_any = True
                 except Exception:
                     continue
+            if not found_any:
+                break
 
         # Phase 2: fill remaining budget (if any episodes were found at all)
         if remain > 0 and result:
