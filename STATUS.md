@@ -1,8 +1,8 @@
 # PHCA v3.0 — Project Status
 
-**Last updated:** 2026-07-07  
-**Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-127)
+**Last updated:** 2026-07-08  
+**Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07); L4b gate fixed (D-137)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-137)
 
 ---
 
