@@ -1546,6 +1546,37 @@ Every entry must reference the v3.0 specification section it affects.
 - **v3.0 trace:** A1 Resource Boundedness; Phase 6 nightly stress C1.
 - **Tests/Validation:** `test_nightly_stress_build_no_spurious_gprime_mem_violation`; `nightly_stress.py --cycles=10000` PASS.
 
+## Decision D-138: PER (Prioritized Experience Replay) for M3 episodic memory
+
+- **Date:** 2026-07-08
+- **Author:** Implementation Engineer
+- **Category:** Tier 2 (implementation-dependent)
+- **Option chosen:** Error-reduction-rate priority with importance-sampling correction
+- **Alternatives:** Absolute TD-error priority (risks overfitting to aleatoric noise), uniform random (existing, dilutes informative transitions)
+- **Rationale:** Priority = max(ε, (stored_error - current_error) / (stored_error + ε)) prioritizes episodes where the model recently improved, not ones with permanently high noise. IS weights with β annealing from 0.4→1.0 correct sampling bias. Two new columns (priority, stored_error) in the episodes table; ALTER TABLE migration in _migrate_schema(). Sampling uses `ORDER BY priority DESC` + weighted random selection in Python for 10k-row tables.
+- **Files changed:**
+  - `python/phca/config.py`: PER_ALPHA, PER_BETA_INIT, PER_BETA_FINAL, PER_BETA_ANNEAL_STEPS, PER_EPSILON
+  - `python/phca/memory/m3_episodic.py`: EpisodeRecord fields, schema migration, store_episode, sample_episodes_per, update_priority, batch_update_priorities, last_inserted_id
+  - `python/phca/world_model/mlp.py`: learn_m3_episodes returns (steps, priority_updates)
+  - `python/phca/core/cycle.py`: _replay_m3_prior_tasks uses PER sampling + batch update, _per_beta annealing
+  - `python/phca/consolidation/scheduler.py`: tuple unpacking of learn_m3_episodes return
+- **v3.0 trace:** §3.1 Table 2, D-080 (replay), M3 FIFO eviction
+
+## Decision D-139: Φ (criticality) as gradient-norm w.r.t input, replacing temporal CoV heuristic
+
+- **Date:** 2026-07-08
+- **Author:** Implementation Engineer
+- **Category:** Tier 2 (implementation-dependent)
+- **Option chosen:** Gradient of mean(out) w.r.t input state, normalized by sqrt(state_dim), EMA-filtered, arctan-mapped to [0, 1)
+- **Alternatives:** Loss gradient dL/dx (vanishes when prediction error → 0, making phi uninformative for well-trained models), coefficient-of-variance heuristic (previous — temporal statistic, not causal), full Jacobian norm (too expensive)
+- **Rationale:** `Φ = (2/π) · arctan(||∂mean(out)/∂x_state|| / sqrt(state_dim))` measures how much the world model's prediction changes with respect to input — a valid causal sensitivity metric. Computed during the G' backward pass at minimal extra cost (~1 additional backprop through each layer with uniform output gradient). EMA (0.7·cached + 0.3·raw) prevents PID chatter. The old `_approximate_error_volatility()` (temporal CoV of prediction error) was measuring time-series variance, not causal sensitivity, and was removed.
+- **Files changed:**
+  - `python/phca/world_model/mlp.py`: `_last_output_sens` cache computed in `_backward()`, `last_input_sensitivity()` method
+  - `python/phca/core/cycle.py`: `_compute_phi_criticality()` returns cached phi, `_update_phi_from_gradient()` called after G' learn, removed `_error_vol_window` and `_approximate_error_volatility()`
+  - `python/phca/config.py`: `PHI_TARGET`, `PHI_MAX`
+  - `python/tests/test_stress.py`: updated to use `_cached_phi`
+- **v3.0 trace:** §2.2 Def 2.4b (G' interface), §3.3 Def 3.5 (MDIM D2 criticality)
+
 ## Decision D-133: L3 causal gate flake — cooldown coverage probe + causal-eval RBTA (D-112 follow-up)
 
 - **Date:** 2026-07-06

@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import StateVector
+from phca.config import PER_ALPHA, PER_BETA_INIT, PER_BETA_FINAL, PER_BETA_ANNEAL_STEPS, PER_EPSILON, StateVector
 from phca.logging import logger, _log
 
 # Default database path (in-memory for testing, file for persistence)
@@ -40,6 +40,9 @@ class EpisodeRecord:
         consolidated: 0 = pending, 1 = consolidated to M4.
         drive_id: Which MDIM drive generated the goal (None if unknown).
         task_id: Continual-learning task tag (optional).
+        priority: PER priority (higher = more likely to be replayed).
+        stored_error: Prediction error at last storage/replay (for error-reduction rate).
+        is_weight: Importance-sampling weight (set by PER sampling, 1.0 when unused).
     """
     episode_id: int = 0
     version: int = 1
@@ -52,6 +55,9 @@ class EpisodeRecord:
     consolidated: int = 0
     drive_id: int | None = None
     task_id: int | None = None
+    priority: float = 1.0
+    stored_error: float = 1.0
+    is_weight: float = 1.0
 
 
 @dataclass
@@ -118,6 +124,7 @@ class M3EpisodicMemory:
         max_episodes: int = 10_000,
         state_dim: int = 84,
         action_dim: int = 5,
+        seed: int = 0,
     ):
         """Initialize M3 Episodic Memory.
 
@@ -126,6 +133,7 @@ class M3EpisodicMemory:
             max_episodes: Maximum episodes before FIFO eviction.
             state_dim: Dimensionality of stored state vectors.
             action_dim: Dimensionality of stored action vectors.
+            seed: Random seed for PER sampling.
         """
         self.db_path = db_path
         self._max_episodes = max_episodes
@@ -137,6 +145,7 @@ class M3EpisodicMemory:
         self._commit_interval: int = 10
         self._episodes_since_vacuum: int = 0
         self._vacuum_interval: int = 100  # VACUUM every 100 evictions/purges (P1-4)
+        self.rng = np.random.RandomState(seed=seed)
 
         # Initialize database
         self._conn: Optional[sqlite3.Connection] = None
@@ -153,7 +162,7 @@ class M3EpisodicMemory:
         (data loss is logged critical).
         """
         try:
-            self._conn = sqlite3.connect(self.db_path)
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(M3_SCHEMA_SQL)
@@ -170,7 +179,7 @@ class M3EpisodicMemory:
                     self._conn.close()
             except Exception:
                 pass
-            self._conn = sqlite3.connect(":memory:")
+            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
             self._conn.executescript(M3_SCHEMA_SQL)
             self._conn.commit()
             self._migrate_schema()
@@ -190,7 +199,7 @@ class M3EpisodicMemory:
                         self._conn.close()
                     except Exception:
                         pass
-                    self._conn = sqlite3.connect(":memory:")
+                    self._conn = sqlite3.connect(":memory:", check_same_thread=False)
                     self._conn.executescript(M3_SCHEMA_SQL)
                     self._conn.commit()
                     self.db_path = ":memory:"  # record the fallback
@@ -212,7 +221,15 @@ class M3EpisodicMemory:
                 self._conn.execute(
                     "ALTER TABLE episodes ADD COLUMN task_id INTEGER DEFAULT NULL"
                 )
-                self._conn.commit()
+            if "priority" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN priority REAL DEFAULT 1.0"
+                )
+            if "stored_error" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN stored_error REAL DEFAULT 1.0"
+                )
+            self._conn.commit()
 
             # Ensure task_id index exists (P1-2)
             indexes = {
@@ -231,9 +248,15 @@ class M3EpisodicMemory:
 
     @property
     def _connection(self) -> sqlite3.Connection:
-        """Get or create the database connection (lazy init for pickle safety)."""
+        """Get the database connection (eagerly initialized in ``__init__``).
+
+        For async use, the connection is created with ``check_same_thread=False``
+        and the init race is prevented by double-checked locking over ``_lock``.
+        """
         if self._conn is None:
-            self._init_db()
+            with self._lock:
+                if self._conn is None:
+                    self._init_db()
         assert self._conn is not None
         return self._conn
 
@@ -271,8 +294,9 @@ class M3EpisodicMemory:
             cursor = self._connection.execute(
                 """INSERT INTO episodes
                    (version, state_before, action_taken, state_after,
-                    prediction_error, confidence, timestamp, drive_id, task_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    prediction_error, confidence, timestamp, drive_id, task_id,
+                    priority, stored_error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     self._current_version,
                     state_before.to_bytes(),
@@ -283,6 +307,8 @@ class M3EpisodicMemory:
                     timestamp,
                     drive_id,
                     task_id,
+                    1.0,
+                    float(prediction_error),
                 ),
             )
             episode_id = cursor.lastrowid
@@ -445,6 +471,139 @@ class M3EpisodicMemory:
         except Exception as e:
             _log(logger, "warning", "m3.sample_prior_task_episodes_failed", error=str(e))
             return []
+
+    # ── PER (Prioritized Experience Replay) ─────────────────────
+
+    def sample_episodes_per(
+        self,
+        n: int,
+        alpha: float = PER_ALPHA,
+        beta: float = PER_BETA_INIT,
+        task_id: int | None = None,
+    ) -> List[EpisodeRecord]:
+        """Sample episodes with priority-proportional probabilities (PER).
+
+        Each returned EpisodeRecord has ``.is_weight`` set for importance-sampling
+        correction.  Priority is based on error-reduction rate: episodes where the
+        model recently improved get higher probability.
+
+        Args:
+            n: Number of episodes to sample.
+            alpha: Prioritization exponent (0 = uniform, 1 = full priority).
+            beta: Importance-sampling correction exponent.
+            task_id: If set, only sample episodes from this task.
+
+        Returns:
+            List of EpisodeRecord with ``is_weight`` populated.
+        """
+        n = max(0, int(n))
+        if n == 0:
+            return []
+        try:
+            if task_id is not None:
+                cursor = self._connection.execute(
+                    "SELECT * FROM episodes WHERE task_id = ? "
+                    "AND priority > ? ORDER BY priority DESC",
+                    (task_id, PER_EPSILON),
+                )
+            else:
+                cursor = self._connection.execute(
+                    "SELECT * FROM episodes WHERE priority > ? "
+                    "ORDER BY priority DESC",
+                    (PER_EPSILON,),
+                )
+            rows = cursor.fetchall()
+        except Exception as e:
+            _log(logger, "warning", "m3.sample_per_failed", error=str(e))
+            return self.sample_episodes(n, task_id=task_id)
+
+        if not rows:
+            return self.sample_episodes(n, task_id=task_id)
+
+        episodes = [self._row_to_episode(r) for r in rows]
+        episodes = [ep for ep in episodes if ep is not None]
+
+        N = len(episodes)
+        if N == 0:
+            return []
+        if N <= n:
+            for ep in episodes:
+                ep.is_weight = 1.0
+            return episodes
+
+        priorities = np.array([max(PER_EPSILON, ep.priority) for ep in episodes], dtype=np.float64)
+        probs = priorities ** alpha
+        probs /= probs.sum()
+
+        chosen_idx = self.rng.choice(N, size=n, replace=False, p=probs)
+        chosen = [episodes[i] for i in chosen_idx]
+        chosen_probs = probs[chosen_idx]
+
+        is_weights = (1.0 / (N * chosen_probs)) ** beta
+        is_weights /= is_weights.max()  # normalize for stability
+        for ep, w in zip(chosen, is_weights):
+            ep.is_weight = float(w)
+
+        return chosen
+
+    def update_priority(
+        self, episode_id: int, current_error: float,
+        eps: float = PER_EPSILON,
+    ) -> None:
+        """Update PER priority for a single episode using error-reduction rate.
+
+        ``priority = max(eps, (stored_error - current_error) / (stored_error + eps))``
+
+        Args:
+            episode_id: Target episode.
+            current_error: Current model prediction error on this episode.
+            eps: Floor to keep stale episodes sampleable.
+        """
+        try:
+            cursor = self._connection.execute(
+                "SELECT stored_error FROM episodes WHERE episode_id = ?",
+                (episode_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return
+            stored = float(row[0])
+            improvement = (stored - current_error) / (stored + eps)
+            priority = max(eps, improvement)
+            self._connection.execute(
+                "UPDATE episodes SET priority = ?, stored_error = ? "
+                "WHERE episode_id = ?",
+                (priority, current_error, episode_id),
+            )
+            self._pending_commits += 1
+            if self._pending_commits >= self._commit_interval:
+                self._connection.commit()
+                self._pending_commits = 0
+        except Exception as e:
+            _log(logger, "warning", "m3.update_priority_failed",
+                 episode_id=episode_id, error=str(e))
+
+    def batch_update_priorities(
+        self, updates: List[Tuple[int, float]],
+    ) -> None:
+        """Batch-update PER priorities for multiple episodes.
+
+        Args:
+            updates: List of ``(episode_id, current_error)`` tuples.
+        """
+        for episode_id, current_error in updates:
+            self.update_priority(episode_id, current_error)
+
+    def last_inserted_id(self) -> int:
+        """Return the last inserted episode_id (0 if none)."""
+        try:
+            cursor = self._connection.execute(
+                "SELECT MAX(episode_id) FROM episodes"
+            )
+            row = cursor.fetchone()
+            return int(row[0]) if row and row[0] else 0
+        except Exception:
+            return 0
 
     # ── Observability v4: cheap indexed reads for the Memory tab ──
 
@@ -690,8 +849,10 @@ class M3EpisodicMemory:
 
         # Column order: episode_id, version, state_before, action_taken,
         #               state_after, prediction_error, confidence, timestamp,
-        #               consolidated, drive_id, task_id (optional)
+        #               consolidated, drive_id, task_id, priority, stored_error
         task_id = int(row[10]) if len(row) > 10 and row[10] is not None else None
+        priority = float(row[11]) if len(row) > 11 and row[11] is not None else 1.0
+        stored_error = float(row[12]) if len(row) > 12 and row[12] is not None else 1.0
         return EpisodeRecord(
             episode_id=row[0],
             version=row[1],
@@ -704,4 +865,6 @@ class M3EpisodicMemory:
             consolidated=int(row[8]),
             drive_id=int(row[9]) if row[9] is not None else None,
             task_id=task_id,
+            priority=priority,
+            stored_error=stored_error,
         )

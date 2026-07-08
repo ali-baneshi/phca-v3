@@ -222,3 +222,50 @@ DEFAULT_MODULE_BOUNDS: dict[str, ResourceBounds] = {
 CYCLE_TARGET = 0.500       # 500ms target
 T_COMP = 0.001             # 1ms composition overhead
 T_SYNC = 0.002             # 2ms synchronization overhead
+
+# PER (Prioritized Experience Replay) constants
+PER_ALPHA = 0.6            # prioritization exponent (0=uniform, 1=full priority)
+PER_BETA_INIT = 0.4        # initial importance-sampling correction
+PER_BETA_FINAL = 1.0       # final IS correction (fully unbiased)
+PER_BETA_ANNEAL_STEPS = 100_000  # cycles to anneal beta from init to final
+PER_EPSILON = 0.01         # floor for priority (keeps stale episodes sampleable)
+
+# Φ (Criticality) constants
+PHI_TARGET = 1.0           # target criticality setpoint (||dL/dx|| / sqrt(d) ~ 1.0)
+PHI_MAX = 10.0             # maximum phi clip (safety bound)
+
+# Async cycle (Feature 1) constants
+STALE_THRESHOLD_MS = 100   # max age (ms) before a PerceptionFrame is considered stale
+
+
+@dataclass
+class PerceptionFrame:
+    """A perception-action observation frame for the async cycle.
+
+    Captures the observation received and the action taken at a given
+    environment step, along with timing metadata for staleness detection.
+    """
+    observation: np.ndarray
+    action: int | None
+    timestamp: float
+    age: int = 0
+
+
+@dataclass
+class ActionResult:
+    """Result of executing an action in the environment.
+
+    Attributes:
+        reward: Reward received.
+        terminal: Whether the episode terminated.
+        state: New observation after step.
+        age: Cycle-age of the associated PerceptionFrame when executed.
+        action: The action taken (int for discrete, ndarray for continuous).
+        info: Info dict from env.step (goal_reached, agent_pos, etc.).
+    """
+    reward: float
+    terminal: bool
+    state: np.ndarray
+    age: int = 0
+    action: int | np.ndarray | None = None
+    info: dict | None = None

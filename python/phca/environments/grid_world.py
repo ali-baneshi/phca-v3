@@ -11,6 +11,7 @@ Cross-ref: Playbook §D.1, PHCA-3.1-002
 
 from __future__ import annotations
 
+import threading
 import numpy as np
 from typing import Literal
 
@@ -98,6 +99,9 @@ class GridWorld:
         self.agent_pos = self.start_pos
         self.step_count = 0
 
+        # Thread-safety lock for async cycle (Feature 1)
+        self._env_lock = threading.Lock()
+
         _log(logger, "info", "grid_world.init", size=size, start=self.start_pos, goal=self.goal_pos)
 
     def _generate_random_walls(self, wall_density: float = 0.15):
@@ -134,11 +138,12 @@ class GridWorld:
         Returns:
             Initial state vector (flattened grid + agent position).
         """
-        if seed is not None:
-            self.rng = np.random.RandomState(seed)
-        self.agent_pos = self.start_pos
-        self.step_count = 0
-        return self._get_observation()
+        with self._env_lock:
+            if seed is not None:
+                self.rng = np.random.RandomState(seed)
+            self.agent_pos = self.start_pos
+            self.step_count = 0
+            return self._get_observation()
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
         """
@@ -150,38 +155,39 @@ class GridWorld:
         Returns:
             (next_state, reward, terminal, info)
         """
-        assert 0 <= action <= 4, f"Invalid action {action}"
+        with self._env_lock:
+            assert 0 <= action <= 4, f"Invalid action {action}"
 
-        if self.action_slip > 0.0 and self.rng.random() < self.action_slip:
-            action = 4  # STAY
+            if self.action_slip > 0.0 and self.rng.random() < self.action_slip:
+                action = 4  # STAY
 
-        dr, dc = ACTION_DELTAS[action]
-        new_r = self.agent_pos[0] + dr
-        new_c = self.agent_pos[1] + dc
+            dr, dc = ACTION_DELTAS[action]
+            new_r = self.agent_pos[0] + dr
+            new_c = self.agent_pos[1] + dc
 
-        # Check bounds and walls
-        if (0 <= new_r < self.size and 0 <= new_c < self.size
-                and self.grid[new_r, new_c] != self.WALL):
-            self.agent_pos = (new_r, new_c)
+            # Check bounds and walls
+            if (0 <= new_r < self.size and 0 <= new_c < self.size
+                    and self.grid[new_r, new_c] != self.WALL):
+                self.agent_pos = (new_r, new_c)
 
-        self.step_count += 1
+            self.step_count += 1
 
-        # Compute reward
-        at_goal = self.agent_pos == self.goal_pos
-        at_hazard = self.grid[self.agent_pos] == self.HAZARD
-        reward = 1.0 if at_goal else -0.5 if at_hazard else -0.01
+            # Compute reward
+            at_goal = self.agent_pos == self.goal_pos
+            at_hazard = self.grid[self.agent_pos] == self.HAZARD
+            reward = 1.0 if at_goal else -0.5 if at_hazard else -0.01
 
-        # Terminal condition (not on goal — cognitive architecture doesn't reset on achievement)
-        terminal = self.step_count >= self.max_steps
+            # Terminal condition (not on goal — cognitive architecture doesn't reset on achievement)
+            terminal = self.step_count >= self.max_steps
 
-        info = {
-            "agent_pos": self.agent_pos,
-            "steps": self.step_count,
-            "goal_reached": at_goal,
-            "hazard_hit": at_hazard,
-        }
+            info = {
+                "agent_pos": self.agent_pos,
+                "steps": self.step_count,
+                "goal_reached": at_goal,
+                "hazard_hit": at_hazard,
+            }
 
-        return self._get_observation(), reward, terminal, info
+            return self._get_observation(), reward, terminal, info
 
     def _get_observation(self) -> np.ndarray:
         """

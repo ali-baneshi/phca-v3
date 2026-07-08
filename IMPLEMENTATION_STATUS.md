@@ -18,7 +18,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | Cycle latency | < 500 ms | **Measured PASS** | Φ-IQ pass criteria; mean ~10–17 ms MLP |
 | Forgetting rate | < 5% after 100 sequential tasks | **PASS** | Level-4-lite: `scripts/benchmark_level4.py` (10-task GridWorld) — validated `forgetting_rate=0.0000`, `passes_gate=True` on 2026-07-08 with `m3_replay_budget=16` + consolidation gradient active; full 100-task AT-2 not CI-gated |
 | Goal autonomy | ≥ 1 novel goal / 100 cycles | **Measured PASS** | MDIM tracks `_seen_goal_signatures` → `novel_goal_rate` in snapshot; L3 gates `novel_goal_rate > 0.01` (✅ Done 2026-07-08) |
-| Criticality maintenance | Φ ∈ [0.9Φc, 1.1Φc] for ≥ 90% cycles | **Not implemented** | APC regulates error volatility, not integrated Φ |
+| Criticality maintenance | Φ ∈ [0.9Φc, 1.1Φc] for ≥ 90% cycles | **Partial (D-139)** | Backward-pass gradient-norm w.r.t input replaces temporal CoV; per-cycle Φ computed for MLP G', graph model falls back to cached value. PID setpoint still at 0.5 (same range via arctan). Need validation on distribution-shift benchmarks. |
 | Failure recovery | ≥ 80% mitigated within 10 cycles | **Partial (MVP)** | `phca/resilience/` B1/B4/B5/C1/F5 + `scripts/benchmark_recovery.py` |
 
 ---
@@ -60,7 +60,7 @@ evidence separate from invariant tests.
 | HPM runtime | Blueprint | `phca/hpm/parser.py` | **Partial** — `compute_bounds()` only |
 | M1 sensory | Blueprint | `phca/memory/m1_sensory.py` | **Implemented** |
 | M2 working | Blueprint | `phca/memory/m2_working.py` | **Implemented** |
-| M3 episodic | Blueprint | `phca/memory/m3_episodic.py` | **Implemented** (SQLite, VACUUM D-108) |
+| M3 episodic | Blueprint | `phca/memory/m3_episodic.py` | **Implemented** (SQLite, VACUUM D-108, PER D-138) |
 | M4 semantic | Blueprint | `phca/consolidation/scheduler.py` | **Partial** — statistical pattern facts |
 | M5 procedural | Blueprint | — | **Not implemented** |
 | M6 meta-memory | Whitepaper | — | **Not implemented** |

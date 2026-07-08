@@ -14,6 +14,8 @@ v3.0 Reference: Blueprint xa77.B, xa7.2.2, xa7.3.1
 from __future__ import annotations
 
 import copy
+import queue
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -23,13 +25,20 @@ import numpy as np
 from phca.logging import logger, _log
 from phca.config import (
     ASIStatus,
+    ActionResult,
     GoalVector,
+    PerceptionFrame,
     ResourceBounds,
     StateVector,
     StreamID,
+    STALE_THRESHOLD_MS,
     DEFAULT_MODULE_BOUNDS,
     DiscreteSpace,
     ContinuousSpace,
+    PER_ALPHA,
+    PER_BETA_INIT,
+    PER_BETA_FINAL,
+    PER_BETA_ANNEAL_STEPS,
 )
 from phca.asi.sanitizer import ASISanitizer
 from phca.resilience import FailureDetector, RecoveryManager
@@ -197,9 +206,8 @@ class CognitiveCycle:
 
         self.metrics_history: List[CycleMetrics] = []
 
-        # Rolling window of prediction errors for temporal Φ approximation (P1-E fix)
-        self._error_vol_window: List[float] = []
-        self._error_vol_window_size: int = 20
+        # Cached Φ (gradient-norm criticality) from the most recent backward pass
+        self._cached_phi: float = 1.0
 
         # C3 fix: unified FLOP-based energy signal for D5 and RBTA
         self._cycle_flops: float = 0.0
@@ -228,6 +236,7 @@ class CognitiveCycle:
         self._m3_replay_total: int = 0
         self._m3_replay_budget: int = 4
         self._env_goal_relocated: bool = False
+        self._per_beta: float = PER_BETA_INIT
 
         # Cognitive resilience (distinct from Observatory session recovery)
         self._resilience_detector = FailureDetector()
@@ -246,12 +255,36 @@ class CognitiveCycle:
         self._rbta_action_candidate_limit: Optional[int] = None
         self._last_step_reward: float = 0.0
 
+        # Async cycle (Feature 1) — off by default
+        self._async_mode: bool = False
+        self._perception_queue: queue.Queue[PerceptionFrame] = queue.Queue(maxsize=1)
+        self._action_result_queue: queue.Queue[ActionResult] = queue.Queue(maxsize=1)
+        self._action_thread: threading.Thread | None = None
+        self._learning_thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._async_reward: float = 0.0
+        self._async_terminal: bool = False
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=getattr(env, "size", 0))
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
-        """Run N cognitive cycles."""
-        for _ in range(n_cycles):
-            self.step()
+        """Run N cognitive cycles.
+
+        In async mode, starts the action and learning threads and runs
+        until ``n_cycles`` learning cycles have completed, then stops.
+        In sync mode (default), calls ``step()`` N times sequentially.
+        """
+        if self._async_mode:
+            self.start_async()
+            try:
+                while len(self.metrics_history) < n_cycles:
+                    if self._stop_event.wait(timeout=0.05):
+                        break
+            finally:
+                self.stop_async()
+        else:
+            for _ in range(n_cycles):
+                self.step()
 
         if not self.metrics_history:
             return {
@@ -294,249 +327,12 @@ class CognitiveCycle:
             elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
                 self._rbta_action_candidate_limit = 1
 
-            # Step 0: ASI sanitization (with optional noise injection for grounding sim)
-            t0 = time.perf_counter()
-            raw_obs = self.env.get_observation()
-            if self._noise_injector is not None:
-                raw_obs = self._noise_injector.inject(raw_obs, self.cycle_count)
-            clean_state, status = self.sanitizer.sanitize(raw_obs)
-            metrics.module_timings["sanitize"] = (time.perf_counter() - t0) * 1000
+            # Phase A: Perception + Prediction + Regulation
+            hpm_spec = self._run_perception_cycle(metrics)
 
-            if status == ASIStatus.SENSOR_FAILURE:
-                self.sensor_failure_count += 1
-            else:
-                self.current_state = clean_state
-                self.sensor_failure_count = 0
-
-            # Step 1: State -> M2 Working Memory
-            t1 = time.perf_counter()
-            if self.current_state is not None and self.interventions.enable_m2:
-                self.m2.write(self.current_state, salience=1.0)
-                self.m1.write(self.current_state)
-            metrics.module_timings["memory_write"] = (time.perf_counter() - t1) * 1000
-
-            desync = (
-                self.interventions.stage_order is not None
-                and list(self.interventions.stage_order) == DESYNC_STAGE_ORDER
-            )
-
-            def _run_prediction_phase() -> None:
-                t2 = time.perf_counter()
-                if self.current_state is not None and self.interventions.enable_prediction:
-                    predicted, confidence = self.engine.predict(
-                        self.current_state, horizon=1,
-                    )
-                    if not np.all(np.isfinite(predicted.values)):
-                        _log(logger, "warning", "cycle.prediction.nan_detected",
-                             fallback="identity")
-                        predicted = StateVector(
-                            values=self.current_state.values.copy(),
-                            precision=np.ones_like(self.current_state.precision) * 0.01,
-                            timestamp=predicted.timestamp,
-                        )
-                        confidence = 0.0
-                    if self.interventions.prediction_mode == "zero":
-                        predicted = StateVector(
-                            values=np.zeros_like(self.current_state.values),
-                            precision=np.ones_like(self.current_state.precision) * 0.01,
-                            timestamp=predicted.timestamp,
-                        )
-                        confidence = 0.0
-                    elif self.interventions.prediction_mode == "scramble":
-                        perm = np.random.permutation(len(predicted.values))
-                        predicted = StateVector(
-                            values=predicted.values[perm],
-                            precision=predicted.precision,
-                            timestamp=predicted.timestamp,
-                        )
-                        confidence *= 0.5
-                    self.last_prediction = predicted
-                    metrics.prediction_confidence = confidence
-                elif self.current_state is not None:
-                    self.last_prediction = StateVector(
-                        values=self.current_state.values.copy(),
-                        precision=self.current_state.precision.copy(),
-                        timestamp=float(self.cycle_count),
-                    )
-                    metrics.prediction_confidence = 0.0
-                metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
-
-            hpm_spec: Dict[str, Any] = {}
-
-            def _run_regulation_phase() -> None:
-                nonlocal hpm_spec
-                if self.interventions.minimal_cycle:
-                    self.current_goal = GoalVector(
-                        drive_id=1, target_state=None, tolerance=0.1,
-                        creation_cycle=self.cycle_count, priority=1.0,
-                    )
-                    self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
-                    self._relevant_facts = []
-                    self._planning_grid = None
-                    metrics.module_timings["mdim"] = 0.0
-                    metrics.module_timings["cr"] = 0.0
-                    metrics.module_timings["attn"] = 0.0
-                    hpm_spec = {"type": "SEQUENCE", "id": "minimal_cycle", "children": ["ACTION"]}
-                    metrics.module_timings["hpm"] = 0.0
-                    return
-
-                consol_stats = self.consolidation.get_stats()
-                t_mdim = time.perf_counter()
-                error_volatility = self._approximate_error_volatility()
-                empowerment = self._estimate_empowerment()
-                if self.observability_store is not None:
-                    self.last_empowerment = float(empowerment)
-
-                if self.current_state is not None and self.interventions.enable_consolidation:
-                    self._relevant_facts = self.consolidation.get_relevant_facts(
-                        self.current_state, n=5, min_confidence=0.3,
-                    )
-                else:
-                    self._relevant_facts = []
-                fact_confidence_mean = float(
-                    np.mean([f.confidence for f in self._relevant_facts])
-                ) if self._relevant_facts else 0.0
-                fact_count = len(self._relevant_facts)
-
-                if (
-                    self.interventions.enable_consolidation
-                    and not self.interventions.disable_planning_grid
-                ):
-                    self._planning_grid = self._build_planning_wall_grid()
-                else:
-                    self._planning_grid = None
-
-                env_goal_pos = self.env.get_goal_position()
-                goal_switch_boost = False
-                if env_goal_pos is not None:
-                    if (
-                        self._last_goal_pos is not None
-                        and tuple(env_goal_pos) != tuple(self._last_goal_pos)
-                    ):
-                        goal_switch_boost = True
-                        self._goal_switch_cooldown = 15
-                    self._last_goal_pos = tuple(env_goal_pos)
-                if self._goal_switch_cooldown > 0:
-                    goal_switch_boost = True
-                    self._goal_switch_cooldown -= 1
-
-                self._task_lock = env_goal_pos is not None
-                if self.interventions.disable_task_lock:
-                    self._task_lock = False
-                self._cycle_flops = self._compute_cycle_flops()
-                if self._cycle_flops > 0:
-                    energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
-                else:
-                    energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_start) * 2.0))
-                model_entropy = self._epistemic_entropy()
-
-                if self.interventions.enable_mdim:
-                    mdim_context = {
-                        "prediction_error": self._last_prediction_error,
-                        "error_volatility": error_volatility,
-                        "skill_accuracy": self.tspl.skill_accuracy,
-                        "model_entropy": model_entropy,
-                        "energy_cost": energy_cost,
-                        "cycle": self.cycle_count,
-                        "prediction_confidence": metrics.prediction_confidence,
-                        "empowerment": empowerment,
-                        "consolidation_facts": consol_stats.get("total_facts_stored", 0),
-                        "fact_confidence_mean": fact_confidence_mean,
-                        "fact_count": fact_count,
-                        "env_goal_pos": env_goal_pos,
-                        "size": getattr(self.env, "size", 0),
-                        "task_lock": self._task_lock,
-                        "goal_switch_boost": goal_switch_boost,
-                    }
-                    self.current_goal = self.mdim.generate_goal(mdim_context)
-                else:
-                    self.current_goal = GoalVector(
-                        drive_id=1, target_state=None, tolerance=0.1,
-                        creation_cycle=self.cycle_count, priority=1.0,
-                    )
-                metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
-
-                t_cr = time.perf_counter()
-                if self.interventions.enable_apc:
-                    T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
-                    self.mdim.temperature = T
-                    if not (self._resilience_recovery.any_active() and "B1" in self._resilience_recovery.active_modes()):
-                        self.tspl.configs[StreamID.P_STREAM].eta = eta
-                    self.attention.gumbel_temperature = alpha * 0.5
-                metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
-
-                t_attn = time.perf_counter()
-                if self.interventions.enable_attention:
-                    attention_chunks = self.attention.select(
-                        self.m2.chunks, self.current_goal,
-                        prediction=self.last_prediction,
-                    )
-                    for chunk in attention_chunks:
-                        self.attention.update_precision(
-                            chunk.chunk_id, self._last_prediction_error,
-                        )
-                    if attention_chunks:
-                        weights = np.array([c.salience for c in attention_chunks])
-                        w_sum = weights.sum()
-                        if w_sum > 1e-8:
-                            weights = weights / w_sum
-                        else:
-                            weights = np.ones_like(weights) / max(len(weights), 1)
-                        if len(weights) >= self.state_dim:
-                            self._attention_weights = weights[:self.state_dim]
-                        else:
-                            reps = int(np.ceil(self.state_dim / max(len(weights), 1)))
-                            self._attention_weights = np.tile(weights, reps)[:self.state_dim]
-                    else:
-                        self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
-                else:
-                    self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
-                metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
-
-                t_hpm = time.perf_counter()
-                hpm_spec = {
-                    "type": "SEQUENCE", "id": "cognitive_cycle",
-                    "children": [
-                        {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
-                        {"type": "SEQUENCE", "id": "prediction_block",
-                         "children": [
-                             "WM",
-                             {"type": "Predict", "id": "G'_PE", "horizon": 1},
-                         ]},
-                        {"type": "PARALLEL", "id": "regulation_block",
-                         "children": ["MDIM", "CR", "ATTN", "HPM"]},
-                        "ACTION",
-                        {"type": "SEQUENCE", "id": "feedback_block",
-                         "children": ["PEU", "TSPL-P"]},
-                        "CYCLE",
-                    ],
-                }
-                metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
-
-            if desync:
-                _run_regulation_phase()
-                _run_prediction_phase()
-            else:
-                _run_prediction_phase()
-                _run_regulation_phase()
-
-            # Steps 2-4 / 8-13 handled above via phase helpers.
-            # Legacy inline blocks replaced by _run_prediction_phase / _run_regulation_phase.
-
-            # RBTA preflight: same-cycle TERMINATE/INTERRUPT before expensive action/feedback.
-            preflight_action = self._rbta_preflight_check(metrics, hpm_spec)
-            if preflight_action == EnforcerAction.TERMINATE:
-                self._rbta_skip_feedback = True
-                self._rbta_skip_consolidation = True
-            elif preflight_action == EnforcerAction.INTERRUPT:
-                self._rbta_action_candidate_limit = 1
-                self._rbta_skip_consolidation = True
-
-            # Step 9: Action selection + environment step
+            # Phase B: Action selection + environment step
             t_action = time.perf_counter()
             if self._rbta_skip_feedback:
-                # Continuous envs must receive a dim-vector (zeros), not the
-                # discrete stay_action int — gymnasium rejects shape ().
                 action = self._neutral_action()
                 self.last_candidate_scores = []
                 self.last_candidate_rollouts = []
@@ -573,127 +369,9 @@ class CognitiveCycle:
             self._last_step_reward = float(step_reward)
             metrics.module_timings["env_step"] = (time.perf_counter() - t_env) * 1000
 
-            # Step 5-7: PEU + TSPL + LEARN with correct action context.
-            # PEU now compares the actual next_state against a prediction
-            # conditioned on the action that was taken (not last_action
-            # from the previous cycle). This makes the error meaningful for
-            # learned world models like the MLP.
-            if self.current_state is not None and not self._rbta_skip_feedback:
-                if self._is_continuous:
-                    action_vec = action_vec_step
-                else:
-                    action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
-                    action_vec[action] = 1.0
-                next_state = StateVector(
-                    values=obs.astype(np.float32),
-                    precision=np.ones(self.state_dim, dtype=np.float32),
-                    timestamp=float(self.cycle_count),
-                )
-
-                # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
-                corrected_prediction, corrected_conf = self.gprime.predict(
-                    self.current_state, action_vec
-                )
-                t3 = time.perf_counter()
-                error = self.peu.compute_precision_weighted(
-                    next_state, corrected_prediction, next_state.precision
-                )
-                metrics.prediction_error = error
-                # Observability v4: per-dim PEU breakdown (cheap, guarded).
-                if self.observability_store is not None:
-                    try:
-                        diff = (next_state.values - corrected_prediction.values)
-                        self.last_per_dim_peu = (
-                            next_state.precision * (diff ** 2)
-                        ).astype(np.float32)
-                    except Exception:
-                        self.last_per_dim_peu = None
-                # Update confidence to reflect the corrected prediction
-                if corrected_conf > metrics.prediction_confidence:
-                    metrics.prediction_confidence = corrected_conf
-                # Push error onto rolling Φ window (P1-E fix: temporal variance → Φ)
-                self._error_vol_window.append(metrics.prediction_error)
-                if len(self._error_vol_window) >= self._error_vol_window_size:
-                    self._error_vol_window.pop(0)
-                metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
-
-                # Step 7: TSPL P-Stream update
-                # Compute MLP accuracy for TSPL sync (G-019) before TSPL update
-                # so skill compilation uses actual MLP performance
-                mlp_accuracy = None
-                if isinstance(self.gprime, WorldModelMLP):
-                    mlp_accuracy = self.gprime.get_prediction_accuracy(
-                        self.current_state.values, action_vec, next_state.values
-                    )
-                t4 = time.perf_counter()
-                if self.interventions.enable_tspl:
-                    tspl_gradient = None
-                    theta_new, _ = self.tspl.update(
-                        StreamID.P_STREAM,
-                        metrics.prediction_error,
-                        self.current_state,
-                        self.last_prediction,
-                        gradient=tspl_gradient,
-                        accuracy_override=mlp_accuracy,
-                    )
-                    if isinstance(self.gprime, WorldModelMLP):
-                        bias = theta_new.get("gprime")
-                        if bias is not None:
-                            self.gprime.set_tspl_bias(bias)
-                metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
-
-                # LEARN: update G' with observed transition, weighted by attention
-                t_glearn = time.perf_counter()
-                if self.interventions.enable_gprime_learn:
-                    if isinstance(self.gprime, WorldModelMLP):
-                        boost_still_valid = (
-                            self.cycle_count - self._replay_boost_activated_cycle
-                        ) < self._replay_boost_duration
-                        self.gprime.replay_boost = (
-                            self._forgetting_mitigation_active and boost_still_valid
-                        )
-                    if self._should_skip_gprime_learn(metrics):
-                        self._last_m3_replay_steps = 0
-                    else:
-                        attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
-                        if hasattr(self.gprime, '_attention_weights'):
-                            self.gprime._attention_weights = self._attention_weights.copy()
-                        self.gprime.learn(
-                            self.current_state, action_vec, next_state,
-                            error=attn_weighted_error,
-                        )
-                        self._last_m3_replay_steps = self._replay_m3_prior_tasks()
-                        self._m3_replay_total += self._last_m3_replay_steps
-                metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
-
-                # Store episode in M3 episodic memory (Task B fix)
-                if self.interventions.enable_m3_write:
-                    m3_drive_id = self.current_goal.drive_id if self.current_goal else None
-                    self.consolidation.m3.store_episode(
-                        state_before=self.current_state,
-                        action_taken=action_vec,
-                        state_after=next_state,
-                        prediction_error=metrics.prediction_error,
-                        confidence=metrics.prediction_confidence,
-                        drive_id=m3_drive_id,
-                        task_id=self._current_task_id,
-                        timestamp=self.cycle_count,
-                    )
-                self._last_prediction_error = metrics.prediction_error
-
-            if self._is_continuous:
-                self.last_action = action_vec_step.copy()
-                self.engine.update_action(self.last_action)
-                metrics.action_taken = -1
-                metrics.action_name = "continuous"
-            else:
-                self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
-                self.last_action[action] = 1.0
-                self.engine.update_action(self.last_action)
-                metrics.action_taken = action
-                action_names = self.env.get_action_names()
-                metrics.action_name = action_names[action]
-            metrics.goal_reached = info.get("goal_reached", False)
+            # Phase C: Learning (PEU + TSPL + G'.learn + M3 + action tracking)
+            self._run_learning_phase(metrics, action, obs, info,
+                                     action_vec_step if self._is_continuous else None)
 
             if terminal:
                 self.env.reset()
@@ -853,6 +531,10 @@ class CognitiveCycle:
             # Step 19: Increment cycle counter
             self.cycle_count += 1
 
+            # Anneal PER beta from init toward final (unbiased IS weights)
+            anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
+            self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
+
             # Step 20: (removed) Sleep-cycle check — A-008 fix. Consolidation
             # handled by Steps 16-18 every consolidation_interval=10 cycles.
 
@@ -862,6 +544,692 @@ class CognitiveCycle:
             raise
 
         return metrics
+
+    def _run_perception_cycle(self, metrics: CycleMetrics) -> dict:
+        """Steps 0-1 (ASI → M1/M2) + Steps 2-4 (prediction) + Steps 8-13 (regulation).
+
+        Returns the ``hpm_spec`` dict for downstream RBTA enforcement.
+        """
+        # Step 0: ASI sanitization (with optional noise injection for grounding sim)
+        t0 = time.perf_counter()
+        raw_obs = self.env.get_observation()
+        if self._noise_injector is not None:
+            raw_obs = self._noise_injector.inject(raw_obs, self.cycle_count)
+        clean_state, status = self.sanitizer.sanitize(raw_obs)
+        metrics.module_timings["sanitize"] = (time.perf_counter() - t0) * 1000
+
+        if status == ASIStatus.SENSOR_FAILURE:
+            self.sensor_failure_count += 1
+        else:
+            self.current_state = clean_state
+            self.sensor_failure_count = 0
+
+        # Step 1: State → M2 Working Memory
+        t1 = time.perf_counter()
+        if self.current_state is not None and self.interventions.enable_m2:
+            self.m2.write(self.current_state, salience=1.0)
+            self.m1.write(self.current_state)
+        metrics.module_timings["memory_write"] = (time.perf_counter() - t1) * 1000
+
+        desync = (
+            self.interventions.stage_order is not None
+            and list(self.interventions.stage_order) == DESYNC_STAGE_ORDER
+        )
+
+        # ── Steps 2-4: Prediction phase ────────────────────────
+        def _run_prediction_phase() -> None:
+            t2 = time.perf_counter()
+            if self.current_state is not None and self.interventions.enable_prediction:
+                predicted, confidence = self.engine.predict(
+                    self.current_state, horizon=1,
+                )
+                if not np.all(np.isfinite(predicted.values)):
+                    _log(logger, "warning", "cycle.prediction.nan_detected",
+                         fallback="identity")
+                    predicted = StateVector(
+                        values=self.current_state.values.copy(),
+                        precision=np.ones_like(self.current_state.precision) * 0.01,
+                        timestamp=predicted.timestamp,
+                    )
+                    confidence = 0.0
+                if self.interventions.prediction_mode == "zero":
+                    predicted = StateVector(
+                        values=np.zeros_like(self.current_state.values),
+                        precision=np.ones_like(self.current_state.precision) * 0.01,
+                        timestamp=predicted.timestamp,
+                    )
+                    confidence = 0.0
+                elif self.interventions.prediction_mode == "scramble":
+                    perm = np.random.permutation(len(predicted.values))
+                    predicted = StateVector(
+                        values=predicted.values[perm],
+                        precision=predicted.precision,
+                        timestamp=predicted.timestamp,
+                    )
+                    confidence *= 0.5
+                self.last_prediction = predicted
+                metrics.prediction_confidence = confidence
+            elif self.current_state is not None:
+                self.last_prediction = StateVector(
+                    values=self.current_state.values.copy(),
+                    precision=self.current_state.precision.copy(),
+                    timestamp=float(self.cycle_count),
+                )
+                metrics.prediction_confidence = 0.0
+            metrics.module_timings["prediction"] = (time.perf_counter() - t2) * 1000
+
+        # ── Steps 8-13: Regulation phase ───────────────────────
+        hpm_spec: Dict[str, Any] = {}
+
+        def _run_regulation_phase() -> None:
+            nonlocal hpm_spec
+            if self.interventions.minimal_cycle:
+                self.current_goal = GoalVector(
+                    drive_id=1, target_state=None, tolerance=0.1,
+                    creation_cycle=self.cycle_count, priority=1.0,
+                )
+                self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
+                self._relevant_facts = []
+                self._planning_grid = None
+                metrics.module_timings["mdim"] = 0.0
+                metrics.module_timings["cr"] = 0.0
+                metrics.module_timings["attn"] = 0.0
+                hpm_spec = {"type": "SEQUENCE", "id": "minimal_cycle", "children": ["ACTION"]}
+                metrics.module_timings["hpm"] = 0.0
+                return
+
+            consol_stats = self.consolidation.get_stats()
+            t_mdim = time.perf_counter()
+            error_volatility = self._compute_phi_criticality()
+            empowerment = self._estimate_empowerment()
+            if self.observability_store is not None:
+                self.last_empowerment = float(empowerment)
+
+            if self.current_state is not None and self.interventions.enable_consolidation:
+                self._relevant_facts = self.consolidation.get_relevant_facts(
+                    self.current_state, n=5, min_confidence=0.3,
+                )
+            else:
+                self._relevant_facts = []
+            fact_confidence_mean = float(
+                np.mean([f.confidence for f in self._relevant_facts])
+            ) if self._relevant_facts else 0.0
+            fact_count = len(self._relevant_facts)
+
+            if (
+                self.interventions.enable_consolidation
+                and not self.interventions.disable_planning_grid
+            ):
+                self._planning_grid = self._build_planning_wall_grid()
+            else:
+                self._planning_grid = None
+
+            env_goal_pos = self.env.get_goal_position()
+            goal_switch_boost = False
+            if env_goal_pos is not None:
+                if (
+                    self._last_goal_pos is not None
+                    and tuple(env_goal_pos) != tuple(self._last_goal_pos)
+                ):
+                    goal_switch_boost = True
+                    self._goal_switch_cooldown = 15
+                self._last_goal_pos = tuple(env_goal_pos)
+            if self._goal_switch_cooldown > 0:
+                goal_switch_boost = True
+                self._goal_switch_cooldown -= 1
+
+            self._task_lock = env_goal_pos is not None
+            if self.interventions.disable_task_lock:
+                self._task_lock = False
+            self._cycle_flops = self._compute_cycle_flops()
+            if self._cycle_flops > 0:
+                energy_cost = max(0.01, min(1.0, self._cycle_flops / ENERGY_NORM_FLOPS))
+            else:
+                energy_cost = max(0.01, min(1.0, (time.perf_counter() - t_mdim) * 2.0))
+            model_entropy = self._epistemic_entropy()
+
+            if self.interventions.enable_mdim:
+                mdim_context = {
+                    "prediction_error": self._last_prediction_error,
+                    "error_volatility": error_volatility,
+                    "skill_accuracy": self.tspl.skill_accuracy,
+                    "model_entropy": model_entropy,
+                    "energy_cost": energy_cost,
+                    "cycle": self.cycle_count,
+                    "prediction_confidence": metrics.prediction_confidence,
+                    "empowerment": empowerment,
+                    "consolidation_facts": consol_stats.get("total_facts_stored", 0),
+                    "fact_confidence_mean": fact_confidence_mean,
+                    "fact_count": fact_count,
+                    "env_goal_pos": env_goal_pos,
+                    "size": getattr(self.env, "size", 0),
+                    "task_lock": self._task_lock,
+                    "goal_switch_boost": goal_switch_boost,
+                }
+                self.current_goal = self.mdim.generate_goal(mdim_context)
+            else:
+                self.current_goal = GoalVector(
+                    drive_id=1, target_state=None, tolerance=0.1,
+                    creation_cycle=self.cycle_count, priority=1.0,
+                )
+            metrics.module_timings["mdim"] = (time.perf_counter() - t_mdim) * 1000
+
+            t_cr = time.perf_counter()
+            if self.interventions.enable_apc:
+                T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
+                self.mdim.temperature = T
+                if not (self._resilience_recovery.any_active() and "B1" in self._resilience_recovery.active_modes()):
+                    self.tspl.configs[StreamID.P_STREAM].eta = eta
+                self.attention.gumbel_temperature = alpha * 0.5
+            metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
+
+            t_attn = time.perf_counter()
+            if self.interventions.enable_attention:
+                attention_chunks = self.attention.select(
+                    self.m2.chunks, self.current_goal,
+                    prediction=self.last_prediction,
+                )
+                for chunk in attention_chunks:
+                    self.attention.update_precision(
+                        chunk.chunk_id, self._last_prediction_error,
+                    )
+                if attention_chunks:
+                    weights = np.array([c.salience for c in attention_chunks])
+                    w_sum = weights.sum()
+                    if w_sum > 1e-8:
+                        weights = weights / w_sum
+                    else:
+                        weights = np.ones_like(weights) / max(len(weights), 1)
+                    if len(weights) >= self.state_dim:
+                        self._attention_weights = weights[:self.state_dim]
+                    else:
+                        reps = int(np.ceil(self.state_dim / max(len(weights), 1)))
+                        self._attention_weights = np.tile(weights, reps)[:self.state_dim]
+                else:
+                    self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
+            else:
+                self._attention_weights = np.ones(self.state_dim, dtype=np.float32)
+            metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
+
+            t_hpm = time.perf_counter()
+            hpm_spec = {
+                "type": "SEQUENCE", "id": "cognitive_cycle",
+                "children": [
+                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
+                    {"type": "SEQUENCE", "id": "prediction_block",
+                     "children": [
+                        "WM",
+                        {"type": "Predict", "id": "G'_PE", "horizon": 1},
+                    ]},
+                    {"type": "PARALLEL", "id": "regulation_block",
+                     "children": ["MDIM", "CR", "ATTN", "HPM"]},
+                    "ACTION",
+                    {"type": "SEQUENCE", "id": "feedback_block",
+                     "children": ["PEU", "TSPL-P"]},
+                    "CYCLE",
+                ],
+            }
+            metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
+
+        if desync:
+            _run_regulation_phase()
+            _run_prediction_phase()
+        else:
+            _run_prediction_phase()
+            _run_regulation_phase()
+
+        # RBTA preflight: same-cycle TERMINATE/INTERRUPT before expensive action/feedback.
+        preflight_action = self._rbta_preflight_check(metrics, hpm_spec)
+        if preflight_action == EnforcerAction.TERMINATE:
+            self._rbta_skip_feedback = True
+            self._rbta_skip_consolidation = True
+        elif preflight_action == EnforcerAction.INTERRUPT:
+            self._rbta_action_candidate_limit = 1
+            self._rbta_skip_consolidation = True
+
+        return hpm_spec
+
+    def _run_learning_phase(
+        self,
+        metrics: CycleMetrics,
+        action: int | np.ndarray,
+        obs: np.ndarray,
+        info: dict,
+        action_vec_step: np.ndarray | None,
+    ) -> None:
+        """Steps 5-7: PEU + TSPL + G'.learn + M3 episode storage + action tracking.
+
+        Called after ``env.step()`` returns.  ``action_vec_step`` is the
+        raw action vector for continuous spaces (``None`` for discrete).
+        """
+        # ── Action tracking (runs every cycle, even when feedback is skipped) ──
+        if self._is_continuous and action_vec_step is not None:
+            self.last_action = action_vec_step.copy()
+            self.engine.update_action(self.last_action)
+            metrics.action_taken = -1
+            metrics.action_name = "continuous"
+        else:
+            self.last_action = np.zeros(self.env.action_space_size, dtype=np.float32)
+            self.last_action[action] = 1.0
+            self.engine.update_action(self.last_action)
+            metrics.action_taken = int(action) if isinstance(action, (int, np.integer)) else -1
+            action_names = self.env.get_action_names()
+            metrics.action_name = action_names[int(action)] if 0 <= int(action) < len(action_names) else f"#{int(action)}"
+        metrics.goal_reached = info.get("goal_reached", False)
+
+        if self.current_state is None or self._rbta_skip_feedback:
+            return
+
+        # Build action vector for learning
+        if self._is_continuous:
+            action_vec = action_vec_step
+        else:
+            action_vec = np.zeros(self.env.action_space_size, dtype=np.float32)
+            action_vec[action] = 1.0
+
+        next_state = StateVector(
+            values=obs.astype(np.float32),
+            precision=np.ones(self.state_dim, dtype=np.float32),
+            timestamp=float(self.cycle_count),
+        )
+
+        # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
+        corrected_prediction, corrected_conf = self.gprime.predict(
+            self.current_state, action_vec
+        )
+        t3 = time.perf_counter()
+        error = self.peu.compute_precision_weighted(
+            next_state, corrected_prediction, next_state.precision
+        )
+        metrics.prediction_error = error
+        if self.observability_store is not None:
+            try:
+                diff = (next_state.values - corrected_prediction.values)
+                self.last_per_dim_peu = (
+                    next_state.precision * (diff ** 2)
+                ).astype(np.float32)
+            except Exception:
+                self.last_per_dim_peu = None
+        if corrected_conf > metrics.prediction_confidence:
+            metrics.prediction_confidence = corrected_conf
+        metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
+
+        # Step 7: TSPL P-Stream update
+        mlp_accuracy = None
+        if isinstance(self.gprime, WorldModelMLP):
+            mlp_accuracy = self.gprime.get_prediction_accuracy(
+                self.current_state.values, action_vec, next_state.values
+            )
+        t4 = time.perf_counter()
+        if self.interventions.enable_tspl:
+            tspl_gradient = None
+            theta_new, _ = self.tspl.update(
+                StreamID.P_STREAM,
+                metrics.prediction_error,
+                self.current_state,
+                self.last_prediction,
+                gradient=tspl_gradient,
+                accuracy_override=mlp_accuracy,
+            )
+            if isinstance(self.gprime, WorldModelMLP):
+                bias = theta_new.get("gprime")
+                if bias is not None:
+                    self.gprime.set_tspl_bias(bias)
+        metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
+
+        # LEARN: update G' with observed transition, weighted by attention
+        t_glearn = time.perf_counter()
+        if self.interventions.enable_gprime_learn:
+            if isinstance(self.gprime, WorldModelMLP):
+                boost_still_valid = (
+                    self.cycle_count - self._replay_boost_activated_cycle
+                ) < self._replay_boost_duration
+                self.gprime.replay_boost = (
+                    self._forgetting_mitigation_active and boost_still_valid
+                )
+            if self._should_skip_gprime_learn(metrics):
+                self._last_m3_replay_steps = 0
+            else:
+                attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
+                if hasattr(self.gprime, '_attention_weights'):
+                    self.gprime._attention_weights = self._attention_weights.copy()
+                self.gprime.learn(
+                    self.current_state, action_vec, next_state,
+                    error=attn_weighted_error,
+                )
+                self._update_phi_from_gradient()
+                self._last_m3_replay_steps = self._replay_m3_prior_tasks()
+                self._m3_replay_total += self._last_m3_replay_steps
+        metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
+
+        # Store episode in M3 episodic memory (Task B fix)
+        if self.interventions.enable_m3_write:
+            m3_drive_id = self.current_goal.drive_id if self.current_goal else None
+            self.consolidation.m3.store_episode(
+                state_before=self.current_state,
+                action_taken=action_vec,
+                state_after=next_state,
+                prediction_error=metrics.prediction_error,
+                confidence=metrics.prediction_confidence,
+                drive_id=m3_drive_id,
+                task_id=self._current_task_id,
+                timestamp=self.cycle_count,
+            )
+        self._last_prediction_error = metrics.prediction_error
+
+    # ── Async Cycle (Feature 1) ──────────────────────────────────────────
+
+    def start_async(self) -> None:
+        """Start the async action and learning threads.
+
+        In async mode, Thread A continuously runs the perception-action
+        cycle and pushes ``ActionResult`` to a queue.  Thread B pulls
+        results and runs the learning phase (PEU, TSPL, G'.learn, M3)
+        with RBTA enforcement, logging, and consolidation.
+
+        This is safe to call multiple times — subsequent calls are no-ops
+        when threads are already running.
+        """
+        if self._action_thread is not None and self._action_thread.is_alive():
+            return
+        self._async_mode = True
+        self._stop_event.clear()
+        self._action_thread = threading.Thread(
+            target=self._action_loop, name="phca-action", daemon=True,
+        )
+        self._learning_thread = threading.Thread(
+            target=self._learning_loop, name="phca-learning", daemon=True,
+        )
+        self._action_thread.start()
+        self._learning_thread.start()
+        _log(logger, "info", "cycle.async.start")
+
+    def stop_async(self, timeout: float = 5.0) -> None:
+        """Signal stop and join both threads."""
+        self._stop_event.set()
+        if self._action_thread is not None and self._action_thread.is_alive():
+            self._action_thread.join(timeout=timeout)
+        if self._learning_thread is not None and self._learning_thread.is_alive():
+            self._learning_thread.join(timeout=timeout)
+        self._async_mode = False
+        _log(logger, "info", "cycle.async.stop")
+
+    def _build_async_perception_frame(self) -> PerceptionFrame:
+        """Build a fresh PerceptionFrame from the current environment state."""
+        raw_obs = self.env.get_observation()
+        return PerceptionFrame(
+            observation=raw_obs,
+            action=None,
+            timestamp=time.time(),
+            age=0,
+        )
+
+    def _action_loop(self) -> None:
+        """Thread A: continuous perception-action loop.
+
+        Each iteration:
+          1. Snapshot environment observation into a PerceptionFrame
+          2. Run perception cycle (ASI → M2 → prediction → regulation)
+          3. Select and execute action
+          4. Push ActionResult to ``_action_result_queue``
+          5. If terminal, reset environment
+        """
+        while not self._stop_event.is_set():
+            try:
+                # Phase A: Perception + Prediction + Regulation
+                hpm_spec = self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
+
+                # Phase B: Action selection + env step
+                if self._rbta_skip_feedback:
+                    action = self._neutral_action()
+                else:
+                    action = self._select_action()
+
+                if self._is_continuous:
+                    obs, step_reward, terminal, info = self.env.step(
+                        np.asarray(action, dtype=np.float32)
+                    )
+                else:
+                    obs, step_reward, terminal, info = self.env.step(action)
+                self._last_step_reward = float(step_reward)
+
+                # Push result to learning thread
+                result = ActionResult(
+                    reward=step_reward,
+                    terminal=terminal,
+                    state=obs,
+                    age=0,
+                    action=action,
+                    info=info,
+                )
+                self._action_result_queue.put(result)
+
+                if terminal:
+                    self.env.reset()
+                    self.gprime.reset()
+                    self.sanitizer.reset()
+                    self._last_goal_pos = None
+                    self._goal_switch_cooldown = 0
+
+            except Exception as e:
+                _log(logger, "error", "cycle.action_loop.error", error=str(e))
+                if self._stop_event.wait(timeout=0.1):
+                    break
+
+    def _learning_loop(self) -> None:
+        """Thread B: continuous learning loop.
+
+        Each iteration:
+          1. Pull an ActionResult from the queue (blocking with timeout)
+          2. If stale (age > STALE_THRESHOLD_MS), skip learning
+          3. Run the learning phase (PEU + TSPL + G'.learn + M3)
+          4. RBTA enforcement + resilience + logging + consolidation
+        """
+        while not self._stop_event.is_set():
+            try:
+                # Block for up to STALE_THRESHOLD_MS for a result
+                result: ActionResult | None = None
+                try:
+                    result = self._action_result_queue.get(
+                        timeout=STALE_THRESHOLD_MS / 1000.0
+                    )
+                except queue.Empty:
+                    pass
+
+                t_start = time.perf_counter()
+                metrics = CycleMetrics(cycle_id=self.cycle_count)
+
+                # Reset RBTA flags each learning cycle
+                self._rbta_skip_feedback = False
+                self._rbta_skip_consolidation = False
+                self._rbta_action_candidate_limit = None
+                if self._rbta_carry_action == EnforcerAction.TERMINATE:
+                    self._rbta_skip_feedback = True
+                elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
+                    self._rbta_action_candidate_limit = 1
+
+                if result is None or result.age > STALE_THRESHOLD_MS:
+                    # Stale frame — skip learning, still increment cycle
+                    metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+                    self._finalize_learning_cycle(metrics, None)
+                    continue
+
+                # Phase C: Learning
+                action_vec_step = (
+                    np.asarray(result.action, dtype=np.float32)
+                    if isinstance(result.action, (list, np.ndarray))
+                    else None
+                )
+                self._run_learning_phase(
+                    metrics, result.action, result.state,
+                    result.info or {"goal_reached": False},
+                    action_vec_step,
+                )
+
+                metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+                self._finalize_learning_cycle(metrics, result)
+
+                if result.terminal:
+                    # Log terminal reset info
+                    _log(logger, "info", "cycle.async.terminal",
+                         cycle=self.cycle_count,
+                         reward=f"{result.reward:.3f}")
+
+            except Exception as e:
+                _log(logger, "error", "cycle.learning_loop.error",
+                     cycle=self.cycle_count, error=str(e))
+                if self._stop_event.wait(timeout=0.1):
+                    break
+
+    def _finalize_learning_cycle(
+        self,
+        metrics: CycleMetrics,
+        result: ActionResult | None,
+    ) -> None:
+        """RBTA enforcement, resilience, logging, consolidation, cycle count.
+
+        Shared by ``_learning_loop`` and (eventually) ``step()``.
+        """
+        # RBTA enforcement
+        self._collect_runtime_log(metrics)
+        self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
+        # Build a minimal hpm spec for RBTA (use last one from perception cycle)
+        hpm_spec: Dict[str, Any] = {
+            "type": "SEQUENCE", "id": "cognitive_cycle",
+            "children": [
+                {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
+                {"type": "SEQUENCE", "id": "prediction_block",
+                 "children": ["WM", {"type": "Predict", "id": "G'_PE", "horizon": 1}]},
+                {"type": "PARALLEL", "id": "regulation_block",
+                 "children": ["MDIM", "CR", "ATTN", "HPM"]},
+                "ACTION",
+                {"type": "SEQUENCE", "id": "feedback_block",
+                 "children": ["PEU", "TSPL-P"]},
+                "CYCLE",
+            ],
+        }
+        hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
+        reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
+        composition_tree = {
+            "type": "SEQUENCE", "id": "cognitive_cycle",
+            "children": [
+                "ASI", "WM", "PE",
+                {"type": "PARALLEL", "id": "regulation_block",
+                 "children": ["MDIM", "CR", "ATTN", "HPM"],
+                 "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy}},
+                "ACTION", "PEU", "TSPL-P", "CYCLE",
+            ],
+            "bounds": {
+                "B_time": reg_b_time * 2 + 0.050,
+                "B_energy": reg_b_energy * 2 + 0.010,
+            },
+        }
+        violations, enforcer_action = self.rbta.check_cycle(
+            runtime_log=self.runtime_log,
+            memory_log=self.memory_log,
+            energy_log=self.energy_log,
+            belief_entropies=self.belief_entropies,
+            sensor_failure_count=self.sensor_failure_count,
+            asi_failure_limit=self.asi_failure_limit,
+            composition_tree=composition_tree,
+        )
+        metrics.rbta_action = enforcer_action.name
+        metrics.violations_count = len(violations)
+        self.last_violations = violations
+        self._rbta_carry_action = enforcer_action
+        if enforcer_action in (EnforcerAction.INTERRUPT, EnforcerAction.TERMINATE):
+            self._rbta_skip_consolidation = True
+
+        # Cognitive resilience
+        snapshot = self._build_resilience_snapshot(metrics)
+        events = self._resilience_detector.detect(snapshot)
+        if events:
+            self._resilience_recovery.apply(self, events)
+            for e in events:
+                self._fallback_controller.notify_failure(
+                    e.mode_id, e.severity, self.cycle_count,
+                )
+        metrics.failure_events = [e.mode_id for e in events]
+        metrics.recovery_active = self._resilience_recovery.any_active()
+        metrics.emergency_active = self._fallback_controller.active()
+        metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
+
+        # Logging — populate dashboard fields
+        consol_stats = self.consolidation.get_stats()
+        metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
+        metrics.skill_accuracy = self.tspl.skill_accuracy
+        metrics.skill_compiled = self.tspl.skill_compiled
+        metrics.fact_count = consol_stats.get("total_facts_stored", 0)
+        metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
+        metrics.task_id = self._current_task_id
+        if metrics.fact_count == self._last_fact_count:
+            self._fact_stagnant_cycles += 1
+        else:
+            self._fact_stagnant_cycles = 0
+        self._last_fact_count = metrics.fact_count
+        self.metrics_history.append(metrics)
+
+        if self.metrics_store is not None:
+            self.metrics_store.push(copy.deepcopy(metrics))
+        if self.observability_store is not None:
+            from phca.monitoring.observability import ObservabilityFrame
+            self.observability_store.push(ObservabilityFrame.from_cycle(self))
+        if self.trace_collector is not None:
+            self.trace_collector.record(
+                cycle_id=self.cycle_count,
+                action=metrics.action_taken,
+                reward=self._last_step_reward,
+                prediction_error=metrics.prediction_error,
+                prediction_confidence=metrics.prediction_confidence,
+                goal_drive=metrics.drive_id,
+                rbta_action=metrics.rbta_action,
+                violations=metrics.violations_count,
+                latency_ms=metrics.latency_ms,
+                goal_reached=metrics.goal_reached,
+                module_timings=dict(metrics.module_timings),
+                attention_weights=(
+                    self._attention_weights.tolist()
+                    if self.interventions.enable_attention else None
+                ),
+                env_goal_relocated=self._env_goal_relocated,
+            )
+            self._env_goal_relocated = False
+        if len(self.metrics_history) > 5000:
+            self.metrics_history = self.metrics_history[-5000:]
+
+        # Consolidation
+        if self._rbta_skip_consolidation or not self.interventions.enable_consolidation:
+            metrics.module_timings["consolidation"] = 0.0
+        else:
+            t_consol = time.perf_counter()
+            consol_report = self.consolidation.step(
+                self.cycle_count,
+                gprime=self.gprime if self.interventions.enable_gprime_learn else None,
+            )
+            metrics.module_timings["consolidation"] = (
+                time.perf_counter() - t_consol
+            ) * 1000
+            if consol_report.success and consol_report.episodes_processed > 0:
+                recent_facts = self.consolidation.get_semantic_facts(
+                    min_confidence=0.3, max_results=10,
+                )
+                fact_types = {}
+                for f in recent_facts:
+                    fact_types[f.fact_type] = fact_types.get(f.fact_type, 0) + 1
+                _log(logger, "info", "cycle.consolidation",
+                     episodes=consol_report.episodes_processed,
+                     facts=consol_report.facts_generated,
+                     fact_types=fact_types,
+                     total_facts=self.consolidation.get_stats()["total_facts_stored"],
+                     ms=f"{consol_report.duration_ms:.1f}")
+        self.runtime_log["CONSOL"] = metrics.module_timings.get("consolidation", 0.0) / 1000.0
+        consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
+        self.energy_log["CONSOL"] = consol_energy
+
+        # Increment cycle counter + anneal PER beta
+        self.cycle_count += 1
+        anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
+        self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
 
     def on_task_boundary(self, task_id: int) -> None:
         """Called by Level-4 runner on task switch — enable anti-forgetting hooks."""
@@ -898,7 +1266,15 @@ class CognitiveCycle:
             history[:] = history[-100:]
 
     def _replay_m3_prior_tasks(self) -> int:
-        """Sample prior-task M3 episodes into G′ when forgetting mitigation is active."""
+        """Sample prior-task M3 episodes into G′ when forgetting mitigation is active.
+
+        Uses PER (prioritized experience replay) sampling when the M3 instance
+        supports it.  Falls back to stratified random sampling for backward
+        compatibility.
+
+        Returns:
+            Number of gradient steps taken.
+        """
         if not self._forgetting_mitigation_active:
             return 0
         if not isinstance(self.gprime, WorldModelMLP):
@@ -911,10 +1287,21 @@ class CognitiveCycle:
         m3 = self.consolidation.m3
         boost_mult = 2 if self.gprime.replay_boost else 1
         n_budget = self._m3_replay_budget * boost_mult
-        episodes = m3.sample_prior_task_episodes(n_budget, self._current_task_id)
+
+        if hasattr(m3, "sample_episodes_per"):
+            episodes = m3.sample_episodes_per(
+                n_budget, task_id=self._current_task_id,
+                alpha=PER_ALPHA, beta=self._per_beta,
+            )
+        else:
+            episodes = m3.sample_prior_task_episodes(n_budget, self._current_task_id)
+
         if not episodes:
             return 0
-        return self.gprime.learn_m3_episodes(episodes)
+        steps, priority_updates = self.gprime.learn_m3_episodes(episodes)
+        if priority_updates and hasattr(m3, "batch_update_priorities"):
+            m3.batch_update_priorities(priority_updates)
+        return steps
 
     def _current_task_goal_rate(self) -> Optional[float]:
         tid = self._current_task_id
@@ -1737,35 +2124,29 @@ class CognitiveCycle:
         # Fallback
         return 0.3
 
-    def _approximate_error_volatility(self) -> float:
-        """Compute prediction-error volatility from recent error history.
+    def _compute_phi_criticality(self) -> float:
+        """Return the current cached Φ (gradient-norm criticality).
 
-        Uses a coefficient-of-variance heuristic: vol = min(1.0, std(window) / (mean(window) + ε)).
-        This measures how much the prediction error fluctuates over recent cycles.
-        High volatility = error varies significantly (system exploring/learning).
-        Low volatility = error is stable (system converged or stuck).
-
-        Note: This was previously called "_approximate_phi" and claimed to measure
-        integrated information (IIT Φ). It does NOT — it measures prediction-error
-        volatility. Renamed in Phase 3.3 gap audit (G-001) to accurately reflect
-        what it measures.
-
-        Returns:
-            Float in (0.0, 1.0] representing prediction-error volatility.
+        Φ is updated in ``_update_phi_from_gradient()`` which runs after
+        each G' backward pass.  Between backward passes the cached value
+        persists unchanged.
         """
-        if len(self._error_vol_window) < 3:
-            return 0.5  # not enough samples for meaningful variance
+        return self._cached_phi
 
-        errors = self._error_vol_window[-10:]  # use last 10 for responsiveness
-        mean_err = float(np.mean(errors))
-        std_err = float(np.std(errors))
+    def _update_phi_from_gradient(self) -> None:
+        """Read the fresh input gradient from G' backward pass and update cached Φ.
 
-        if mean_err < 1e-8:
-            return 0.1  # near-zero error → stable
-
-        cv = std_err / mean_err
-        vol = min(1.0, cv)
-        return float(np.clip(vol, 0.1, 0.99))
+        Φ = (2/π) * arctan(||dL/dx_state|| / sqrt(state_dim)), EMA-filtered.
+        The arctan maps [0, ∞) → [0, 1) so PID setpoints and MDIM drive
+        targets need no adjustment from the old error-volatility heuristic.
+        """
+        if isinstance(self.gprime, WorldModelMLP):
+            try:
+                raw = self.gprime.last_input_sensitivity(self.state_dim)
+            except Exception:
+                return
+            normalized = float(np.arctan(raw) * 2.0 / np.pi)
+            self._cached_phi = self._cached_phi * 0.7 + normalized * 0.3
 
     def _scaled_hpm_composite_bounds(
         self, hpm_bounds: Optional[Dict[str, float]],

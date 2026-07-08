@@ -75,18 +75,16 @@ class TestStressRun:
         )
 
     def test_phi_iq_stable(self):
-        """Φ-IQ (approximate phi) should not collapse to 0."""
+        """Φ (gradient-norm criticality) should stay in meaningful range."""
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         phi_values: list[float] = []
         for _ in range(100):
             cycle.step()
-            ev = cycle._approximate_error_volatility()
-            phi_values.append(ev)
+            phi_values.append(cycle._cached_phi)
 
-        # Error volatility should stay in meaningful range (> 0.1)
-        last_20_ev = phi_values[-20:]
-        mean_ev = float(np.mean(last_20_ev))
-        assert mean_ev > 0.1, (
-            f"Mean error_volatility over last 20 cycles is {mean_ev:.3f} — "
-            f"volatility detection has collapsed"
+        last_20 = phi_values[-20:]
+        mean_phi = float(np.mean(last_20))
+        assert mean_phi > 0.01, (
+            f"Mean Φ over last 20 cycles is {mean_phi:.3f} — "
+            f"criticality has collapsed"
         )

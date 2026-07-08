@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import DEFAULT_MODULE_BOUNDS, ResourceBounds, StateVector
+from phca.config import DEFAULT_MODULE_BOUNDS, PHI_MAX, ResourceBounds, StateVector
 
 
 _EPS = 1e-8
@@ -256,6 +256,10 @@ class WorldModelMLP:
         # Observability v4: cache last MC per-dim std + mutual_info.
         self._last_mc_per_dim_std: Optional[np.ndarray] = None
         self._last_mutual_info: float = 0.0
+        # Input gradient cache for Φ (causal sensitivity) — set by _backward()
+        self._last_input_grad: Optional[np.ndarray] = None
+        # Output sensitivity cache: gradient of mean(out) w.r.t input — set by _backward()
+        self._last_output_sens: Optional[np.ndarray] = None
 
         # Experience replay buffer
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
@@ -423,24 +427,36 @@ class WorldModelMLP:
             avg_grad = self._backward_batch(X, Z1, Z2, Out, T)
             self._apply_gradient(avg_grad, lr=effective_lr)
 
-    def learn_m3_episodes(self, episodes: list, lr_scale: float = 1.0) -> int:
+    def learn_m3_episodes(
+        self, episodes: list, lr_scale: float = 1.0,
+    ) -> Tuple[int, List[Tuple[int, float]]]:
         """Extra gradient steps from M3 episodic transitions (continual replay).
 
         Also injects transitions into the internal FIFO buffer so later
         mini-batch replay can resample them.
 
+        Computes per-episode current prediction error for PER priority updates.
+
         Args:
             episodes: List of EpisodeRecord objects.
             lr_scale: Additional LR multiplier (default 1.0; consolidation uses 0.1).
+
+        Returns:
+            Tuple of (steps, priority_updates):
+                steps: Number of gradient steps taken.
+                priority_updates: List of ``(episode_id, current_error)`` tuples
+                    for PER priority updates.
         """
         if not episodes:
-            return 0
+            return (0, [])
         effective_lr = self.lr * 0.5 * lr_scale
         steps = 0
+        priority_updates: List[Tuple[int, float]] = []
         for ep in episodes:
             state_before = getattr(ep, "state_before", None)
             state_after = getattr(ep, "state_after", None)
             action = getattr(ep, "action_taken", None)
+            ep_id = getattr(ep, "episode_id", None)
             if state_before is None or state_after is None or action is None:
                 continue
             x = np.concatenate([
@@ -457,10 +473,40 @@ class WorldModelMLP:
                 )
             self._replay_idx += 1
             z1, z2, out = self._forward(x)
+            current_error = float(np.mean((out - target) ** 2))
+            if ep_id is not None:
+                priority_updates.append((int(ep_id), current_error))
             grad = self._backward(x, z1, z2, out, target)
             self._apply_gradient(grad, lr=effective_lr)
             steps += 1
-        return steps
+        return (steps, priority_updates)
+
+    def last_input_sensitivity(self, state_dim: int) -> float:
+        """Return Φ = ||d_mean(out)/dx_state|| / sqrt(state_dim).
+
+        Unlike the loss gradient (which vanishes when prediction error → 0),
+        this measures how the model's PREDICTION changes with respect to its
+        input — the causal sensitivity of the learned world model.  High Φ
+        means small input changes cause large prediction changes (critical
+        regime).  Low Φ means the model is insensitive (converged / saturated).
+
+        The gradient of mean(out) w.r.t input is computed during ``_backward()``
+        with minimal extra cost (~one additional backprop pass per layer).
+
+        Args:
+            state_dim: Dimensionality of the state portion of the input.
+
+        Returns:
+            Φ in [0.0, PHI_MAX].  Falls back to ``PHI_TARGET`` if no backward
+            pass has been run yet.
+        """
+        from phca.config import PHI_TARGET
+        sens = self._last_output_sens if self._last_output_sens is not None else self._last_input_grad
+        if sens is None:
+            return PHI_TARGET
+        grad_state = sens[:state_dim]
+        phi = float(np.linalg.norm(grad_state)) / np.sqrt(float(state_dim))
+        return float(np.clip(phi, 0.0, PHI_MAX))
 
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""
@@ -646,6 +692,20 @@ class WorldModelMLP:
         d_z1 = d_a1 * (z1 > 0).astype(np.float32)
         grad_w1 = np.outer(x, d_z1)
         grad_b1 = d_z1
+
+        # Cache input gradient for Φ (causal sensitivity) — zero extra compute
+        self._last_input_grad = (d_z1 @ self.w1.T).astype(np.float32)
+
+        # Cache output sensitivity: gradient of mean(out) w.r.t input.
+        # Unlike dL/dx (which vanishes when prediction error → 0), this
+        # captures how the prediction itself changes with input, which is
+        # meaningful even for a perfectly trained model.
+        d_out_sens = np.full_like(self.b3, 1.0 / self.state_dim)
+        d_a2_sens = d_out_sens @ self.w3.T
+        d_z2_sens = d_a2_sens * (z2 > 0).astype(np.float32)
+        d_a1_sens = d_z2_sens @ self.w2.T
+        d_z1_sens = d_a1_sens * (z1 > 0).astype(np.float32)
+        self._last_output_sens: np.ndarray = (d_z1_sens @ self.w1.T).astype(np.float32)
 
         # Gradient clipping
         for g in (grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3):
