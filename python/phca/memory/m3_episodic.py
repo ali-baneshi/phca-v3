@@ -89,19 +89,12 @@ CREATE TABLE IF NOT EXISTS episodes (
 CREATE INDEX IF NOT EXISTS idx_episodes_consolidated
     ON episodes(consolidated, timestamp);
 
--- Consolidation log (for idempotent processing)
-CREATE TABLE IF NOT EXISTS consolidation_log (
-    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    snapshot_version INTEGER NOT NULL,
-    episodes_processed INTEGER NOT NULL,
-    facts_generated INTEGER NOT NULL,
-    started_at INTEGER NOT NULL,
-    completed_at INTEGER,
-    status TEXT DEFAULT 'in_progress'
-);
+-- Index for task-stratified sampling (P1-2)
+CREATE INDEX IF NOT EXISTS idx_episodes_task_id
+    ON episodes(task_id);
 
--- (schema_version table removed in Phase 3.3 gap audit G-014 —
---  migration framework was never wired into _init_db())
+-- (consolidation_log table removed in P2-4 — ConsolidationScheduler
+--  tracks its own reports; this table was never written to)
 """
 
 
@@ -218,6 +211,19 @@ class M3EpisodicMemory:
             if "task_id" not in cols:
                 self._conn.execute(
                     "ALTER TABLE episodes ADD COLUMN task_id INTEGER DEFAULT NULL"
+                )
+                self._conn.commit()
+
+            # Ensure task_id index exists (P1-2)
+            indexes = {
+                row[0]
+                for row in self._conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='episodes'"
+                ).fetchall()
+            }
+            if "idx_episodes_task_id" not in indexes:
+                self._conn.execute(
+                    "CREATE INDEX idx_episodes_task_id ON episodes(task_id)"
                 )
                 self._conn.commit()
         except sqlite3.OperationalError:
@@ -402,18 +408,23 @@ class M3EpisodicMemory:
             if not found_any:
                 break
 
-        # Phase 2: fill remaining budget (if any episodes were found at all)
+        # Phase 2: fill remaining budget, excluding Phase-1 episode_ids (P2-2)
         if remain > 0 and result:
+            seen_ids = {ep.episode_id for ep in result}
             try:
                 cursor = self._connection.execute(
                     "SELECT * FROM episodes WHERE task_id IS NOT NULL "
                     "AND task_id < ? ORDER BY RANDOM() LIMIT ?",
-                    (int(before_task_id), remain),
+                    (int(before_task_id), remain + len(seen_ids)),
                 )
                 for row in cursor.fetchall():
                     ep = self._row_to_episode(row)
-                    if ep is not None:
+                    if ep is not None and ep.episode_id not in seen_ids:
                         result.append(ep)
+                        seen_ids.add(ep.episode_id)
+                        remain -= 1
+                        if remain <= 0:
+                            break
             except Exception:
                 pass
 
@@ -547,21 +558,23 @@ class M3EpisodicMemory:
 
     def _evict_if_needed(self) -> None:
         """Evict oldest episodes if over max_episodes."""
-        total = self.count()
-        if total > self._max_episodes:
+        with self._lock:
+            total = self.count()
+            if total <= self._max_episodes:
+                return
             excess = total - self._max_episodes
-            with self._lock:
-                # Find the oldest non-consolidated episodes and delete them
-                self._connection.execute(
-                    "DELETE FROM episodes WHERE episode_id IN ("
-                    "SELECT episode_id FROM episodes ORDER BY timestamp ASC LIMIT ?"
-                    ")", (excess,),
-                )
-                self._connection.commit()
-                _log(logger, "debug", "m3.evict", count=excess)
-                # Track deletions for VACUUM scheduling (G-010)
-                self._episodes_since_vacuum += excess
-                self._vacuum_if_needed()
+            # Find the oldest episodes and delete them
+            self._connection.execute(
+                "DELETE FROM episodes WHERE episode_id IN ("
+                "SELECT episode_id FROM episodes ORDER BY timestamp ASC LIMIT ?"
+                ")", (excess,),
+            )
+            self._connection.commit()
+            self._pending_commits = 0  # eviction commit also flushes pending writes
+            _log(logger, "debug", "m3.evict", count=excess)
+            # Track deletions for VACUUM scheduling (G-010)
+            self._episodes_since_vacuum += excess
+            self._vacuum_if_needed()
 
     def purge_consolidated(self, keep_recent: int = 500) -> int:
         """Delete consolidated episodes, retaining the most recent (P1-4 retention).

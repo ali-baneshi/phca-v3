@@ -796,7 +796,190 @@ Computed from existing `train_curves` diagnostic data — no extra benchmark run
 
 ---
 
-**Grand total:** ~9 engineering hours (approximately 1-2 days + hardening)
+### Fix P0-1: M1 precision_buffer initialized to zeros not ones (P0)
+
+**Files:**
+- `python/phca/memory/m1_sensory.py` — line 37
+
+**What:**
+`precision_buffer` was `np.zeros` (infinite uncertainty at init) but `reset()` filled with `1.0` and `write()` copied `state.precision`. Changed to `np.ones` for consistency with documented semantics.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 1 minute.
+
+---
+
+### Fix P0-2: `_env_goal_relocated` undeclared attribute (P0)
+
+**Files:**
+- `python/phca/core/cycle.py` — added declaration in `__init__`, replaced `getattr` guard with direct access
+
+**What:**
+Attribute read via `getattr(self, "_env_goal_relocated", False)` was never declared in `__init__` — always silently `False`. Added explicit `self._env_goal_relocated: bool = False`.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 2 minutes.
+
+---
+
+### Fix P1-1: M4 confidence decay (P1)
+
+**Files:**
+- `python/phca/consolidation/scheduler.py` — added `M4_CONFIDENCE_DECAY = 0.998`, decay loop in `_store_facts`
+
+**What:**
+Fact confidence only increased (via merge) and never decayed — stale facts from old tasks persisted with full weight. Added `confidence *= 0.998` per consolidation cycle (~2% drop per 100 cognitive cycles) before merging new facts.
+
+**Verification:** 153 tests pass (26 consolidation tests pass).
+
+**Effort:** 15 minutes.
+
+---
+
+### Fix P1-2: M3 task_id index (P1)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — added `idx_episodes_task_id` to schema + migration
+
+**What:**
+Task-stratified queries (`WHERE task_id=?`, `WHERE task_id<?`) performed O(n) full table scans. Added index and migration for existing databases.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 10 minutes.
+
+---
+
+### Fix P1-3: M4 pruning type diversity (P1)
+
+**Files:**
+- `python/phca/consolidation/scheduler.py` — added `M4_MIN_FACTS_PER_TYPE = 20`, rewritten prune logic
+
+**What:**
+Pruning was purely confidence-ranked, letting "transition" facts dominate all 500 slots. Now reserves 20 min slots per fact type (`novelty`, `well_known`, `transition`) before filling remainder by confidence.
+
+**Verification:** 153 tests pass, pruning tests updated.
+
+**Effort:** 15 minutes.
+
+---
+
+### Fix P2-2: M3 sample_prior_task_episodes dedup (P2)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — Phase 2 now tracks `seen_ids` set
+
+**What:**
+Phase 2 could re-select episodes already returned in Phase 1. Added dedup via `seen_ids` set, with extra headroom in the SQL query.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 10 minutes.
+
+---
+
+### Fix P2-3: M3 TOCTOU eviction race (P2)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — `count()` moved inside `self._lock`
+
+**What:**
+`_evict_if_needed()` called `self.count()` without lock before acquiring it — race window between count and eviction. Moved count inside the lock with early return.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 5 minutes.
+
+---
+
+### Fix P2-4: M3 consolidation_log dead schema (P2)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — removed `CREATE TABLE consolidation_log` from schema
+
+**What:**
+Table was created but never written to by any M3 method. ConsolidationScheduler tracks its own reports. ~4KB dead allocation removed.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 2 minutes.
+
+---
+
+### Fix P3a: M4 `_staging_buffer` simplified (P3)
+
+**Files:**
+- `python/phca/consolidation/scheduler.py` — removed vestigial staging buffer pattern
+
+**What:**
+`_staging_buffer` was written, immediately swapped to `_committed_facts`, then cleared — all within the same critical section. It provided no isolation benefit. Simplified to direct `self._committed_facts = all_facts` under the lock.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 5 minutes.
+
+---
+
+### Fix P3b: M3 `_pending_commits` reset after eviction commit (P3)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — reset `_pending_commits = 0` after eviction commit
+
+**What:**
+`_evict_if_needed()` commits pending writes but does not reset `_pending_commits`, making the commit-interval tracking imprecise. Added reset after commit.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 2 minutes.
+
+---
+
+### Fix P3c: Noise injector wiring in builder (P3)
+
+**Files:**
+- `python/phca/core/cycle.py` — added `noise_profile`, `noise_intensity` params to `build()` and `build_for_env()`
+
+**What:**
+`NoiseInjector` was imported and its injection call existed in `step()` but was never configurable from any builder — always None. Added optional `noise_profile` (gaussian/dropout/drift/salt_pepper) and `noise_intensity` (0.0-1.0) parameters to `build()` and `build_for_env()`. When provided, the injector is created and wired into the cycle.
+
+**Verification:** 153 tests pass.
+
+**Effort:** 15 minutes.
+
+---
+
+### Fix P3d: Forward transfer always computed (P3)
+
+**Files:**
+- `scripts/benchmark_level4.py` — moved `train_curves` and `forward_transfer` out of `diagnostic` block
+
+**What:**
+Forward transfer (learning speedup ratio relative to task 0) was only computed when `--diagnostic` was passed. Moved `train_curves` computation and `forward_transfer()` call into the standard path, aggregated across seeds in the report, and printed in output.
+
+**Verification:** 153 tests pass. Standard output now shows `forward_transfer={0: 1.0, 1: 1.0}`.
+
+**Effort:** 5 minutes.
+
+---
+
+### Fix P3e: Noise injector wired into benchmark CLI (P3)
+
+**Files:**
+- `scripts/benchmark_level4.py` — added `--noise-profile` and `--noise-intensity` CLI args, passed through `run_level4_benchmark()` to `build_for_env()` and `build_for_mujoco()`
+- `python/phca/core/cycle.py` — added `noise_profile`, `noise_intensity` params to `build_for_mujoco()`
+
+**What:**
+Users can now run `python scripts/benchmark_level4.py --noise-profile gaussian --noise-intensity 0.15` to test robustness to sensor noise. Profile and intensity are recorded in the JSON report config.
+
+**Verification:** 153 tests pass. `python scripts/benchmark_level4.py --tasks 2 --task-cycles 20 --noise-profile gaussian --noise-intensity 0.15` produces config with `noise_profile=gaussian`, `noise_intensity=0.15`.
+
+**Effort:** 10 minutes.
+
+---
+
+**Grand total:** ~10.5 engineering hours
 
 ---
 

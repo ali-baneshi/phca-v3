@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +41,7 @@ from phca.logging import logger, _log
 M4_LOCK_TIMEOUT = 0.050       # 50ms max wait for M4 write lock
 M4_MAX_FACTS = 1_000          # max facts before pruning low-confidence
 M4_PRUNE_TARGET = 500         # target count after pruning
+M4_MIN_FACTS_PER_TYPE = 20    # min facts of each type kept during prune (P1-3)
 
 
 @dataclass
@@ -135,7 +137,7 @@ class ConsolidationScheduler:
         # M4 write-lock protected store (v3.0 Patch §2.3.2)
         self._m4_lock: threading.Lock = threading.Lock()
         self._committed_facts: List[SemanticFact] = []
-        self._staging_buffer: Optional[List[SemanticFact]] = None
+        # _staging_buffer removed in P3 — simplified to direct assignment
 
         self._total_processed: int = 0
         self._total_facts: int = 0
@@ -316,6 +318,8 @@ class ConsolidationScheduler:
 
         return facts
 
+    M4_CONFIDENCE_DECAY: float = 0.998
+
     def _store_facts(self, facts: List[SemanticFact]) -> int:
         """Store extracted facts in the S-Stream with M4 write-lock atomicity.
 
@@ -335,13 +339,33 @@ class ConsolidationScheduler:
         # Build the new fact set in a staging buffer
         n_new = 0
         staging = list(self._committed_facts)
+
+        # Apply gentle exponential decay to existing facts so stale patterns
+        # gradually lose influence. Decay is applied per consolidation cycle,
+        # which runs every M4_CONFIDENCE_DECAY cycles (~10 steps / ~100 cognitive
+        # cycles to drop 2%). Frequently-merged facts maintain confidence via
+        # the +0.05 merge increment which dominates the decay.
+        for fact in staging:
+            fact.confidence = max(0.01, fact.confidence * self.M4_CONFIDENCE_DECAY)
+
         all_facts = staging + list(facts)
         n_new = len(facts)
 
-        # Prune if over capacity
+        # Prune with type diversity preservation (P1-3)
         if len(all_facts) > M4_MAX_FACTS:
-            all_facts.sort(key=lambda f: f.confidence)
-            all_facts = all_facts[-M4_PRUNE_TARGET:]
+            all_facts.sort(key=lambda f: f.confidence, reverse=True)
+            by_type: Dict[str, List[SemanticFact]] = defaultdict(list)
+            for f in all_facts:
+                by_type[f.fact_type].append(f)
+            selected: List[SemanticFact] = []
+            for ft in ("novelty", "well_known", "transition"):
+                selected.extend(by_type[ft][:M4_MIN_FACTS_PER_TYPE])
+            remaining: List[SemanticFact] = []
+            for lst in by_type.values():
+                remaining.extend(lst[M4_MIN_FACTS_PER_TYPE:])
+            remaining.sort(key=lambda f: f.confidence, reverse=True)
+            selected.extend(remaining[:M4_PRUNE_TARGET - len(selected)])
+            all_facts = selected[:M4_PRUNE_TARGET]
 
         # Acquire write lock with timeout (v3.0 §2.3.2 C.5)
         acquired = self._m4_lock.acquire(timeout=M4_LOCK_TIMEOUT)
@@ -352,9 +376,7 @@ class ConsolidationScheduler:
             return 0
 
         try:
-            self._staging_buffer = all_facts
-            self._committed_facts = self._staging_buffer
-            self._staging_buffer = None
+            self._committed_facts = all_facts
         finally:
             self._m4_lock.release()
 
@@ -453,7 +475,6 @@ class ConsolidationScheduler:
         self._current_snapshot = None
         with self._m4_lock:
             self._committed_facts.clear()
-            self._staging_buffer = None
         self._total_processed = 0
         self._total_facts = 0
         self._history.clear()

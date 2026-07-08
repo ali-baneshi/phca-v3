@@ -1,17 +1,17 @@
 {
   "config": {
-    "tasks": 3,
-    "task_cycles": 100,
+    "tasks": 2,
+    "task_cycles": 80,
     "eval_cycles": 20,
     "eval_warmup_cycles": 0,
-    "seeds": 1,
+    "seeds": 5,
     "use_mlp": true,
     "grid_size": 5,
     "mitigation": true,
     "baseline_method": "max_rolling",
     "baseline_window": 20,
     "baseline_min_valid": 0.2,
-    "diagnostic": true,
+    "diagnostic": false,
     "m3_replay_budget": 4,
     "interleaved_eval_cycles": 0,
     "interleaved_warmup_cycles": 0
@@ -34,15 +34,6 @@
       ],
       "target_angle": null,
       "n_obstacles": 6
-    },
-    {
-      "task_id": 2,
-      "goal_pos": [
-        0,
-        1
-      ],
-      "target_angle": null,
-      "n_obstacles": 5
     }
   ],
   "seed_results": [
@@ -50,188 +41,125 @@
       "seed": 42,
       "baselines": {
         "0": 1.0,
-        "1": 0.0,
-        "2": 0.0
+        "1": 0.0
       },
       "current": {
-        "0": 0.95,
-        "1": 0.0,
-        "2": 0.0
+        "0": 1.0,
+        "1": 0.0
       },
       "delta_perf": {
-        "0": -0.050000000000000044
+        "0": 0.0
       },
       "excluded_tasks": [
-        1,
-        2
+        1
       ],
-      "forgetting_rate": 0.050000000000000044,
-      "passes_gate": false,
+      "forgetting_rate": 0.0,
+      "passes_gate": true,
       "per_task_accuracy": {
-        "0": 0.95,
-        "1": 0.0,
-        "2": 0.0
+        "0": 1.0,
+        "1": 0.0
+      }
+    },
+    {
+      "seed": 142,
+      "baselines": {
+        "0": 1.0,
+        "1": 1.0
       },
-      "diagnostic": {
-        "train_curves": {
-          "0": [
-            {
-              "cycle": 10,
-              "perf": 0.9
-            },
-            {
-              "cycle": 20,
-              "perf": 0.95
-            },
-            {
-              "cycle": 30,
-              "perf": 1.0
-            },
-            {
-              "cycle": 40,
-              "perf": 1.0
-            },
-            {
-              "cycle": 50,
-              "perf": 1.0
-            },
-            {
-              "cycle": 60,
-              "perf": 1.0
-            },
-            {
-              "cycle": 70,
-              "perf": 1.0
-            },
-            {
-              "cycle": 80,
-              "perf": 1.0
-            },
-            {
-              "cycle": 90,
-              "perf": 1.0
-            },
-            {
-              "cycle": 100,
-              "perf": 1.0
-            }
-          ],
-          "1": [
-            {
-              "cycle": 10,
-              "perf": 0.0
-            },
-            {
-              "cycle": 20,
-              "perf": 0.0
-            },
-            {
-              "cycle": 30,
-              "perf": 0.0
-            },
-            {
-              "cycle": 40,
-              "perf": 0.0
-            },
-            {
-              "cycle": 50,
-              "perf": 0.0
-            },
-            {
-              "cycle": 60,
-              "perf": 0.0
-            },
-            {
-              "cycle": 70,
-              "perf": 0.0
-            },
-            {
-              "cycle": 80,
-              "perf": 0.0
-            },
-            {
-              "cycle": 90,
-              "perf": 0.0
-            },
-            {
-              "cycle": 100,
-              "perf": 0.0
-            }
-          ],
-          "2": [
-            {
-              "cycle": 10,
-              "perf": 0.0
-            },
-            {
-              "cycle": 20,
-              "perf": 0.0
-            },
-            {
-              "cycle": 30,
-              "perf": 0.0
-            },
-            {
-              "cycle": 40,
-              "perf": 0.0
-            },
-            {
-              "cycle": 50,
-              "perf": 0.0
-            },
-            {
-              "cycle": 60,
-              "perf": 0.0
-            },
-            {
-              "cycle": 70,
-              "perf": 0.0
-            },
-            {
-              "cycle": 80,
-              "perf": 0.0
-            },
-            {
-              "cycle": 90,
-              "perf": 0.0
-            },
-            {
-              "cycle": 100,
-              "perf": 0.0
-            }
-          ]
-        },
-        "forward_transfer": {
-          "0": 1.0,
-          "1": 0.5,
-          "2": 0.5
-        },
-        "m3_counts_by_task": {
-          "0": 120,
-          "1": 120,
-          "2": 120
-        },
-        "m3_replay_total": 1920,
-        "m3_replay_at_train_end": 1600,
-        "b4_event_cycles": 1,
-        "mitigation_active": true,
-        "baseline_method": "max_rolling",
-        "baseline_window": 20,
-        "baseline_min_valid": 0.2,
-        "m3_replay_budget": 4,
-        "interleaved_eval_cycles": 0
+      "current": {
+        "0": 1.0,
+        "1": 1.0
+      },
+      "delta_perf": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "excluded_tasks": [],
+      "forgetting_rate": 0.0,
+      "passes_gate": true,
+      "per_task_accuracy": {
+        "0": 1.0,
+        "1": 1.0
+      }
+    },
+    {
+      "seed": 242,
+      "baselines": {
+        "0": 1.0,
+        "1": 0.0
+      },
+      "current": {
+        "0": 1.0,
+        "1": 0.0
+      },
+      "delta_perf": {
+        "0": 0.0
+      },
+      "excluded_tasks": [
+        1
+      ],
+      "forgetting_rate": 0.0,
+      "passes_gate": true,
+      "per_task_accuracy": {
+        "0": 1.0,
+        "1": 0.0
+      }
+    },
+    {
+      "seed": 342,
+      "baselines": {
+        "0": 0.0,
+        "1": 1.0
+      },
+      "current": {
+        "0": 0.0,
+        "1": 1.0
+      },
+      "delta_perf": {
+        "1": 0.0
+      },
+      "excluded_tasks": [
+        0
+      ],
+      "forgetting_rate": 0.0,
+      "passes_gate": true,
+      "per_task_accuracy": {
+        "0": 0.0,
+        "1": 1.0
+      }
+    },
+    {
+      "seed": 442,
+      "baselines": {
+        "0": 1.0,
+        "1": 1.0
+      },
+      "current": {
+        "0": 1.0,
+        "1": 1.0
+      },
+      "delta_perf": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "excluded_tasks": [],
+      "forgetting_rate": 0.0,
+      "passes_gate": true,
+      "per_task_accuracy": {
+        "0": 1.0,
+        "1": 1.0
       }
     }
   ],
   "delta_perf": {
-    "0": -0.050000000000000044
+    "0": 0.0,
+    "1": 0.0
   },
-  "forgetting_rate": 0.050000000000000044,
-  "passes_gate": false,
+  "forgetting_rate": 0.0,
+  "passes_gate": true,
   "per_task_accuracy": {
-    "0": 0.95,
-    "1": 0.0,
-    "2": 0.0
+    "0": 0.8,
+    "1": 0.6
   },
-  "duration_s": 9.133521390031092
+  "duration_s": 22.046826896024868
 }

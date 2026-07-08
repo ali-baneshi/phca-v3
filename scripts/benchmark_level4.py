@@ -197,6 +197,8 @@ def run_level4_benchmark(
     m3_replay_budget: int = 4,
     interleaved_eval_cycles: int = 0,
     interleaved_warmup_cycles: int = 0,
+    noise_profile: Optional[str] = None,
+    noise_intensity: float = 0.1,
 ) -> Dict[str, Any]:
     """Run continual task sequence and measure forgetting rate."""
     if env_type == "pendulum":
@@ -211,6 +213,8 @@ def run_level4_benchmark(
             cycle = CognitiveCycle.build_for_mujoco(
                 env_name="Pendulum-v1",
                 seed=seed,
+                noise_profile=noise_profile,
+                noise_intensity=noise_intensity,
             )
             cycle.set_m3_replay_budget(m3_replay_budget)
         else:
@@ -219,6 +223,8 @@ def run_level4_benchmark(
                 seed=seed,
                 use_mlp=use_mlp,
                 obstacles=tasks[0].obstacles,
+                noise_profile=noise_profile,
+                noise_intensity=noise_intensity,
             )
             if grid_size > 5:
                 apply_grid_rbta_bounds(cycle, b_time=0.080 if use_mlp else 0.020)
@@ -263,8 +269,8 @@ def run_level4_benchmark(
             )
             baselines[task.task_id] = baseline
             cycle.record_task_baseline(task.task_id, baseline)
+            train_curves[task.task_id] = _training_perf_curve(train_hist, metric=metric)
             if diagnostic:
-                train_curves[task.task_id] = _training_perf_curve(train_hist, metric=metric)
                 m3_replay_at_train_end = cycle._m3_replay_total
 
             if interleaved_eval_cycles > 0:
@@ -310,6 +316,16 @@ def run_level4_benchmark(
             current,
             min_valid=baseline_min_valid,
         )
+        _forward_transfer: Dict[int, float] = {}
+        if train_curves:
+            _perf_only = {
+                tid: [p["perf"] for p in pts]
+                for tid, pts in train_curves.items()
+            }
+            try:
+                _forward_transfer = forward_transfer(_perf_only)
+            except Exception:
+                pass
         seed_entry: Dict[str, Any] = {
             "seed": seed,
             "baselines": baselines,
@@ -319,21 +335,11 @@ def run_level4_benchmark(
             "forgetting_rate": forgetting_rate(delta),
             "passes_gate": passes_forgetting_gate(delta),
             "per_task_accuracy": current,
+            "forward_transfer": _forward_transfer,
         }
         if diagnostic:
-            _forward_transfer = {}
-            if train_curves:
-                _perf_only = {
-                    tid: [p["perf"] for p in pts]
-                    for tid, pts in train_curves.items()
-                }
-                try:
-                    _forward_transfer = forward_transfer(_perf_only)
-                except Exception:
-                    pass
             seed_entry["diagnostic"] = {
                 "train_curves": train_curves,
-                "forward_transfer": _forward_transfer,
                 "m3_counts_by_task": _m3_counts_by_task(cycle, n_tasks),
                 "m3_replay_total": cycle._m3_replay_total,
                 "m3_replay_at_train_end": m3_replay_at_train_end,
@@ -370,6 +376,8 @@ def run_level4_benchmark(
             "m3_replay_budget": m3_replay_budget,
             "interleaved_eval_cycles": interleaved_eval_cycles,
             "interleaved_warmup_cycles": interleaved_warmup_cycles,
+            "noise_profile": noise_profile,
+            "noise_intensity": noise_intensity,
         },
         "tasks": [
             {
@@ -386,6 +394,10 @@ def run_level4_benchmark(
         "passes_gate": passes_forgetting_gate(agg_delta),
         "per_task_accuracy": {
             tid: float(np.mean([r["per_task_accuracy"].get(tid, 0.0) for r in seed_results]))
+            for tid in range(n_tasks)
+        },
+        "forward_transfer": {
+            tid: float(np.mean([r["forward_transfer"].get(tid, 0.0) for r in seed_results]))
             for tid in range(n_tasks)
         },
         "duration_s": 0.0,
@@ -416,6 +428,8 @@ def main() -> int:
     parser.add_argument("--m3-replay-budget", type=int, default=4)
     parser.add_argument("--interleaved-eval", type=int, default=0, dest="interleaved_eval_cycles")
     parser.add_argument("--interleaved-warmup", type=int, default=0, dest="interleaved_warmup_cycles")
+    parser.add_argument("--noise-profile", type=str, default=None, choices=["gaussian", "dropout", "drift", "salt_pepper"])
+    parser.add_argument("--noise-intensity", type=float, default=0.1)
     parser.add_argument("--output", type=str, default="logs/benchmark_level4.json")
     args = parser.parse_args()
     if args.metric is None:
@@ -440,8 +454,10 @@ def main() -> int:
         m3_replay_budget=args.m3_replay_budget,
         interleaved_eval_cycles=args.interleaved_eval_cycles,
         interleaved_warmup_cycles=args.interleaved_warmup_cycles,
+        noise_profile=args.noise_profile,
+        noise_intensity=args.noise_intensity,
     )
-    report["duration_s"] = time.perf_counter() - t0
+
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -450,6 +466,9 @@ def main() -> int:
     print(f"forgetting_rate={report['forgetting_rate']:.4f}")
     print(f"passes_gate={report['passes_gate']}")
     print(f"per_task_accuracy={report['per_task_accuracy']}")
+    ft_agg = report.get("forward_transfer", {})
+    if ft_agg:
+        print(f"forward_transfer={ft_agg}")
     if args.diagnostic and report["seed_results"]:
         diag = report["seed_results"][0].get("diagnostic", {})
         print(f"m3_replay_total={diag.get('m3_replay_total')}")

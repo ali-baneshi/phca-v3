@@ -227,6 +227,7 @@ class CognitiveCycle:
         self._last_m3_replay_steps: int = 0
         self._m3_replay_total: int = 0
         self._m3_replay_budget: int = 4
+        self._env_goal_relocated: bool = False
 
         # Cognitive resilience (distinct from Observatory session recovery)
         self._resilience_detector = FailureDetector()
@@ -806,7 +807,7 @@ class CognitiveCycle:
                         self._attention_weights.tolist()
                         if self.interventions.enable_attention else None
                     ),
-                    env_goal_relocated=getattr(self, "_env_goal_relocated", False),
+                    env_goal_relocated=self._env_goal_relocated,
                 )
                 self._env_goal_relocated = False
             if len(self.metrics_history) > 5000:
@@ -1915,6 +1916,8 @@ class CognitiveCycle:
         observability_store: Optional["ObservabilityStore"] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
+        noise_profile: Optional[str] = None,
+        noise_intensity: float = 0.1,
     ) -> CognitiveCycle:
         """Build a fully-configured cognitive cycle for any EnvironmentProtocol.
 
@@ -1939,6 +1942,9 @@ class CognitiveCycle:
             action_b_energy: RBTA energy bound for ACTION module
                 (default 0.020; use 0.050 for MuJoCo).
             metrics_store: Optional MetricsStore for live monitoring.
+            noise_profile: Sensor noise profile ("gaussian", "dropout",
+                "drift", "salt_pepper"). None = disabled.
+            noise_intensity: Noise level 0.0-1.0 (default 0.1).
 
         Returns:
             Configured CognitiveCycle instance.
@@ -2028,7 +2034,16 @@ class CognitiveCycle:
             consolidation_interval=10, max_facts_per_cycle=50,
         )
 
-        return cls(
+        noise_injector: Optional[NoiseInjector] = None
+        if noise_profile is not None:
+            noise_injector = NoiseInjector(
+                sensor_dim=state_dim,
+                initial_profile=noise_profile,
+                initial_intensity=noise_intensity,
+                seed=seed + 100,
+            )
+
+        cycle = cls(
             sanitizer=sanitizer, m1=m1, m2=m2, gprime=gprime,
             engine=engine, peu=peu, tspl=tspl, rbta=rbta,
             mdim=mdim, attention=attention,
@@ -2041,6 +2056,9 @@ class CognitiveCycle:
             interventions=iv,
             trace_collector=trace_collector,
         )
+        if noise_injector is not None:
+            cycle._noise_injector = noise_injector
+        return cycle
 
     # ── Backward-Compatible Builders ───────────────────────
 
@@ -2057,6 +2075,8 @@ class CognitiveCycle:
         observability_store: Optional["ObservabilityStore"] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
+        noise_profile: Optional[str] = None,
+        noise_intensity: float = 0.1,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for a MuJoCo physics environment.
 
@@ -2107,6 +2127,8 @@ class CognitiveCycle:
             observability_store=observability_store,
             interventions=interventions,
             trace_collector=trace_collector,
+            noise_profile=noise_profile,
+            noise_intensity=noise_intensity,
         )
         cycle.rbta.update_bounds(
             "ENV",
@@ -2145,6 +2167,8 @@ class CognitiveCycle:
         observability_store: Optional["ObservabilityStore"] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
+        noise_profile: Optional[str] = None,
+        noise_intensity: float = 0.1,
     ) -> CognitiveCycle:
         """Build a cognitive cycle for GridWorld.
 
@@ -2183,6 +2207,8 @@ class CognitiveCycle:
             observability_store=observability_store,
             interventions=interventions,
             trace_collector=trace_collector,
+            noise_profile=noise_profile,
+            noise_intensity=noise_intensity,
         )
         # If state_dim was overridden, update the cycle's state_dim
         if state_dim is not None and state_dim != actual_state_dim:

@@ -34,7 +34,7 @@ class M1SensoryBuffer:
         self.sensor_dim = sensor_dim
         self.capacity = capacity or (10 * sensor_dim)
         self.buffer = np.zeros((self.capacity, sensor_dim), dtype=np.float32)
-        self.precision_buffer = np.zeros((self.capacity, sensor_dim), dtype=np.float32)
+        self.precision_buffer = np.ones((self.capacity, sensor_dim), dtype=np.float32)
         self.timestamps = np.zeros(self.capacity, dtype=np.float64)
         self.write_pos = 0  # current write position
         self.count = 0  # total samples written
