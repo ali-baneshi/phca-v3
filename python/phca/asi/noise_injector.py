@@ -10,7 +10,7 @@ grounding implementations. Profiles: gaussian, dropout, drift, salt_pepper.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 

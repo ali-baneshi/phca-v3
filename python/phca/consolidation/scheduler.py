@@ -140,6 +140,7 @@ class ConsolidationScheduler:
         self._total_processed: int = 0
         self._total_facts: int = 0
         self._history: List[ConsolidationReport] = []
+        self._max_history: int = 1000
 
         _log(logger, "info", "consolidation.init",
              interval=consolidation_interval, max_facts=max_facts_per_cycle)
@@ -182,6 +183,8 @@ class ConsolidationScheduler:
                 )
                 self._last_consolidation_cycle = cycle_count
                 self._history.append(report)
+                if len(self._history) > self._max_history:
+                    self._history[:] = self._history[-self._max_history:]
                 return report
 
             # Step 17: Process snapshot → extract semantic facts
@@ -230,6 +233,8 @@ class ConsolidationScheduler:
             )
 
         self._history.append(report)
+        if len(self._history) > self._max_history:
+            self._history[:] = self._history[-self._max_history:]
         return report
 
     def force_step(self, cycle_count: int) -> ConsolidationReport:

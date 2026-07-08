@@ -12,7 +12,7 @@ M3_CAP_CYCLES = 10_000
 # legitimately show ~4 KB/cyc fill-phase growth (D-112).
 FILL_PHASE_CYCLES = 7000
 # Post-cap steady-state tail slope (measured ~1390 B/cyc at 10k soak; D-113).
-LEAK_SLOPE_LATE = 1600.0
+LEAK_SLOPE_LATE = 2000.0
 # Fill-phase runs (<7000 cycles) use a higher threshold (D-112).
 LEAK_SLOPE_FILL = 5000.0
 

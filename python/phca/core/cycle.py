@@ -878,7 +878,10 @@ class CognitiveCycle:
 
     def record_task_eval(self, task_id: int, goal_reached: bool) -> None:
         """Append eval-cycle goal outcome for per-task tracking."""
-        self._task_eval_history.setdefault(task_id, []).append(float(goal_reached))
+        history = self._task_eval_history.setdefault(task_id, [])
+        history.append(float(goal_reached))
+        if len(history) > 100:
+            history[:] = history[-100:]
 
     def _replay_m3_prior_tasks(self) -> int:
         """Sample prior-task M3 episodes into G′ when forgetting mitigation is active."""
