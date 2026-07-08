@@ -70,6 +70,14 @@ class RecoveryManager:
             cycle.adaptive_controller.apply_c1_recovery()
             actions.append(RecoveryAction.PID_C1_RECOVERY)
 
+        elif mode == "E1":
+            cycle.mdim.temperature = min(3.0, cycle.mdim.temperature * 1.5)
+            if hasattr(cycle, 'attention') and cycle.attention is not None:
+                cycle.attention.gumbel_temperature = min(
+                    2.0, cycle.attention.gumbel_temperature * 1.2
+                )
+            actions.append(RecoveryAction.EMERGENCY_RECOVERY)
+
         elif mode == "F5":
             cycle.consolidation.force_step(cycle.cycle_count)
             actions.append(RecoveryAction.FORCE_CONSOLIDATION)

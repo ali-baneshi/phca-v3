@@ -45,8 +45,8 @@ shorthand for the module pipeline above.
 |---|---|---|
 | ActionSpace | `DiscreteSpace(n)` | `ContinuousSpace(low, high, dim)` |
 | Selector | Blended scorer / argmax | MPC: sample K, predict each, pick best ŝ′ |
-| Primary signal | Manhattan gain + confidence + MDIM | Predicted next state vs goal reference |
-| A4 measured? | **Partial** (geometry assists) | **Yes** (D-101, assumption validation) |
+| Primary signal | Manhattan gain + confidence + MDIM (hybrid cognitive map) | Predicted next state vs goal reference |
+| A4 measured? | **Hybrid Cognitive Map** (D-136: Prediction + Spatial Heuristics) | **Prediction-primary** (D-101, assumption validation) |
 | Reward used? | No (GridWorld); env reward logged | No for selection |
 
 ---
@@ -95,6 +95,7 @@ calls per candidate — PASS when ≥1 call per candidate.
 | Claim | Cite |
 |---|---|
 | "Prediction-primary control" | Pendulum/Reacher MPC only |
+| "Hybrid cognitive map navigation" | GridWorld discrete: Manhattan + BFS + G′ prediction |
 | "Goal-directed navigation" | GridWorld L2 Φ-IQ + causal gate |
 | "Memory-driven policy" | **Not supported** on current GridWorld discrete path |
 

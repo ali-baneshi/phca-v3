@@ -15,6 +15,7 @@ class FailureCategory(str, Enum):
     MODE_COLLAPSE = "B5"
     FEEDBACK_INSTABILITY = "C1"
     CONSOLIDATION_FAILURE = "F5"
+    EMERGENCY_ENTROPY = "E1"
 
 
 @dataclass
@@ -38,6 +39,22 @@ class RecoveryAction(str, Enum):
     BOOST_TEMPERATURE = "boost_temperature"
     PID_C1_RECOVERY = "pid_c1_recovery"
     FORCE_CONSOLIDATION = "force_consolidation"
+    EMERGENCY_RECOVERY = "emergency_recovery"
+
+
+class FallbackAction(str, Enum):
+    """Instinctive behaviors available to the fallback controller."""
+    STOP = "stop"
+    NOOP = "noop"
+
+
+@dataclass
+class EmergencyEvent:
+    """Record of a triggered emergency fallback."""
+    entropy: float
+    threshold: float
+    action: FallbackAction
+    cycle_id: int
 
 
 @dataclass

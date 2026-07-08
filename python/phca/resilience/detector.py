@@ -1,4 +1,4 @@
-"""Failure detection from per-cycle snapshots (B1, B4, B5, C1, F5)."""
+"""Failure detection from per-cycle snapshots (B1, B4, B5, C1, F5, E1)."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ class FailureDetector:
         c1_consecutive: int = 3,
         f5_fill_ratio: float = 0.9,
         f5_stagnant_cycles: int = 50,
+        e1_entropy_threshold: float = 0.85,
     ):
         self.b1_multiplier = b1_multiplier
         self.b1_consecutive = b1_consecutive
@@ -35,6 +36,7 @@ class FailureDetector:
         self.c1_consecutive = c1_consecutive
         self.f5_fill_ratio = f5_fill_ratio
         self.f5_stagnant_cycles = f5_stagnant_cycles
+        self.e1_entropy_threshold = e1_entropy_threshold
         self._b1_streak: int = 0
 
     def detect(self, snapshot: CycleSnapshot) -> List[FailureEvent]:
@@ -44,6 +46,7 @@ class FailureDetector:
         events.extend(self._detect_b5(snapshot))
         events.extend(self._detect_c1(snapshot))
         events.extend(self._detect_f5(snapshot))
+        events.extend(self._detect_e1(snapshot))
         return events
 
     def _detect_b1(self, snap: CycleSnapshot) -> List[FailureEvent]:
@@ -122,6 +125,19 @@ class FailureDetector:
             )]
         return []
 
+    def _detect_e1(self, snap: CycleSnapshot) -> List[FailureEvent]:
+        if snap.wm_entropy_proxy >= self.e1_entropy_threshold and snap.unique_actions_recent <= 1:
+            return [FailureEvent(
+                mode_id="E1",
+                category=FailureCategory.EMERGENCY_ENTROPY,
+                severity=snap.wm_entropy_proxy,
+                cycle_id=snap.cycle_id,
+                measured=snap.wm_entropy_proxy,
+                threshold=self.e1_entropy_threshold,
+                detail="belief entropy above threshold with low action diversity",
+            )]
+        return []
+
     def _detect_f5(self, snap: CycleSnapshot) -> List[FailureEvent]:
         if snap.m3_fill_ratio < self.f5_fill_ratio:
             return []
@@ -164,4 +180,6 @@ class FailureDetector:
             return not hist or hist[-1] != "TERMINATE"
         if mode_id == "F5":
             return snapshot.m4_fact_count_delta > 0 or snapshot.m3_fill_ratio < self.f5_fill_ratio
+        if mode_id == "E1":
+            return snapshot.wm_entropy_proxy < self.e1_entropy_threshold
         return True

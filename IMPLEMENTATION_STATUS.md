@@ -30,7 +30,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
 | **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
 | **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** |
-| **A4** Prediction as primary | G′ predict every cycle | A4 test on continuous MPC | **Partial** (improved) — GridWorld: confidence-gated task_lock (τ=0.6) + blended G′ fallback; continuous MPC remains A4-primary (measured) |
+| **A4** Prediction + Spatial Heuristics as Hybrid Cognitive Map | G′ predict every cycle + spatial heuristics for discrete navigation | A4 test on continuous MPC + hybrid selector metrics | **Hybrid Cognitive Map** (D-136) — GridWorld: confidence-gated task_lock (τ=0.6) with Manhattan/BFS geometry + blended G′ fallback; continuous MPC remains prediction-primary (measured) |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) for behavioral
@@ -112,7 +112,7 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 
 | Environment | Mode | A4 "prediction-primary"? |
 |---|---|---|
-| GridWorld discrete | Confidence-gated task_lock (τ=0.6) + blended G′ fallback | **Partial** (improved) |
+| GridWorld discrete | Confidence-gated task_lock (τ=0.6) + Manhattan/BFS geometry + blended G′ fallback | **Hybrid Cognitive Map** (D-136) |
 | Cartpole | 3-bin discrete | **Partial** |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |

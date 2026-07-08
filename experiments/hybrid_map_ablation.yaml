@@ -1,0 +1,76 @@
+# Hybrid Cognitive Map Ablation — Manhattan vs Prediction vs Hybrid
+#
+# Tests the claim that the hybrid (Manhattan + Prediction) approach
+# outperforms either pure strategy alone on GridWorld navigation.
+#
+# Conditions:
+#   - grid_size: 5, 10
+#   - wall_mode: "static", "maze", "dynamic_goals"
+#
+# Agents:
+#   - manhattan: uses _select_greedy_grid_action (no G')
+#   - prediction: uses _select_action with disable_task_lock=True (no geometry)
+#   - hybrid: current confidence-gated hybrid (D-136)
+#
+# Hypothesis:
+#   - hybrid > manhattan on maze/dynamic (G' adds foresight)
+#   - hybrid > prediction on robustness (geometry prevents prediction errors)
+#   - hybrid ≈ manhattan on static open grids
+---
+experiment:
+  id: hybrid_map_ablation
+  description: "Compare Manhattan-only, Prediction-only, and Hybrid agents on GridWorld"
+  seeds: 30
+  conditions:
+    - grid_size: 5
+      wall_mode: "static"
+      cycles: 200
+    - grid_size: 10
+      wall_mode: "static"
+      cycles: 300
+    - grid_size: 5
+      wall_mode: "maze"
+      cycles: 300
+    - grid_size: 10
+      wall_mode: "maze"
+      cycles: 500
+    - grid_size: 5
+      wall_mode: "dynamic_goals"
+      cycles: 400
+    - grid_size: 10
+      wall_mode: "dynamic_goals"
+      cycles: 600
+
+  agents:
+    - id: manhattan
+      label: "Pure Manhattan"
+      description: "Always uses _select_greedy_grid_action (no G')"
+      params:
+        disable_gprime: true
+        disable_task_lock: false
+
+    - id: prediction
+      label: "Pure Prediction"
+      description: "Uses prediction-only scorer (disable_task_lock=true)"
+      params:
+        disable_gprime: false
+        disable_task_lock: true
+
+    - id: hybrid
+      label: "Hybrid Cognitive Map"
+      description: "Current confidence-gated hybrid (D-136)"
+      params:
+        disable_gprime: false
+        disable_task_lock: false
+
+  metrics:
+    - goal_rate
+    - mean_distance_to_goal
+    - steps_to_first_goal
+    - prediction_error
+    - emergency_count
+
+  analysis:
+    - "Mann-Whitney U test: hybrid vs manhattan across conditions"
+    - "Mann-Whitney U test: hybrid vs prediction across conditions"
+    - "Effect size (Cohen's d) for significant comparisons"

@@ -34,6 +34,7 @@ from phca.config import (
 from phca.asi.sanitizer import ASISanitizer
 from phca.resilience import FailureDetector, RecoveryManager
 from phca.resilience.types import CycleSnapshot
+from phca.resilience.fallback_controller import FallbackController
 from phca.memory.m1_sensory import M1SensoryBuffer
 from phca.memory.m2_working import M2WorkingMemory
 from phca.memory.m3_episodic import M3EpisodicMemory
@@ -59,6 +60,7 @@ from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
 from phca.environments.protocol import EnvironmentProtocol
+from phca.asi.noise_injector import NoiseInjector
 from phca.evaluation.interventions import DESYNC_STAGE_ORDER, InterventionConfig
 from phca.evaluation.trace import TraceCollector
 
@@ -98,6 +100,8 @@ class CycleMetrics:
     task_id: int = -1
     failure_events: List[str] = field(default_factory=list)
     recovery_active: bool = False
+    emergency_active: bool = False
+    emergency_entropy: float = 0.0
 
 
 class CognitiveCycle:
@@ -226,6 +230,12 @@ class CognitiveCycle:
         self._resilience_detector = FailureDetector()
         self._resilience_recovery = RecoveryManager()
 
+        # Emergency fallback controller (high-entropy instinctive behavior)
+        self._fallback_controller = FallbackController()
+
+        # Noise injector for grounding simulation (None = disabled)
+        self._noise_injector: Optional[NoiseInjector] = None
+
         # RBTA enforcement carry-forward (P1-01): prior cycle action shapes next cycle.
         self._rbta_carry_action: EnforcerAction = EnforcerAction.CONTINUE
         self._rbta_skip_feedback: bool = False
@@ -281,9 +291,11 @@ class CognitiveCycle:
             elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
                 self._rbta_action_candidate_limit = 1
 
-            # Step 0: ASI sanitization
+            # Step 0: ASI sanitization (with optional noise injection for grounding sim)
             t0 = time.perf_counter()
             raw_obs = self.env.get_observation()
+            if self._noise_injector is not None:
+                raw_obs = self._noise_injector.inject(raw_obs, self.cycle_count)
             clean_state, status = self.sanitizer.sanitize(raw_obs)
             metrics.module_timings["sanitize"] = (time.perf_counter() - t0) * 1000
 
@@ -737,8 +749,14 @@ class CognitiveCycle:
             events = self._resilience_detector.detect(snapshot)
             if events:
                 self._resilience_recovery.apply(self, events)
+                for e in events:
+                    self._fallback_controller.notify_failure(
+                        e.mode_id, e.severity, self.cycle_count,
+                    )
             metrics.failure_events = [e.mode_id for e in events]
             metrics.recovery_active = self._resilience_recovery.any_active()
+            metrics.emergency_active = self._fallback_controller.active()
+            metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
 
             # Step 15: Logging — also populate dashboard fields
             consol_stats = self.consolidation.get_stats()
@@ -1047,7 +1065,36 @@ class CognitiveCycle:
         Phase 6 / A2). The continuous branch is MPC-style: sample K candidate
         actions, predict each via G', pick the one whose predicted next state
         best matches the goal reference. Prediction/goal-driven, NOT RL.
+
+        Emergency fallback is checked first: if belief entropy is critically
+        high, the agent defaults to instinctive stop behavior (STAY in
+        GridWorld, zero torque in MuJoCo).
         """
+        # Emergency fallback: instinctive stop under critical entropy
+        if not self._is_continuous:
+            entropy = float(
+                np.mean(list(self.belief_entropies.values()))
+                if self.belief_entropies else 0.5
+            )
+            event = self._fallback_controller.check(entropy, self.cycle_count)
+            if event is not None:
+                action = self._neutral_action()
+                self.last_action_rationale = self._finalize_action_rationale({
+                    "explored": False,
+                    "eps": 0.0,
+                    "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
+                    "continuous": False,
+                    "best_score": None,
+                    "k_candidates": 1,
+                    "chosen_idx": int(action),
+                    "task_lock": bool(self._task_lock),
+                    "emergency_mode": True,
+                    "emergency_entropy": float(entropy),
+                    "selector_mode": "emergency_stop",
+                    "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+                }, decision_reason="emergency")
+                return action
+
         if self._is_continuous:
             return self._select_continuous_action()
 
@@ -1274,7 +1321,33 @@ class CognitiveCycle:
         function, no policy gradient (A4/A5 preserved).
 
         A1 (Resource Boundedness): K·dim ≤ 16 forward passes per call.
+
+        Emergency fallback check: if belief entropy is critically high, agent
+        defaults to instinctive zero-torque (neutral) behavior.
         """
+        entropy = float(
+            np.mean(list(self.belief_entropies.values()))
+            if self.belief_entropies else 0.5
+        )
+        event = self._fallback_controller.check(entropy, self.cycle_count)
+        if event is not None:
+            action = self._neutral_action()
+            self.last_action_rationale = self._finalize_action_rationale({
+                "explored": False,
+                "eps": 0.0,
+                "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
+                "continuous": True,
+                "best_score": None,
+                "k_candidates": 1,
+                "chosen_idx": None,
+                "task_lock": bool(self._task_lock),
+                "emergency_mode": True,
+                "emergency_entropy": float(entropy),
+                "selector_mode": "emergency_stop",
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+            }, decision_reason="emergency")
+            return action
+
         space = self.action_space
         low, high = space.low, space.high
         K = 8

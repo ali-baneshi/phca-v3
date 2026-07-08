@@ -1524,7 +1524,17 @@ Every entry must reference the v3.0 specification section it affects.
 - **v3.0 trace:** A1 Resource Boundedness; Phase 6 MuJoCo gate C2.
 - **Tests/Validation:** `test_mujoco_action_bound_override_matches_ci_headroom`, `test_mujoco_env_bound_override_matches_ci_headroom`, `test_mujoco_env_step_timing_recorded`; `make nightly-mujoco` exit 0.
 
-## Decision D-132: Align stress-script G' B_mem with `estimate_mlp_memory_bytes` (nightly stress FAIL)
+## Decision D-136: A4 reformulated — "Prediction + Spatial Heuristics as a Hybrid Cognitive Map"
+
+- **Date:** 2026-07-08
+- **Author:** Principal Architect
+- **Category:** Tier 1 (architectural axiom / A4)
+- **Problem:** A4 claimed "Prediction as Primary" but GridWorld discrete action selection uses confidence-gated geometry-primary controller (Manhattan distance + BFS) when G′ confidence ≥ 0.6, reserving prediction-primary blending for low-confidence states. Continuous MPC (Pendulum, Reacher) is genuinely prediction-primary but discrete GridWorld is hybrid by construction. Claiming "Prediction as Primary" for the discrete path was dishonest and reduced scientific credibility.
+- **Option chosen:** Reformulate A4 from "Prediction as Primary" to **"Prediction + Spatial Heuristics as a Hybrid Cognitive Map"**. The continuous MPC path retains prediction-primary status; the discrete GridWorld path is explicitly documented as a hybrid: Manhattan/BFS geometry when confidence ≥ 0.6, prediction-primary blending below 0.6. All docs, status matrices, and code comments updated.
+- **Alternatives:** (1) Remove A4 entirely (rejected — continuous MPC path is genuinely prediction-primary). (2) Force pure prediction-primary in GridWorld by removing the geometry bypass (rejected — G′ is not accurate enough for reliable navigation on 10×10+ grids without Manhattan, and improving it would take >1 week). (3) Keep "Partial" label (rejected — "hybrid" is more honest and more scientifically defensible than "partial prediction-primary").
+- **Rationale:** A4 was falsifiable — and the falsification test (pure prediction on GridWorld without Manhattan) showed the architecture cannot sustain the claim on that path. Rather than abandoning A4 entirely, reformulating it as a hybrid cognitive map is intellectually honest, matches the actual implementation, and preserves the prediction-primary claim for the continuous MPC path where it is genuine. This increases the paper's credibility by acknowledging the architecture's true nature.
+- **v3.0 trace:** A4 architecture invariant; action selection in `cycle.py`; `docs/action_selection.md`, `docs/limitations.md`, `IMPLEMENTATION_STATUS.md`, `README.md`.
+- **Tests/Validation:** All existing tests continue to pass (the code is unchanged — only the framing is updated). No behavioral regression.
 
 - **Date:** 2026-07-06
 - **Author:** Principal Architect

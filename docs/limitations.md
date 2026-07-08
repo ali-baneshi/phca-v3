@@ -67,13 +67,13 @@ Rust toolchain is **not** required (workspace removed D-084).
 
 The nightly stress test uses a **phase-aware late RSS slope** gate (D-112, D-113, D-134): **≤5000 B/cyc** for runs under 7000 cycles (M3 fill phase) and **≤1600 B/cyc** for post-cap soaks (default `make nightly NIGHTLY_CYCLES=11000`). For runs beyond 10k cycles, the gate fits late slope on **post-M3 samples only** (cycles > 10000) so the tail-quarter M3 fill window does not inflate the measurement. M3 VACUUM (D-108) and M4 cap 1000/prune 500 (D-109) bound steady-state growth.
 
-### Discrete GridWorld selector is not purely prediction-driven
+### Discrete GridWorld selector uses a hybrid cognitive map (deliberate design)
 
-When an extrinsic goal is present, **`task_lock`** routes action selection through an observed-greedy Manhattan controller **when G′ prediction confidence ≥ 0.6** (fair vs `greedy_observed` baseline); below that threshold the blended per-candidate G′ scorer is used instead. A sparse L3 coverage probe every 50 cycles on-goal (D-112). G′ prediction drives the **continuous MPC path** (Pendulum, Reacher) — the clean prediction-primary mechanism (A4 measured there, D-101).
+The discrete GridWorld selector employs a **hybrid cognitive map** combining spatial heuristics (Manhattan distance, BFS planning) with G′ prediction. When G′ confidence ≥ 0.6, the geometry-primary Manhattan controller (`_select_greedy_grid_action`) drives navigation — this is not a limitation but a deliberate architectural choice to leverage wall-aware BFS for large grids (≥10×10) where pure prediction is brittle. Below 0.6 confidence, the blended per-candidate G′ scorer handles uncertainty.
 
-Session reporting now exposes this explicitly through selector-path metadata such as
-`task_lock_planner` vs `prediction_scored`; a GridWorld run can therefore be goal-successful
-while still being planner-dominated rather than prediction-dominated.
+This hybrid approach is honest about its mechanism: the architecture's **A4** claim was reformulated from "Prediction as Primary" to **"Prediction + Spatial Heuristics as a Hybrid Cognitive Map"** (D-136). The continuous MPC path (Pendulum, Reacher) remains purely prediction-primary (A4 measured there, D-101).
+
+Session reporting exposes selector-path metadata (`task_lock_planner` vs `prediction_scored`) for full transparency; a GridWorld run can be goal-successful while planner-dominated, and this is accurately reflected in metrics.
 
 ### MLP default hidden_dim = 128
 
