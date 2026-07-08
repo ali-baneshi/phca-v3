@@ -365,10 +365,58 @@ class M3EpisodicMemory:
         n: int,
         before_task_id: int,
     ) -> List[EpisodeRecord]:
-        """Sample up to ``n`` episodes from tasks with ``task_id < before_task_id``."""
+        """Sample up to ``n`` episodes, stratified across prior tasks.
+
+        Each prior task (0 .. ``before_task_id - 1``) gets at least one
+        episode when budget allows, preventing one task from dominating
+        the replay batch.
+        """
         n = max(0, int(n))
         if n == 0 or before_task_id <= 0:
             return []
+        prior_ids = list(range(int(before_task_id)))
+        result: List[EpisodeRecord] = []
+        remain = n
+
+        # Phase 1: allocate one per task, round-robin for surplus
+        while remain > 0 and prior_ids:
+            for tid in prior_ids:
+                if remain <= 0:
+                    break
+                try:
+                    cursor = self._connection.execute(
+                        "SELECT * FROM episodes WHERE task_id = ? "
+                        "ORDER BY RANDOM() LIMIT 1",
+                        (tid,),
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        ep = self._row_to_episode(row)
+                        if ep is not None:
+                            result.append(ep)
+                            remain -= 1
+                except Exception:
+                    continue
+
+        # Phase 2: fill remaining budget (if any episodes were found at all)
+        if remain > 0 and result:
+            try:
+                cursor = self._connection.execute(
+                    "SELECT * FROM episodes WHERE task_id IS NOT NULL "
+                    "AND task_id < ? ORDER BY RANDOM() LIMIT ?",
+                    (int(before_task_id), remain),
+                )
+                for row in cursor.fetchall():
+                    ep = self._row_to_episode(row)
+                    if ep is not None:
+                        result.append(ep)
+            except Exception:
+                pass
+
+        if result:
+            return result
+
+        # Fallback: original single-query approach
         try:
             cursor = self._connection.execute(
                 "SELECT * FROM episodes WHERE task_id IS NOT NULL "

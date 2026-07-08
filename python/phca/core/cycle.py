@@ -218,6 +218,8 @@ class CognitiveCycle:
         # Level-4-lite continual learning / anti-forgetting hooks
         self._current_task_id: int = 0
         self._forgetting_mitigation_active: bool = False
+        self._replay_boost_duration: int = 200
+        self._replay_boost_activated_cycle: int = 0
         self._task_goal_baselines: Dict[int, float] = {}
         self._task_eval_history: Dict[int, List[float]] = {}
         self._last_fact_count: int = 0
@@ -642,7 +644,12 @@ class CognitiveCycle:
                 t_glearn = time.perf_counter()
                 if self.interventions.enable_gprime_learn:
                     if isinstance(self.gprime, WorldModelMLP):
-                        self.gprime.replay_boost = self._forgetting_mitigation_active
+                        boost_still_valid = (
+                            self.cycle_count - self._replay_boost_activated_cycle
+                        ) < self._replay_boost_duration
+                        self.gprime.replay_boost = (
+                            self._forgetting_mitigation_active and boost_still_valid
+                        )
                     if self._should_skip_gprime_learn(metrics):
                         self._last_m3_replay_steps = 0
                     else:
@@ -856,6 +863,7 @@ class CognitiveCycle:
         self._current_task_id = task_id
         self.tspl.protect_parameters(lambda_boost=0.05)
         self._forgetting_mitigation_active = True
+        self._replay_boost_activated_cycle = self.cycle_count
         self._last_goal_pos = None
         if hasattr(self.gprime, "reset"):
             self.gprime.reset()
@@ -867,6 +875,7 @@ class CognitiveCycle:
     def on_forgetting_detected(self) -> None:
         """B4 recovery: replay boost + halve P-Stream learning rate."""
         self._forgetting_mitigation_active = True
+        self._replay_boost_activated_cycle = self.cycle_count
         if isinstance(self.gprime, WorldModelMLP):
             self.gprime.replay_boost = True
         cfg = self.tspl.configs[StreamID.P_STREAM]

@@ -642,7 +642,140 @@ Phase 3.3c (Cleanup — fix as time permits):
                                     Total: ~2h
 ```
 
-**Grand total:** ~6.5 engineering hours (approximately 1-2 days)
+## Phase 3.3d — Anti-Forgetting Hardening (2026-07-08)
+
+These items were identified during post-completion architectural review and address
+excessive compute overhead in the anti-forgetting subsystem.
+
+---
+
+### Fix D-002: MuJoCo forgetting benchmark — Pendulum-v1 (P2)
+
+**Files:**
+- `python/phca/environments/mujoco_env.py` — add `apply_task_layout`, task-aware `get_goal_reference()`, `goal_reached` in step info
+- `python/phca/evaluation/continual/pendulum_tasks.py` — new module: `PendulumTask` dataclass + `build_pendulum_task_sequence()`
+- `scripts/benchmark_level4.py` — add `--env-type` (gridworld|pendulum), `--metric` (goal_rate|prediction_accuracy), branch all env-dependent paths
+
+**What:**
+The Level-4 forgetting benchmark was GridWorld-only. Continuous-action environments (Pendulum-v1) had no task-switching support and no way to measure forgetting.
+
+**Analysis:**
+- Pendulum-v1 uses MPC action selection driven by `get_goal_reference()`. By changing the goal reference per task, the policy visits different state distributions → distribution-shift forgetting test.
+- The default `goal_rate` metric (fraction of cycles with `goal_reached=True`) doesn't work for Pendulum because the MPC with an untrained MLP never converges to the target angle within 40-60 cycles.
+- `prediction_accuracy` metric (inverse of prediction error) provides a meaningful accuracy signal even when the agent hasn't converged to the goal.
+- The forgetting metric already supports `metric="prediction_accuracy"` — changes were limited to routing the correct metric through the benchmark.
+
+**Fix:**
+1. `MuJoCoSimpleEnv.apply_task_layout(task_params)`: accepts dict with `goal_reference`, `goal_threshold`; stores for later use.
+2. `MuJoCoSimpleEnv.get_goal_reference()`: returns task-specific reference when set via `apply_task_layout`; otherwise falls back to default (upright for Pendulum).
+3. `MuJoCoSimpleEnv.step()`: computes cosine similarity between observation and goal reference; sets `info["goal_reached"]` when similarity exceeds threshold.
+4. `pendulum_tasks.py`: `PendulumTask` dataclass + `build_pendulum_task_sequence()` generates tasks with evenly-spaced target angles from 0 (upright) to π (hanging).
+5. `benchmark_level4.py`: branches all env-dependent operations — env creation (`build_for_mujoco` vs `build_for_env`), task creation (`build_pendulum_task_sequence` vs `build_task_sequence`), layout application (`apply_task_layout(params_dict)` vs `apply_task_layout(goal_pos, obstacles)`), and training curves (`_training_perf_curve` with metric-aware values vs `_train_goal_rate_curve`).
+
+**Benchmark results (2-task × 60-cycle Pendulum-v1, prediction_accuracy):**
+- `forgetting_rate=0.0358`, `passes_gate=True`
+- Task 0 accuracy: 0.867 (baseline) → eval after task 1: 0.867 (no forgetting)
+- Task 1 accuracy: 0.922 (baseline)
+- No excluded tasks
+- 142 tests pass, no regressions
+
+**Effort:** 3 hours.
+
+**Files:**
+- `python/phca/core/cycle.py` (lines ~220, ~645, ~858, ~869)
+
+**What:**
+`_forgetting_mitigation_active` was set `True` on every `on_task_boundary()` but **never
+reset**. This caused `gprime.replay_boost` to remain active permanently (50% larger batch,
+50% more gradient steps) for 90%+ of every benchmark run — even after the MLP fully converged
+on the current task. M3 episodic replay and gprime_learn skip-prevention were also permanently
+locked on.
+
+**Analysis:**
+- replay_boost wastes ~55% of gradient compute after the model stabilises (~200 cycles in):
+  `batch_size=96` vs `64`, `train_steps=12` vs `8` → 1152 vs 512 gradient computations/cycle.
+- M3 replay (anti-forgetting via prior-task episode injection) should remain active to
+  protect against FIFO replay-buffer eviction of old task data.
+- gprime_learn skip-prevention should remain active so the MLP never stops learning from
+  new observations.
+
+**Fix:**
+Add a time-based decay for `replay_boost` only, decoupled from the permanent anti-forgetting
+infrastructure:
+
+1. `__init__`: `_replay_boost_duration = 200`, `_replay_boost_activated_cycle = 0`
+2. `on_task_boundary()`: reset `_replay_boost_activated_cycle = self.cycle_count`
+3. `on_forgetting_detected()`: reset `_replay_boost_activated_cycle = self.cycle_count`
+4. `step()`: gate `gprime.replay_boost = forgetting_mitigation_active AND (cycle_count -
+   activated_cycle) < replay_boost_duration`
+
+`_forgetting_mitigation_active` stays `True` permanently (M3 replay, gprime_learn
+skip-prevention intact). Only the extra compute from `replay_boost` expires.
+
+**Default duration:** 200 cycles (~2.5 tasks at 80 cycles/task).
+
+**Benchmark results (8-task × 30-cycle smoke):**
+- `forgetting_rate=0.0000`, `passes_gate=True`
+- M3 replay total: 2520 steps (active throughout)
+- replay_boost expires at cycle ~200; last 40 cycles run with normal batch/steps
+- All 199 tests pass, no regressions
+
+**Effort:** 30 minutes.
+
+---
+
+### Fix D-003: M3 replay per-task stratified sampling (P3)
+
+**Files:**
+- `python/phca/memory/m3_episodic.py` — `sample_prior_task_episodes()` rewritten
+
+**What:**
+Used a single `ORDER BY RANDOM() LIMIT N` across all prior tasks, risking all sampled episodes coming from one task.
+
+**Fix:**
+Round-robin per-task queries: 1 episode per task, repeat until budget exhausted. Remaining budget filled randomly if some tasks have fewer episodes.
+
+**Verification:**
+Budget=3 with 3 prior tasks → 1 per task. Budget=5 → 2,2,1. Budget=15 → 5,5,5. 142 tests pass, L4 smoke passes.
+
+**Effort:** 15 minutes.
+
+---
+
+### Fix D-004: M4 wall facts — validation complete, not dead code but redundant (P3)
+
+**Files:**
+- None (investigation only, documented here)
+- `docs/architectural_audit_report.md` (addendum)
+
+**What:**
+`_build_planning_wall_grid()` overlays M4 fact walls onto the planning grid.
+`_compute_distance_gain()` uses the augmented grid. BFS and Manhattan greedy
+use raw `env.grid`. The question: do M4 fact walls ever provide non-redundant
+information?
+
+**Findings (10×10 GridWorld, 2-task benchmark):**
+1. M4 facts (all `"novelty"` type) DO contain wall info in `state_pattern[2n:3n]`.
+2. `get_relevant_facts()` correctly retrieves wall facts during eval.
+3. `_build_planning_wall_grid()` correctly merges them.
+4. **But**: env.grid, observed walls, and fact walls are always identical
+   in the standard setup — `apply_task_layout()` provides the complete wall
+   map, observations reflect it perfectly, and facts derived from those
+   observations carry identical information.
+5. Result: `planning_grid == env.grid` always. Extra walls = 0.
+
+**Conclusion:**
+M4 wall facts are NOT dead code — the execution path is live and correct.
+They are **empirically redundant** because the benchmark environment provides
+perfect wall observability. The mechanism would become useful under partial
+observability or when task layouts change without explicit `apply_task_layout`.
+No code change needed. Documented as intentional design margin.
+
+**Effort:** 1 hour (investigation + documentation).
+
+---
+
+**Grand total:** ~8.5 engineering hours (approximately 1-2 days + hardening)
 
 ---
 

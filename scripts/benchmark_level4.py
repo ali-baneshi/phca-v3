@@ -14,7 +14,12 @@ import numpy as np
 import _bootstrap  # noqa: F401
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.evaluation.continual.gridworld_tasks import build_task_sequence
+from phca.evaluation.continual.gridworld_tasks import build_task_sequence, GridWorldTask
+from phca.evaluation.continual.pendulum_tasks import (
+    build_pendulum_task_sequence,
+    pendulum_task_to_params,
+    PendulumTask,
+)
 from phca.evaluation.metrics.forgetting import (
     DEFAULT_BASELINE_MIN_VALID,
     delta_perf_valid_only,
@@ -25,13 +30,15 @@ from phca.evaluation.metrics.forgetting import (
     task_accuracy,
 )
 from phca.world_model.mlp import apply_grid_rbta_bounds
+EnvTask = GridWorldTask | PendulumTask
 
 BaselineMethod = Literal["last_window", "max_rolling"]
 
 
-def _train_goal_rate_curve(
+def _training_perf_curve(
     train_hist: List[CycleMetrics],
     *,
+    metric: str = "goal_rate",
     sample_every: int = 10,
 ) -> List[Dict[str, float]]:
     if not train_hist:
@@ -39,12 +46,28 @@ def _train_goal_rate_curve(
     curve: List[Dict[str, float]] = []
     for end in range(sample_every, len(train_hist) + 1, sample_every):
         window = train_hist[max(0, end - 20) : end]
-        rate = float(np.mean([float(m.goal_reached) for m in window])) if window else 0.0
-        curve.append({"cycle": end, "goal_rate": rate})
+        if window:
+            if metric == "goal_rate":
+                val = float(np.mean([float(m.goal_reached) for m in window]))
+            else:
+                errs = [m.prediction_error for m in window]
+                mean_err = float(np.mean(errs)) if errs else 0.0
+                val = max(0.0, 1.0 - min(mean_err / 10.0, 1.0))
+        else:
+            val = 0.0
+        curve.append({"cycle": end, "perf": val})
     if len(train_hist) % sample_every != 0:
         window = train_hist[-20:]
-        rate = float(np.mean([float(m.goal_reached) for m in window])) if window else 0.0
-        curve.append({"cycle": len(train_hist), "goal_rate": rate})
+        if window:
+            if metric == "goal_rate":
+                val = float(np.mean([float(m.goal_reached) for m in window]))
+            else:
+                errs = [m.prediction_error for m in window]
+                mean_err = float(np.mean(errs)) if errs else 0.0
+                val = max(0.0, 1.0 - min(mean_err / 10.0, 1.0))
+        else:
+            val = 0.0
+        curve.append({"cycle": len(train_hist), "perf": val})
     return curve
 
 
@@ -54,17 +77,19 @@ def _baseline_for_task(
     task_id: int,
     method: BaselineMethod,
     window: int,
+    metric: str = "goal_rate",
 ) -> float:
     if method == "max_rolling":
         return max_rolling_task_accuracy(
             {task_id: train_hist},
             task_id=task_id,
             window=window,
+            metric=metric,
         )
     return task_accuracy(
         {task_id: train_hist},
         task_id=task_id,
-        metric="goal_rate",
+        metric=metric,
         window=min(window, len(train_hist)),
     )
 
@@ -76,19 +101,26 @@ def _m3_counts_by_task(cycle: CognitiveCycle, n_tasks: int) -> Dict[int, int]:
 
 def _run_eval_on_task(
     cycle: CognitiveCycle,
-    task: Any,
+    task: EnvTask,
     *,
     mitigation: bool,
     warmup_cycles: int,
     eval_cycles: int,
     diagnostic: bool,
     b4_events: int,
+    env_type: str = "gridworld",
+    metric: str = "goal_rate",
     train_start_pos: tuple | None = None,
 ) -> tuple[List[CycleMetrics], int]:
-    cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
-    if train_start_pos is not None:
-        cycle.env.agent_pos = train_start_pos
-        cycle.env.start_pos = train_start_pos
+    if env_type == "pendulum":
+        assert isinstance(task, PendulumTask)
+        cycle.env.apply_task_layout(pendulum_task_to_params(task))
+    else:
+        assert isinstance(task, GridWorldTask)
+        cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
+        if train_start_pos is not None and hasattr(cycle.env, "agent_pos"):
+            cycle.env.agent_pos = train_start_pos
+            cycle.env.start_pos = train_start_pos
     if mitigation:
         cycle.on_task_boundary(task.task_id)
     else:
@@ -102,7 +134,12 @@ def _run_eval_on_task(
         m = cycle.step()
         m.task_id = task.task_id
         eval_hist.append(m)
-        cycle.record_task_eval(task.task_id, m.goal_reached)
+        if metric == "prediction_accuracy":
+            err = max(m.prediction_error, 0.0)
+            acc_val = max(0.0, 1.0 - min(err / 10.0, 1.0))
+            cycle.record_task_eval(task.task_id, bool(acc_val > 0.5))
+        else:
+            cycle.record_task_eval(task.task_id, m.goal_reached)
         if diagnostic and m.failure_events and "B4" in m.failure_events:
             b4_events += 1
     return eval_hist, b4_events
@@ -110,7 +147,7 @@ def _run_eval_on_task(
 
 def _interleaved_eval_prior_tasks(
     cycle: CognitiveCycle,
-    tasks: List[Any],
+    tasks: List[EnvTask],
     *,
     through_task_id: int,
     eval_cycles: int,
@@ -118,6 +155,8 @@ def _interleaved_eval_prior_tasks(
     mitigation: bool,
     diagnostic: bool,
     b4_events: int,
+    env_type: str = "gridworld",
+    metric: str = "goal_rate",
 ) -> int:
     """Brief eval on tasks 0..through_task_id after training each new task."""
     for t in tasks:
@@ -131,6 +170,8 @@ def _interleaved_eval_prior_tasks(
             eval_cycles=eval_cycles,
             diagnostic=diagnostic,
             b4_events=b4_events,
+            env_type=env_type,
+            metric=metric,
         )
     return b4_events
 
@@ -144,6 +185,8 @@ def run_level4_benchmark(
     seeds: int = 3,
     use_mlp: bool = True,
     grid_size: int = 5,
+    env_type: str = "gridworld",
+    metric: str = "goal_rate",
     base_seed: int = 42,
     mitigation: bool = True,
     baseline_method: BaselineMethod = "max_rolling",
@@ -155,20 +198,30 @@ def run_level4_benchmark(
     interleaved_warmup_cycles: int = 0,
 ) -> Dict[str, Any]:
     """Run continual task sequence and measure forgetting rate."""
-    tasks = build_task_sequence(n_tasks=n_tasks, grid_size=grid_size, base_seed=base_seed)
+    if env_type == "pendulum":
+        tasks: List[EnvTask] = build_pendulum_task_sequence(n_tasks=n_tasks, base_seed=base_seed)
+    else:
+        tasks = build_task_sequence(n_tasks=n_tasks, grid_size=grid_size, base_seed=base_seed)
     seed_results: List[Dict[str, Any]] = []
 
     for seed_idx in range(seeds):
         seed = base_seed + seed_idx * 100
-        cycle = CognitiveCycle.build_for_env(
-            size=grid_size,
-            seed=seed,
-            use_mlp=use_mlp,
-            obstacles=tasks[0].obstacles,
-        )
-        if grid_size > 5:
-            apply_grid_rbta_bounds(cycle, b_time=0.080 if use_mlp else 0.020)
-        cycle.set_m3_replay_budget(m3_replay_budget)
+        if env_type == "pendulum":
+            cycle = CognitiveCycle.build_for_mujoco(
+                env_name="Pendulum-v1",
+                seed=seed,
+            )
+            cycle.set_m3_replay_budget(m3_replay_budget)
+        else:
+            cycle = CognitiveCycle.build_for_env(
+                size=grid_size,
+                seed=seed,
+                use_mlp=use_mlp,
+                obstacles=tasks[0].obstacles,
+            )
+            if grid_size > 5:
+                apply_grid_rbta_bounds(cycle, b_time=0.080 if use_mlp else 0.020)
+            cycle.set_m3_replay_budget(m3_replay_budget)
 
         per_task_train: Dict[int, List[CycleMetrics]] = {}
         baselines: Dict[int, float] = {}
@@ -178,7 +231,12 @@ def run_level4_benchmark(
         train_end_positions: Dict[int, tuple] = {}
 
         for task in tasks:
-            cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
+            if env_type == "pendulum":
+                assert isinstance(task, PendulumTask)
+                cycle.env.apply_task_layout(pendulum_task_to_params(task))
+            else:
+                assert isinstance(task, GridWorldTask)
+                cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
             if mitigation:
                 cycle.on_task_boundary(task.task_id)
             else:
@@ -193,17 +251,19 @@ def run_level4_benchmark(
                     b4_events += 1
 
             per_task_train[task.task_id] = train_hist
-            train_end_positions[task.task_id] = cycle.env.agent_pos
+            if hasattr(cycle.env, "agent_pos"):
+                train_end_positions[task.task_id] = cycle.env.agent_pos
             baseline = _baseline_for_task(
                 train_hist,
                 task_id=task.task_id,
                 method=baseline_method,
                 window=baseline_window,
+                metric=metric,
             )
             baselines[task.task_id] = baseline
             cycle.record_task_baseline(task.task_id, baseline)
             if diagnostic:
-                train_curves[task.task_id] = _train_goal_rate_curve(train_hist)
+                train_curves[task.task_id] = _training_perf_curve(train_hist, metric=metric)
                 m3_replay_at_train_end = cycle._m3_replay_total
 
             if interleaved_eval_cycles > 0:
@@ -216,6 +276,8 @@ def run_level4_benchmark(
                     mitigation=mitigation,
                     diagnostic=diagnostic,
                     b4_events=b4_events,
+                    env_type=env_type,
+                    metric=metric,
                 )
 
         current: Dict[int, float] = {}
@@ -229,6 +291,8 @@ def run_level4_benchmark(
                 eval_cycles=eval_cycles,
                 diagnostic=diagnostic,
                 b4_events=b4_events,
+                env_type=env_type,
+                metric=metric,
                 train_start_pos=train_end_positions.get(task.task_id),
             )
 
@@ -237,6 +301,7 @@ def run_level4_benchmark(
                 {task.task_id: eval_hist},
                 task_id=task.task_id,
                 eval_cycles=eval_cycles,
+                metric=metric,
             )
 
         delta, excluded = delta_perf_valid_only(
@@ -297,8 +362,9 @@ def run_level4_benchmark(
         "tasks": [
             {
                 "task_id": t.task_id,
-                "goal_pos": t.goal_pos,
-                "n_obstacles": len(t.obstacles),
+                "goal_pos": list(t.goal_pos) if isinstance(t, GridWorldTask) else None,
+                "target_angle": t.target_angle if isinstance(t, PendulumTask) else None,
+                "n_obstacles": len(t.obstacles) if isinstance(t, GridWorldTask) else 0,
             }
             for t in tasks
         ],
@@ -324,6 +390,8 @@ def main() -> int:
     parser.add_argument("--use-mlp", action="store_true", default=True)
     parser.add_argument("--no-mlp", action="store_false", dest="use_mlp")
     parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
+    parser.add_argument("--env-type", choices=["gridworld", "pendulum"], default="gridworld")
+    parser.add_argument("--metric", choices=["goal_rate", "prediction_accuracy"], default=None)
     parser.add_argument("--no-mitigation", action="store_true")
     parser.add_argument(
         "--baseline-method",
@@ -338,6 +406,8 @@ def main() -> int:
     parser.add_argument("--interleaved-warmup", type=int, default=0, dest="interleaved_warmup_cycles")
     parser.add_argument("--output", type=str, default="logs/benchmark_level4.json")
     args = parser.parse_args()
+    if args.metric is None:
+        args.metric = "prediction_accuracy" if args.env_type == "pendulum" else "goal_rate"
 
     t0 = time.perf_counter()
     report = run_level4_benchmark(
@@ -348,6 +418,8 @@ def main() -> int:
         seeds=args.seeds,
         use_mlp=args.use_mlp,
         grid_size=args.grid_size,
+        env_type=args.env_type,
+        metric=args.metric,
         mitigation=not args.no_mitigation,
         baseline_method=args.baseline_method,
         baseline_window=args.baseline_window,

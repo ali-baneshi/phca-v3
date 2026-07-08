@@ -134,11 +134,31 @@ class MuJoCoSimpleEnv:
         # so this stub is never used for distance calculations.
         self.size = 1  # non-grid environment
 
+        # Forgetting-benchmark task state
+        self._task_goal_reference: Optional[np.ndarray] = None
+        self._task_goal_threshold: float = 0.90
+
         # Initial reset populates the observation cache
         obs, _ = self._env.reset(seed=seed)
         self._last_obs = obs.astype(np.float32)
 
     # ── Public interface (EnvironmentProtocol + extras) ──────
+
+    def apply_task_layout(self, task_params: dict) -> None:
+        """Configure environment for a specific forgetting-benchmark task.
+
+        Pendulum tasks supply ``goal_reference`` (target obs vector) and
+        optionally ``goal_threshold`` (cosine-similarity threshold for
+        ``goal_reached``, default 0.90).  GridWorld tasks supply
+        ``goal_pos``/``obstacles`` — stub accepts arbitrary keys for
+        API compatibility; values not consumed.
+        """
+        ref = task_params.get("goal_reference")
+        if ref is not None:
+            self._task_goal_reference = np.asarray(ref, dtype=np.float32)
+        else:
+            self._task_goal_reference = None
+        self._task_goal_threshold = task_params.get("goal_threshold", 0.90)
 
     def get_possible_actions(self) -> List[str]:
         """Return list of action names."""
@@ -197,19 +217,15 @@ class MuJoCoSimpleEnv:
     def get_goal_reference(self):
         """Homeostatic reference state for goal-directed continuous control.
 
-        Pendulum-v1 obs = [cos(theta), sin(theta), angular_velocity]; upright
-        balanced = theta=0 → [1, 0, 0]. Returns None for discrete envs.
+        Returns the task-specific goal reference when set via
+        ``apply_task_layout``; otherwise falls back to the default:
 
-        Reacher-v5 obs (10-dim) encodes the fingertip→target vector in its
-        last 2 dims (verified against gymnasium: obs[-2:] == fingertip_xpos -
-        target_com). The reference is "current posture with fingertip on
-        target": a copy of the current observation with obs[-2:] = 0. Holding
-        the joint/target context (dims 0–7) at the current value keeps the
-        MPC scorer's full-state distance well-posed, so the alignment signal
-        is dominated by whether the predicted next state drives the
-        fingertip→target vector to 0. State-dependent (Reacher's target is
-        re-randomised each reset), unlike Pendulum's fixed upright reference.
+        - Pendulum-v1: upright balanced (theta=0 → [1, 0, 0]).
+        - Reacher-v5: fingertip on target (obs with last 2 dims zeroed).
+        - Other envs: None.
         """
+        if self._task_goal_reference is not None:
+            return self._task_goal_reference
         if self.env_name == "Pendulum-v1":
             return np.array([1.0, 0.0, 0.0], dtype=np.float32)
         if self.env_name == "Reacher-v5" and self._last_obs is not None:
@@ -249,6 +265,19 @@ class MuJoCoSimpleEnv:
 
         # Cache for _get_observation()
         self._last_obs = obs
+
+        # Forgetting-benchmark: compute goal_reached from task reference
+        info = dict(info)
+        ref = self.get_goal_reference()
+        if ref is not None and len(obs) >= len(ref):
+            min_d = min(len(obs), len(ref))
+            o = obs[:min_d]
+            r = ref[:min_d]
+            o_norm = float(np.linalg.norm(o))
+            r_norm = float(np.linalg.norm(r))
+            if o_norm > 1e-8 and r_norm > 1e-8:
+                cos_sim = float(np.dot(o, r) / (o_norm * r_norm))
+                info["goal_reached"] = bool(cos_sim > self._task_goal_threshold)
 
         return obs, float(reward), bool(terminal), info
 
