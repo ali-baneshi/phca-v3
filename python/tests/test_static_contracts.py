@@ -108,3 +108,39 @@ class TestReplayArchitecture:
         mlp_src = (_PHCA / "world_model" / "mlp.py").read_text(encoding="utf-8")
         assert ".sample_episodes(" in cycle_src or ".sample_prior_task_episodes(" in cycle_src
         assert "learn_m3_episodes" in mlp_src
+
+
+class TestEnergyComposition:
+    """PARALLEL energy must be sum (not max) per v3.0 §2.1.1 Def 3.6 (D-142)."""
+
+    def test_rbta_parallel_energy_is_sum(self):
+        src = (_PHCA / "regulation" / "rbta_enforcer.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        parent_map: dict[ast.AST, ast.AST] = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parent_map[child] = node
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                test_str = ast.dump(node.test)
+                if "PARALLEL" in test_str:
+                    body_src = ast.get_source_segment(src, node) or ""
+                    assert "sum(child_energies)" in body_src, \
+                        "PARALLEL energy must use sum, not max"
+                    assert "max(child_times)" in body_src, \
+                        "PARALLEL time must use max"
+                    return
+        pytest.fail("PARALLEL branch not found in rbta_enforcer.py")
+
+    def test_hpm_parser_parallel_energy_is_sum(self):
+        src = (_PHCA / "hpm" / "parser.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                test_str = ast.dump(node.test)
+                if "PARALLEL" in test_str:
+                    body_src = ast.get_source_segment(src, node) or ""
+                    assert "sum(c.get(" in body_src and "B_energy" in body_src, \
+                        "HPM PARALLEL energy must use sum, not max"
+                    return
+        pytest.fail("PARALLEL branch not found in hpm/parser.py")

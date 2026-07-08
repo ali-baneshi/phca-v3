@@ -216,7 +216,7 @@ the flow edges show data dependencies, not strict wall-clock order for every sub
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets. |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store. |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Periodic episodic→statistical fact extraction. |
-| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC). |
+| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC). **Async mode** (D-140): `start_async()` spins `_action_loop()` + `_learning_loop()` threads with queue back-pressure; `stop_async()` joins. |
 | **ActionSpace** | `phca/config.py` | `DiscreteSpace(n)` / `ContinuousSpace(low, high, dim)` union + helpers (Phase 6). |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole discrete; Pendulum + Reacher continuous). |
@@ -255,7 +255,10 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 | **Measured PASS (CI/nightly)** | L0 Φ-IQ, MuJoCo smoke, Observatory replay, A1–A5 `--ci` (nightly) | green |
 | **Measured PASS** | Level-4-lite L4b forgetting @ 10 tasks — `forgetting_rate=0.0000` | green — `python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --seeds 3 --m3-replay-budget 16` |
 | **Partial MVP** | Cognitive resilience injectables + E1 FallbackController; GridWorld A4 hybrid map | see [docs/limitations.md](docs/limitations.md) |
-| **Not implemented** | 100-task AT-2, criticality Φ band, M5 procedural memory | backlog — [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
+| **Implemented** | Criticality Φ band (gradient-norm criticality, D-139) | ✅ `Φ = (2/π)·arctan(||∂mean(out)/∂x|| / sqrt(d))`, EMA-filtered — see DECISIONS.md D-139 |
+| **Implemented** | PER — Prioritized Experience Replay (D-138) | ✅ Error-reduction-rate priority in M3 episodic sampling — see DECISIONS.md D-138 |
+| **Implemented** | Async two-thread action/learning loop (D-140) | ✅ Queue-based (maxsize=1) back-pressure; sync mode default — see DECISIONS.md D-140 |
+| **Not implemented** | 100-task AT-2, M5 procedural memory | backlog — [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
 
 ### Benchmark Levels
 
@@ -477,6 +480,7 @@ See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
   Observatory **display** supports multi-agent replay and per-agent scrub (Phase 17).
 - **Dynamic goals** are experimental at every-75 only.
 - **P-Stream only** (E/S streams removed D-020).
+- **Async two-thread mode (D-140).** `start_async()` uses Python threads — GIL-bound for CPU-heavy blocks. Latency ~20ms vs sync ~12ms; goal success 98.8% vs 99.0%. Learning efficiency can drop if `env.step > 50ms` (thread-B timeout → cache-miss fallback). `self.current_state` data race is mitigated (maxsize=1), not fully eliminated.
 
 ---
 

@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import PER_ALPHA, PER_BETA_INIT, PER_BETA_FINAL, PER_BETA_ANNEAL_STEPS, PER_EPSILON, StateVector
+from phca.config import PER_ALPHA, PER_BETA_INIT, PER_EPSILON, StateVector
 from phca.logging import logger, _log
 
 # Default database path (in-memory for testing, file for persistence)
@@ -165,6 +165,7 @@ class M3EpisodicMemory:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(M3_SCHEMA_SQL)
             self._conn.commit()
             self._migrate_schema()
@@ -180,6 +181,7 @@ class M3EpisodicMemory:
             except Exception:
                 pass
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+            self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(M3_SCHEMA_SQL)
             self._conn.commit()
             self._migrate_schema()
@@ -200,6 +202,7 @@ class M3EpisodicMemory:
                     except Exception:
                         pass
                     self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+                    self._conn.execute("PRAGMA busy_timeout=5000")
                     self._conn.executescript(M3_SCHEMA_SQL)
                     self._conn.commit()
                     self.db_path = ":memory:"  # record the fallback
@@ -388,6 +391,9 @@ class M3EpisodicMemory:
                 r for r in (self._row_to_episode(row) for row in cursor.fetchall())
                 if r is not None
             ]
+        except sqlite3.OperationalError as e:
+            _log(logger, "warning", "m3.sample_episodes_busy", error=str(e))
+            return []
         except Exception as e:
             _log(logger, "warning", "m3.sample_episodes_failed", error=str(e))
             return []
@@ -513,6 +519,10 @@ class M3EpisodicMemory:
                     (PER_EPSILON,),
                 )
             rows = cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            _log(logger, "warning", "m3.sample_per_busy",
+                 error=str(e), fallback="uniform_sample")
+            return self.sample_episodes(n, task_id=task_id)
         except Exception as e:
             _log(logger, "warning", "m3.sample_per_failed", error=str(e))
             return self.sample_episodes(n, task_id=task_id)
@@ -579,6 +589,9 @@ class M3EpisodicMemory:
             if self._pending_commits >= self._commit_interval:
                 self._connection.commit()
                 self._pending_commits = 0
+        except sqlite3.OperationalError as e:
+            _log(logger, "warning", "m3.update_priority_busy",
+                 episode_id=episode_id, error=str(e))
         except Exception as e:
             _log(logger, "warning", "m3.update_priority_failed",
                  episode_id=episode_id, error=str(e))
@@ -602,6 +615,8 @@ class M3EpisodicMemory:
             )
             row = cursor.fetchone()
             return int(row[0]) if row and row[0] else 0
+        except sqlite3.OperationalError:
+            return 0
         except Exception:
             return 0
 
@@ -623,6 +638,9 @@ class M3EpisodicMemory:
             )
             return [r for r in (self._row_to_episode(row) for row in cursor.fetchall())
                     if r is not None]
+        except sqlite3.OperationalError as e:
+            _log(logger, "warning", "m3.recent_episodes_busy", error=str(e))
+            return []
         except Exception as e:
             _log(logger, "warning", "m3.recent_episodes_failed", error=str(e))
             return []

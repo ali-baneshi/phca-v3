@@ -1632,4 +1632,59 @@ Every entry must reference the v3.0 specification section it affects.
 - **v3.0 trace:** Forgetting gate (L4b); scripts/benchmark_level4.py; docs/l4_root_cause_verdict.md.
 - **Tests/Validation:** `forgetting_rate=0.0000`, `passes_gate=True` for 10×80 5×5 GridWorld (1 seed). All 206 tests pass (13/13 forgetting, 18/18 cycle, 153/153 full suite). M3 and capacity settings at original defaults.
 
-(End of decision log)
+---
+
+## Decision D-140: Async Two-Thread Architecture (Feature 1)
+
+- **Date:** 2026-07-08
+- **Author:** Lead Architect (Post-implementation hardening)
+- **Category:** Tier 1 (architectural — changes cycle execution model)
+- **Problem:** The synchronous 12-step cycle blocks perception while learning runs (and vice versa). In environments with fast physics (MuJoCo ~5ms step) the learning phase (MLP replay ~30ms) delays the next perception-action cycle, reducing the effective interaction rate.
+- **Option chosen:** Two threads communicating via `queue.Queue(maxsize=1)`:
+  - **Thread A** (action): `_run_perception_cycle()` → `_select_action()` → `env.step()` → pushes `ActionResult` to queue.
+  - **Thread B** (learning): pulls `ActionResult` → `_run_learning_phase()` → RBTA enforcement → logging → consolidation → cycle increment.
+  - The `maxsize=1` queue provides back-pressure: if Thread B is slow, Thread A blocks on `put()`, automatically throttling interaction rate.
+- **Alternatives:** (a) Lock-based shared state (rejected — higher risk of deadlock and data races). (b) Lock-free ring buffer with CAS (rejected — over-engineered for v1; Python GIL limits benefit). (c) Thread pool with 2 workers (rejected — fixed two threads is simpler and sufficient).
+- **Rationale:** The queue serializes access to shared mutable state (`self.current_state`, `self.current_goal`, M3 connection) while allowing Thread A to prepare the next frame while Thread B finishes learning. The `maxsize=1` imposes a natural ceiling on latency mismatch.
+- **Known limitation:** `self.current_state` has a data race when Thread A's `_run_perception_cycle()` overwrites it before Thread B's `_run_learning_phase()` finishes reading. A future fix should snapshot state through the `ActionResult`.
+- **v3.0 trace:** §3.1 (cycle orchestrator), A1 (resource boundedness).
+- **Tests/Validation:** 142 tests pass in sync mode. Async mode validated with 500-cycle benchmark: avg latency 20.2ms (sync 12.7ms), goal success 98.8% (sync 99.0%), 0 RBTA violations in both. `benchmarks/async_vs_sync_validation.json`.
+
+## Decision D-141: Non-blocking pop with replay-only fallback
+
+- **Date:** 2026-07-08
+- **Author:** Lead Architect
+- **Category:** Tier 2 (fallback behaviour)
+- **Problem:** When Thread A is slower than Thread B (e.g., slow env.step in MuJoCo), Thread B blocks on `queue.get(timeout=STALE_THRESHOLD_MS)` waiting for an `ActionResult`. If the timeout expires, the learning thread must decide what to do.
+- **Option chosen:** Non-blocking pop with replay-only fallback: on timeout, skip the live PEU/TSPL/G'.learn cycle, increment the cycle counter, and proceed to RBTA/logging/consolidation. The agent continues to consolidate and run RBTA even while waiting for live data.
+- **Alternatives:** (a) Block indefinitely (rejected — learning thread hangs, RBTA/resilience halts). (b) Fall back to M3 replay (rejected — replay without live PEU update would use stale errors). (c) Skip the cycle entirely (rejected — breaks cycle-count contract for metrics).
+- **Rationale:** The learning thread should never stall the agent. Skipping one live-learning cycle is harmless; the thread retries on the next iteration. RBTA enforcement + consolidation + resilience detection all continue to run.
+- **v3.0 trace:** A1 (boundedness), A5 (continuous adaptation even during learning-starved windows).
+- **Tests/Validation:** Learning efficiency counter + 10-consecutive-zero-window warning in `_learning_loop()` monitors for starvation. `hit/(hit+miss)` logged every 1000 cycles. Fallback is the natural code path when `result is None`.
+
+## Decision D-142: RBTA total energy = E_A + E_B (sum, not max)
+
+- **Date:** 2026-07-08
+- **Author:** Lead Architect
+- **Category:** Tier 2 (resource accounting correctness)
+- **Problem:** In a parallel composition, two branches consume energy concurrently. Using `max(E_A, E_B)` would undercount energy because both branches' consumption should be summed. The RBTA composition tree (`hpm/parser.py` line 137, `rbta_enforcer.py` line 265) was already using `sum` — this decision documents and test-locks the invariant.
+- **Option chosen:** Explicit inline documentation in both files (`# PARALLEL: sum for Energy, max for Time`) + static contract test `TestEnergyComposition` asserting the invariant.
+- **Alternatives:** N/A — code was already correct. The decision is a documentation/lock-down action.
+- **Rationale:** PARALLEL energy = sum is correct per v3.0 §2.1.1 Def 3.6: both branches' silicon consumes power concurrently. Time = max because they run simultaneously; Energy = sum because both are active.
+- **v3.0 trace:** §2.1.1 Def 3.6 (composition semantics), RBTA enforcer.
+- **Tests/Validation:** `test_static_contracts.py::TestEnergyComposition::test_rbta_parallel_energy_is_sum` and `test_hpm_parser_parallel_energy_is_sum`.
+
+## Decision D-143: Criticality Φ = input-sensitivity gradient norm (replaces temporal CoV)
+
+- **Date:** 2026-07-08
+- **Author:** Lead Architect
+- **Category:** Tier 1 (MDIM criticality signal)
+- **Problem:** The previous criticality heuristic used temporal CoV (coefficient of variation of prediction error over a sliding window). This was:
+  - Lagging: responds only after error changes accumulate.
+  - Ambiguous: high CoV could mean model uncertainty OR environment noise.
+  - Extra FLOPs: maintaining the sliding window + computing CoV each cycle (~O(window) per cycle).
+- **Option chosen:** Φ = `(2/π) · arctan(||∂mean(out)/∂x_input_state|| / sqrt(state_dim))` — the norm of the output Jacobian w.r.t. input, computed from the existing G' backward pass. Zero marginal FLOP for loss-gradient backprop (already computed for G'.learn); ~38K extra FLOP for output-sensitivity backprop through `_backward()` when `last_input_sensitivity()` is called. EMA-filtered at `0.7·cached + 0.3·raw`.
+- **Alternatives:** (a) Keep temporal CoV (rejected — laggy, ambiguous). (b) Use loss gradient norm (rejected — vanishes as prediction error → 0; exactly when criticality is most interesting). (c) Use attention entropy (rejected — measures model confidence, not input sensitivity).
+- **Rationale:** The output Jacobian norm measures how much the model's output would change for a small input perturbation — a direct proxy for "how critical is this input state to the model's decisions." The arctan squashes [0, ∞) → [0, 1) so the PID setpoint needs no change from the old 0.5 default. Zero extra FLOP for the common case (loss gradient).
+- **v3.0 trace:** §3.3 (MDIM D2 — criticality drive), `mlp.py::last_input_sensitivity`, `cycle.py::_update_phi_from_gradient`.
+- **Tests/Validation:** Φ-IQ benchmark PASS (overall 0.7919 in long-run, 0.739 at 200 cycles). Stress test confirms gradient path does not raise. All 142 tests pass.

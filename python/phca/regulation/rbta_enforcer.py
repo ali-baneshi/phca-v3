@@ -261,6 +261,8 @@ class RBTAEnforcer:
             total_time = sum(child_times) + TAU_COMP
             total_energy = sum(child_energies) + 0.001  # ε_overhead = 1mJ
         elif op == "PARALLEL":
+            # PARALLEL: sum for Energy (both threads consume concurrently),
+            #          max for Time (concurrent execution, worst-case dominates).
             total_time = max(child_times) + TAU_SYNC
             total_energy = sum(child_energies) + 0.002  # ε_comm = 2mJ
         else:

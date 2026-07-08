@@ -111,6 +111,8 @@ class CycleMetrics:
     recovery_active: bool = False
     emergency_active: bool = False
     emergency_entropy: float = 0.0
+    # Async validation (Feature 1)
+    staleness_ratio: float = 0.0
 
 
 class CognitiveCycle:
@@ -264,6 +266,16 @@ class CognitiveCycle:
         self._stop_event = threading.Event()
         self._async_reward: float = 0.0
         self._async_terminal: bool = False
+
+        # Learning efficiency counters (Scenario 1)
+        self._cache_hit: int = 0
+        self._cache_miss: int = 0
+        self._zero_hit_windows: int = 0
+        self._last_efficiency_log_cycle: int = 0
+        self._last_hits_at_log: int = 0
+
+        # Staleness detection (Scenario 2)
+        self._staleness_trigger_count: int = 0
 
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=getattr(env, "size", 0))
 
@@ -977,7 +989,7 @@ class CognitiveCycle:
         while not self._stop_event.is_set():
             try:
                 # Phase A: Perception + Prediction + Regulation
-                hpm_spec = self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
+                self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
 
                 # Phase B: Action selection + env step
                 if self._rbta_skip_feedback:
@@ -1048,9 +1060,39 @@ class CognitiveCycle:
                 elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
                     self._rbta_action_candidate_limit = 1
 
+                # ── Learning efficiency tracking (Scenario 1) ─────────
+                if result is None:
+                    self._cache_miss += 1
+                else:
+                    self._cache_hit += 1
+                total = self._cache_hit + self._cache_miss
+                if total > 0 and (total - self._last_efficiency_log_cycle) >= 1000:
+                    rate = self._cache_hit / total * 100.0
+                    new_hits = self._cache_hit - self._last_hits_at_log
+                    _log(logger, "info", "cycle.learning_efficiency",
+                         hits=self._cache_hit, misses=self._cache_miss,
+                         rate=f"{rate:.1f}%",
+                         window_hits=new_hits)
+                    self._last_efficiency_log_cycle = total
+                    self._last_hits_at_log = self._cache_hit
+                    if new_hits == 0:
+                        self._zero_hit_windows += 1
+                    else:
+                        self._zero_hit_windows = 0
+                    if self._zero_hit_windows >= 10:
+                        _log(logger, "warning", "cycle.learning_starvation",
+                             consecutive_zero_windows=self._zero_hit_windows,
+                             action="triggering_fallback_controller")
+                        self._fallback_controller.notify_failure(
+                            "learning_starvation", severity=0.7, cycle=self.cycle_count,
+                        )
+
+                # ── Staleness detection (Scenario 2) ──────────────────
                 if result is None or result.age > STALE_THRESHOLD_MS:
-                    # Stale frame — skip learning, still increment cycle
+                    if result is not None:
+                        self._staleness_trigger_count += 1
                     metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+                    metrics.staleness_ratio = self._staleness_trigger_count / max(self.cycle_count, 1)
                     self._finalize_learning_cycle(metrics, None)
                     continue
 
@@ -1067,10 +1109,10 @@ class CognitiveCycle:
                 )
 
                 metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+                metrics.staleness_ratio = self._staleness_trigger_count / max(self.cycle_count, 1)
                 self._finalize_learning_cycle(metrics, result)
 
                 if result.terminal:
-                    # Log terminal reset info
                     _log(logger, "info", "cycle.async.terminal",
                          cycle=self.cycle_count,
                          reward=f"{result.reward:.3f}")

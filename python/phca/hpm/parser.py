@@ -131,6 +131,8 @@ class HPMValidator:
                 "B_energy": sum(c.get("B_energy", 1.0) for c in child_bounds) + EPSILON_OVERHEAD,
             }
         elif op == CompositionOp.PARALLEL.value:
+            # PARALLEL: sum for Energy (both branches consume concurrently),
+            #          max for Time (they run in parallel, worst-case dominates).
             return {
                 "B_time": max(c["B_time"] for c in child_bounds) + TAU_SYNC,
                 "B_mem": sum(c["B_mem"] for c in child_bounds) + DELTA_COMM,

@@ -1,0 +1,29 @@
+{
+  "benchmark": "async_vs_sync",
+  "n_cycles": 500,
+  "date": "2026-07-08T16:50:59",
+  "sync": {
+    "mode": "sync",
+    "n_cycles": 500,
+    "avg_latency_ms": 12.683,
+    "median_latency_ms": 12.674,
+    "p95_latency_ms": 33.05,
+    "rbta_violations_per_1k": 0.0,
+    "goal_success_rate": 0.99,
+    "learn_call_ratio": 1.0,
+    "total_violations": 0,
+    "goals_reached": 495
+  },
+  "async": {
+    "mode": "async",
+    "n_cycles": 501,
+    "avg_latency_ms": 20.232,
+    "median_latency_ms": 19.503,
+    "p95_latency_ms": 41.812,
+    "rbta_violations_per_1k": 0.0,
+    "goal_success_rate": 0.988,
+    "learn_call_ratio": 1.0,
+    "total_violations": 0,
+    "goals_reached": 495
+  }
+}
