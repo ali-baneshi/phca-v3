@@ -43,7 +43,9 @@ evidence separate from invariant tests.
 | Component | Spec source | Code location | Status |
 |---|---|---|---|
 | ASI sanitizer | v3 patch | `phca/asi/sanitizer.py` | **Implemented** |
-| Grounding adapter (L0/L2) | v3 patch | — | **Not implemented** (ASI always level 1) |
+| Grounding adapter (L0/L2) | v3 patch | — | **Not implemented** (ASI always level 1); see NoiseInjector in `python/phca/asi/noise_injector.py` for noise-stress proxy |
+| **NoiseInjector** | Resilience | `python/phca/asi/noise_injector.py` | **Implemented** — configurable Gaussian noise, decay, warmup; `scripts/benchmark_noise_closedloop.py` + `scripts/benchmark_noise_robustness.py` |
+| **Hybrid ablation** | A4 analysis | `scripts/benchmark_hybrid_ablation.py` | **Implemented** — 30-seed Mann-Whitney ablation: Manhattan vs Prediction vs Hybrid; `experiments/hybrid_map_ablation.yaml` |
 | RBTA enforcer | Whitepaper §2.1 | `phca/regulation/rbta_enforcer.py` | **Implemented** (Python; Rust removed D-084) |
 | G′ world model | Whitepaper §2.2 | `phca/world_model/` | **Implemented** (Gaussian / graph / MLP) |
 | V (VSA ensemble) | Whitepaper §2.2 | — | **Not implemented** |
@@ -62,7 +64,7 @@ evidence separate from invariant tests.
 | M4 semantic | Blueprint | `phca/consolidation/scheduler.py` | **Partial** — statistical pattern facts |
 | M5 procedural | Blueprint | — | **Not implemented** |
 | M6 meta-memory | Whitepaper | — | **Not implemented** |
-| Failure matrix A–F | Blueprint | `phca/resilience/` | **Partial (MVP)** — B1, B4, B5, C1, F5 detect + recover |
+| Failure matrix A–F | Blueprint | `phca/resilience/` | **Enhanced** — B1, B4, B5, C1, F5 detect + recover; E1 FallbackController with dual-signal (entropy + cascade) |
 | GridWorld | Phase 3.1 | `phca/environments/grid_world.py` | **Implemented** |
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
 | Cognitive Observatory | Phase 7–20 | `phca/monitoring/` | **Complete** (schema, replay, report, scrub, compare, anomalies, explain, API, supervisor, multi-agent, query, reproduce) |

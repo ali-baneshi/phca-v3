@@ -15,9 +15,9 @@
 
 **PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 
-Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (discrete geometry on GridWorld, or MPC on continuous MuJoCo) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. Temporal order and discrete vs continuous paths are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log.
+Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (discrete geometry on GridWorld, or MPC on continuous MuJoCo) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. Temporal order and discrete vs continuous paths are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log. A dual-signal **FallbackController** (`python/phca/resilience/fallback_controller.py`) provides an additional fail-closed layer triggered by entropy-band overlap or FailureDetector cascade.
 
-**Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`, run on **nightly** / extended local CI — not every PR job). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, Level-4-lite continual metrics, cognitive resilience injectables, and nightly hardening gates. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) for honest gate status.
+**Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`, run on **nightly** / extended local CI — not every PR job). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, Level-4-lite continual metrics, cognitive resilience injectables (E1 FallbackController + NoiseInjector), hybrid-map ablation, and nightly hardening gates. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) for honest gate status.
 
 ### Continuous integration (GitHub Actions)
 
@@ -29,6 +29,7 @@ Every push/PR to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.y
 | **test-python** | T0 | ~792 tests (fast path; MuJoCo integration files excluded) |
 | **observatory-check** | T0 | `phca_replay.py --check` on session fixtures |
 | **benchmark-level-0** | T0 | Φ-IQ quick regression vs [`logs/benchmark_ci_baseline.json`](logs/benchmark_ci_baseline.json) |
+| **noise-injector** | T0 | ASI NoiseInjector unit tests in `python/phca/asi/tests/` |
 | **mujoco-gate** | T0 | Pendulum + Cartpole + Reacher smoke via `make mujoco-ci` |
 
 **Nightly** ([`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)): full `make nightly` (A1–A5 `--ci`, OOD, stress soak, causal gate). Assumption validation is **not** in the default PR CI slice — use `make ci-local` locally for a broader check.
@@ -81,7 +82,7 @@ pip install -r requirements-mujoco.txt
 MUJOCO_GL=disabled make test-python
 make test-mujoco              # +36 MuJoCo integration tests
 make maturation-test          # 45 tests: static contracts + forgetting + resilience + maturation
-make ci-local                 # lint + test-python + observatory + L0 bench + causal-smoke
+make ci-local                 # lint + test-python + observatory + noise-injector + L0 bench + causal-smoke
 ```
 
 ### Benchmarks & validation
@@ -136,6 +137,8 @@ python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output 
 make bench-level4-smoke         # 2-task diagnostic (not retention proof)
 make bench-level4-ablation    # R0,R2,R3,R6 ablation matrix
 make bench-recovery             # injectable B1/C1/F5 cognitive resilience
+make bench-noise-closedloop     # closed-loop noise robustness ramp (0→0.7→0)
+make bench-hybrid-ablation      # 30-seed Mann-Whitney: Manhattan vs Prediction vs Hybrid
 make mujoco-ci                  # verbose MuJoCo gate (same as CI mujoco-gate job)
 ```
 
@@ -234,7 +237,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 | :--- | :--- | :--- |
 | **Measured PASS (CI/nightly)** | L0 Φ-IQ, MuJoCo smoke, Observatory replay, A1–A5 `--ci` (nightly) | green |
 | **Measured FAIL (documented)** | Level-4-lite L4b forgetting @ 10 tasks | red — [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) |
-| **Partial MVP** | Cognitive resilience injectables; GridWorld A4 | see [docs/limitations.md](docs/limitations.md) |
+| **Partial MVP** | Cognitive resilience injectables + E1 FallbackController; GridWorld A4 hybrid map | see [docs/limitations.md](docs/limitations.md) |
 | **Not implemented** | 100-task AT-2, criticality Φ band, M5 procedural memory | backlog — [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
 
 ### Benchmark Levels
@@ -417,7 +420,7 @@ It does **not** change the L4b forgetting gate outcome — measured **FAIL**
 | [docs/maturation_signoff.md](docs/maturation_signoff.md) | Sign-off checklist for maturation tracks |
 | [docs/maturation_bisection.md](docs/maturation_bisection.md) | L4 bisection methodology |
 | [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | Root-cause verdict (B+C); L4b still FAIL |
-| [docs/resilience.md](docs/resilience.md) | Cognitive vs Observatory session recovery |
+| [docs/resilience.md](docs/resilience.md) | Cognitive resilience: B1/B4/B5/C1/F5 + E1 FallbackController + NoiseInjector |
 
 **Commands:** `make maturation-test` (45 tests), `make bench-level4-smoke`,
 `make bench-level4-ablation`, `make bench-recovery`.
@@ -443,8 +446,11 @@ See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
   2026-07-07 — see [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md)
   and [docs/limitations.md](docs/limitations.md).
 - **Action-selection split (A4).** Continuous MuJoCo (Pendulum, Reacher) uses
-  prediction-primary MPC; discrete GridWorld with an extrinsic goal uses hybrid
-  task-lock observed-greedy geometry (D-112, D-101).
+   prediction-primary MPC; discrete GridWorld with an extrinsic goal uses hybrid
+   task-lock observed-greedy geometry (D-112, D-101, D-136).
+- **NoiseInjector is not a grounding adapter.** Synthetic Gaussian noise for
+   robustness testing (`python/phca/asi/noise_injector.py`) is a proxy; real
+   multi-level grounding (L0/L2) would require sensor-specific corruption models.
 - **Long-run memory growth (Phase 7 retention).** `make nightly` uses a
   **phase-aware** late-half RSS slope gate (D-112, D-113): ≤5000 B/cyc for runs under
   7000 cycles (M3 fill phase) and ≤1600 B/cyc for post-cap soaks (default
@@ -504,7 +510,7 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 ├── python/
 │   ├── phca/                    # Core cognitive architecture
 │   │   ├── core/                # CognitiveCycle orchestrator (12-step cycle)
-│   │   ├── asi/                 # ASI sanitizer
+│   │   ├── asi/                 # ASI sanitizer + NoiseInjector
 │   │   ├── memory/              # M1 (sensory), M2 (working), M3 (episodic)
 │   │   ├── consolidation/       # Episodic → statistical fact extraction
 │   │   ├── world_model/         # G' Gaussian / discrete graph / MLP
@@ -513,7 +519,7 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 │   │   ├── attention/           # Goal-driven sparse attention
 │   │   ├── motivation/          # MDIM (6 drives)
 │   │   ├── regulation/          # RBTA enforcer + adaptive parameter control
-│   │   ├── resilience/          # In-cycle failure detect/recover (B1,B4,B5,C1,F5)
+│   │   ├── resilience/          # In-cycle failure detect/recover (B1,B4,B5,C1,F5 + E1 FallbackController)
 │   │   ├── evaluation/          # Φ-IQ, continual/, metrics/forgetting.py
 │   │   ├── hpm/                 # HPM composition grammar
 │   │   ├── environments/        # GridWorld + MuJoCo + EnvironmentProtocol
@@ -525,6 +531,9 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 │   ├── benchmark.py             # Φ-IQ benchmark suite (primary; --env gridworld/cartpole/pendulum/reacher)
 │   ├── benchmark_level4.py      # Level-4-lite forgetting gate
 │   ├── benchmark_recovery.py    # Cognitive resilience injectables
+│   ├── benchmark_noise_closedloop.py  # Closed-loop noise robustness (0→0.7→0 ramp)
+│   ├── benchmark_noise_robustness.py  # Multi-seed noise-sweep variant
+│   ├── benchmark_hybrid_ablation.py   # A4 hybrid-map ablation (Manhattan vs Prediction vs Hybrid)
 │   ├── run_l4_ablation.py       # Ablation matrix R0–R6
 │   ├── check_benchmark_gate.py  # CI gate: static Φ-IQ + --mujoco + --neg-test (Phase 6)
 │   ├── ood_calibration.py       # OOD σ-sweep confidence curve (Phase 6 / B1)
@@ -544,6 +553,7 @@ see [Quick Start](#quick-start) (tests, benchmarks, `make nightly`).
 │   └── profile_cycle.py         # Per-cycle profiling (Gaussian path)
 ├── docs/                        # Architecture, decisions, completion reports
 │   └── observability.md         # Observatory JSONL schema, replay, --check rules
+├── experiments/                 # Experiment configs (e.g. hybrid_map_ablation.yaml)
 ├── logs/                        # Benchmark reports + phca.log + CI baseline
 ├── STATUS.md                    # Audit progress and issue registry
 ├── Makefile                     # setup, test-all, bench-* targets
@@ -635,4 +645,4 @@ Full license text and third-party dependency licenses: [docs/license.md](docs/li
 
 ---
 
-*Last verified: 2026-07-07 — CI jobs lint, test-python, observatory-check, benchmark-level-0, mujoco-gate.*
+*Last verified: 2026-07-08 — CI jobs lint, test-python, observatory-check, benchmark-level-0, noise-injector, mujoco-gate.*

@@ -88,6 +88,8 @@ with no Φ-IQ regression.
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: time/memory/energy/entropy enforcement; **INTERRUPT/TERMINATE alter cycle behavior** (skip feedback/consolidation, limit rollouts — P1-01) |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with batch commits |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Episodic → statistical fact extraction with periodic consolidation |
+| **NoiseInjector** | `python/phca/asi/noise_injector.py` | Configurable Gaussian noise for observation stress testing; decay and warmup |
+| **FallbackController** | `python/phca/resilience/fallback_controller.py` | Dual-signal fail-closed (entropy-band + FailureDetector notify); safe-action substitution |
 | **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete argmax / continuous MPC, Phase 6) |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment (5×5, walls, obstacles, `relocate_goal`) |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo wrapper: Cartpole discrete; **Pendulum + Reacher continuous** (Phase 6/7); `get_action_space()` + `get_goal_reference()` |

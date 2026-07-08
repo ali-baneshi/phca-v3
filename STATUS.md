@@ -174,6 +174,14 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 | TC-5 | Assumption validation experiments | ✅ Done (Phase 6) | D-101 |
 | TC-6 | `pytest-mock` undeclared | ✅ Fixed | D-088 |
 
+### Phase 21 — CI Resilience & Noise Injector
+
+| ID | Issue | Status | Resolution |
+|----|-------|--------|------------|
+| E1-1 | FallbackController with dual-signal (entropy + failure cascade) | ✅ Done | `python/phca/resilience/fallback_controller.py`; `notify_failure()` wired through FailureDetector |
+| E1-2 | NoiseInjector for ASI-level stress testing | ✅ Done | `python/phca/asi/noise_injector.py` + `scripts/benchmark_noise_closedloop.py` + `scripts/benchmark_noise_robustness.py` |
+| E1-3 | Hybrid ablation experiment | ✅ Done | `scripts/benchmark_hybrid_ablation.py` + `experiments/hybrid_map_ablation.yaml` |
+
 ---
 
 ## Test Status

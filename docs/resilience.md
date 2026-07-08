@@ -12,6 +12,49 @@ This document covers cognitive resilience only. For crash/session recovery see
 
 ---
 
+## E1 — FallbackController
+
+`python/phca/resilience/fallback_controller.py` provides a **dual-signal fail-closed**
+layer between ASI sanitization and action selection. It accepts two independent
+trigger signals:
+
+1. **Entropy-band overlap** — MDIM belief entropy exceeding a threshold bypasses
+   G' prediction and falls back to a safe action distribution.
+2. **Failure cascade** — `FailureDetector.detect()` calls `notify_failure()` on
+   the controller; `FailureEvent` objects are tracked with a decay factor so that
+   transient glitches do not trigger full fail-closed while persistent degradation
+   does.
+
+When either signal fires, `FallbackController.get_action()` returns
+`env.neutral_action()` instead of the normal action-selection path.
+
+```
+cycle._build_resilience_snapshot() -> FailureDetector.detect()
+  -> notify_failure() -> FallbackController.register_failure()
+  -> controller.get_action() during action selection
+```
+
+---
+
+## NoiseInjector
+
+`python/phca/asi/noise_injector.py` adds configurable additive Gaussian noise to
+observations for robustness stress testing. Used by
+`scripts/benchmark_noise_closedloop.py` to measure Φ-IQ degradation under
+controlled input corruption.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `noise_std` | 0.0 | Standard deviation of additive Gaussian noise |
+| `noise_decay` | 0.999 | Per-cycle multiplicative decay |
+| `warmup_cycles` | 50 | Cycles before noise starts |
+
+`scripts/benchmark_noise_closedloop.py` runs a noise ramp (0 → 0.7 → 0) and
+reports Φ-IQ at each level; `scripts/benchmark_noise_robustness.py` provides
+a multi-seed noise-sweep variant.
+
+---
+
 ## MVP coverage (whitepaper §4.1 subset)
 
 | Mode | Detection | Recovery protocol |
