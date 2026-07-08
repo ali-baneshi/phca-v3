@@ -11,7 +11,7 @@ v3.0 Patch §2.4 (Pareto front + meta-stable state)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -141,6 +141,11 @@ class MDIM:
         # Pareto front: which of D1/D3/D5 are at optimal trade-offs.
         # Computed each cycle in generate_goal(), used in meta-stable suppression.
         self._pareto_front_ids: List[int] = []
+
+        # Goal novelty tracking (autonomy metric)
+        self._seen_goal_signatures: set = set()
+        self._novel_goal_count: int = 0
+        self._total_goals_generated: int = 0
 
         # History for debugging/monitoring
         self._drive_history: List[Dict[int, float]] = []
@@ -464,6 +469,18 @@ class MDIM:
         if len(self._goal_history) >= 100:
             self._goal_history = self._goal_history[-50:]
 
+        # Track goal novelty for autonomy metric
+        self._total_goals_generated += 1
+        tv = getattr(getattr(goal, "target_state", None), "values", None)
+        if tv is not None:
+            sig = (int(getattr(goal, "drive_id", 0)),
+                   tuple(round(float(v), 1) for v in tv))
+        else:
+            sig = (int(getattr(goal, "drive_id", 0)),)
+        if sig not in self._seen_goal_signatures:
+            self._seen_goal_signatures.add(sig)
+            self._novel_goal_count += 1
+
         return goal
 
     def _goal_from_drive(
@@ -702,6 +719,8 @@ class MDIM:
             "drive_values": [float(v) for v in self.meta_stable.drive_values],
         }
 
+        novel_rate = (self._novel_goal_count / max(self._total_goals_generated, 1))
+
         return {
             "deficits": deficits,
             "goals": goals,
@@ -711,4 +730,7 @@ class MDIM:
             "drive_history": drive_history,
             "goal_history": goal_history,
             "temperature": float(self.temperature),
+            "novel_goal_count": self._novel_goal_count,
+            "total_goals_generated": self._total_goals_generated,
+            "novel_goal_rate": round(novel_rate, 4),
         }

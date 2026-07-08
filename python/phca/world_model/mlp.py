@@ -266,6 +266,17 @@ class WorldModelMLP:
         self._replay_boost_batch_mult: float = 1.5
         self._replay_boost_extra_steps: int = 4
 
+        # SGD momentum (default 0.9)
+        self._momentum: float = 0.9
+        self._v: Dict[str, np.ndarray] = {
+            "gprime_w1": np.zeros_like(self.w1),
+            "gprime_b1": np.zeros_like(self.b1),
+            "gprime_w2": np.zeros_like(self.w2),
+            "gprime_b2": np.zeros_like(self.b2),
+            "gprime_w3": np.zeros_like(self.w3),
+            "gprime_b3": np.zeros_like(self.b3),
+        }
+
     # ── Public Interface (G'-compatible) ──────────────────────
 
     def predict(
@@ -301,29 +312,24 @@ class WorldModelMLP:
         self._last_input = x
         self._last_activations = (mean_out,)  # partial cache
 
-        # Confidence (G-002 / D-080): aleatoric * epistemic split.
-        #   aleatoric  = exp(-MSE) on the mean prediction (data-fit term);
-        #                measures how well the mean prediction matches the
-        #                input state's scale (low when the predicted next
-        #                state is far from the current state in MSE terms).
+        # Confidence (G-002 / D-080): purely epistemic via MC-Dropout variance.
         #   epistemic  = MC-Dropout variance across the *mc_samples*
         #                stochastic forward passes; high when the model is
         #                uncertain about its own parameters (e.g. on
         #                out-of-distribution inputs), low on well-learned
         #                regions. Approximated as mutual_info = log(1+var).
-        # The combined confidence penalises the aleatoric term when
-        # epistemic uncertainty is high, so OOD states report lower
-        # confidence than in-distribution states even if MSE is similar.
+        #   Note: aleatoric confidence via exp(-MSE) is NOT used here because
+        #         the true next state is unavailable at prediction time —
+        #         comparing against the current state would reward predicting
+        #         "no change" and penalize correct movement predictions.
         var = np.var(mc_outs, axis=0).mean()
         # mutual information ≈ log(1 + var) clipped to [0, ~1.1]
         mutual_info = float(np.log1p(min(var, 2.0)))
         # Observability v4: cache per-dim std + mutual info (uncertainty portrait).
         self._last_mc_per_dim_std = np.sqrt(np.var(mc_outs, axis=0)).astype(np.float32)
         self._last_mutual_info = mutual_info
-        # base (aleatoric) confidence = exp(-MSE on mean prediction)
-        base_conf = self._compute_confidence(mean_out, state.values.astype(np.float32))
-        # penalize confidence when mutual info is high (epistemic uncertainty)
-        confidence = float(np.clip(base_conf * (1.0 - 0.5 * mutual_info), 0.01, 1.0))
+        # confidence = 1.0 - 0.5 * mutual_info  (pure epistemic)
+        confidence = float(np.clip(1.0 - 0.5 * mutual_info, 0.01, 1.0))
 
         # Apply TSPL learned bias (AF-002 compatibility, safe mode).
         # Only apply when bias norm is small (< 1.0) to avoid output corruption.
@@ -673,18 +679,24 @@ class WorldModelMLP:
     def _apply_gradient(
         self, grad: Dict[str, np.ndarray], lr: float = 0.01
     ) -> None:
-        """Apply gradient via SGD.
+        """Apply gradient via SGD with momentum (default 0.9).
 
         Args:
             grad: Dict with keys matching get_theta().
             lr: Learning rate.
         """
-        self.w1 -= lr * grad["gprime_w1"]
-        self.b1 -= lr * grad["gprime_b1"]
-        self.w2 -= lr * grad["gprime_w2"]
-        self.b2 -= lr * grad["gprime_b2"]
-        self.w3 -= lr * grad["gprime_w3"]
-        self.b3 -= lr * grad["gprime_b3"]
+        self._v["gprime_w1"] = self._momentum * self._v["gprime_w1"] + lr * grad["gprime_w1"]
+        self.w1 -= self._v["gprime_w1"]
+        self._v["gprime_b1"] = self._momentum * self._v["gprime_b1"] + lr * grad["gprime_b1"]
+        self.b1 -= self._v["gprime_b1"]
+        self._v["gprime_w2"] = self._momentum * self._v["gprime_w2"] + lr * grad["gprime_w2"]
+        self.w2 -= self._v["gprime_w2"]
+        self._v["gprime_b2"] = self._momentum * self._v["gprime_b2"] + lr * grad["gprime_b2"]
+        self.b2 -= self._v["gprime_b2"]
+        self._v["gprime_w3"] = self._momentum * self._v["gprime_w3"] + lr * grad["gprime_w3"]
+        self.w3 -= self._v["gprime_w3"]
+        self._v["gprime_b3"] = self._momentum * self._v["gprime_b3"] + lr * grad["gprime_b3"]
+        self.b3 -= self._v["gprime_b3"]
 
     def set_tspl_bias(self, bias: Optional[np.ndarray]) -> None:
         """Set learned bias from TSPL (AF-002 compatibility).

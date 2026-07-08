@@ -180,12 +180,8 @@ def compute_level_3(
     n_actions = max(getattr(cycle.env, "action_space_size", 5), 1)
     result.adaptation_speed = min(1.0, unique_actions / n_actions)
 
-    if hasattr(cycle, "mdim") and cycle.mdim is not None:
-        drive_summary = {name: d.deficit for name, d in cycle.mdim.drives.items()}
-        active_drives = sum(1 for v in drive_summary.values() if v > 0.01)
-        result.goal_complexity = min(1.0, active_drives / 5.0)
-    else:
-        result.goal_complexity = min(1.0, unique_actions / n_actions)
+    snap = cycle.mdim.snapshot() if hasattr(cycle, "mdim") and cycle.mdim is not None else {}
+    result.goal_complexity = snap.get("novel_goal_rate", min(1.0, unique_actions / n_actions))
 
     result.resource_efficiency = _resource_efficiency(latencies)
     result.failure_rate = violations / max(len(history), 1)
@@ -197,7 +193,9 @@ def compute_level_3(
         "p95_latency_ms": float(np.percentile(latencies, 95)) if latencies else 0.0,
         "violations": violations,
         "unique_actions": unique_actions,
-        "active_drives": int(result.goal_complexity * 5),
+        "novel_goal_count": snap.get("novel_goal_count", 0),
+        "total_goals_generated": snap.get("total_goals_generated", 0),
+        "novel_goal_rate": result.goal_complexity,
         "m3_episodes": m3_size,
         "consolidation_facts": consol_stats.get("total_facts_stored", 0),
         "skill_accuracy": cycle.tspl.skill_accuracy,
@@ -249,7 +247,8 @@ def check_pass_criteria(report: BenchmarkReport) -> Dict[str, bool]:
 
     level3 = [r for r in all_results if r.level == 3]
     if level3:
-        criteria["goal_autonomy_achieved"] = level3[0].goal_complexity > 0.1
+        novel_rate = level3[0].raw_metrics.get("novel_goal_rate", 0.0)
+        criteria["goal_autonomy_achieved"] = novel_rate > 0.01
 
     criteria["phi_iq_above_0_5"] = report.overall_phi_iq > 0.5
     return criteria

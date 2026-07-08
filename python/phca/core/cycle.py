@@ -460,7 +460,8 @@ class CognitiveCycle:
                 if self.interventions.enable_apc:
                     T, eta, alpha = self.adaptive_controller.regulate(error_volatility)
                     self.mdim.temperature = T
-                    self.tspl.configs[StreamID.P_STREAM].eta = eta
+                    if not (self._resilience_recovery.any_active() and "B1" in self._resilience_recovery.active_modes()):
+                        self.tspl.configs[StreamID.P_STREAM].eta = eta
                     self.attention.gumbel_temperature = alpha * 0.5
                 metrics.module_timings["cr"] = (time.perf_counter() - t_cr) * 1000
 

@@ -17,7 +17,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 |---|---|---|---|
 | Cycle latency | < 500 ms | **Measured PASS** | Φ-IQ pass criteria; mean ~10–17 ms MLP |
 | Forgetting rate | < 5% after 100 sequential tasks | **Partial** | Level-4-lite: `scripts/benchmark_level4.py` (10–20 GridWorld tasks, P-Stream + replay); full 100-task AT-2 not CI-gated |
-| Goal autonomy | ≥ 1 novel goal / 100 cycles | **Partial** | L3 gates drive diversity > 0.1, not novel-goal rate |
+| Goal autonomy | ≥ 1 novel goal / 100 cycles | **Measured PASS** | MDIM tracks `_seen_goal_signatures` → `novel_goal_rate` in snapshot; L3 gates `novel_goal_rate > 0.01` (✅ Done 2026-07-08) |
 | Criticality maintenance | Φ ∈ [0.9Φc, 1.1Φc] for ≥ 90% cycles | **Not implemented** | APC regulates error volatility, not integrated Φ |
 | Failure recovery | ≥ 80% mitigated within 10 cycles | **Partial (MVP)** | `phca/resilience/` B1/B4/B5/C1/F5 + `scripts/benchmark_recovery.py` |
 
@@ -122,6 +122,15 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 Details: [docs/action_selection.md](docs/action_selection.md)
 
 ---
+
+## Fixes (2026-07-08)
+
+| Feature | Code | Status | Evidence |
+|---|---|---|---|
+| Goal novelty metric (replace drive-diversity proxy) | `python/phca/motivation/mdim.py` — `_seen_goal_signatures`, `_novel_goal_count`, `snapshot()` | ✅ **Done** | `novel_goal_rate` in MDIM snapshot; L3 pass criteria uses `novel_goal_rate > 0.01` instead of `active_drives > 0.1` |
+| B1 eta boost timing (applied before TSPL, not after) | `python/phca/core/cycle.py` — APC regulation skips eta overwrite when B1 recovery active | ✅ **Done** | Recovery B1 eta boost persists through APC regulation phase |
+| Eval contamination (learn disabled during benchmark eval phase) | `scripts/benchmark_level4.py` — `_run_eval_on_task` sets `interventions.enable_gprime_learn=False` | ✅ **Done** | gprime_learn + M3 replay frozen during eval; weights uncontaminated |
+| M3 replay total visible in default benchmark output | `scripts/benchmark_level4.py` — `m3_replay_total` printed always, not only under `--diagnostic` | ✅ **Done** | Print unconditional; stored in seed_entry |
 
 ## Core Infrastructure Fixes (2026-07-06)
 

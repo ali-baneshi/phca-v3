@@ -557,23 +557,43 @@ class M3EpisodicMemory:
     # ── Maintenance ───────────────────────────────────────────
 
     def _evict_if_needed(self) -> None:
-        """Evict oldest episodes if over max_episodes."""
+        """Evict oldest episodes if over max_episodes.
+
+        Prefers evicting consolidated episodes over unconsolidated to avoid
+        losing experience before M4 extraction.
+        """
         with self._lock:
             total = self.count()
             if total <= self._max_episodes:
                 return
             excess = total - self._max_episodes
-            # Find the oldest episodes and delete them
-            self._connection.execute(
-                "DELETE FROM episodes WHERE episode_id IN ("
-                "SELECT episode_id FROM episodes ORDER BY timestamp ASC LIMIT ?"
-                ")", (excess,),
-            )
+            deleted = 0
+            # Phase 1: evict consolidated episodes first
+            cons_count = self.count(consolidated=1)
+            if cons_count > 0:
+                n1 = min(excess, cons_count)
+                self._connection.execute(
+                    "DELETE FROM episodes WHERE episode_id IN ("
+                    "SELECT episode_id FROM episodes WHERE consolidated = 1 "
+                    "ORDER BY timestamp ASC LIMIT ?"
+                    ")", (n1,),
+                )
+                deleted += n1
+            # Phase 2: evict unconsolidated only if still over limit
+            remaining = excess - deleted
+            if remaining > 0:
+                self._connection.execute(
+                    "DELETE FROM episodes WHERE episode_id IN ("
+                    "SELECT episode_id FROM episodes WHERE consolidated = 0 "
+                    "ORDER BY timestamp ASC LIMIT ?"
+                    ")", (remaining,),
+                )
+                deleted += remaining
             self._connection.commit()
             self._pending_commits = 0  # eviction commit also flushes pending writes
-            _log(logger, "debug", "m3.evict", count=excess)
+            _log(logger, "debug", "m3.evict", count=deleted)
             # Track deletions for VACUUM scheduling (G-010)
-            self._episodes_since_vacuum += excess
+            self._episodes_since_vacuum += deleted
             self._vacuum_if_needed()
 
     def purge_consolidated(self, keep_recent: int = 500) -> int:

@@ -131,6 +131,8 @@ def _run_eval_on_task(
         cycle.step()
 
     eval_hist: List[CycleMetrics] = []
+    saved_learn = cycle.interventions.enable_gprime_learn
+    cycle.interventions.enable_gprime_learn = False
     for _ in range(eval_cycles):
         m = cycle.step()
         m.task_id = task.task_id
@@ -143,6 +145,7 @@ def _run_eval_on_task(
             cycle.record_task_eval(task.task_id, m.goal_reached)
         if diagnostic and m.failure_events and "B4" in m.failure_events:
             b4_events += 1
+    cycle.interventions.enable_gprime_learn = saved_learn
     return eval_hist, b4_events
 
 
@@ -336,6 +339,7 @@ def run_level4_benchmark(
             "passes_gate": passes_forgetting_gate(delta),
             "per_task_accuracy": current,
             "forward_transfer": _forward_transfer,
+            "m3_replay_total": cycle._m3_replay_total,
         }
         if diagnostic:
             seed_entry["diagnostic"] = {
@@ -469,9 +473,10 @@ def main() -> int:
     ft_agg = report.get("forward_transfer", {})
     if ft_agg:
         print(f"forward_transfer={ft_agg}")
+    if report["seed_results"]:
+        print(f"m3_replay_total={report['seed_results'][0].get('m3_replay_total')}")
     if args.diagnostic and report["seed_results"]:
         diag = report["seed_results"][0].get("diagnostic", {})
-        print(f"m3_replay_total={diag.get('m3_replay_total')}")
         print(f"excluded_tasks={report['seed_results'][0].get('excluded_tasks')}")
     print(f"Report saved to {out}")
     return 0
