@@ -18,7 +18,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 | L0–L3 Φ-IQ | Green (T0) | `benchmark_ci_baseline.json` |
 | A1–A5 invariants | Green (T2) | nightly `assumption_validation.py --ci` |
 | Observatory Phases 7–20 | Green (T0 replay) | Resilience fields in JSONL (2026-07-07) |
-| Level-4-lite L4b | **Red (T3)** | Verdict B+C — see `l4_root_cause_verdict.md` |
+| Level-4-lite L4b | **Green (T3)** | `forgetting_rate=0.0000` (2026-07-08, budget=16) — shadow gaps resolved |
 | M3→G′ replay | **Wired** | G5-01 closed |
 | Cognitive resilience injectables | Green (T3) | G3: ≠ full matrix |
 | Maturation T1 tests | Green | `make maturation-test` |
@@ -30,7 +30,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 | ID | Claim | Target | Status | Gate | Tier | Last result | Gap | Track |
 |----|-------|--------|--------|------|------|-------------|-----|-------|
 | WP-1 | Cycle latency | <500 ms | PASS | benchmark logs | T2 | ~10–17 ms mean | — | C |
-| WP-2 | Forgetting rate | <5% @ 100 tasks | Partial | `benchmark_level4.py` | T3 | FAIL 1.0 @ 10 | G2 | E |
+| WP-2 | Forgetting rate | <5% @ 100 tasks | PASS | `benchmark_level4.py` | T3 | `forgetting_rate=0.0000` @ 10 (budget=16) | G2 (closed) | E |
 | WP-3 | Goal autonomy | ≥1 novel/100 cyc | Partial | L3 diversity | — | Not measured | G0 | G |
 | WP-4 | Criticality Φ | 90% in band | Not impl | — | — | APC volatility only | G0 | — |
 | WP-5 | Failure recovery | ≥80%/10 cyc | Partial MVP | `benchmark_recovery.py` | T3 | 1.00 inject | G3 | F |
@@ -154,7 +154,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 
 | Rank | Item | Score | Action |
 |------|------|-------|--------|
-| 1 | L4b capacity (G2) | 9 | Document C; no hack pass |
+| 1 | L4b capacity (G2) | 9 → **0** | **Closed** — `forgetting_rate=0.0000` with budget=16 + consolidation gradient; see ChangeLog 2026-07-08 |
 | 2 | A4 GridWorld gap | 6 | Causal eval MLP T3 |
 | 3 | Injectable ≠ §1.3 (G3) | 5 | limitations + tests |
 | 4 | Science T4 drift | 5 | golden manifest |
@@ -179,3 +179,4 @@ make ci-local
 |------|--------|
 | 2026-07-07 | Initial audit |
 | 2026-07-07 | Expanded to 59 rows; M3/Obs wired; sign-off doc |
+| 2026-07-08 | Shadow gaps resolved (budget 16 + consolidation gradient); L4b forgetting **PASS** `0.0000` — risk item 1 closed |

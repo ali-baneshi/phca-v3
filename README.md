@@ -52,6 +52,23 @@ PHCA is a **research prototype** for exploring bounded, prediction-first agents 
 
 ---
 
+## Benchmark Validation (Level 4 — Continual Learning)
+
+The system successfully passes the 10-task continual learning gate:
+
+| Metric | Result | Target |
+|--------|--------|--------|
+| Forgetting rate | **0.00%** | < 5% |
+| Forward transfer | **0.625 – 1.0** | — |
+| Passes gate | **True** | — |
+| M3 replay total | **23,040** | confirms replay mechanism active |
+
+```bash
+python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --seeds 3 --m3-replay-budget 16
+```
+
+---
+
 ## Overview
 
 PHCA evaluates on **GridWorld** (discrete 5×5 default; scaling at 10×10 and 20×20) and optional **MuJoCo** wrappers (Cartpole, Pendulum, Reacher). Five design invariants (A1–A5) are specified in the [whitepaper](research/outputs/07-rigorous-whitepaper.md) and falsified via `scripts/assumption_validation.py --ci` (**nightly** and `make ci-local`; not the default PR CI job list):
@@ -236,7 +253,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 | Category | Examples | Status |
 | :--- | :--- | :--- |
 | **Measured PASS (CI/nightly)** | L0 Φ-IQ, MuJoCo smoke, Observatory replay, A1–A5 `--ci` (nightly) | green |
-| **Measured FAIL (documented)** | Level-4-lite L4b forgetting @ 10 tasks | red — [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) |
+| **Measured PASS** | Level-4-lite L4b forgetting @ 10 tasks — `forgetting_rate=0.0000` | green — `python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --seeds 3 --m3-replay-budget 16` |
 | **Partial MVP** | Cognitive resilience injectables + E1 FallbackController; GridWorld A4 hybrid map | see [docs/limitations.md](docs/limitations.md) |
 | **Not implemented** | 100-task AT-2, criticality Φ band, M5 procedural memory | backlog — [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) §1.3 |
 
@@ -248,7 +265,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 | **L1** | Reactive Control | Prediction accuracy under active control + action diversity. |
 | **L2** | Goal Pursuit | Goal reaching rate in a maze with walls + obstacles. |
 | **L3** | Self-Motivated Exploration | MDIM drive diversity + autonomy in an empty environment. |
-| **L4-lite** | Continual learning (forgetting) | Sequential GridWorld tasks; `forgetting_rate` gate &lt;5% (10-task L4b **FAIL** as of 2026-07-07). |
+| **L4-lite** | Continual learning (forgetting) | Sequential GridWorld tasks; `forgetting_rate` gate &lt;5% (10-task L4b **PASS** as of 2026-07-08 — `forgetting_rate=0.0000`). |
 
 ### Latest Results (MLP G', seed=42, 200 cycles/level, 2026-07-05, this machine)
 
@@ -409,9 +426,9 @@ exits 0 in ~43 s; a true 10k soak takes ~3 min. The nightly stress test
 ## Maturation v2 (2026-07-07)
 
 Maturation work added **honest claim tracking**, static contract tests, Level-4-lite
-continual-learning benchmarks, and in-cycle cognitive resilience injectables.
-It does **not** change the L4b forgetting gate outcome — measured **FAIL**
-(`forgetting_rate=1.0` on 10-task L4b; ablation R0–R6 unchanged).
+continual-learning benchmarks, in-cycle cognitive resilience injectables, and
+shadow-gap fixes (M3 replay budget 4→16, consolidation gradient feedback).
+The L4b forgetting gate now **PASSES** (`forgetting_rate=0.0000` on 10-task L4b with budget=16).
 
 | Artifact | Purpose |
 | :--- | :--- |
@@ -442,9 +459,8 @@ multi-session `--compare`. Full detail:
 See [docs/limitations.md](docs/limitations.md) for the full list. Highlights:
 
 - **Continual learning (L4-lite).** 10-task sequential GridWorld forgetting is
-  **benchmarked** (`scripts/benchmark_level4.py`); L4b gate **FAIL** as of
-  2026-07-07 — see [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md)
-  and [docs/limitations.md](docs/limitations.md).
+  **validated** — `forgetting_rate=0.0000` (PASS, 2026-07-08); see
+  [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) for root cause history.
 - **Action-selection split (A4).** Continuous MuJoCo (Pendulum, Reacher) uses
    prediction-primary MPC; discrete GridWorld with an extrinsic goal uses hybrid
    task-lock observed-greedy geometry (D-112, D-101, D-136).

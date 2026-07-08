@@ -1,20 +1,22 @@
 {
   "config": {
-    "tasks": 2,
+    "tasks": 10,
     "task_cycles": 80,
     "eval_cycles": 20,
     "eval_warmup_cycles": 0,
-    "seeds": 5,
+    "seeds": 3,
     "use_mlp": true,
     "grid_size": 5,
     "mitigation": true,
     "baseline_method": "max_rolling",
     "baseline_window": 20,
     "baseline_min_valid": 0.2,
-    "diagnostic": false,
-    "m3_replay_budget": 4,
+    "diagnostic": true,
+    "m3_replay_budget": 16,
     "interleaved_eval_cycles": 0,
-    "interleaved_warmup_cycles": 0
+    "interleaved_warmup_cycles": 0,
+    "noise_profile": null,
+    "noise_intensity": 0.1
   },
   "tasks": [
     {
@@ -34,6 +36,78 @@
       ],
       "target_angle": null,
       "n_obstacles": 6
+    },
+    {
+      "task_id": 2,
+      "goal_pos": [
+        0,
+        1
+      ],
+      "target_angle": null,
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 3,
+      "goal_pos": [
+        1,
+        3
+      ],
+      "target_angle": null,
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 4,
+      "goal_pos": [
+        0,
+        1
+      ],
+      "target_angle": null,
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 5,
+      "goal_pos": [
+        2,
+        0
+      ],
+      "target_angle": null,
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 6,
+      "goal_pos": [
+        1,
+        4
+      ],
+      "target_angle": null,
+      "n_obstacles": 5
+    },
+    {
+      "task_id": 7,
+      "goal_pos": [
+        3,
+        3
+      ],
+      "target_angle": null,
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 8,
+      "goal_pos": [
+        0,
+        4
+      ],
+      "target_angle": null,
+      "n_obstacles": 6
+    },
+    {
+      "task_id": 9,
+      "goal_pos": [
+        2,
+        0
+      ],
+      "target_angle": null,
+      "n_obstacles": 5
     }
   ],
   "seed_results": [
@@ -41,125 +115,1340 @@
       "seed": 42,
       "baselines": {
         "0": 1.0,
-        "1": 0.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 0.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 0.0,
+        "9": 0.0
       },
       "current": {
         "0": 1.0,
-        "1": 0.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 0.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 0.0,
+        "9": 0.0
       },
       "delta_perf": {
-        "0": 0.0
+        "0": 0.0,
+        "4": 0.0,
+        "7": 0.0
       },
       "excluded_tasks": [
-        1
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9
       ],
       "forgetting_rate": 0.0,
       "passes_gate": true,
       "per_task_accuracy": {
         "0": 1.0,
-        "1": 0.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 0.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 0.0,
+        "9": 0.0
+      },
+      "forward_transfer": {
+        "0": 1.0,
+        "1": 0.625,
+        "2": 0.625,
+        "3": 0.625,
+        "4": 1.0,
+        "5": 0.625,
+        "6": 0.625,
+        "7": 1.0,
+        "8": 0.625,
+        "9": 0.625
+      },
+      "m3_replay_total": 23040,
+      "novel_goal_rate": 0.007,
+      "diagnostic": {
+        "train_curves": {
+          "0": [
+            {
+              "cycle": 10,
+              "perf": 0.9
+            },
+            {
+              "cycle": 20,
+              "perf": 0.95
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "1": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "2": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "3": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "4": [
+            {
+              "cycle": 10,
+              "perf": 0.6
+            },
+            {
+              "cycle": 20,
+              "perf": 0.8
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "5": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "6": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "7": [
+            {
+              "cycle": 10,
+              "perf": 0.8
+            },
+            {
+              "cycle": 20,
+              "perf": 0.9
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "8": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "9": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ]
+        },
+        "m3_counts_by_task": {
+          "0": 20,
+          "1": 20,
+          "2": 20,
+          "3": 20,
+          "4": 20,
+          "5": 20,
+          "6": 89,
+          "7": 100,
+          "8": 100,
+          "9": 100
+        },
+        "m3_replay_total": 23040,
+        "m3_replay_at_train_end": 23040,
+        "b4_event_cycles": 0,
+        "mitigation_active": true,
+        "baseline_method": "max_rolling",
+        "baseline_window": 20,
+        "baseline_min_valid": 0.2,
+        "m3_replay_budget": 16,
+        "interleaved_eval_cycles": 0
       }
     },
     {
       "seed": 142,
       "baselines": {
         "0": 1.0,
-        "1": 1.0
+        "1": 1.0,
+        "2": 0.0,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
       },
       "current": {
         "0": 1.0,
-        "1": 1.0
+        "1": 1.0,
+        "2": 0.0,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
       },
       "delta_perf": {
         "0": 0.0,
-        "1": 0.0
+        "1": 0.0,
+        "3": 0.0,
+        "4": 0.0,
+        "5": 0.0,
+        "7": 0.0,
+        "8": 0.0
       },
-      "excluded_tasks": [],
+      "excluded_tasks": [
+        2,
+        6,
+        9
+      ],
       "forgetting_rate": 0.0,
       "passes_gate": true,
       "per_task_accuracy": {
         "0": 1.0,
-        "1": 1.0
+        "1": 1.0,
+        "2": 0.0,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
+      },
+      "forward_transfer": {
+        "0": 1.0,
+        "1": 1.0,
+        "2": 0.625,
+        "3": 1.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.625,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.625
+      },
+      "m3_replay_total": 23040,
+      "novel_goal_rate": 0.007,
+      "diagnostic": {
+        "train_curves": {
+          "0": [
+            {
+              "cycle": 10,
+              "perf": 0.8
+            },
+            {
+              "cycle": 20,
+              "perf": 0.9
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "1": [
+            {
+              "cycle": 10,
+              "perf": 1.0
+            },
+            {
+              "cycle": 20,
+              "perf": 1.0
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "2": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "3": [
+            {
+              "cycle": 10,
+              "perf": 0.9
+            },
+            {
+              "cycle": 20,
+              "perf": 0.95
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "4": [
+            {
+              "cycle": 10,
+              "perf": 0.8
+            },
+            {
+              "cycle": 20,
+              "perf": 0.9
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "5": [
+            {
+              "cycle": 10,
+              "perf": 1.0
+            },
+            {
+              "cycle": 20,
+              "perf": 1.0
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "6": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "7": [
+            {
+              "cycle": 10,
+              "perf": 0.9
+            },
+            {
+              "cycle": 20,
+              "perf": 0.95
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "8": [
+            {
+              "cycle": 10,
+              "perf": 1.0
+            },
+            {
+              "cycle": 20,
+              "perf": 1.0
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "9": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ]
+        },
+        "m3_counts_by_task": {
+          "0": 20,
+          "1": 20,
+          "2": 20,
+          "3": 20,
+          "4": 20,
+          "5": 20,
+          "6": 89,
+          "7": 100,
+          "8": 100,
+          "9": 100
+        },
+        "m3_replay_total": 23040,
+        "m3_replay_at_train_end": 23040,
+        "b4_event_cycles": 0,
+        "mitigation_active": true,
+        "baseline_method": "max_rolling",
+        "baseline_window": 20,
+        "baseline_min_valid": 0.2,
+        "m3_replay_budget": 16,
+        "interleaved_eval_cycles": 0
       }
     },
     {
       "seed": 242,
       "baselines": {
         "0": 1.0,
-        "1": 0.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
       },
       "current": {
         "0": 1.0,
-        "1": 0.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
       },
       "delta_perf": {
-        "0": 0.0
+        "0": 0.0,
+        "4": 0.0,
+        "5": 0.0,
+        "7": 0.0,
+        "8": 0.0
       },
       "excluded_tasks": [
-        1
+        1,
+        2,
+        3,
+        6,
+        9
       ],
       "forgetting_rate": 0.0,
       "passes_gate": true,
       "per_task_accuracy": {
         "0": 1.0,
-        "1": 0.0
-      }
-    },
-    {
-      "seed": 342,
-      "baselines": {
-        "0": 0.0,
-        "1": 1.0
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.0,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.0
       },
-      "current": {
-        "0": 0.0,
-        "1": 1.0
-      },
-      "delta_perf": {
-        "1": 0.0
-      },
-      "excluded_tasks": [
-        0
-      ],
-      "forgetting_rate": 0.0,
-      "passes_gate": true,
-      "per_task_accuracy": {
-        "0": 0.0,
-        "1": 1.0
-      }
-    },
-    {
-      "seed": 442,
-      "baselines": {
+      "forward_transfer": {
         "0": 1.0,
-        "1": 1.0
+        "1": 0.625,
+        "2": 0.625,
+        "3": 0.625,
+        "4": 1.0,
+        "5": 1.0,
+        "6": 0.625,
+        "7": 1.0,
+        "8": 1.0,
+        "9": 0.625
       },
-      "current": {
-        "0": 1.0,
-        "1": 1.0
-      },
-      "delta_perf": {
-        "0": 0.0,
-        "1": 0.0
-      },
-      "excluded_tasks": [],
-      "forgetting_rate": 0.0,
-      "passes_gate": true,
-      "per_task_accuracy": {
-        "0": 1.0,
-        "1": 1.0
+      "m3_replay_total": 23040,
+      "novel_goal_rate": 0.007,
+      "diagnostic": {
+        "train_curves": {
+          "0": [
+            {
+              "cycle": 10,
+              "perf": 1.0
+            },
+            {
+              "cycle": 20,
+              "perf": 1.0
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "1": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "2": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "3": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "4": [
+            {
+              "cycle": 10,
+              "perf": 0.5
+            },
+            {
+              "cycle": 20,
+              "perf": 0.75
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "5": [
+            {
+              "cycle": 10,
+              "perf": 1.0
+            },
+            {
+              "cycle": 20,
+              "perf": 1.0
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "6": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ],
+          "7": [
+            {
+              "cycle": 10,
+              "perf": 0.9
+            },
+            {
+              "cycle": 20,
+              "perf": 0.95
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "8": [
+            {
+              "cycle": 10,
+              "perf": 0.7
+            },
+            {
+              "cycle": 20,
+              "perf": 0.85
+            },
+            {
+              "cycle": 30,
+              "perf": 1.0
+            },
+            {
+              "cycle": 40,
+              "perf": 1.0
+            },
+            {
+              "cycle": 50,
+              "perf": 1.0
+            },
+            {
+              "cycle": 60,
+              "perf": 1.0
+            },
+            {
+              "cycle": 70,
+              "perf": 1.0
+            },
+            {
+              "cycle": 80,
+              "perf": 1.0
+            }
+          ],
+          "9": [
+            {
+              "cycle": 10,
+              "perf": 0.0
+            },
+            {
+              "cycle": 20,
+              "perf": 0.0
+            },
+            {
+              "cycle": 30,
+              "perf": 0.0
+            },
+            {
+              "cycle": 40,
+              "perf": 0.0
+            },
+            {
+              "cycle": 50,
+              "perf": 0.0
+            },
+            {
+              "cycle": 60,
+              "perf": 0.0
+            },
+            {
+              "cycle": 70,
+              "perf": 0.0
+            },
+            {
+              "cycle": 80,
+              "perf": 0.0
+            }
+          ]
+        },
+        "m3_counts_by_task": {
+          "0": 20,
+          "1": 20,
+          "2": 20,
+          "3": 20,
+          "4": 20,
+          "5": 20,
+          "6": 88,
+          "7": 100,
+          "8": 100,
+          "9": 100
+        },
+        "m3_replay_total": 23040,
+        "m3_replay_at_train_end": 23040,
+        "b4_event_cycles": 0,
+        "mitigation_active": true,
+        "baseline_method": "max_rolling",
+        "baseline_window": 20,
+        "baseline_min_valid": 0.2,
+        "m3_replay_budget": 16,
+        "interleaved_eval_cycles": 0
       }
     }
   ],
   "delta_perf": {
     "0": 0.0,
-    "1": 0.0
+    "1": 0.0,
+    "3": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "7": 0.0,
+    "8": 0.0
   },
   "forgetting_rate": 0.0,
   "passes_gate": true,
   "per_task_accuracy": {
-    "0": 0.8,
-    "1": 0.6
+    "0": 1.0,
+    "1": 0.3333333333333333,
+    "2": 0.0,
+    "3": 0.3333333333333333,
+    "4": 1.0,
+    "5": 0.6666666666666666,
+    "6": 0.0,
+    "7": 1.0,
+    "8": 0.6666666666666666,
+    "9": 0.0
   },
-  "duration_s": 22.046826896024868
+  "forward_transfer": {
+    "0": 1.0,
+    "1": 0.75,
+    "2": 0.625,
+    "3": 0.75,
+    "4": 1.0,
+    "5": 0.875,
+    "6": 0.625,
+    "7": 1.0,
+    "8": 0.875,
+    "9": 0.625
+  },
+  "novel_goal_rate": 0.007,
+  "duration_s": 0.0
 }
