@@ -212,6 +212,8 @@ class CognitiveCycle:
 
         # Cached Φ (gradient-norm criticality) from the most recent backward pass
         self._cached_phi: float = 1.0
+        # Exposed error volatility for observability (read by ObservabilityFrame)
+        self.last_error_volatility: float = 0.0
 
         # C3 fix: unified FLOP-based energy signal for D5 and RBTA
         self._cycle_flops: float = 0.0
@@ -662,6 +664,7 @@ class CognitiveCycle:
             consol_stats = self.consolidation.get_stats()
             t_mdim = time.perf_counter()
             error_volatility = self._compute_phi_criticality()
+            self.last_error_volatility = error_volatility
             empowerment = self._estimate_empowerment()
             if self.observability_store is not None:
                 self.last_empowerment = float(empowerment)

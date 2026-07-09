@@ -777,7 +777,14 @@ def main() -> None:
     # v6 transport: PlaybackClock drives the dashboard at the heartbeat rate;
     # _TransportBar gives pause / speed / step / scrub / cycle-throttle.
     clock = PlaybackClock(heartbeat_hz=args.heartbeat_hz, mode="live", maxlen=store_maxlen)
-    clock.on_update = lambda f, rolling, err: ctrl.update(f, rolling, err)
+    def _safe_ctrl_update(f, rolling, err):
+        try:
+            ctrl.update(f, rolling, err)
+        except Exception as e:
+            import traceback
+            print(f"[ctrl.update] exception: {e}", file=sys.stderr)
+            traceback.print_exc()
+    clock.on_update = _safe_ctrl_update
     transport = _TransportBar(clock, pacer=pacer)
     win.install_transport(transport)
     # heartbeat timer — the only thing that feeds canvases new data.

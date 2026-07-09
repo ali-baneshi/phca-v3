@@ -300,6 +300,9 @@ class ObservabilityFrame:
     # v5: named labels for dimension-adaptive views (default empty → d{i} fallback)
     dim_names: List[str] = field(default_factory=list)
     action_names: List[str] = field(default_factory=list)
+    # v5.1: Criticality Φ (gradient-norm criticality, 0..1). Populated only in
+    # live mode; defaults to 0.0 on replay/legacy JSONL.
+    phi_criticality: float = 0.0
 
     @classmethod
     def from_cycle(cls, cycle: Any) -> "ObservabilityFrame":
@@ -556,6 +559,7 @@ class ObservabilityFrame:
         agent_id = int(getattr(cycle, "observability_agent_id", 0) or 0)
         agent_label = str(getattr(cycle, "observability_agent_label", "") or "")
         timeline_step = int(getattr(cycle, "observability_timeline_step", -1) or -1)
+        phi_criticality = float(getattr(cycle, "last_error_volatility", 0.0) or 0.0)
 
         return cls(
             cycle_id=cycle.cycle_count,
@@ -639,6 +643,7 @@ class ObservabilityFrame:
             last_action_vector=last_action_vector,
             dim_names=dim_names,
             action_names=action_names,
+            phi_criticality=phi_criticality,
         )
 
     def to_json(self) -> Dict[str, Any]:
@@ -722,7 +727,8 @@ class ObservabilityFrame:
                 d[k] = int(d[k])
         for k in ("latency_ms", "prediction_error", "prediction_confidence",
                   "goal_tolerance", "goal_priority", "cr_temperature",
-                  "empowerment", "tspl_skill_accuracy", "gprime_mutual_info"):
+                  "empowerment", "tspl_skill_accuracy", "gprime_mutual_info",
+                  "phi_criticality"):
             if k in d and d[k] is not None:
                 d[k] = float(d[k])
         # Live-only: never serialised (kept off the JSONL firehose). The heavy

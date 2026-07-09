@@ -1709,6 +1709,15 @@ def _draw_overview_header(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore
     cx = _overview_grid_chip(p, f, cx, cy)
     if getattr(f, "goal_reached", False):
         cx += _overview_chip(p, cx, cy, "GOAL", QtGui.QColor(241, 196, 15))
+    phi = float(getattr(f, "phi_criticality", 0.0) or 0.0)
+    if phi > 0.01:
+        phi_col = (QtGui.QColor(231, 76, 60) if phi > 0.5
+                   else QtGui.QColor(241, 196, 15) if phi > 0.2
+                   else QtGui.QColor(46, 204, 113))
+        cx += _overview_chip(p, cx, cy, f"Φ={phi:.2f}", phi_col)
+    recovery = bool(getattr(f, "recovery_active", False))
+    if recovery:
+        cx += _overview_chip(p, cx, cy, "RECOVERY", QtGui.QColor(155, 89, 182))
     ms = getattr(f, "meta_stable", None) or {}
     if ms.get("is_meta_stable", ms.get("stable", False)):
         _overview_chip(p, cx, cy, "META", QtGui.QColor(52, 152, 219))
