@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery
+.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery docker-build docker-build-core docker-build-mujoco docker-build-full docker-run-stress docker-run-test docker-run-mujoco-gate docker-run-nightly docker-run-ci-local docker-bash
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -258,6 +258,47 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name '*.pyc' -delete
 	@echo "Done."
+
+# ── Docker ────────────────────────────────────────────────────
+#
+# Multi-stage targets (see Dockerfile):
+#   phca-core   — CI, stress tests, pytest (no MuJoCo, no PyQt5)
+#   phca-mujoco — core + MuJoCo physics engine
+#   phca-full   — muojco + PyQt5 Observatory dashboard
+#
+# All docker-run-* targets auto-build if the image is stale.
+
+DOCKER_TAG ?= phca:latest
+
+docker-build:
+	docker build -t $(DOCKER_TAG) .
+
+docker-build-core:
+	docker build --target phca-core -t phca:core .
+
+docker-build-mujoco:
+	docker build --target phca-mujoco -t phca:mujoco .
+
+docker-build-full:
+	docker build --target phca-full -t phca:full .
+
+docker-run-stress: docker-build-core
+	docker compose run --rm stress
+
+docker-run-test: docker-build-core
+	docker compose run --rm test
+
+docker-run-mujoco-gate: docker-build-mujoco
+	docker compose run --rm mujoco-gate
+
+docker-run-nightly: docker-build-mujoco
+	docker compose run --rm nightly
+
+docker-run-ci-local: docker-build-core
+	docker compose run --rm ci-local
+
+docker-bash: docker-build-full
+	docker compose run --rm bash
 
 # ── Help ─────────────────────────────────────────────────────
 

@@ -1,0 +1,87 @@
+# PHCA v3.0 — Docker Compose
+# =============================================================================
+# Quick start:
+#   docker compose run --rm stress        # Run stress tests
+#   docker compose run --rm test          # Run pytest suite
+#   docker compose run --rm mujoco-gate   # MuJoCo benchmark gate
+#   docker compose run --rm nightly       # Nightly hardening suite
+#   docker compose run --rm bash          # Interactive shell
+# =============================================================================
+
+services:
+  stress:
+    build:
+      context: .
+      target: phca-core
+    command: scripts/stress_test_resilience.py
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+
+  test:
+    build:
+      context: .
+      target: phca-core
+    entrypoint: ["make"]
+    command:
+      - test-python
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+
+  mujoco-gate:
+    build:
+      context: .
+      target: phca-mujoco
+    entrypoint: ["make"]
+    command:
+      - mujoco-ci
+      - MUJOCO_CI_CYCLES=100
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+
+  nightly:
+    build:
+      context: .
+      target: phca-mujoco
+    entrypoint: ["make"]
+    command:
+      - nightly
+      - NIGHTLY_CYCLES=1000
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+
+  ci-local:
+    build:
+      context: .
+      target: phca-core
+    entrypoint: ["make"]
+    command:
+      - ci-local
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+
+  bash:
+    build:
+      context: .
+      target: phca-full
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/python
+      - MUJOCO_GL=disabled
+      - QT_QPA_PLATFORM=offscreen

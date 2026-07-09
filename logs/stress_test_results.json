@@ -2,14 +2,14 @@
   "env_slowdown": {
     "scenario": "env_slowdown",
     "cycles": 100,
-    "duration_s": 5.82,
-    "mean_latency_ms": 57.45,
-    "p95_latency_ms": 185.2,
-    "max_latency_ms": 213.05,
-    "mean_error": 4.248,
-    "late_error": 2.3259,
-    "violations_total": 62,
-    "violation_rate": 0.62,
+    "duration_s": 10.22,
+    "mean_latency_ms": 100.1,
+    "p95_latency_ms": 229.33,
+    "max_latency_ms": 251.13,
+    "mean_error": 2.7345,
+    "late_error": 0.9847,
+    "violations_total": 121,
+    "violation_rate": 1.21,
     "crash": false,
     "slowdown_stats": {
       "slowdown_count": 34,
@@ -22,10 +22,10 @@
     "corrupt_at": 30,
     "crash": false,
     "m3_fell_back": true,
-    "mean_error_before": 7.3003,
-    "mean_error_after": 1.2468,
-    "error_ratio": 0.1708,
-    "violations_total": 0
+    "mean_error_before": 7.3752,
+    "mean_error_after": 1.1794,
+    "error_ratio": 0.1599,
+    "violations_total": 8
   },
   "sensor_noise": {
     "scenario": "sensor_noise",
@@ -35,8 +35,8 @@
       60
     ],
     "mean_error_baseline": 17.5249,
-    "mean_error_noise": 1.6195,
-    "mean_error_recovery": 1.3511,
+    "mean_error_noise": 1.7101,
+    "mean_error_recovery": 1.1867,
     "grounding_dropped": true,
     "grounding_recovered": true,
     "grounding_levels_noise_min": 0,
