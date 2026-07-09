@@ -1,0 +1,11 @@
+{
+  "scenario": "db_corruption",
+  "cycles": 100,
+  "corrupt_at": 30,
+  "crash": false,
+  "m3_fell_back": true,
+  "mean_error_before": 7.3003,
+  "mean_error_after": 1.2468,
+  "error_ratio": 0.1708,
+  "violations_total": 0
+}

@@ -1,0 +1,17 @@
+{
+  "scenario": "env_slowdown",
+  "cycles": 100,
+  "duration_s": 5.82,
+  "mean_latency_ms": 57.45,
+  "p95_latency_ms": 185.2,
+  "max_latency_ms": 213.05,
+  "mean_error": 4.248,
+  "late_error": 2.3259,
+  "violations_total": 62,
+  "violation_rate": 0.62,
+  "crash": false,
+  "slowdown_stats": {
+    "slowdown_count": 34,
+    "total_injected_ms": 5059.0
+  }
+}

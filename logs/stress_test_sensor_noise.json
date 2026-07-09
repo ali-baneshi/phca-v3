@@ -1,0 +1,19 @@
+{
+  "scenario": "sensor_noise",
+  "cycles": 150,
+  "noise_window": [
+    10,
+    60
+  ],
+  "mean_error_baseline": 17.5249,
+  "mean_error_noise": 1.6195,
+  "mean_error_recovery": 1.3511,
+  "grounding_dropped": true,
+  "grounding_recovered": true,
+  "grounding_levels_noise_min": 0,
+  "grounding_levels_recovery_max": 2,
+  "grounding_recovered_max_ge_1": true,
+  "max_sensor_failures": 42,
+  "failure_events_during_noise": 0,
+  "crash": false
+}
