@@ -1054,22 +1054,31 @@ def main() -> None:
     hb_timer.start()
     hb_sync.start()
 
+    def _drain_and_close() -> None:
+        """Drain remaining frames from store, close recorder+video (post-join)."""
+        nonlocal last_recorded_by_agent
+        new_frames = []
+        for aid in range(args.agents):
+            snap_new = store.frames_after(last_recorded_by_agent[aid], agent_id=aid)
+            if snap_new:
+                new_frames.extend(snap_new)
+                last_recorded_by_agent[aid] = snap_new[-1].cycle_id
+        if new_frames:
+            for f in new_frames:
+                recorder.record(f)
+        recorder.flush()
+        if recorder.count < expected_jsonl:
+            recorder.abort("user_close")
+        else:
+            recorder.close()
+        if video is not None:
+            video.close()
+        _finalize_early_session()
+
     # Clean exit when the window is closed by the user.
     def _on_close(ev):
         stop_flag.set()
         _stop_all_timers()
-        if not run_completed:
-            try:
-                recorder.flush()
-                if recorder.count < expected_jsonl:
-                    recorder.abort("user_close")
-                else:
-                    recorder.close()
-                if video is not None:
-                    video.close()
-                _finalize_early_session()
-            except Exception:
-                pass
         ev.accept()
         app.quit()
 
@@ -1086,6 +1095,7 @@ def main() -> None:
         ct.join(timeout=5.0)
         if ct.is_alive():
             print("[cycle thread] did not exit within 5s", file=sys.stderr)
+        _drain_and_close()
     ui_rc = int(getattr(rc, "real", rc)) if rc else 0
     sys.exit(ui_rc or post_run_exit)
 
