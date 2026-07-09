@@ -2630,6 +2630,19 @@ class CognitiveCycle:
             "HPM",
             ResourceBounds(B_time=0.008, B_mem=50_000, B_energy=5.0),
         )
+        # MLP MC-Dropout mutual info on MuJoCo can dip below the default 0.01
+        # entropy_floor (calibrated for GridWorld discrete G'); relax to 0.001.
+        gprime_bounds = cycle.rbta._bounds.get("G'")
+        if gprime_bounds is not None:
+            cycle.rbta.update_bounds(
+                "G'",
+                ResourceBounds(
+                    B_time=gprime_bounds.B_time,
+                    B_mem=gprime_bounds.B_mem,
+                    B_energy=gprime_bounds.B_energy,
+                    entropy_floor=0.001,
+                ),
+            )
         return cycle
 
     @classmethod

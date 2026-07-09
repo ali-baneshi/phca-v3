@@ -1,33 +1,33 @@
 {
   "env": "InvertedPendulum-v5",
-  "n_cycles": 10,
+  "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 4.430817599950387,
-  "p95_latency_ms": 4.745961949856792,
-  "max_latency_ms": 4.797481999958109,
-  "action_selection_p99_ms": 1.19136454989075,
-  "env_step_p99_ms": 0.10512245027712197,
-  "mean_error": 42.00171913104818,
-  "early_error": 158.56065878726315,
-  "late_error": 8.414301780691124,
+  "mean_latency_ms": 6.285974750053356,
+  "p95_latency_ms": 8.485572799827423,
+  "max_latency_ms": 18.150482999772066,
+  "action_selection_p99_ms": 1.6486691600584962,
+  "env_step_p99_ms": 0.1424805895112514,
+  "mean_error": 6.283498179997001,
+  "early_error": 23.533243591862274,
+  "late_error": 0.3288387471325581,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
   "no_errors": true,
   "synergy": 0.0,
   "emergence": {
-    "novel_behaviour": 0.0,
-    "strategy_diversity": 0.8850168464686912,
-    "behavioral_compression": 0.1923076923076923,
+    "novel_behaviour": 0.16666666666666666,
+    "strategy_diversity": 0.7972165071136657,
+    "behavioral_compression": 0.2622950819672131,
     "adaptation_stability": 0.0,
     "cross_context_reuse": 0.0,
     "self_generated_goals": 1.0,
     "unexpected_skill_chains": 0.0,
-    "emergence_composite": 0.2967606483966262
+    "emergence_composite": 0.3180254651067922
   },
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 3
+    "goal_thrash_events": 14
   }
 }

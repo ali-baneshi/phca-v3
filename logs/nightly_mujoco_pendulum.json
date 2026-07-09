@@ -1,15 +1,15 @@
 {
   "env": "Pendulum-v1",
-  "n_cycles": 10,
+  "n_cycles": 100,
   "model": "MLP",
-  "mean_latency_ms": 5.335513599948172,
-  "p95_latency_ms": 6.079232249862797,
-  "max_latency_ms": 6.397586999810301,
-  "action_selection_p99_ms": 3.395738729900586,
-  "env_step_p99_ms": 0.06875739993574825,
-  "mean_error": 24.598730775743768,
-  "early_error": 92.4428852534485,
-  "late_error": 7.4131144857167115,
+  "mean_latency_ms": 12.719050039968351,
+  "p95_latency_ms": 25.615335049906207,
+  "max_latency_ms": 26.445692000379495,
+  "action_selection_p99_ms": 9.092788079960883,
+  "env_step_p99_ms": 0.18227652014502382,
+  "mean_error": 20.252315528813373,
+  "early_error": 79.55913269063696,
+  "late_error": 0.3105845408186152,
   "error_improved": true,
   "violations": 0,
   "violation_rate": 0.0,
@@ -21,13 +21,13 @@
     "behavioral_compression": 0.0,
     "adaptation_stability": 0.0,
     "cross_context_reuse": 0.0,
-    "self_generated_goals": 0.5,
+    "self_generated_goals": 1.0,
     "unexpected_skill_chains": 0.0,
-    "emergence_composite": 0.07142857142857142
+    "emergence_composite": 0.14285714285714285
   },
   "failures": {
     "rbta_terminate_max_streak": 0,
     "total_violations": 0,
-    "goal_thrash_events": 1
+    "goal_thrash_events": 26
   }
 }
