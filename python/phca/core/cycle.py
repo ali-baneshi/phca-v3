@@ -54,6 +54,7 @@ from phca.world_model.mlp import (
     grid_scale,
     scaled_time_bound,
 )
+from phca.world_model.hybrid import HybridGraphMLP
 
 if TYPE_CHECKING:
     from phca.world_model.graph import WorldModelGPrime
@@ -70,6 +71,7 @@ from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
 from phca.environments.protocol import EnvironmentProtocol
 from phca.asi.noise_injector import NoiseInjector
+from phca.asi.adapter import GroundingAdapter
 from phca.evaluation.interventions import DESYNC_STAGE_ORDER, InterventionConfig
 from phca.evaluation.trace import TraceCollector
 
@@ -250,6 +252,9 @@ class CognitiveCycle:
         # Noise injector for grounding simulation (None = disabled)
         self._noise_injector: Optional[NoiseInjector] = None
 
+        # Adaptive grounding level (Blind Spot 3)
+        self._grounding_adapter: GroundingAdapter = GroundingAdapter()
+
         # RBTA enforcement carry-forward (P1-01): prior cycle action shapes next cycle.
         self._rbta_carry_action: EnforcerAction = EnforcerAction.CONTINUE
         self._rbta_skip_feedback: bool = False
@@ -389,6 +394,7 @@ class CognitiveCycle:
                 self.env.reset()
                 self.gprime.reset()
                 self.sanitizer.reset()  # clear stale precision across episode boundaries (N6)
+                self._grounding_adapter.reset()
                 self._last_goal_pos = None
                 self._goal_switch_cooldown = 0
 
@@ -575,6 +581,9 @@ class CognitiveCycle:
         else:
             self.current_state = clean_state
             self.sensor_failure_count = 0
+
+        # Update adaptive grounding level after prediction (confidence available)
+        # Grounding level flows through StateVector.grounding_level downstream
 
         # Step 1: State → M2 Working Memory
         t1 = time.perf_counter()
@@ -790,6 +799,13 @@ class CognitiveCycle:
             _run_prediction_phase()
             _run_regulation_phase()
 
+        # Update adaptive grounding level (after prediction confidence is available)
+        grounding_level = self._grounding_adapter.update(
+            self.sensor_failure_count, metrics.prediction_confidence,
+        )
+        if self.current_state is not None:
+            self.current_state.grounding_level = grounding_level
+
         # RBTA preflight: same-cycle TERMINATE/INTERRUPT before expensive action/feedback.
         preflight_action = self._rbta_preflight_check(metrics, hpm_spec)
         if preflight_action == EnforcerAction.TERMINATE:
@@ -868,7 +884,7 @@ class CognitiveCycle:
 
         # Step 7: TSPL P-Stream update
         mlp_accuracy = None
-        if isinstance(self.gprime, WorldModelMLP):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             mlp_accuracy = self.gprime.get_prediction_accuracy(
                 self.current_state.values, action_vec, next_state.values
             )
@@ -883,7 +899,7 @@ class CognitiveCycle:
                 gradient=tspl_gradient,
                 accuracy_override=mlp_accuracy,
             )
-            if isinstance(self.gprime, WorldModelMLP):
+            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
                 bias = theta_new.get("gprime")
                 if bias is not None:
                     self.gprime.set_tspl_bias(bias)
@@ -892,7 +908,7 @@ class CognitiveCycle:
         # LEARN: update G' with observed transition, weighted by attention
         t_glearn = time.perf_counter()
         if self.interventions.enable_gprime_learn:
-            if isinstance(self.gprime, WorldModelMLP):
+            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
                 boost_still_valid = (
                     self.cycle_count - self._replay_boost_activated_cycle
                 ) < self._replay_boost_duration
@@ -1020,6 +1036,7 @@ class CognitiveCycle:
                     self.env.reset()
                     self.gprime.reset()
                     self.sanitizer.reset()
+                    self._grounding_adapter.reset()
                     self._last_goal_pos = None
                     self._goal_switch_cooldown = 0
 
@@ -1291,7 +1308,7 @@ class CognitiveCycle:
         """B4 recovery: replay boost + halve P-Stream learning rate."""
         self._forgetting_mitigation_active = True
         self._replay_boost_activated_cycle = self.cycle_count
-        if isinstance(self.gprime, WorldModelMLP):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             self.gprime.replay_boost = True
         cfg = self.tspl.configs[StreamID.P_STREAM]
         cfg.alpha = max(0.01, cfg.alpha * 0.5)
@@ -1319,7 +1336,7 @@ class CognitiveCycle:
         """
         if not self._forgetting_mitigation_active:
             return 0
-        if not isinstance(self.gprime, WorldModelMLP):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             return 0
         prior_id = self._current_task_id
         if prior_id <= 0:
@@ -1355,7 +1372,7 @@ class CognitiveCycle:
 
     def _should_skip_gprime_learn(self, metrics: CycleMetrics) -> bool:
         """Throttle replay-only G' learning once the model is in steady state."""
-        if not isinstance(self.gprime, WorldModelMLP):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             return False
         if self._forgetting_mitigation_active:
             return False
@@ -1496,13 +1513,16 @@ class CognitiveCycle:
         return self.env.stay_action
 
     def _epistemic_entropy(self) -> float:
-        """Epistemic uncertainty for D4 and A3 (MC-dropout mutual information).
+        """Epistemic uncertainty for D4 and A3.
 
-        Uses additive floor (0.01 + mi) so the signal stays responsive above
-        the RBTA entropy_floor without max-clip flattening small variations.
+        Reads from model's _last_mutual_info which each world model sets:
+          - WorldModelGPrime (discrete): Shannon entropy of posterior / log(2)
+          - WorldModelGPrime (Gaussian): differential entropy H=0.5*log(2πeσ²)
+          - WorldModelMLP: MC-Dropout mutual information ≈ log(1+var)
+          - HybridGraphMLP: MLP MI + scaled graph/MLP disagreement
         """
         mi = float(getattr(self.gprime, "_last_mutual_info", 0.5))
-        return min(1.0, 0.01 + mi)
+        return float(np.clip(mi, 0.0, 1.0))
 
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
@@ -2182,7 +2202,7 @@ class CognitiveCycle:
         The arctan maps [0, ∞) → [0, 1) so PID setpoints and MDIM drive
         targets need no adjustment from the old error-volatility heuristic.
         """
-        if isinstance(self.gprime, WorldModelMLP):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             try:
                 raw = self.gprime.last_input_sensitivity(self.state_dim)
             except Exception:
@@ -2290,7 +2310,7 @@ class CognitiveCycle:
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
         # Memory estimates from state dimensionality
         sd = self.state_dim
-        if isinstance(self.gprime, WorldModelMLP):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
             g_mem = estimate_mlp_memory_bytes(
                 sd, self.gprime.action_dim, self.gprime.hidden_dim, self.gprime.replay_capacity,
             )
@@ -2385,7 +2405,40 @@ class CognitiveCycle:
         m1 = M1SensoryBuffer(sensor_dim=state_dim)
         m2 = M2WorkingMemory(capacity=7)
 
-        if use_mlp:
+        use_ensemble = getattr(interventions, "prediction_mode", "normal") == "ensemble"
+        if use_ensemble:
+            from phca.world_model.graph import StateNode, TemporalEdge, WorldModelGPrime
+
+            graph = WorldModelGPrime(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                seed=seed,
+            )
+            for i in range(min(state_dim, 10)):
+                name_t = f"s{i}_t"
+                name_t1 = f"s{i}_t1"
+                graph.add_node(StateNode(
+                    name=name_t, cpd_type="discrete", parents=[],
+                    cardinality=2,
+                    params=np.array([[0.5], [0.5]], dtype=np.float32),
+                ))
+                graph.add_node(StateNode(
+                    name=name_t1, cpd_type="discrete", parents=[name_t],
+                    cardinality=2,
+                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
+                ))
+                graph.add_temporal_edge(TemporalEdge(
+                    source=name_t, target=name_t1, lag=1,
+                ))
+            mlp = WorldModelMLP(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                hidden_dim=mlp_hidden_dim,
+                seed=seed,
+                lr=mlp_lr,
+            )
+            gprime = HybridGraphMLP(graph_model=graph, mlp_model=mlp)
+        elif use_mlp:
             gprime = WorldModelMLP(
                 state_dim=state_dim,
                 action_dim=action_dim,

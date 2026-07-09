@@ -28,6 +28,7 @@ __all__ = [
     "StateNode",
     "TemporalEdge",
     "WorldModelMLP",
+    "HybridGraphMLP",
 ]
 
 _GRAPH_EXPORTS = frozenset({"WorldModelGPrime", "StateNode", "TemporalEdge"})

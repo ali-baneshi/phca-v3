@@ -31,6 +31,8 @@ from phca.world_model.gaussian import (
     sample_posterior,
 )
 
+_EPS = 1e-8
+
 
 @dataclass
 class StateNode:
@@ -76,7 +78,8 @@ class WorldModelGPrime:
     Phase 3.1: Single-model ensemble (G' only). Supports discrete Bayesian
     networks via pgmpy with exact inference (variable elimination).
 
-    Phase 3.2+: Dual-model (G' + V) with meta-gradient weights.
+    Phase 3.2: Dual-model via HybridGraphMLP (shallow wrapper combining
+        graph + MLP). Inference blends via confidence-weighted mean.
         Also supports continuous Gaussian CPDs with closed-form analytic
         inference (see predict_continuous()).
     """
@@ -120,6 +123,8 @@ class WorldModelGPrime:
         self._cached_joint_moments: Tuple[np.ndarray, np.ndarray] | None = None
         # Observability v4: cache last per-dim posterior std (uncertainty portrait).
         self._last_pred_std: Optional[np.ndarray] = None
+        # Bayesian posterior entropy for RBTA (set by predict/predict_continuous).
+        self._last_mutual_info: float = 0.5
 
     # ── Graph Construction ────────────────────────────────────
 
@@ -337,6 +342,16 @@ class WorldModelGPrime:
                     predicted_values[idx] = float(max_idx)
                     confidence_values[idx] = confidence
                     var_count += 1
+
+            # Compute Shannon entropy from posterior probabilities
+            shannon_entropies = []
+            for var_name in target_vars:
+                if var_name in factor_dict:
+                    probs = factor_dict[var_name]
+                    probs = np.clip(probs, _EPS, 1.0)
+                    shannon_entropies.append(float(-np.sum(probs * np.log(probs))))
+            avg_shannon = float(np.mean(shannon_entropies)) if shannon_entropies else 0.5
+            self._last_mutual_info = min(1.0, avg_shannon / max(np.log(2.0), _EPS))
 
             # Average confidence across all predicted variables
             avg_confidence = float(np.mean(confidence_values)) if var_count > 0 else 0.0
@@ -575,6 +590,15 @@ class WorldModelGPrime:
 
         # Observability v4: cache per-dim posterior std for the uncertainty portrait.
         self._last_pred_std = std_values
+
+        # Differential entropy H = 0.5 * log(2πeσ²) averaged across dimensions.
+        valid_stds = std_values[std_values > _EPS]
+        if len(valid_stds) > 0:
+            diff_entropies = 0.5 * np.log(2.0 * np.pi * np.e * valid_stds ** 2)
+            avg_diff_entropy = float(np.mean(diff_entropies))
+            self._last_mutual_info = min(1.0, max(0.0, avg_diff_entropy / 4.0))
+        else:
+            self._last_mutual_info = 0.5
 
         avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 

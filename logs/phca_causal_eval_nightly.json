@@ -61,7 +61,7 @@
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 1.8908811280666875,
+          "prediction_error_mean": 1.9335795362831791,
           "episode_count": 200,
           "fact_count": 24
         },
@@ -113,7 +113,7 @@
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 2.2938374534167996,
+          "prediction_error_mean": 2.2140666088712804,
           "episode_count": 200,
           "fact_count": 98
         },
@@ -165,7 +165,7 @@
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 2.2867947133560036,
+          "prediction_error_mean": 2.357376208649958,
           "episode_count": 200,
           "fact_count": 91
         },
@@ -217,7 +217,7 @@
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 2.0891827373137986,
+          "prediction_error_mean": 2.0952374212133043,
           "episode_count": 200,
           "fact_count": 20
         },
@@ -269,7 +269,7 @@
           "switch_recovery_cycle": null,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 1.7628779513485682,
+          "prediction_error_mean": 1.7212336138534239,
           "episode_count": 200,
           "fact_count": 26
         },
@@ -349,7 +349,7 @@
           "cumulative_reward_median": 189.9,
           "success_rate": 1.0,
           "rbta_violation_rate_mean": 0.0,
-          "prediction_error_mean": 2.0647147967003714,
+          "prediction_error_mean": 2.064298677774229,
           "episode_count_mean": 200.0,
           "fact_count_mean": 51.8
         },
@@ -531,7 +531,7 @@
           "switch_recovery_cycle": 89.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 3.6361959353296687,
+          "prediction_error_mean": 3.658424739767337,
           "episode_count": 200,
           "fact_count": 34
         },
@@ -583,7 +583,7 @@
           "switch_recovery_cycle": 16.333333333333332,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 5.19998204527206,
+          "prediction_error_mean": 5.188249811965327,
           "episode_count": 200,
           "fact_count": 84
         },
@@ -635,7 +635,7 @@
           "switch_recovery_cycle": 54.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.06315414664244,
+          "prediction_error_mean": 4.085546113317457,
           "episode_count": 200,
           "fact_count": 57
         },
@@ -687,7 +687,7 @@
           "switch_recovery_cycle": 51.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.394088161847745,
+          "prediction_error_mean": 4.324908899289628,
           "episode_count": 200,
           "fact_count": 62
         },
@@ -739,7 +739,7 @@
           "switch_recovery_cycle": 22.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.283831659496813,
+          "prediction_error_mean": 4.304859618535527,
           "episode_count": 200,
           "fact_count": 55
         },
@@ -791,7 +791,7 @@
           "switch_recovery_cycle": 53.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 5.3171870630189355,
+          "prediction_error_mean": 5.398588498343401,
           "episode_count": 200,
           "fact_count": 63
         },
@@ -843,7 +843,7 @@
           "switch_recovery_cycle": 7.0,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.486980044016187,
+          "prediction_error_mean": 4.430469885183899,
           "episode_count": 200,
           "fact_count": 47
         },
@@ -895,7 +895,7 @@
           "switch_recovery_cycle": 15.333333333333334,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.622953561054456,
+          "prediction_error_mean": 4.57913170780589,
           "episode_count": 200,
           "fact_count": 94
         },
@@ -947,7 +947,7 @@
           "switch_recovery_cycle": 22.666666666666668,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 3.9599855477817965,
+          "prediction_error_mean": 3.9073386071794234,
           "episode_count": 200,
           "fact_count": 56
         },
@@ -999,7 +999,7 @@
           "switch_recovery_cycle": 69.33333333333333,
           "rbta_violation_rate": 0.0,
           "model": "MLP",
-          "prediction_error_mean": 4.936124882894963,
+          "prediction_error_mean": 4.966584768958185,
           "episode_count": 200,
           "fact_count": 87
         },
@@ -1091,7 +1091,7 @@
           "switch_recovery_cycle_median": 36.833333333333336,
           "success_rate": 1.0,
           "rbta_violation_rate_mean": 0.0,
-          "prediction_error_mean": 4.490048304735507,
+          "prediction_error_mean": 4.484410265034607,
           "episode_count_mean": 200.0,
           "fact_count_mean": 63.9
         },
