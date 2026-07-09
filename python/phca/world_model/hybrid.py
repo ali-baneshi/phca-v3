@@ -11,7 +11,7 @@ Phase 3.2 stepping-stone — not a full ensemble with meta-gradients.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 if TYPE_CHECKING:
     from phca.world_model.graph import WorldModelGPrime

@@ -150,12 +150,12 @@ class TestCognitiveCycleCollectLogs:
         assert e2 <= e1
 
     def test_epistemic_entropy_uses_mutual_info(self):
-        """_epistemic_entropy reflects MC-dropout mutual information."""
+        """_epistemic_entropy reflects model's _last_mutual_info directly."""
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         cycle.gprime._last_mutual_info = 0.3
-        assert cycle._epistemic_entropy() == pytest.approx(0.31)
+        assert cycle._epistemic_entropy() == pytest.approx(0.3)
         cycle.gprime._last_mutual_info = 0.0
-        assert cycle._epistemic_entropy() == pytest.approx(0.01)
+        assert cycle._epistemic_entropy() == pytest.approx(0.0)
 
     def test_task_lock_low_confidence_uses_blended_scorer(self):
         """Task-lock with low G' confidence falls through to per-candidate predict."""

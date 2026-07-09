@@ -11,8 +11,6 @@ Phase 3.2 stepping-stone — not a full L0-L4 hierarchy.
 
 from __future__ import annotations
 
-import numpy as np
-
 
 class GroundingAdapter:
     """Adaptive grounding level based on sensor health.
