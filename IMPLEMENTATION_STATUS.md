@@ -2,7 +2,7 @@
 
 Maps **whitepaper success criteria** and **blueprint components** to current
 code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
-2026-07-06.
+2026-07-09.
 
 **Maturation audits (2026-07-07):** [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md),
 [docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md).
@@ -139,6 +139,18 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | **Feature 2 — Φ (gradient-norm criticality)** | `python/phca/world_model/mlp.py` — `_last_output_sens` + `last_input_sensitivity()`; `python/phca/core/cycle.py` — `_update_phi_from_gradient()`, removed `_error_vol_window` + `_approximate_error_volatility()`; `python/phca/config.py` — `PHI_TARGET`, `PHI_MAX` | ✅ **Done** (D-139) | Output Jacobian norm via arctan, EMA-filtered. Replaces temporal CoV. |
 | **Feature 1 — Async Two-Thread Loop** | `python/phca/core/cycle.py` — `_action_loop()`, `_learning_loop()`, `start_async()`, `stop_async()`, `_finalize_learning_cycle()`; `python/phca/config.py` — `PerceptionFrame`, `ActionResult`, `STALE_THRESHOLD_MS` | ✅ **Done** (D-140) | Queue-based (maxsize=1) back-pressure. Sync mode default (no regression). Async: avg latency 20.2ms vs sync 12.7ms; goal success 98.8% vs 99.0%. |
 
+## Fixes (2026-07-09)
+
+| Feature | Code | Status | Evidence |
+|---|---|---|---|
+| ASI sanitizer log flood reduction + precision recovery | `python/phca/asi/sanitizer.py` — CRITICAL→warning, warning→debug level changes; `_valid_streak` counter with `_precision_recovery_rate=1.5`; `reset()` clears streak | ✅ **Done** | All 21 ASI tests pass |
+| MLP replay buffer capacity 500→2000 | `python/phca/world_model/mlp.py` — default `replay_capacity=2000`; also in `estimate_mlp_memory_bytes()` | ✅ **Done** | All 57 MLP tests pass |
+| Consolidation state_dim default removed | `python/phca/consolidation/scheduler.py` — `state_dim` is now required (no default 84) | ✅ **Done** | All 26 consolidation tests pass; all callers already pass state_dim explicitly |
+| Gaussian mutual_info slogdet now logged | `python/phca/world_model/gaussian.py` — silent LinAlgError return 0.0 → logs warning with `exc_info=True` | ✅ **Done** | All 21 Gaussian tests pass |
+| M3 PER two-phase query (avoid full table scan) | `python/phca/memory/m3_episodic.py` — `sample_episodes_per()` now fetches only `(episode_id, priority)` first, samples n, then fetches only chosen rows | ✅ **Done** | All 21 M3 tests pass |
+| PEU float64 conversion removed | `python/phca/prediction/error_unit.py` — `diff` stays in input dtype (float32) instead of casting to float64 | ✅ **Done** | All 8 PEU tests pass |
+| M3 vacuum_interval 100→1000 (D-056 mismatch) | `python/phca/memory/m3_episodic.py` — `_vacuum_interval` changed from 100 to 1000 to match D-056 design decision | ✅ **Done** | VACUUM runs 10× less frequently; test sets own interval so unaffected |
+
 ## Core Infrastructure Fixes (2026-07-06)
 
 | Feature | Code | Status | Evidence |
@@ -184,7 +196,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | MuJoCo integration tests | 23 | **Yes** (`MUJOCO_GL=disabled`) |
 | Static contract tests | 10+ | **Yes** |
 | Maturation T1 gates | 45 | No (nightly) |
-| Total | **852+** (incl. observatory, resilience, forgetting, benchmark validation) | Mixed CI / nightly |
+| Total | **852+** (incl. ASI, TSPL, MLP, observatory, resilience, forgetting, benchmark validation) | Mixed CI / nightly |
 
 ## Open Backlog (blueprint / cognition)
 

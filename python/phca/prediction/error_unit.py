@@ -53,7 +53,7 @@ class PredictionErrorUnit:
                 f"precision shape {precision.shape} != values shape "
                 f"{observed.values.shape}"
             )
-        diff = observed.values.astype(np.float64) - predicted.values.astype(np.float64)
+        diff = observed.values - predicted.values
         return float(np.sum(precision * diff ** 2))
 
 

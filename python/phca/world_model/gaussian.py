@@ -278,6 +278,8 @@ def gaussian_mutual_information(
         _, logdet_marginal = np.linalg.slogdet(2.0 * np.pi * np.e * Σ_marginal)
         _, logdet_conditional = np.linalg.slogdet(2.0 * np.pi * np.e * Σ_conditional)
     except np.linalg.LinAlgError:
+        _log(logger, "warning", "gaussian.slogdet_failed",
+             fallback="mutual_info_zero", exc_info=True)
         return 0.0
 
     mutual_info = 0.5 * (logdet_marginal - logdet_conditional)
@@ -346,7 +348,7 @@ def sample_posterior(
         except np.linalg.LinAlgError:
             _log(logger, "warning", "gaussian.mvn_singular",
                  fallback="rejection_sampling", exc_info=True)
-            pass  # Fall through to sampling
+            # Fall through to rejection sampling
 
     accepted_samples: List[np.ndarray] = []
     evidence_vars = list(evidence.keys())

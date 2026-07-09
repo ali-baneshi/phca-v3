@@ -49,7 +49,6 @@ class HybridGraphMLP:
         self.replay_capacity = mlp_model.replay_capacity
         self.batch_size = mlp_model.batch_size
         self.dropout_rate = mlp_model.dropout_rate
-        self._tspl_bias: np.ndarray = np.zeros(self.state_dim, dtype=np.float32)
         self._last_mc_per_dim_std: Optional[np.ndarray] = None
         self._last_mutual_info: float = 0.0
         self.replay_boost: bool = False

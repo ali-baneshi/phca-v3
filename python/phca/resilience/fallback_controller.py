@@ -121,7 +121,6 @@ class FallbackController:
             self._cooldown_remaining = self.cooldown
             self._consecutive_high = 0
             self._total_emergencies += 1
-            self._failure_history.clear()
 
             if entropy_ready:
                 trigger = EmergencyTrigger.ENTROPY
@@ -130,6 +129,8 @@ class FallbackController:
                 trigger = EmergencyTrigger.FAILURE_CASCADE
                 modes = set(e[1] for e in self._failure_history)
                 detail = f"failure_cascade: {','.join(sorted(modes))}"
+
+            self._failure_history.clear()
 
             self._last_event = EmergencyEvent(
                 entropy=self._smoothed_entropy,

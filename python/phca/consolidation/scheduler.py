@@ -110,7 +110,7 @@ class ConsolidationScheduler:
     def __init__(
         self,
         m3: M3EpisodicMemory,
-        state_dim: int = 84,
+        state_dim: int,
         consolidation_interval: int = 10,
         max_facts_per_cycle: int = 50,
         similarity_threshold: float = 0.85,
@@ -119,7 +119,7 @@ class ConsolidationScheduler:
 
         Args:
             m3: Reference to M3 episodic memory.
-            state_dim: Dimensionality of state vectors.
+            state_dim: Dimensionality of state vectors (required, no default).
             consolidation_interval: Cognitive cycles between consolidations.
             max_facts_per_cycle: Max statistical facts to generate per cycle.
             similarity_threshold: Cosine similarity threshold for fact merging.

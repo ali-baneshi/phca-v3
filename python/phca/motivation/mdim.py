@@ -634,11 +634,11 @@ class MDIM:
             current_wm_entropy = self.drives[4].value if 4 in self.drives else 0.5
             if current_error > 3.0 * self._baseline_error_std:
                 disruption_detected = True
-                _log(logger, "info", "mdim.disruption.prediction_error_spike",
+                _log(logger, "warning", "mdim.disruption.prediction_error_spike",
                      error=current_error, threshold=3.0 * self._baseline_error_std)
             if current_wm_entropy > 3.0 * self._baseline_wm_entropy:
                 disruption_detected = True
-                _log(logger, "info", "mdim.disruption.entropy_spike",
+                _log(logger, "warning", "mdim.disruption.entropy_spike",
                      entropy=current_wm_entropy, threshold=3.0 * self._baseline_wm_entropy)
 
         if disruption_detected:

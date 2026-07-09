@@ -144,7 +144,7 @@ class M3EpisodicMemory:
         self._pending_commits: int = 0
         self._commit_interval: int = 10
         self._episodes_since_vacuum: int = 0
-        self._vacuum_interval: int = 100  # VACUUM every 100 evictions/purges (P1-4)
+        self._vacuum_interval: int = 1000  # VACUUM every 1000 evictions/purges (D-056)
         self.rng = np.random.RandomState(seed=seed)
 
         # Initialize database
@@ -179,7 +179,7 @@ class M3EpisodicMemory:
                 if self._conn is not None:
                     self._conn.close()
             except Exception:
-                pass
+                _log(logger, "debug", "m3.close_failed", db_path=self.db_path)
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
             self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(M3_SCHEMA_SQL)
@@ -436,6 +436,8 @@ class M3EpisodicMemory:
                             remain -= 1
                             found_any = True
                 except Exception:
+                    _log(logger, "warning", "m3.sample_prior_task_failed",
+                         task_id=tid, exc_info=True)
                     continue
             if not found_any:
                 break
@@ -493,6 +495,10 @@ class M3EpisodicMemory:
         correction.  Priority is based on error-reduction rate: episodes where the
         model recently improved get higher probability.
 
+        Uses a two-phase query to avoid materialising all episode blobs:
+        1. Fetch only (episode_id, priority) lightweight column scan.
+        2. Sample n episode_ids, then fetch only those rows.
+
         Args:
             n: Number of episodes to sample.
             alpha: Prioritization exponent (0 = uniform, 1 = full priority).
@@ -508,17 +514,17 @@ class M3EpisodicMemory:
         try:
             if task_id is not None:
                 cursor = self._connection.execute(
-                    "SELECT * FROM episodes WHERE task_id = ? "
+                    "SELECT episode_id, priority FROM episodes WHERE task_id = ? "
                     "AND priority > ? ORDER BY priority DESC",
                     (task_id, PER_EPSILON),
                 )
             else:
                 cursor = self._connection.execute(
-                    "SELECT * FROM episodes WHERE priority > ? "
+                    "SELECT episode_id, priority FROM episodes WHERE priority > ? "
                     "ORDER BY priority DESC",
                     (PER_EPSILON,),
                 )
-            rows = cursor.fetchall()
+            id_prio = cursor.fetchall()  # lightweight: only two columns
         except sqlite3.OperationalError as e:
             _log(logger, "warning", "m3.sample_per_busy",
                  error=str(e), fallback="uniform_sample")
@@ -527,27 +533,42 @@ class M3EpisodicMemory:
             _log(logger, "warning", "m3.sample_per_failed", error=str(e))
             return self.sample_episodes(n, task_id=task_id)
 
-        if not rows:
+        if not id_prio:
             return self.sample_episodes(n, task_id=task_id)
 
-        episodes = [self._row_to_episode(r) for r in rows]
-        episodes = [ep for ep in episodes if ep is not None]
+        ids = [r[0] for r in id_prio]
+        priorities = np.array([max(PER_EPSILON, float(r[1])) for r in id_prio], dtype=np.float64)
 
-        N = len(episodes)
-        if N == 0:
-            return []
+        N = len(ids)
         if N <= n:
+            # Return all eligible episodes
+            placeholders = ",".join("?" * N)
+            cursor = self._connection.execute(
+                f"SELECT * FROM episodes WHERE episode_id IN ({placeholders})",
+                ids,
+            )
+            episodes = [self._row_to_episode(r) for r in cursor.fetchall()]
+            episodes = [ep for ep in episodes if ep is not None]
             for ep in episodes:
                 ep.is_weight = 1.0
             return episodes
 
-        priorities = np.array([max(PER_EPSILON, ep.priority) for ep in episodes], dtype=np.float64)
         probs = priorities ** alpha
         probs /= probs.sum()
 
         chosen_idx = self.rng.choice(N, size=n, replace=False, p=probs)
-        chosen = [episodes[i] for i in chosen_idx]
+        chosen_ids = [ids[i] for i in chosen_idx]
         chosen_probs = probs[chosen_idx]
+
+        # Phase 2: fetch only the chosen rows
+        placeholders = ",".join("?" * n)
+        cursor = self._connection.execute(
+            f"SELECT * FROM episodes WHERE episode_id IN ({placeholders})",
+            chosen_ids,
+        )
+        rows_map = {r[0]: r for r in cursor.fetchall()}
+        chosen = [self._row_to_episode(rows_map[eid]) for eid in chosen_ids]
+        chosen = [ep for ep in chosen if ep is not None]
 
         is_weights = (1.0 / (N * chosen_probs)) ** beta
         is_weights /= is_weights.max()  # normalize for stability

@@ -27,9 +27,9 @@ class StreamConfig:
     """Configuration for a TSPL learning stream (v3.0 §3.1 Table 2).
 
     Attributes:
-        alpha: Learning rate (P-Stream highest, S-Stream lowest).
-        lambda_: Elastic consolidation strength (P-Stream lowest, S-Stream highest).
-        eta: Exploration noise stddev (P-Stream highest).
+        alpha: Learning rate (P-Stream only).
+        lambda_: Elastic consolidation strength.
+        eta: Exploration noise stddev.
         accuracy_threshold: Skill compilation threshold (default 0.95).
         enabled: If False, the stream's update is a no-op (Phase 3.3a feature gate).
     """
@@ -109,8 +109,8 @@ class TSPL:
     ) -> Tuple[Dict[str, np.ndarray], bool]:
         """Unified TSPL update (v3.0 Definition 3.2).
 
-        Applies the learning rule for the specified stream.
-        For E-Stream and S-Stream stubs, returns theta unchanged.
+        Applies the learning rule for the specified stream (P-Stream only,
+        E/S-Stream removed in Phase 3.3).
 
         Args:
             stream: Which stream to update (P/E/S).
@@ -134,9 +134,9 @@ class TSPL:
         if not self.theta:
             return {}, False
 
-        # Phase 3.3a: If stream is disabled (E/S-Stream by default), return theta unchanged.
+        # Phase 3.3a: If stream is disabled, return empty (caller handles gracefully).
         if not config.enabled:
-            return dict(self.theta), False
+            return {}, False
 
         # Compute gradient if not provided (simple delta-rule approximation)
         if gradient is None:
@@ -195,7 +195,8 @@ class TSPL:
         Phase 3.3+: Exact backpropagation through G' if differentiable.
 
         Args:
-            prediction_error: Scalar error δ_t (unused — per-dim error used instead).
+            prediction_error: Scalar error δ_t (used only for NaN gating; per-dim
+                signed error is computed from state/prediction directly).
             state: Current state (target).
             prediction: Predicted state (output).
 

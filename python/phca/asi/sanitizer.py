@@ -42,11 +42,13 @@ class ASISanitizer:
         self.v_max = v_max
         self.epsilon_confidence = epsilon_confidence
         self.asi_failure_limit = sensor_dim // 3  # floor(d / 3)
+        self._precision_recovery_rate: float = 1.5  # geometric recovery factor per stable cycle
 
         # Per-sensor state
         self.last_valid: np.ndarray = np.zeros(sensor_dim, dtype=np.float32)
         self.precision: np.ndarray = np.ones(sensor_dim, dtype=np.float32)
         self.failure_count: np.ndarray = np.zeros(sensor_dim, dtype=np.int32)
+        self._valid_streak: np.ndarray = np.zeros(sensor_dim, dtype=np.int32)
 
         _log(logger, "info", "asi.sanitizer.init",
              sensor_dim=sensor_dim, v_max=v_max, failure_limit=self.asi_failure_limit)
@@ -84,9 +86,10 @@ class ASISanitizer:
                 # Halve precision
                 self.precision[j] *= 0.5
                 self.failure_count[j] += 1
+                self._valid_streak[j] = 0
                 failure_mask[j] = True
 
-                _log(logger, "warning", "asi.sanitize.failure",
+                _log(logger, "debug", "asi.sanitize.failure",
                      sensor=j, value=float(raw[j]),
                      precision=float(self.precision[j]),
                      failure_count=int(self.failure_count[j]),
@@ -95,12 +98,18 @@ class ASISanitizer:
                 # Valid value: update last valid, reset failure count
                 self.last_valid[j] = raw[j]
                 self.failure_count[j] = 0
-                # Precision unchanged (updated by attention separately)
+                self._valid_streak[j] += 1
+                # Precision recovery: after sustained valid readings, restore precision.
+                # The attention module also modulates precision independently, but this
+                # inline recovery ensures sensors do not remain at epsilon-level precision
+                # indefinitely when the environment produces intermittent NaN values.
+                if self._valid_streak[j] >= 3 and self.precision[j] < 1.0:
+                    self.precision[j] = min(1.0, self.precision[j] * self._precision_recovery_rate)
 
         # Check global failure limit using per-cycle failure mask (v3.0 §2.2.3)
         total_failed_this_cycle = int(np.sum(failure_mask))
         if total_failed_this_cycle > self.asi_failure_limit:
-            _log(logger, "critical", "asi.sanitizer.global_failure",
+            _log(logger, "warning", "asi.sanitizer.global_failure",
                  failed_sensors=total_failed_this_cycle,
                  limit=self.asi_failure_limit,
                  timestamp=timestamp)
@@ -109,7 +118,7 @@ class ASISanitizer:
         if failure_mask.any():
             min_precision = self.precision[failure_mask].min()
             if min_precision < self.epsilon_confidence:
-                _log(logger, "critical", "asi.sanitizer.sensor_failure",
+                _log(logger, "warning", "asi.sanitizer.sensor_failure",
                      min_precision=float(min_precision),
                      threshold=self.epsilon_confidence,
                      timestamp=timestamp)
@@ -140,4 +149,5 @@ class ASISanitizer:
         self.last_valid.fill(0.0)
         self.precision.fill(1.0)
         self.failure_count.fill(0)
+        self._valid_streak.fill(0)
         _log(logger, "info", "asi.sanitizer.reset")

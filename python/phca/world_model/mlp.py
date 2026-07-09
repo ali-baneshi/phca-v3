@@ -32,7 +32,7 @@ def estimate_mlp_memory_bytes(
     state_dim: int,
     action_dim: int,
     hidden_dim: int = 128,
-    replay_capacity: int = 500,
+    replay_capacity: int = 2000,
 ) -> int:
     """Estimate G' MLP footprint: weight matrices + experience replay buffer."""
     params = ((state_dim + action_dim) * hidden_dim + hidden_dim * hidden_dim
@@ -219,7 +219,7 @@ class WorldModelMLP:
         hidden_dim: int = 128,
         seed: int = 42,
         lr: float = 0.2,
-        replay_capacity: int = 500,
+        replay_capacity: int = 2000,
         batch_size: int = 64,
         train_steps: int = 8,
         dropout_rate: float = 0.1,

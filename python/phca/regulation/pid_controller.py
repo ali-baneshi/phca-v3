@@ -132,7 +132,7 @@ class AdaptiveParameterController:
         if not np.isfinite(error_volatility):
             _log(logger, "warning", "cr.nan_input",
                  error_volatility=error_volatility, fallback="previous")
-            error_volatility = self._prev_output[0] if self._cycle > 1 else self.setpoint
+            error_volatility = self.setpoint - self._prev_error
 
         # Compute PID error
         error = self.setpoint - error_volatility
@@ -253,14 +253,14 @@ class AdaptiveParameterController:
         # Once swapped, the freeze stays (no reset) to avoid oscillation (AF-004 fix).
         if self._high_cov_cycles > 100:
             freeze_name, other_name = other_name, freeze_name
-            _log(logger, "info", "cr.orthogonality.swap",
+            _log(logger, "warning", "cr.orthogonality.swap",
                  new_frozen=freeze_name, unfrozen=other_name)
 
         # Apply freeze
         if freeze_name not in self._frozen_params:
             self._frozen_params.add(freeze_name)
             self._frozen_params.discard(other_name)
-            _log(logger, "info", "cr.orthogonality.freeze",
+            _log(logger, "warning", "cr.orthogonality.freeze",
                  frozen=freeze_name, unfrozen=other_name, correlation=float(max_corr))
 
 
