@@ -13,7 +13,7 @@ from phca.monitoring.overview_narrative import TREND_WINDOW
 from phca.monitoring.playback import _Smoother
 
 # Shared chrome / helpers from the panel module (already loaded when we import).
-from phca.monitoring.qt_dashboard import (
+from phca.monitoring.qt_base import (
     PANEL_BG,
     GRID_COL,
     TEXT_COL,

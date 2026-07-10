@@ -10,7 +10,7 @@ from phca.monitoring.observability import ObservabilityFrame
 from phca.monitoring.playback import _Smoother, freeze_sig
 
 # Shared chrome / helpers from the panel module (already loaded when we import).
-from phca.monitoring.qt_dashboard import (
+from phca.monitoring.qt_base import (
     PANEL_BG,
     GRID_COL,
     TEXT_COL,

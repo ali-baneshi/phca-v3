@@ -681,6 +681,7 @@ def main() -> None:
             "use QT_QPA_PLATFORM=xcb to silence (see SETUP.md)."
         )
     win = ObservatoryWindow()
+    win._all_frames_maxlen = store_maxlen
     win.set_session_context({
         "env": args.env,
         "camera": args.camera,
