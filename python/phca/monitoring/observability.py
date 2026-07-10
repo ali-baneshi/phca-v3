@@ -26,15 +26,17 @@ trends show feedback adaptation live).
 from __future__ import annotations
 
 import json
-import os
+import logging
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
+_logger = logging.getLogger(__name__)
 
 # Retention caps (mirrored from consolidation.scheduler for the dashboard).
 # Imported lazily/defensively so the monitoring package never hard-fails if the
@@ -42,27 +44,29 @@ import numpy as np
 try:
     from phca.consolidation.scheduler import M4_MAX_FACTS as _M4_MAX_FACTS, \
         M4_PRUNE_TARGET as _M4_PRUNE_TARGET
-except Exception:
+except Exception as exc:
+    _logger.debug("consolidation scheduler import failed, using defaults: %s", exc)
     _M4_MAX_FACTS = 1_000
     _M4_PRUNE_TARGET = 500
 
 try:
     import psutil
     _HAVE_PSUTIL = True
-except Exception:
+except Exception as exc:
+    _logger.debug("psutil import failed, RSS monitoring disabled: %s", exc)
     _HAVE_PSUTIL = False
 
 _PROC = psutil.Process() if _HAVE_PSUTIL else None
 
 # RSS changes slowly; throttle the syscall so the per-cycle frame build stays
 # well under the 5% latency-overhead gate. Refresh at most every 0.25s.
-_RSS_CACHE: Dict[int, Tuple[float, int]] = {}
+_RSS_CACHE: Dict[str, Tuple[float, int]] = {}
 _RSS_TTL_S = 0.25
 
 # Heavy memory samples (M3 episodes + M4 facts) are read off the cycle thread
 # at most every 0.5s so the per-cycle frame build stays cheap. These too are
 # live-only (excluded from JSONL).
-_MEM_CACHE: Dict[int, Tuple[float, Dict[str, Any]]] = {}
+_MEM_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _MEM_TTL_S = 0.5
 
 OBSERVABILITY_SCHEMA_VERSION = 1
@@ -72,14 +76,14 @@ SUPPORTED_OBSERVABILITY_SCHEMA_VERSIONS = {0, OBSERVABILITY_SCHEMA_VERSION}
 def _cached_rss() -> int:
     if _PROC is None:
         return 0
-    pid = _PROC.pid
     now = time.monotonic()
-    ts, val = _RSS_CACHE.get(pid, (0.0, 0))
+    ts, val = _RSS_CACHE.get("rss", (0.0, 0))
     if now - ts > _RSS_TTL_S:
         try:
             val = int(_PROC.memory_info().rss)
-            _RSS_CACHE[pid] = (now, val)
-        except Exception:
+            _RSS_CACHE["rss"] = (now, val)
+        except Exception as exc:
+            _logger.debug("RSS read failed: %s", exc)
             val = 0
     return val
 
@@ -135,9 +139,8 @@ def _episode_to_dict(ep: Any) -> Dict[str, Any]:
 
 def _cached_memory(cycle: Any, m3: Any) -> Dict[str, Any]:
     """Throttled M3/M4 samples for the Memory & Belief tab (live-only)."""
-    pid = os.getpid()
     now = time.monotonic()
-    ts, val = _MEM_CACHE.get(pid, (0.0, {}))
+    ts, val = _MEM_CACHE.get("mem", (0.0, {}))
     if val and now - ts <= _MEM_TTL_S:
         return val
     out: Dict[str, Any] = {"m3_recent": [], "m3_top_error": [],
@@ -150,8 +153,8 @@ def _cached_memory(cycle: Any, m3: Any) -> Dict[str, Any]:
             if hasattr(m3, "top_error_episodes"):
                 out["m3_top_error"] = [_episode_to_dict(e)
                                        for e in m3.top_error_episodes(5)]
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.debug("M3 memory sample failed: %s", exc)
     try:
         consol = getattr(cycle, "consolidation", None)
         cur = getattr(cycle, "current_state", None)
@@ -165,10 +168,13 @@ def _cached_memory(cycle: Any, m3: Any) -> Dict[str, Any]:
                 ranked = sorted(facts, key=lambda f: getattr(f, "frequency",
                                  getattr(f, "support", 0)), reverse=True)[:8]
                 out["m4_top"] = [_fact_to_dict(f) for f in ranked]
-    except Exception:
-        pass
-    _MEM_CACHE[pid] = (now, out)
+    except Exception as exc:
+        _logger.debug("M4 memory sample failed: %s", exc)
+    _MEM_CACHE["mem"] = (now, out)
     return out
+
+
+_SNAP_CACHE_MAX = 64
 
 
 def _snap(obj: Any, method: str) -> Dict[str, Any]:
@@ -178,7 +184,8 @@ def _snap(obj: Any, method: str) -> Dict[str, Any]:
         return {}
     try:
         return dict(fn() or {})
-    except Exception:
+    except Exception as exc:
+        _logger.debug("snapshot %s.%s failed: %s", type(obj).__name__, method, exc)
         return {}
 
 
@@ -187,17 +194,22 @@ def _snap(obj: Any, method: str) -> Dict[str, Any]:
 # goal transitions), so recomputing them every cycle is pure overhead. Cheap,
 # fast-changing signals (deficits, scalars) are still read fresh below by
 # overwriting the cached dict's deficits. Keeps the ≤5% overhead gate in reach.
-_SNAP_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+# Bounded LRU with type-qualified key to prevent unbounded growth.
+_SNAP_CACHE: OrderedDict = OrderedDict()
 
 
 def _cached_snap(key: str, obj: Any, method: str, ttl: float) -> Dict[str, Any]:
     now = time.monotonic()
-    cache_key = f"{key}:{id(obj)}"
+    cache_key = f"{key}:{id(obj)}:{type(obj).__name__}"
     ent = _SNAP_CACHE.get(cache_key)
     if ent is not None and now - ent[0] < ttl:
+        _SNAP_CACHE.move_to_end(cache_key)
         return dict(ent[1])  # shallow copy so callers can't mutate the cache
     val = _snap(obj, method)
     _SNAP_CACHE[cache_key] = (now, val)
+    _SNAP_CACHE.move_to_end(cache_key)
+    while len(_SNAP_CACHE) > _SNAP_CACHE_MAX:
+        _SNAP_CACHE.popitem(last=False)
     return dict(val)
 
 
@@ -307,6 +319,16 @@ class ObservabilityFrame:
     @classmethod
     def from_cycle(cls, cycle: Any) -> "ObservabilityFrame":
         """Build a snapshot from a live CognitiveCycle (writer side, lock-free)."""
+        try:
+            return cls._build_from_cycle(cycle)
+        except Exception as exc:
+            _logger.warning("from_cycle failed; returning empty frame: %s", exc)
+            return cls()
+
+    @classmethod
+    def _build_from_cycle(cls, cycle: Any) -> "ObservabilityFrame":
+        """Inner build — separated so :meth:`from_cycle` can catch & return a
+        default-valued frame on partial failure rather than losing the cycle."""
         env = cycle.env
         agent_pos = getattr(env, "agent_pos", None)
         goal_pos = env.get_goal_position() if hasattr(env, "get_goal_position") else None
@@ -326,7 +348,8 @@ class ObservabilityFrame:
                 gr = getter()
                 if gr is not None:
                     goal_ref = np.asarray(gr, dtype=np.float32).copy()
-            except Exception:
+            except Exception as exc:
+                _logger.debug("goal_ref read failed: %s", exc)
                 goal_ref = None
         # Chosen continuous action (None for discrete)
         continuous_action = None
@@ -335,7 +358,8 @@ class ObservabilityFrame:
         if getattr(cycle, "_is_continuous", False) and last_act is not None:
             try:
                 continuous_action = np.asarray(last_act, dtype=np.float32).copy()
-            except Exception:
+            except Exception as exc:
+                _logger.debug("continuous_action read failed: %s", exc)
                 continuous_action = None
         mdim = cycle.mdim
         mdim_drives = getattr(mdim, "drives", {})
@@ -368,7 +392,8 @@ class ObservabilityFrame:
             m3 = getattr(getattr(cycle, "consolidation", None), "m3", None)
             if m3 is not None:
                 m3_cap = int(getattr(m3, "_max_episodes", 0))
-        except Exception:
+        except Exception as exc:
+            _logger.debug("m3 cap read failed: %s", exc)
             m3_cap = 0
         m4_cap = _M4_MAX_FACTS
         m4_prune_target = _M4_PRUNE_TARGET
@@ -399,14 +424,16 @@ class ObservabilityFrame:
             gdn = getattr(env, "get_dim_names", None)
             if callable(gdn):
                 dim_names = [str(x) for x in (gdn() or [])][:state_dim_v]
-        except Exception:
+        except Exception as exc:
+            _logger.debug("dim_names read failed: %s", exc)
             dim_names = []
         action_names: List[str] = []
         try:
             gan = getattr(env, "get_action_names", None)
             if callable(gan):
                 action_names = [str(x) for x in (gan() or [])]
-        except Exception:
+        except Exception as exc:
+            _logger.debug("action_names read failed: %s", exc)
             action_names = []
 
         # RGB camera is captured on the Qt main thread (ObservatoryWindow camera_provider).
@@ -420,7 +447,8 @@ class ObservabilityFrame:
             try:
                 sanitized_state = np.asarray(cur.values, dtype=np.float32).copy()
                 state_precision = np.asarray(cur.precision, dtype=np.float32).copy()
-            except Exception:
+            except Exception as exc:
+                _logger.debug("sanitized_state read failed: %s", exc)
                 sanitized_state = None
                 state_precision = None
 
@@ -432,7 +460,8 @@ class ObservabilityFrame:
             if tgt is not None:
                 try:
                     goal_target = np.asarray(tgt.values, dtype=np.float32).copy()
-                except Exception:
+                except Exception as exc:
+                    _logger.debug("goal_target read failed: %s", exc)
                     goal_target = None
             goal_tol = float(getattr(g, "tolerance", 0.0))
             goal_pri = float(getattr(g, "priority", 0.0))
@@ -444,7 +473,8 @@ class ObservabilityFrame:
             try:
                 prediction_precision = np.asarray(pred.precision,
                                                   dtype=np.float32).copy()
-            except Exception:
+            except Exception as exc:
+                _logger.debug("prediction_precision read failed: %s", exc)
                 prediction_precision = None
 
         # Additive module snapshots (defensive — default {} if absent).
@@ -464,8 +494,8 @@ class ObservabilityFrame:
             mdim_snap["deficits"] = [float(getattr(mdim_drives.get(d),
                                                    "deficit", 0.0))
                                      for d in range(1, 7)]
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("deficits read failed: %s", exc)
 
         drive_deficits = [float(x) for x in mdim_snap.get("deficits", [])]
         drive_goals = [np.asarray(t, dtype=np.float32).copy()
@@ -509,7 +539,8 @@ class ObservabilityFrame:
                     "score": float(r.get("score", 0.0)),
                     "chosen": bool(r.get("chosen", False)),
                 })
-            except Exception:
+            except Exception as exc:
+                _logger.debug("rollout read failed: %s", exc)
                 continue
         per_dim_peu = getattr(cycle, "last_per_dim_peu", None)
         if per_dim_peu is not None:
@@ -525,16 +556,19 @@ class ObservabilityFrame:
         # every cycle). Belief entropies similarly.
         def _cached_log(key: str, obj: Any, attr: str, ttl: float = 0.30):
             now = time.monotonic()
-            cache_key = f"{key}:{id(obj)}"
+            cache_key = f"{key}:{id(obj)}:{type(obj).__name__}"
             ent = _SNAP_CACHE.get(cache_key)
             if ent is not None and now - ent[0] < ttl:
+                _SNAP_CACHE.move_to_end(cache_key)
                 return dict(ent[1])
             try:
                 d = {str(k): float(v) for k, v in
                      dict(getattr(obj, attr, {}) or {}).items()}
-            except Exception:
+            except Exception as exc:
+                _logger.debug("cached_log %s.%s failed: %s", type(obj).__name__, attr, exc)
                 d = {}
             _SNAP_CACHE[cache_key] = (now, d)
+            _SNAP_CACHE.move_to_end(cache_key)
             return dict(d)
         runtime_log = _cached_log("runtime_log", cycle, "runtime_log")
         memory_log = _cached_log("memory_log", cycle, "memory_log")
@@ -546,7 +580,8 @@ class ObservabilityFrame:
         if la is not None:
             try:
                 last_action_vector = np.asarray(la, dtype=np.float32)
-            except Exception:
+            except Exception as exc:
+                _logger.debug("last_action_vector read failed: %s", exc)
                 last_action_vector = None
 
         # Throttled memory samples (live-only).

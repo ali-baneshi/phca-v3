@@ -47,6 +47,18 @@ from phca.monitoring.qt_dashboard import (
 class DashboardController:
     """Mutates persistent widget state from frames (no widget rebuild)."""
 
+    # Views that belong to each tab (index → list of window attribute names).
+    # Tab 0 (Overview) has its own set_frame called unconditionally; proj/viol
+    # are updated via dedicated methods and are not in this table.
+    _TAB_VIEW_ATTRS: Dict[int, Tuple[str, ...]] = {
+        1: ("flow",),
+        2: ("cand",),
+        3: ("traj", "radar", "perdim"),
+        4: ("retention", "rbta_bounds"),
+        5: ("memory",),
+        6: ("goals",),
+    }
+
     def __init__(self, window: "ObservatoryWindow"):
         self.w = window
         # v6 flicker-free: skip the whole widget update when the frame is the
@@ -55,6 +67,9 @@ class DashboardController:
         self._last_agent_id: int = -1
         self._last_rolling: Optional[List[ObservabilityFrame]] = None
         self._pending_tab_rebuilds: set = set()
+        # Lazy-tab dedup: cycle id the last time each tab received set_frame
+        # via the live-mode lazy path (prevents double-set on tab switch).
+        self._tab_last_cycle: Dict[int, int] = {}
 
     def _contract_flags(self) -> Tuple[bool, bool]:
         review = bool(getattr(self.w, "_review_mode", False))
@@ -125,6 +140,19 @@ class DashboardController:
         if self.w._review_mode:
             self._activate_review_tab(tab_idx)
         else:
+            # Lazy tab: push the latest frame onto views that were skipped
+            # during live-mode streaming so they have current data to paint.
+            # Skip if the tab already has the latest cycle (prevents double-set).
+            f = getattr(self.w, "_last_frame", None)
+            if f is not None and self._last_rolling is None:
+                cid = int(getattr(f, "cycle_id", -1))
+                if self._tab_last_cycle.get(tab_idx) != cid:
+                    review, replay = self._contract_flags()
+                    for attr in self._TAB_VIEW_ATTRS.get(tab_idx, ()):
+                        view = getattr(self.w, attr, None)
+                        if view is not None:
+                            view.set_frame(f, histories_done=False, replay=replay, review=review)
+                    self._tab_last_cycle[tab_idx] = cid
             self._repaint_visible_tab(force_sync=True)
 
     def _rebuild_tab_histories(
@@ -258,24 +286,26 @@ class DashboardController:
             if rolling:
                 self._set_prefix_len(len(rolling))
             self._update_tab_badges(self._badge_moment_flags(f))
-            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.flow.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.cand.set_frame(f, histories_done=histories_done, replay=replay, review=review)
             self.w._last_frame = f
-            self.w._apply_phase_layout(f)
-            plen = len(rolling) if rolling else getattr(self.w.cand, "_prefix_len", 0)
-            self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
-            self.w.traj.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.radar.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.perdim.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.dim_selector.refresh()
-            self.w.retention.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.rbta_bounds.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            if not histories_done:
+            # Overview is always updated (shared state like _err_hist, badges).
+            self.w.overview.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+            # Lazy tab updates: only set_frame on visible tab views in live mode.
+            # In rolling mode, rebuild_all_histories already called set_frame on
+            # all views, so the per-view calls below are skipped.
+            if not rolling:
+                visible_idx = self.w._tabs.currentIndex()
+                self._tab_last_cycle[visible_idx] = cid
+                for attr in self._TAB_VIEW_ATTRS.get(visible_idx, ()):
+                    view = getattr(self.w, attr, None)
+                    if view is not None:
+                        view.set_frame(f, histories_done=False, replay=replay, review=review)
+                # Phase-tab-only setup always runs (cheap, keeps phase-status current).
+                self.w._apply_phase_layout(f)
+                plen = getattr(self.w.cand, "_prefix_len", 0)
+                self.w.update_phase_tab_status(f, review=review, prefix_len=plen)
+                self.w.dim_selector.refresh()
                 self.w.viol.add_frame(f)
-            self.w._viol_summary.setText(self.w.viol.summary())
-            self.w.memory.set_frame(f, histories_done=histories_done, replay=replay, review=review)
-            self.w.goals.set_frame(f, histories_done=histories_done, replay=replay, review=review)
+                self.w._viol_summary.setText(self.w.viol.summary())
             self.w.setWindowTitle(f"PHCA Cognitive Observatory — cycle {f.cycle_id}")
         else:
             self.w.overview.set_state(None, cycle_error)
@@ -463,6 +493,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._agent_labels: Dict[int, str] = {0: ""}
         self._selected_agent_id: int = 0
         self._all_frames: List[ObservabilityFrame] = []
+        self._all_frames_maxlen: int = 8000
         self._moment_matches: List[Any] = []
 
     def _moment_nav_enabled(self) -> bool:
@@ -526,8 +557,12 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
 
     def append_observability_frames(self, frames: List[ObservabilityFrame]) -> None:
         """Accumulate interleaved frames during live multi-agent runs."""
-        if frames:
-            self._all_frames.extend(frames)
+        if not frames:
+            return
+        self._all_frames.extend(frames)
+        if len(self._all_frames) > self._all_frames_maxlen:
+            drop = len(self._all_frames) - self._all_frames_maxlen
+            self._all_frames = self._all_frames[drop:]
 
     def load_multi_agent_frames(
         self,

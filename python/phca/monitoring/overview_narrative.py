@@ -32,13 +32,15 @@ def _drive_short(did: int) -> str:
     return DRIVE_SHORT.get(did, f"D{did}")
 
 
-def _flow_pipe_ms(f: ObservabilityFrame) -> float:
-    timings = dict(getattr(f, "module_timings", {}) or {})
+def _flow_pipe_ms(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> float:
+    if timings is None:
+        timings = dict(getattr(f, "module_timings", {}) or {})
     return sum(float(timings.get(m, 0.0) or 0.0) for m in PIPELINE_MODULES)
 
 
-def _flow_bottleneck_key(f: ObservabilityFrame) -> str:
-    timings = dict(getattr(f, "module_timings", {}) or {})
+def _flow_bottleneck_key(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> str:
+    if timings is None:
+        timings = dict(getattr(f, "module_timings", {}) or {})
     if not timings:
         return ""
     best = max(FLOW_ALL_MODULES, key=lambda m: float(timings.get(m, 0.0) or 0.0))
@@ -47,9 +49,9 @@ def _flow_bottleneck_key(f: ObservabilityFrame) -> str:
 
 def _flow_status_line(f: ObservabilityFrame, *, active_idx: Optional[int] = None) -> str:
     timings = dict(getattr(f, "module_timings", {}) or {})
-    bn_key = _flow_bottleneck_key(f)
+    bn_key = _flow_bottleneck_key(f, timings=timings)
     bn_lbl = PIPELINE_LABEL.get(bn_key, bn_key) if bn_key else "—"
-    pipe_ms = _flow_pipe_ms(f)
+    pipe_ms = _flow_pipe_ms(f, timings=timings)
     vcount = int(getattr(f, "violations_count", 0) or 0)
     viol_mods: set = set()
     for v in getattr(f, "rbta_violations", []) or []:
@@ -264,8 +266,9 @@ def _overview_evidence_line(f: ObservabilityFrame, flags: Dict[str, Any],
     err_arrow = ""
     if len(errs) >= 2:
         err_arrow = "↘" if errs[-1] <= errs[-2] else "↗"
+    timings = dict(getattr(f, "module_timings", {}) or {})
     dominant = max(
-        [(label, _phase_ms(dict(getattr(f, "module_timings", {}) or {}), key))
+        [(label, _phase_ms(timings, key))
          for key, label in EXECUTION_PHASE_STEPS],
         key=lambda s: s[1],
         default=("", 0.0),

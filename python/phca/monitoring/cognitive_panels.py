@@ -57,30 +57,45 @@ PIPELINE_MODULES = [
 ]
 
 
+def _frame_timings(f: ObservabilityFrame) -> Dict[str, Any]:
+    return dict(getattr(f, "module_timings", {}) or {})
+
+
+def _frame_rationale(f: ObservabilityFrame) -> Dict[str, Any]:
+    return dict(getattr(f, "action_rationale", {}) or {})
+
+
+def _frame_bounds(f: ObservabilityFrame) -> Dict[str, Any]:
+    return dict(getattr(f, "rbta_bounds", {}) or {})
+
+
 def _phase_ms(timings: Dict[str, Any], key) -> float:
     if isinstance(key, tuple):
         return sum(float(timings.get(k, 0.0) or 0.0) for k in key)
     return float(timings.get(key, 0.0) or 0.0)
 
 
-def execution_dominant_phase(f: ObservabilityFrame) -> str:
-    timings = dict(getattr(f, "module_timings", {}) or {})
+def execution_dominant_phase(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> str:
+    if timings is None:
+        timings = _frame_timings(f)
     segs = [(label, _phase_ms(timings, key)) for key, label in EXECUTION_PHASE_STEPS]
     if not segs:
         return ""
     return max(segs, key=lambda s: s[1])[0]
 
 
-def flow_bottleneck_module(f: ObservabilityFrame) -> str:
-    timings = dict(getattr(f, "module_timings", {}) or {})
+def flow_bottleneck_module(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> str:
+    if timings is None:
+        timings = _frame_timings(f)
     if not timings:
         return ""
     best = max(FLOW_ALL_MODULES, key=lambda m: float(timings.get(m, 0.0) or 0.0))
     return best if float(timings.get(best, 0.0) or 0.0) > 0 else ""
 
 
-def _flow_pipe_ms(f: ObservabilityFrame) -> float:
-    timings = dict(getattr(f, "module_timings", {}) or {})
+def _flow_pipe_ms(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> float:
+    if timings is None:
+        timings = _frame_timings(f)
     return sum(float(timings.get(m, 0.0) or 0.0) for m in PIPELINE_MODULES)
 
 
@@ -135,10 +150,10 @@ def cognitive_moment(
     """Extended moment flags for Flow / Action panels (Overview-aligned spike)."""
     cur_err = float(getattr(f, "prediction_error", 0.0) or 0.0)
     env_kind = (getattr(f, "env_kind", "") or "").lower()
-    timings = dict(getattr(f, "module_timings", {}) or {})
+    timings = _frame_timings(f)
     learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
     learn_burst = learn_ms >= LEARN_MS_MIN
-    r = f.action_rationale or {}
+    r = _frame_rationale(f)
     cur_score = _best_score(f)
     decision_shift = apply_decision_shift(prev_best_score, cur_score)
     if not decision_shift:
@@ -153,7 +168,7 @@ def cognitive_moment(
     drive_change = None
     if gid and prev_drive_id is not None and gid != prev_drive_id:
         drive_change = (prev_drive_id, gid)
-    near_bound = flow_near_bound_module(f)
+    near_bound = flow_near_bound_module(f, timings=timings)
     vcount = int(getattr(f, "violations_count", 0) or 0)
     return {
         "spike": overview_spike(err_hist, cur_err, env_kind),
@@ -163,7 +178,7 @@ def cognitive_moment(
         "peu_mean": peu_mean,
         "explored": bool(r.get("explored", False)),
         "drive_change": drive_change,
-        "dominant_phase": execution_dominant_phase(f),
+        "dominant_phase": execution_dominant_phase(f, timings=timings),
         "near_bound": near_bound,
         "violation": vcount > 0,
     }
@@ -260,8 +275,8 @@ def pipeline_time_budget_ms(
     return total
 
 
-def flow_near_bound_module(f: ObservabilityFrame) -> str:
-    mods = flow_near_bound_modules(f, top_k=1)
+def flow_near_bound_module(f: ObservabilityFrame, timings: Optional[Dict[str, Any]] = None) -> str:
+    mods = flow_near_bound_modules(f, top_k=1, timings=timings)
     return mods[0][0] if mods else ""
 
 
@@ -269,10 +284,12 @@ def flow_near_bound_modules(
     f: ObservabilityFrame,
     *,
     top_k: int = 3,
+    timings: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[str, float]]:
     """Return top-K modules by measured/bound ratio (>0.5)."""
-    timings = dict(getattr(f, "module_timings", {}) or {})
-    bounds = dict(getattr(f, "rbta_bounds", {}) or {})
+    if timings is None:
+        timings = _frame_timings(f)
+    bounds = _frame_bounds(f)
     ranked: List[Tuple[str, float]] = []
     for mod in FLOW_ALL_MODULES:
         ratio = flow_timing_ratio(mod, timings, bounds)
@@ -305,21 +322,21 @@ def belief_reference(
 def flow_status_extras(f: ObservabilityFrame) -> str:
     parts: List[str] = []
     parts.append(f"cycle={int(getattr(f, 'cycle_id', 0) or 0)}")
-    dom = execution_dominant_phase(f)
+    timings = _frame_timings(f)
+    dom = execution_dominant_phase(f, timings=timings)
     if dom:
         parts.append(f"phase={dom}")
-    timings = dict(getattr(f, "module_timings", {}) or {})
     learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
     if learn_ms >= LEARN_MS_MIN:
         parts.append(f"learn={learn_ms:.1f}ms")
-    nb = flow_near_bound_module(f)
+    nb = flow_near_bound_module(f, timings=timings)
     if nb:
         parts.append(f"near_bound={_pipeline_label(nb)}")
     rbta_act = str(getattr(f, "rbta_action", "") or "").strip()
     if rbta_act and rbta_act != "CONTINUE":
         parts.append(f"rbta={rbta_act}")
     lat = float(getattr(f, "latency_ms", 0.0) or 0.0)
-    pipe = _flow_pipe_ms(f)
+    pipe = _flow_pipe_ms(f, timings=timings)
     if lat > 0:
         parts.append(f"latency={lat:.1f}ms")
         if pipe > 0 and abs(lat - pipe) / max(lat, 1e-6) > 0.2:
@@ -345,7 +362,7 @@ def action_status_extras(
     if review and prefix_len > 0:
         parts.append(f"prefix={prefix_len}")
     names = list(getattr(f, "action_names", []) or [])
-    r = f.action_rationale or {}
+    r = _frame_rationale(f)
     is_cont = bool(r.get("continuous", f.continuous_action is not None))
     if chosen >= 0:
         lbl = names[chosen] if chosen < len(names) and names[chosen] else f"#{chosen}"
@@ -412,9 +429,10 @@ def phase_tab_status_line(
 
 def flow_action_link_line(f: ObservabilityFrame) -> str:
     """Short Flow→Action context for the Action tab."""
-    bn = flow_bottleneck_module(f)
-    dom = execution_dominant_phase(f)
-    r = f.action_rationale or {}
+    timings = _frame_timings(f)
+    bn = flow_bottleneck_module(f, timings=timings)
+    dom = execution_dominant_phase(f, timings=timings)
+    r = _frame_rationale(f)
     mode = "EXPLORE" if r.get("explored") else "EXPLOIT"
     parts: List[str] = []
     if bn:
@@ -422,7 +440,7 @@ def flow_action_link_line(f: ObservabilityFrame) -> str:
     if dom:
         parts.append(f"phase={dom}")
     parts.append(mode)
-    nb = flow_near_bound_module(f)
+    nb = flow_near_bound_module(f, timings=timings)
     if nb:
         parts.append(f"near_bound={_pipeline_label(nb)}")
     return " · ".join(parts)
@@ -552,7 +570,7 @@ def mechanism_histogram(
     }
     tail = frames[-window:] if window > 0 else frames
     for f in tail:
-        r = dict(getattr(f, "action_rationale", {}) or {})
+        r = _frame_rationale(f)
         counts[classify_action_mechanism(r)] += 1
     return counts
 
