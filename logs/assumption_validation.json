@@ -16,7 +16,7 @@
     {
       "invariant": "A3",
       "name": "belief entropy floor \u2265 \u03b5",
-      "min_entropy": 0.02252814754843712,
+      "min_entropy": 0.012540573254227638,
       "floor": 0.01,
       "passed": true
     },
@@ -30,7 +30,7 @@
       "invariant": "A5",
       "name": "feedback drives world-model updates",
       "frozen_rel_change": 0.0,
-      "active_rel_change": 0.5088119522607228,
+      "active_rel_change": 0.4594032799833215,
       "passed": true
     }
   ],

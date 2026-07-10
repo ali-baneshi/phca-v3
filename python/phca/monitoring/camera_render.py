@@ -242,9 +242,9 @@ def rgb_frame_to_qimage(frame: Any) -> QtGui.QImage:
     return qimg.copy()
 
 
-def rgb_frame_to_pixmap(frame: Any) -> QtGui.QPixmap:
+def rgb_frame_to_pixmap(frame: Any, *, already_checked: bool = False) -> QtGui.QPixmap:
     """Convert a numpy RGB frame to QPixmap (glitch check on numpy + pixmap)."""
-    if is_glitchy_rgb_frame(frame):
+    if not already_checked and is_glitchy_rgb_frame(frame):
         return QtGui.QPixmap()
     qimg = rgb_frame_to_qimage(frame)
     if qimg.isNull():

@@ -1,6 +1,8 @@
 """Cognitive Flow tab — timing topology, radial pipeline clock-face, module heatmap."""
 
 from __future__ import annotations
+import hashlib
+import json
 import time
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional, Tuple
@@ -13,7 +15,7 @@ from phca.monitoring.qt_base import (
     _FLOW_ALL_MODULES,
     PANEL_BG_ALT, PANEL_BORDER, CHIP_FILL_ALPHA,
     _F_AXIS, _F_LABEL_B,
-    _flow_layout, _radial_sankey_link, _heatmap_cell_color,
+    _flow_layout, _radial_sankey_link, _heatmap_cell_color, _heatmap_cell_color_precomputed,
     _to_qcolor, _cost_color,
     _draw_moment_ticks, _draw_moment_chips,
     _draw_execution_phase_strip,
@@ -476,11 +478,11 @@ class CognitiveFlowView(_BaseCanvas):
         for mts in self.heat:
             for mod in mods:
                 col_hist[mod].append(float(mts.get(mod, 0.0)))
-        heat_sig = tuple(
-            tuple(round(col_hist[m][i], 4) for m in mods)
-            for i in range(len(self.heat))
-        )
-        key = (w, strip_h, label_w, heat_sig)
+        # C2+H3: hash-based key (avoids 1040-element tuple); precomputed percentiles
+        heat_json = json.dumps(
+            [[round(col_hist[m][i], 4) for m in mods] for i in range(len(self.heat))],
+            sort_keys=True, default=str)
+        key = (w, strip_h, label_w, hashlib.md5(heat_json.encode()).hexdigest())
         now = time.monotonic()
         if (self._heat_pm is None or key != self._heat_key
                 or now - self._heat_t >= 0.5):
@@ -504,10 +506,22 @@ class CognitiveFlowView(_BaseCanvas):
                     lbl = "—"
                 rp.setPen(TEXT_COL); rp.setFont(_F_AXIS)
                 rp.drawText(10, int(local_top + j * row_h + row_h * 0.75), lbl)
+            col_ranks: Dict[str, List[float]] = {}
+            for mod in mods:
+                hist = col_hist[mod]
+                nz = sorted([float(v) for v in hist if float(v) > 0])
+                if not nz:
+                    col_ranks[mod] = [0.0] * len(hist)
+                else:
+                    col_ranks[mod] = [
+                        sum(1 for v_nz in nz if v_nz <= float(ms)) / len(nz)
+                        if float(ms) > 0 else 0.0
+                        for ms in hist
+                    ]
             for i, mts in enumerate(self.heat):
                 for j, mod in enumerate(mods):
                     ms = float(mts.get(mod, 0.0))
-                    cell = _heatmap_cell_color(ms, col_hist[mod])
+                    cell = _heatmap_cell_color_precomputed(ms, col_ranks[mod][i])
                     if cell.alpha() <= 0:
                         continue
                     rp.fillRect(int(data_x + i * cw), int(local_top + j * row_h),

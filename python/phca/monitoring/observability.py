@@ -30,7 +30,7 @@ import logging
 import threading
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -174,7 +174,7 @@ def _cached_memory(cycle: Any, m3: Any) -> Dict[str, Any]:
     return out
 
 
-_SNAP_CACHE_MAX = 64
+_SNAP_CACHE_MAX = 200
 
 
 def _snap(obj: Any, method: str) -> Dict[str, Any]:
@@ -216,6 +216,21 @@ def _cached_snap(key: str, obj: Any, method: str, ttl: float) -> Dict[str, Any]:
 def clear_snap_cache() -> None:
     """Clear the TTL snapshot cache (tests / session boundaries)."""
     _SNAP_CACHE.clear()
+
+
+def _recursive_json(x: Any) -> Any:
+    """Recursively convert numpy types to JSON-friendly Python types."""
+    if isinstance(x, (np.integer,)):
+        return int(x)
+    if isinstance(x, (np.floating,)):
+        return float(x)
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    if isinstance(x, dict):
+        return {str(k): _recursive_json(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_recursive_json(v) for v in x]
+    return x
 
 
 @dataclass
@@ -682,93 +697,78 @@ class ObservabilityFrame:
         )
 
     def to_json(self) -> Dict[str, Any]:
-        """Serialise to a JSON-friendly dict for the time-series log.
+        """Single-pass JSON-friendly serialisation.
 
-        Live-only fields (the RGB camera frame, sanitized state, per-drive goal
-        vectors, candidate rollouts, and bulk M3/M4 memory samples) are
-        deliberately EXCLUDED: they are heavy / nested-array payloads that would
-        turn the ~lean JSONL into an image+vector firehose. The compact
-        ``m3_top_error`` sample remains serialized for replay/report anchoring.
-        Camera frames reach the recorded mp4 via the dashboard's own QPixmap.grab
-        during --record-video and are reconstructed live from the cycle on the
+        Live-only fields (RGB camera frame, sanitized state, per-drive goal
+        vectors, candidate rollouts, bulk M3/M4 memory samples) are EXCLUDED
+        to keep the JSONL lean.  The compact ``m3_top_error`` sample remains
+        serialized for replay/report anchoring.  Camera frames reach the
+        recorded mp4 via the dashboard's own QPixmap.grab during
+        ``--record-video`` and are reconstructed live from the cycle on the
         dashboard side.
         """
-        def _s(x):
-            if isinstance(x, (np.integer,)):
-                return int(x)
-            if isinstance(x, (np.floating,)):
-                return float(x)
-            if isinstance(x, np.ndarray):
-                return x.tolist()
-            if isinstance(x, dict):
-                return {str(k): _s(v) for k, v in x.items()}
-            if isinstance(x, (list, tuple)):
-                return [_s(v) for v in x]
-            return x
-        d = {k: _s(v) for k, v in asdict(self).items()}
-        d["schema_version"] = OBSERVABILITY_SCHEMA_VERSION
-        # Belt-and-braces explicit casts for the structured fields.
-        d["agent_pos"] = ([int(v) for v in self.agent_pos]
-                          if self.agent_pos is not None else None)
-        d["goal_pos"] = ([int(v) for v in self.goal_pos]
-                         if self.goal_pos is not None else None)
-        if str(getattr(self, "env_kind", "") or "") != "grid":
-            d["agent_pos"] = None
-            d["goal_pos"] = None
-        d["grid"] = self.grid.tolist() if self.grid is not None else None
-        d["predicted_state"] = (self.predicted_state.tolist()
-                                if self.predicted_state is not None else None)
-        d["obs_vector"] = (self.obs_vector.tolist()
-                           if self.obs_vector is not None else None)
-        d["goal_ref"] = (self.goal_ref.tolist()
-                         if self.goal_ref is not None else None)
-        d["continuous_action"] = (self.continuous_action.tolist()
-                                  if self.continuous_action is not None else None)
-        d["attention_indices"] = [int(i) for i in self.attention_indices]
-        d["drive_levels"] = [float(v) for v in self.drive_levels]
-        d["drive_targets"] = [float(v) for v in self.drive_targets]
-        d["attention_saliences"] = [float(v) for v in self.attention_saliences]
-        d["candidate_scores"] = [float(v) for v in self.candidate_scores]
-        d["module_timings"] = {str(k): float(v) for k, v in self.module_timings.items()}
-        # ── v4 field casts ──
-        for arr_field in ("sanitized_state", "state_precision", "goal_target",
-                          "prediction_precision", "gprime_uncertainty",
-                          "per_dim_peu", "attention_weights",
-                          "last_action_vector"):
-            v = getattr(self, arr_field)
-            d[arr_field] = v.tolist() if v is not None else None
-        d["drive_deficits"] = [float(v) for v in self.drive_deficits]
-        d["attention_precisions"] = [float(v) for v in self.attention_precisions]
-        d["pareto_front"] = [int(v) for v in self.pareto_front]
-        d["goal_history"] = [int(v) for v in self.goal_history]
-        # downsample the drive-history heatmap to the last 24 cycles, rounded —
-        # keeps the Goals-tab heatmap meaningful on replay without bloating JSONL.
-        dh = self.drive_history[-24:] if self.drive_history else []
-        d["drive_history"] = [[round(float(v), 3) for v in row] for row in dh]
-        d["runtime_log"] = {str(k): float(v) for k, v in self.runtime_log.items()}
-        d["memory_log"] = {str(k): float(v) for k, v in self.memory_log.items()}
-        d["energy_log"] = {str(k): float(v) for k, v in self.energy_log.items()}
-        d["belief_entropies"] = {str(k): float(v) for k, v in
-                                 self.belief_entropies.items()}
-        d["rbta_bounds"] = _s(self.rbta_bounds)
-        d["goal_stack"] = _s(self.goal_stack)
-        d["meta_stable"] = _s(self.meta_stable)
-        d["tspl_compiled_skill_ids"] = [str(x) for x in self.tspl_compiled_skill_ids]
+        d: Dict[str, Any] = {}
+        # ── Scalar integers ──
         for k in ("cycle_id", "episode_count", "fact_count", "violations_count",
                   "drive_id", "active_drive_id", "rss_bytes", "m3_cap",
                   "m4_cap", "m4_prune_target", "state_dim", "action_dim",
                   "action_count", "goal_creation_cycle", "schema_version"):
-            if k in d and d[k] is not None:
-                d[k] = int(d[k])
+            v = getattr(self, k, None)
+            if v is not None:
+                d[k] = int(v)
+        # ── String labels ──
+        for k in ("agent_label", "env_kind", "action_kind", "gprime_kind",
+                  "rbta_action", "action_name"):
+            v = getattr(self, k, None)
+            if v:
+                d[k] = str(v)
+        # ── Float scalars ──
         for k in ("latency_ms", "prediction_error", "prediction_confidence",
                   "goal_tolerance", "goal_priority", "cr_temperature",
                   "empowerment", "tspl_skill_accuracy", "gprime_mutual_info",
                   "phi_criticality"):
-            if k in d and d[k] is not None:
-                d[k] = float(d[k])
-        # Live-only: never serialised (kept off the JSONL firehose). The heavy
-        # cognitive-portrait arrays are reconstructed live from the cycle; on
-        # replay the affected sub-views degrade gracefully (empty/None).
+            v = getattr(self, k, None)
+            if v is not None:
+                d[k] = float(v)
+        # ── Numpy array fields → list ──
+        for arr_field in ("grid", "predicted_state", "obs_vector", "goal_ref",
+                          "continuous_action"):
+            v = getattr(self, arr_field, None)
+            if v is not None:
+                d[arr_field] = np.asarray(v).tolist()
+        # ── Float-list fields ──
+        for lst in ("drive_levels", "drive_targets", "attention_saliences",
+                    "candidate_scores", "drive_deficits", "attention_precisions"):
+            d[lst] = [float(v) for v in getattr(self, lst, [])]
+        # ── Int-list fields ──
+        for lst in ("attention_indices", "pareto_front", "goal_history"):
+            d[lst] = [int(v) for v in getattr(self, lst, [])]
+        # ── Grid position tuples (int list, cleared for non-grid envs) ──
+        if self.agent_pos is not None:
+            d["agent_pos"] = [int(v) for v in self.agent_pos]
+        if self.goal_pos is not None:
+            d["goal_pos"] = [int(v) for v in self.goal_pos]
+        if str(getattr(self, "env_kind", "") or "") != "grid":
+            d["agent_pos"] = None
+            d["goal_pos"] = None
+        # ── string-keyed float dicts ──
+        for dct in ("module_timings", "runtime_log", "memory_log",
+                    "energy_log", "belief_entropies"):
+            d[dct] = {str(k): float(v) for k, v in getattr(self, dct, {}).items()}
+        # ── Downsampled drive-history ──
+        dh = self.drive_history[-24:] if self.drive_history else []
+        d["drive_history"] = [[round(float(v), 3) for v in row] for row in dh]
+        # ── Nested complex structures (recursive helper, only 3 fields) ──
+        for nested in ("rbta_bounds", "goal_stack", "meta_stable"):
+            v = getattr(self, nested, None)
+            if v is not None and v:
+                d[nested] = _recursive_json(v)
+        # ── Skill IDs ──
+        d["tspl_compiled_skill_ids"] = [str(x) for x in self.tspl_compiled_skill_ids]
+        # ── Agent ──
+        d["agent_id"] = int(self.agent_id)
+        d["timeline_step"] = int(self.timeline_step)
+        # ── Live-only: never serialised ──
         for drop in ("env_frame", "drive_goals", "candidate_rollouts",
                      "m3_recent", "m4_relevant", "m4_top",
                      "sanitized_state", "state_precision", "goal_target",
@@ -882,6 +882,7 @@ class SessionRecorder:
         self._jsonl = None
         self._count = 0
         self._error: Optional[str] = None
+        self._last_flush_t: float = 0.0
 
     @staticmethod
     def _utc_now() -> str:
@@ -897,7 +898,7 @@ class SessionRecorder:
         try:
             self.root.mkdir(parents=True, exist_ok=True)
             self._latest_pointer_path().write_text(str(self.session_dir.resolve()))
-        except Exception:
+        except OSError:
             pass
 
     def _clear_latest_pointer(self) -> None:
@@ -905,7 +906,7 @@ class SessionRecorder:
             p = self._latest_pointer_path()
             if p.exists():
                 p.unlink()
-        except Exception:
+        except OSError:
             pass
 
     def _patch_meta(self, patch: Dict[str, Any]) -> None:
@@ -916,7 +917,7 @@ class SessionRecorder:
             meta = json.loads(meta_p.read_text()) if meta_p.exists() else {}
             meta.update(patch)
             meta_p.write_text(json.dumps(meta, indent=2))
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
 
     def start(self, meta: Dict[str, Any]) -> Optional[Path]:
@@ -945,6 +946,9 @@ class SessionRecorder:
         try:
             self._jsonl.write(json.dumps(frame.to_json()) + "\n")
             self._count += 1
+            if time.monotonic() - self._last_flush_t >= 5.0:
+                self._jsonl.flush()
+                self._last_flush_t = time.monotonic()
         except Exception as e:
             # Record the first failure so the caller can surface it; keep going.
             if self._error is None:
@@ -954,7 +958,7 @@ class SessionRecorder:
         if self._jsonl is not None:
             try:
                 self._jsonl.flush()
-            except Exception:
+            except OSError:
                 pass
 
     @property
@@ -969,7 +973,7 @@ class SessionRecorder:
         if self._jsonl is not None:
             try:
                 self._jsonl.close()
-            except Exception:
+            except OSError:
                 pass
             self._jsonl = None
 

@@ -120,7 +120,8 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_glitch_profile: str = "default"
         self._camera_mode: str = "auto"  # auto | live | schematic
         self._camera_gl_disabled: bool = False
-        self._camera_status: str = "unavailable"  # live|recovering|schematic_fallback|unavailable
+        self._camera_gl_permanent_disabled: bool = False
+        self._camera_status: str = "unavailable"  # live|recovering|schematic_fallback|permanent|unavailable
         self._camera_probe_countdown: int = 0
         self._camera_probe_every: int = 18
         self._camera_diag_limit: int = 8
@@ -225,6 +226,15 @@ class OverviewAgentView(_BaseCanvas):
 
     def _maybe_disable_gl(self) -> None:
         if self._camera_fail_count >= self._fail_threshold():
+            if self._camera_fail_count >= 9 and not self._camera_gl_permanent_disabled:
+                self._camera_gl_permanent_disabled = True
+                self._camera_status = "permanent"
+                self._capture_timer.stop()
+                if self._camera_debug:
+                    import sys
+                    print(f"[camera] permanently disabled after {self._camera_fail_count} failures",
+                          file=sys.stderr)
+                return
             self._camera_gl_disabled = True
             self._camera_status = "schematic_fallback"
             self._camera_probe_countdown = self._camera_probe_every
@@ -483,6 +493,8 @@ class OverviewAgentView(_BaseCanvas):
             pass
 
     def _sync_camera_from_provider(self) -> Optional[np.ndarray]:
+        if self._camera_gl_permanent_disabled:
+            return self._camera_numpy
         allow_probe = False
         if self._camera_gl_disabled and self._camera_mode == "live":
             if self._camera_probe_countdown > 0:
@@ -503,7 +515,7 @@ class OverviewAgentView(_BaseCanvas):
             self._update_camera_label()
             return None
         if frame is not None and not is_glitchy_rgb_frame(frame, profile=self._camera_glitch_profile):
-            pm = rgb_frame_to_pixmap(frame)
+            pm = rgb_frame_to_pixmap(frame, already_checked=True)
             if not pm.isNull() and not is_glitchy_pixmap(pm):
                 self._camera_fail_count = 0
                 self._camera_numpy = frame
@@ -671,8 +683,15 @@ class OverviewAgentView(_BaseCanvas):
             p.drawText(mind_rect.x() + 4, mind_rect.bottom() - 4,
                        "core=conf · head=MDIM · purple=τ · green arc=D3")
             p.restore()
-            _draw_overview_body(p, f, body_rect, self.proj, self.trail,
-                                self.arena_trail, self._ax, self._ay)
+            # Skip body painting when live camera or valid stalled frame is showing
+            _cam_showing = (
+                self._camera_mode not in ("schematic",)
+                and self._camera_pixmap is not None
+                and not self._camera_pixmap.isNull()
+            )
+            if not _cam_showing:
+                _draw_overview_body(p, f, body_rect, self.proj, self.trail,
+                                    self.arena_trail, self._ax, self._ay)
             _draw_vitals_ribbon(p, f, ribbon_rect, self._err_hist, self._conf_hist)
         if self.cycle_error:
             p.setPen(QtGui.QColor(231, 76, 60)); p.setFont(_F_LABEL_B)

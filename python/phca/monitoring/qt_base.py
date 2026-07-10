@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import time
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
@@ -91,6 +92,9 @@ _FLOW_ALL_MODULES = PIPELINE + SIDE_MODULES
 # Real execution order (matches cycle.py and Overview phase strip).
 EXECUTION_PHASE_STEPS = _OVERVIEW_PHASE_STEPS
 
+# Cached reacher schematic pixmaps (keyed by observation hash).
+_REACHER_CACHE: Dict[str, QtGui.QPixmap] = {}
+
 
 def _flow_bound_for(mod: str, bounds: dict) -> Optional[float]:
     """RBTA time bound in seconds (legacy alias)."""
@@ -119,6 +123,19 @@ def _heatmap_column_percentile(ms: float, col_vals: List[float]) -> int:
 def _heatmap_cell_color(ms: float, col_vals: List[float]) -> QtGui.QColor:
     """Cost-semantic heatmap cell; alpha = column percentile for contrast."""
     a = _heatmap_column_percentile(ms, col_vals)
+    if a <= 0:
+        return QtGui.QColor(0, 0, 0, 0)
+    col = _to_qcolor(_cost_color(ms))
+    col.setAlpha(a)
+    return col
+
+
+def _heatmap_cell_color_precomputed(ms: float, p_rank: float) -> QtGui.QColor:
+    """Cost-semantic heatmap cell with precomputed percentile rank.
+
+    Skips per-cell sort - caller pre-computes ranks for the entire column.
+    """
+    a = max(20, int(p_rank * 230)) if ms > 0 else 0
     if a <= 0:
         return QtGui.QColor(0, 0, 0, 0)
     col = _to_qcolor(_cost_color(ms))
@@ -1105,6 +1122,13 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
             p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, int(50 + 100 * u_mean)),
                                 1, QtCore.Qt.DashLine))
             p.drawEllipse(cx - ur, cy - ur, ur * 2, ur * 2)
+    elif conf < 0.5:
+        # MLP fallback: use 1.0 - confidence as approximate uncertainty
+        u_approx = 1.0 - conf
+        ur = int(R * (1.28 + min(0.4, u_approx)))
+        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, int(50 + 100 * u_approx)),
+                            1, QtCore.Qt.DashLine))
+        p.drawEllipse(cx - ur, cy - ur, ur * 2, ur * 2)
     for i in range(n):
         did = i + 1
         lvl = float(levels[i])
@@ -1361,11 +1385,21 @@ def _render_reacher_schematic_pixmap(
         f: ObservabilityFrame, w: int, h: int,
         trail: Optional[Deque[Tuple[float, float]]] = None) -> QtGui.QPixmap:
     """Offscreen 2D arm schematic (no GPU / no paintEvent camera blit)."""
+    obs = f.obs_vector if f.obs_vector is not None else f.sanitized_state
+    obs_bytes = np.asarray(obs).tobytes() if obs is not None else b""
+    trail_len = len(trail) if trail else 0
+    sig = hashlib.md5(obs_bytes + str((w, h, trail_len)).encode()).hexdigest()
+    cached = _REACHER_CACHE.get(sig)
+    if cached is not None:
+        return cached
     pm = QtGui.QPixmap(max(w, 2), max(h, 2))
     pm.fill(QtGui.QColor(12, 12, 16))
     p = QtGui.QPainter(pm)
     _draw_reacher_schematic(p, f, QtCore.QRect(0, 0, w, h), trail=trail)
     p.end()
+    _REACHER_CACHE[sig] = pm
+    while len(_REACHER_CACHE) > 8:
+        _REACHER_CACHE.pop(next(iter(_REACHER_CACHE)))
     return pm
 
 

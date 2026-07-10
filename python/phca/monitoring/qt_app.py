@@ -6,6 +6,7 @@ symbols for stable import paths.
 """
 from __future__ import annotations
 
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -494,6 +495,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._selected_agent_id: int = 0
         self._all_frames: List[ObservabilityFrame] = []
         self._all_frames_maxlen: int = 8000
+        self._all_frames_lock = threading.Lock()
         self._moment_matches: List[Any] = []
 
     def _moment_nav_enabled(self) -> bool:
@@ -559,10 +561,11 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         """Accumulate interleaved frames during live multi-agent runs."""
         if not frames:
             return
-        self._all_frames.extend(frames)
-        if len(self._all_frames) > self._all_frames_maxlen:
-            drop = len(self._all_frames) - self._all_frames_maxlen
-            self._all_frames = self._all_frames[drop:]
+        with self._all_frames_lock:
+            self._all_frames.extend(frames)
+            if len(self._all_frames) > self._all_frames_maxlen:
+                drop = len(self._all_frames) - self._all_frames_maxlen
+                self._all_frames = self._all_frames[drop:]
 
     def load_multi_agent_frames(
         self,
@@ -572,7 +575,8 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         """Load replay frames and configure agent selector when needed."""
         from phca.monitoring.multi_agent import is_multi_agent_session, session_agent_ids
 
-        self._all_frames = list(frames)
+        with self._all_frames_lock:
+            self._all_frames = list(frames)
         if is_multi_agent_session(meta, frames=frames):
             self._multi_agent = True
             self._agent_ids = session_agent_ids(frames)
@@ -614,9 +618,11 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
     def _apply_agent_projection(self, *, rebuild: bool = True) -> None:
         from phca.monitoring.multi_agent import frames_for_agent
 
+        with self._all_frames_lock:
+            all_frames = list(self._all_frames)
         projected = (
-            frames_for_agent(self._all_frames, self._selected_agent_id)
-            if self._all_frames else []
+            frames_for_agent(all_frames, self._selected_agent_id)
+            if all_frames else []
         )
         transport = self._transport
         if transport is None or transport.clock is None:

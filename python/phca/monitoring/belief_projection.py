@@ -88,6 +88,7 @@ class BeliefProjection:
         self._sing: Optional[np.ndarray] = None
         self._prev_comp: Optional[np.ndarray] = None
         self._basis_changed: bool = False
+        self._live_skip: int = 0          # C1: only recompute SVD every 5 live frames
 
     def update(self, f: ObservabilityFrame) -> None:
         v = f.sanitized_state
@@ -103,7 +104,9 @@ class BeliefProjection:
             return
         self._buf.append(v)
         if len(self._buf) >= 4:
-            self._recompute()
+            self._live_skip += 1
+            if self._live_skip % 5 == 0:
+                self._recompute()
 
     def _recompute(self) -> None:
         M = np.array(list(self._buf), dtype=np.float64)
