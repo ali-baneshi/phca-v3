@@ -674,15 +674,17 @@ class OverviewAgentView(_BaseCanvas):
             if not _AUTOSCALE_FROZEN:
                 pulse = 0.5 + 0.5 * _m.sin(2 * _m.pi * (time.monotonic() - self._t0) * 0.8)
             p.save()
-            p.setClipRect(mind_rect)
-            gf = self._glyph_display_frame(f)
-            _draw_agent_glyph(p, gf, cx, cy, int(R), self._glyph_hist, self._t0,
-                              self._emp_sm._v, active_pulse=pulse,
-                              show_head_label=True)
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(mind_rect.x() + 4, mind_rect.bottom() - 4,
-                       "core=conf · head=MDIM · purple=τ · green arc=D3")
-            p.restore()
+            try:
+                p.setClipRect(mind_rect)
+                gf = self._glyph_display_frame(f)
+                _draw_agent_glyph(p, gf, cx, cy, int(R), self._glyph_hist, self._t0,
+                                  self._emp_sm._v, active_pulse=pulse,
+                                  show_head_label=True)
+                p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                p.drawText(mind_rect.x() + 4, mind_rect.bottom() - 4,
+                           "core=conf · head=MDIM · purple=τ · green arc=D3")
+            finally:
+                p.restore()
             # Skip body painting when live camera or valid stalled frame is showing
             _cam_showing = (
                 self._camera_mode not in ("schematic",)

@@ -52,6 +52,7 @@ class HybridGraphMLP:
         self._last_mc_per_dim_std: Optional[np.ndarray] = None
         self._last_mutual_info: float = 0.0
         self.replay_boost: bool = False
+        self._attention_weights: np.ndarray = np.ones(self.state_dim, dtype=np.float32)
 
     def predict(
         self, state: StateVector, action: np.ndarray
@@ -90,6 +91,8 @@ class HybridGraphMLP:
         state_t1: StateVector,
         error: float,
     ) -> None:
+        self.graph._attention_weights = self._attention_weights
+        self.mlp._attention_weights = self._attention_weights
         self.graph.learn(state_t, action, state_t1, error)
         self.mlp.learn(state_t, action, state_t1, error)
 

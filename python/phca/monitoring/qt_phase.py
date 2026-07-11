@@ -294,91 +294,93 @@ class TrajectoryView(_BaseCanvas):
             ax_x = dim_names[0] if (raw2d and dim_names) else "PC1"
             ax_y = dim_names[1] if (raw2d and dim_names and len(dim_names) > 1) else "PC2"
             p.save()
-            p.setClipRect(px0, py0, chart_w, chart_h)
-            for frac in (0.25, 0.5, 0.75):
-                tx = int(px0 + frac * (px1 - px0))
-                ty = int(py0 + frac * (py1 - py0))
-                p.setPen(QtGui.QPen(GRID_COL, 1))
-                p.drawLine(tx, py1, tx, py1 - 3)
-                p.drawLine(px0, ty, px0 + 3, ty)
-            is_cont = bool((f.action_rationale or {}).get("continuous", False))
-            drawn = _draw_belief_rollout_cloud(
-                p, f, self.proj, px0, py0, px1, py1,
-                self._rollout_cache,
-                replay=self._replay,
-                is_continuous=is_cont,
-                draw_anchor_label=False,
-            )
-            if not drawn and self._replay:
-                p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(px0 + 6, py0 + 14, "rollout cloud unavailable (JSONL replay)")
-            elif not drawn:
-                sc = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
-                ci = r.get("chosen_idx")
-                cidx = int(ci) if isinstance(ci, (int, float)) else (
-                    int(np.argmax(sc)) if sc else -1)
-                if sc:
-                    _draw_score_proxy_cloud(
-                        p, f, self.proj, px0, py0, px1, py1, sc, cidx)
-            tl = list(self.proj.history)
-            for i in range(1, len(tl)):
-                a, b = tl[i - 1], tl[i]
-                if a is None or b is None:
-                    continue
-                ax, ay = _map_pt(a, bounds, px0, py0, px1, py1)
-                bx, by = _map_pt(b, bounds, px0, py0, px1, py1)
-                aa = int(60 + 195 * i / max(len(tl), 1))
-                p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, aa), 2))
-                p.drawLine(ax, ay, bx, by)
-            use_san = f.sanitized_state is not None
-            cur_v = f.sanitized_state if use_san else f.obs_vector
-            cur = self.proj.project(cur_v)
-            pred = self.proj.project(f.predicted_state)
-            goal_pt = f.goal_target if f.goal_target is not None else getattr(f, "goal_ref", None)
-            goal = self.proj.project(goal_pt) if goal_pt is not None else None
-            if not use_san and self._replay:
-                p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(px0 + 6, py0 + 28, "anchor: obs_vector")
-            ell = None
-            if f.gprime_uncertainty is not None and len(f.gprime_uncertainty):
-                ell = self.proj.uncertainty_ellipse(np.asarray(f.gprime_uncertainty, dtype=np.float32))
-            if ell is not None and ell[0] is not None and cur is not None:
-                axes, ang = ell
-                ax_p, ay_p = axes
-                if ax_p > 0 and ay_p > 0:
-                    cx, cy, pix_ax, pix_ay = _ellipse_pixel_axes(
-                        cur, ax_p, ay_p, bounds, px0, py0, px1, py1)
-                    p.setBrush(QtGui.QColor(52, 152, 219, 40))
-                    p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 160), 1))
-                    p.translate(cx, cy); p.rotate(ang)
-                    p.drawEllipse(QtCore.QRectF(-pix_ax, -pix_ay, pix_ax * 2, pix_ay * 2))
-                    p.resetTransform()
-            if pred is not None:
-                pxp, pyp = _map_pt(pred, bounds, px0, py0, px1, py1)
-                p.setBrush(QtGui.QColor(46, 204, 113)); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
-                p.drawEllipse(pxp - 3, pyp - 3, 6, 6)
-            if goal is not None:
-                gx, gy = _map_pt(goal, bounds, px0, py0, px1, py1)
-                p.setBrush(QtGui.QColor(0, 0, 0, 0)); p.setPen(QtGui.QPen(ACCENT, 2))
-                p.drawEllipse(gx - 6, gy - 6, 12, 12)
-            elif self._replay:
-                p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(px0 + 6, py1 - 8, "goal unavailable (replay)")
-            if cur is not None:
-                cx, cy = _map_pt(cur, bounds, px0, py0, px1, py1)
-                p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
-                p.drawEllipse(cx - 4, cy - 4, 8, 8)
-            if varexp is not None and not raw2d:
-                p.setPen(QtGui.QColor(52, 152, 219)); p.setFont(_F_LABEL_B)
-                p.drawText(px0 + 6, py0 + 14, f"PCA {varexp:.0f}% var")
-            if not raw2d and getattr(self.proj, "basis_changed", False):
-                p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
-                p.drawText(px0 + 6, py0 + 28, "⟳ PCA re-fit")
-            self._draw_phase_drive_goals_inset(p, f, px1 - 88, py0 + 4, 80, 52)
-            if self._moment_series:
-                _draw_moment_ticks(p, px0, py0, px1, py1,
-                                   self._moment_series[-len(tl):])
-            p.restore()
+            try:
+                p.setClipRect(px0, py0, chart_w, chart_h)
+                for frac in (0.25, 0.5, 0.75):
+                    tx = int(px0 + frac * (px1 - px0))
+                    ty = int(py0 + frac * (py1 - py0))
+                    p.setPen(QtGui.QPen(GRID_COL, 1))
+                    p.drawLine(tx, py1, tx, py1 - 3)
+                    p.drawLine(px0, ty, px0 + 3, ty)
+                is_cont = bool((f.action_rationale or {}).get("continuous", False))
+                drawn = _draw_belief_rollout_cloud(
+                    p, f, self.proj, px0, py0, px1, py1,
+                    self._rollout_cache,
+                    replay=self._replay,
+                    is_continuous=is_cont,
+                    draw_anchor_label=False,
+                )
+                if not drawn and self._replay:
+                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                    p.drawText(px0 + 6, py0 + 14, "rollout cloud unavailable (JSONL replay)")
+                elif not drawn:
+                    sc = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
+                    ci = r.get("chosen_idx")
+                    cidx = int(ci) if isinstance(ci, (int, float)) else (
+                        int(np.argmax(sc)) if sc else -1)
+                    if sc:
+                        _draw_score_proxy_cloud(
+                            p, f, self.proj, px0, py0, px1, py1, sc, cidx)
+                tl = list(self.proj.history)
+                for i in range(1, len(tl)):
+                    a, b = tl[i - 1], tl[i]
+                    if a is None or b is None:
+                        continue
+                    ax, ay = _map_pt(a, bounds, px0, py0, px1, py1)
+                    bx, by = _map_pt(b, bounds, px0, py0, px1, py1)
+                    aa = int(60 + 195 * i / max(len(tl), 1))
+                    p.setPen(QtGui.QPen(QtGui.QColor(241, 196, 15, aa), 2))
+                    p.drawLine(ax, ay, bx, by)
+                use_san = f.sanitized_state is not None
+                cur_v = f.sanitized_state if use_san else f.obs_vector
+                cur = self.proj.project(cur_v)
+                pred = self.proj.project(f.predicted_state)
+                goal_pt = f.goal_target if f.goal_target is not None else getattr(f, "goal_ref", None)
+                goal = self.proj.project(goal_pt) if goal_pt is not None else None
+                if not use_san and self._replay:
+                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                    p.drawText(px0 + 6, py0 + 28, "anchor: obs_vector")
+                ell = None
+                if f.gprime_uncertainty is not None and len(f.gprime_uncertainty):
+                    ell = self.proj.uncertainty_ellipse(np.asarray(f.gprime_uncertainty, dtype=np.float32))
+                if ell is not None and ell[0] is not None and cur is not None:
+                    axes, ang = ell
+                    ax_p, ay_p = axes
+                    if ax_p > 0 and ay_p > 0:
+                        cx, cy, pix_ax, pix_ay = _ellipse_pixel_axes(
+                            cur, ax_p, ay_p, bounds, px0, py0, px1, py1)
+                        p.setBrush(QtGui.QColor(52, 152, 219, 40))
+                        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 160), 1))
+                        p.translate(cx, cy); p.rotate(ang)
+                        p.drawEllipse(QtCore.QRectF(-pix_ax, -pix_ay, pix_ax * 2, pix_ay * 2))
+                        p.resetTransform()
+                if pred is not None:
+                    pxp, pyp = _map_pt(pred, bounds, px0, py0, px1, py1)
+                    p.setBrush(QtGui.QColor(46, 204, 113)); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
+                    p.drawEllipse(pxp - 3, pyp - 3, 6, 6)
+                if goal is not None:
+                    gx, gy = _map_pt(goal, bounds, px0, py0, px1, py1)
+                    p.setBrush(QtGui.QColor(0, 0, 0, 0)); p.setPen(QtGui.QPen(ACCENT, 2))
+                    p.drawEllipse(gx - 6, gy - 6, 12, 12)
+                elif self._replay:
+                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                    p.drawText(px0 + 6, py1 - 8, "goal unavailable (replay)")
+                if cur is not None:
+                    cx, cy = _map_pt(cur, bounds, px0, py0, px1, py1)
+                    p.setBrush(ACCENT); p.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255), 1))
+                    p.drawEllipse(cx - 4, cy - 4, 8, 8)
+                if varexp is not None and not raw2d:
+                    p.setPen(QtGui.QColor(52, 152, 219)); p.setFont(_F_LABEL_B)
+                    p.drawText(px0 + 6, py0 + 14, f"PCA {varexp:.0f}% var")
+                if not raw2d and getattr(self.proj, "basis_changed", False):
+                    p.setPen(QtGui.QColor(241, 196, 15)); p.setFont(_F_LABEL_B)
+                    p.drawText(px0 + 6, py0 + 28, "⟳ PCA re-fit")
+                self._draw_phase_drive_goals_inset(p, f, px1 - 88, py0 + 4, 80, 52)
+                if self._moment_series:
+                    _draw_moment_ticks(p, px0, py0, px1, py1,
+                                       self._moment_series[-len(tl):])
+            finally:
+                p.restore()
             if drawn or rollouts:
                 _draw_rollout_score_legend(p, px0 + 4, py1 - 16, chart_w - 8, 14)
             p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
@@ -755,32 +757,34 @@ class _PhasePortraitView(_BaseCanvas):
         _, mx = self._scale.update(0.0, float(raw_max if raw_max > 1e-6 else 1.0))
         mx = mx if mx > 1e-6 else 1.0
         p.save()
-        p.setClipRect(chart_x, top, chart_w, bot - top)
-        r = f.action_rationale or {}
-        ci = r.get("chosen_idx")
-        chosen_dim = int(ci) if isinstance(ci, (int, float)) else -1
-        for i in range(n):
-            x = 20 + i * bw
-            eh = int(errs_s[i] / mx * (bot - top))
-            if std_s is not None and i < len(std_s):
-                y_e = bot - eh
-                s_pix = float(std_s[i]) / mx * (bot - top)
-                p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 140), 1))
-                p.drawLine(int(x + bw / 2), int(y_e - s_pix), int(x + bw / 2), int(y_e + s_pix))
-                p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
-                p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
-            is_chosen_dim = (int(idx[i]) == chosen_dim and chosen_dim >= 0)
-            if is_chosen_dim:
-                p.setPen(QtGui.QPen(ACCENT, 2))
-                p.setBrush(QtGui.QColor(241, 196, 15, CHIP_FILL_ALPHA))
-                p.drawRoundedRect(int(x), int(bot - eh - 2), int(bw - 4), eh + 4, 2, 2)
-            p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
-            if peu_a is not None and int(idx[i]) < len(peu_a):
-                pe = float(peu_a[int(idx[i])])
-                ph = int(pe / mx * (bot - top) * 0.5)
-                p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
-                           QtGui.QColor(150, 150, 160, 140))
-        p.restore()
+        try:
+            p.setClipRect(chart_x, top, chart_w, bot - top)
+            r = f.action_rationale or {}
+            ci = r.get("chosen_idx")
+            chosen_dim = int(ci) if isinstance(ci, (int, float)) else -1
+            for i in range(n):
+                x = 20 + i * bw
+                eh = int(errs_s[i] / mx * (bot - top))
+                if std_s is not None and i < len(std_s):
+                    y_e = bot - eh
+                    s_pix = float(std_s[i]) / mx * (bot - top)
+                    p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, 140), 1))
+                    p.drawLine(int(x + bw / 2), int(y_e - s_pix), int(x + bw / 2), int(y_e + s_pix))
+                    p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
+                    p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
+                is_chosen_dim = (int(idx[i]) == chosen_dim and chosen_dim >= 0)
+                if is_chosen_dim:
+                    p.setPen(QtGui.QPen(ACCENT, 2))
+                    p.setBrush(QtGui.QColor(241, 196, 15, CHIP_FILL_ALPHA))
+                    p.drawRoundedRect(int(x), int(bot - eh - 2), int(bw - 4), eh + 4, 2, 2)
+                p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
+                if peu_a is not None and int(idx[i]) < len(peu_a):
+                    pe = float(peu_a[int(idx[i])])
+                    ph = int(pe / mx * (bot - top) * 0.5)
+                    p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
+                               QtGui.QColor(150, 150, 160, 140))
+        finally:
+            p.restore()
         if bot + 14 <= h - 14:
             p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
             for i in range(n):
@@ -845,10 +849,12 @@ class _PhasePortraitView(_BaseCanvas):
             py = y + h - frac * (h - 4) - 2
             (path.moveTo if i == 0 else path.lineTo)(px, py)
         p.save()
-        p.setClipRect(x, y, w, h)
-        p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60, 200), 1))
-        p.drawPath(path)
-        p.restore()
+        try:
+            p.setClipRect(x, y, w, h)
+            p.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60, 200), 1))
+            p.drawPath(path)
+        finally:
+            p.restore()
         p.setPen(_FOOTER_COL); p.setFont(_F_LABEL)
         for i in range(0, n, max(1, n // 8)):
             lx = int(x + i * step) - 8

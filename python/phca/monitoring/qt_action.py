@@ -221,36 +221,40 @@ class CandidateScoreView(_BaseCanvas):
         drawn = False
         if rollouts and self.proj is not None and self.proj.history:
             p.save()
-            p.setClipRect(px0, py0, px1 - px0, py1 - py0)
-            drawn = _draw_belief_rollout_cloud(
-                p, f, self.proj, px0, py0, px1, py1, self._rollout_cache,
-                replay=self._replay, is_continuous=is_continuous)
-            tau = f.continuous_action if f.continuous_action is not None else self.last_continuous
-            if tau is None and getattr(f, "last_action_vector", None) is not None:
-                tau = f.last_action_vector
-            if is_continuous and tau is not None:
-                cur_v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
-                anchor = self.proj.project(cur_v) if cur_v is not None else None
-                if anchor is not None:
-                    bounds = self.proj.bounds()
-                    tcx, tcy = _map_pt(anchor, bounds, px0, py0, px1, py1)
-                else:
-                    tcx, tcy = (px0 + px1) // 2, (py0 + py1) // 2
-                tv = np.asarray(tau, dtype=np.float32).reshape(-1)
-                if tv.size >= 2:
-                    sc = min(px1 - px0, py1 - py0) * 0.15
-                    p.setPen(QtGui.QPen(ACCENT, 2))
-                    p.drawLine(tcx, tcy, int(tcx + float(tv[0]) * sc),
-                               int(tcy - float(tv[1]) * sc))
-                    p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                    p.drawText(tcx + 4, tcy - 4, "τ")
-            p.restore()
+            try:
+                p.setClipRect(px0, py0, px1 - px0, py1 - py0)
+                drawn = _draw_belief_rollout_cloud(
+                    p, f, self.proj, px0, py0, px1, py1, self._rollout_cache,
+                    replay=self._replay, is_continuous=is_continuous)
+                tau = f.continuous_action if f.continuous_action is not None else self.last_continuous
+                if tau is None and getattr(f, "last_action_vector", None) is not None:
+                    tau = f.last_action_vector
+                if is_continuous and tau is not None:
+                    cur_v = f.sanitized_state if f.sanitized_state is not None else f.obs_vector
+                    anchor = self.proj.project(cur_v) if cur_v is not None else None
+                    if anchor is not None:
+                        bounds = self.proj.bounds()
+                        tcx, tcy = _map_pt(anchor, bounds, px0, py0, px1, py1)
+                    else:
+                        tcx, tcy = (px0 + px1) // 2, (py0 + py1) // 2
+                    tv = np.asarray(tau, dtype=np.float32).reshape(-1)
+                    if tv.size >= 2:
+                        sc = min(px1 - px0, py1 - py0) * 0.15
+                        p.setPen(QtGui.QPen(ACCENT, 2))
+                        p.drawLine(tcx, tcy, int(tcx + float(tv[0]) * sc),
+                                   int(tcy - float(tv[1]) * sc))
+                        p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                        p.drawText(tcx + 4, tcy - 4, "τ")
+            finally:
+                p.restore()
         elif has_scores and self.proj is not None and self.proj.history:
             p.save()
-            p.setClipRect(px0, py0, px1 - px0, py1 - py0)
-            drawn = _draw_score_proxy_cloud(
-                p, f, self.proj, px0, py0, px1, py1, scores, chosen_idx)
-            p.restore()
+            try:
+                p.setClipRect(px0, py0, px1 - px0, py1 - py0)
+                drawn = _draw_score_proxy_cloud(
+                    p, f, self.proj, px0, py0, px1, py1, scores, chosen_idx)
+            finally:
+                p.restore()
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(px0 + 4, py0 + 12, "score proxy cloud (rollouts pending)")
         elif not rollouts:

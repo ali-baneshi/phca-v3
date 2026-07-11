@@ -23,6 +23,7 @@ import numpy as np
 import _bootstrap  # noqa: F401
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
+from phca.evaluation.interventions import InterventionConfig
 from phca.world_model.mlp import apply_grid_rbta_bounds
 from phca.evaluation.metrics.phi_iq import (
     check_pass_criteria,
@@ -39,8 +40,9 @@ from phca.logging import ensure_logging
 class BenchmarkRunner:
     """Runs the Φ-IQ benchmark suite across multiple levels."""
 
-    def __init__(self, config: Optional[BenchmarkConfig] = None):
+    def __init__(self, config: Optional[BenchmarkConfig] = None, interventions: Optional[InterventionConfig] = None):
         self.config = config or BenchmarkConfig()
+        self.interventions = interventions
         self.report = BenchmarkReport(config=self.config)
 
     def run_all(self, levels: Optional[List[int]] = None) -> BenchmarkReport:
@@ -89,6 +91,10 @@ class BenchmarkRunner:
                 self.config.seed + level, self.config.grid_size,
             )
 
+        # L3 (Self-Motivated Exploration) should test MDIM drive diversity
+        level_iv = self.interventions
+        if level == 3 and level_iv is None:
+            level_iv = InterventionConfig(disable_task_lock=True)
         cycle = CognitiveCycle.build_for_env(
             size=self.config.grid_size,
             seed=self.config.seed + level,
@@ -96,6 +102,7 @@ class BenchmarkRunner:
             use_mlp=self.config.use_mlp,
             obstacles=obstacles,
             action_slip=self.config.action_slip,
+            interventions=level_iv,
         )
 
         apply_grid_rbta_bounds(
@@ -300,6 +307,8 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=1)
     parser.add_argument("--grid-size", type=int, default=5, choices=[5, 10, 20])
     parser.add_argument("--action-slip", type=float, default=0.0)
+    parser.add_argument("--disable-task-lock", action="store_true",
+                        help="Disable task-lock: let MDIM 6-drive run, use prediction-scored action for all levels")
     parser.add_argument("--allow-fail", action="store_true",
                         help="Exit 0 even when pass criteria fail (validation scaling)")
     args = parser.parse_args()
@@ -328,12 +337,15 @@ def main() -> None:
         grid_size=args.grid_size,
         action_slip=args.action_slip,
     )
+    interventions = None
+    if args.disable_task_lock:
+        interventions = InterventionConfig(disable_task_lock=True)
     multi_seed_data: Optional[Dict[str, Any]] = None
     if args.seeds > 1:
         report, multi_seed_data = run_multiseed(levels, config, args.seeds)
         print_report(report)
     else:
-        runner = BenchmarkRunner(config)
+        runner = BenchmarkRunner(config, interventions=interventions)
         report = runner.run_all(levels)
         print_report(report)
 

@@ -1455,14 +1455,16 @@ def _draw_overview_tau_bar(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCor
     act = f.continuous_action if f.continuous_action is not None else f.last_action_vector
     dim_names = list(getattr(f, "dim_names", []) or [])
     p.save()
-    p.setClipRect(tau_rect)
-    p.fillRect(tau_rect, QtGui.QColor(12, 12, 16))
-    _draw_tau_bar(p, act, dim_names, tau_rect.x(), tau_rect.y(),
-                  tau_rect.width(), tau_rect.height())
-    p.setPen(DIM_COL)
-    p.setFont(_F_AXIS)
-    p.drawText(x + 8, tau_rect.y() + 12, "Flow → timings  |  Candidates → scores")
-    p.restore()
+    try:
+        p.setClipRect(tau_rect)
+        p.fillRect(tau_rect, QtGui.QColor(12, 12, 16))
+        _draw_tau_bar(p, act, dim_names, tau_rect.x(), tau_rect.y(),
+                      tau_rect.width(), tau_rect.height())
+        p.setPen(DIM_COL)
+        p.setFont(_F_AXIS)
+        p.drawText(x + 8, tau_rect.y() + 12, "Flow → timings  |  Candidates → scores")
+    finally:
+        p.restore()
 
 
 def _draw_phase_grid_base(

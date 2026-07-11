@@ -125,6 +125,8 @@ class WorldModelGPrime:
         self._last_pred_std: Optional[np.ndarray] = None
         # Bayesian posterior entropy for RBTA (set by predict/predict_continuous).
         self._last_mutual_info: float = 0.5
+        # Per-dimension attention weights (set by cycle.py each step)
+        self._attention_weights: np.ndarray = np.ones(state_dim, dtype=np.float32)
 
     # ── Graph Construction ────────────────────────────────────
 

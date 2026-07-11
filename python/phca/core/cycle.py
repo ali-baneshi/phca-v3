@@ -83,8 +83,6 @@ if TYPE_CHECKING:
 # ~30M FLOPs (MLP forward at h=128, bs=32, ts=4) ≈ 0.5 on energy scale.
 ENERGY_NORM_FLOPS = 60_000_000.0
 
-# Task-lock uses geometry-primary greedy only when G' confidence is high (P0-2 aligned).
-TASK_LOCK_CONFIDENCE_THRESHOLD = 0.6
 STEADY_STATE_GPRIME_ERROR_THRESHOLD = 1.5
 STEADY_STATE_GPRIME_SKIP_MOD = 2
 
@@ -922,8 +920,7 @@ class CognitiveCycle:
                 self._last_m3_replay_steps = 0
             else:
                 attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
-                if hasattr(self.gprime, '_attention_weights'):
-                    self.gprime._attention_weights = self._attention_weights.copy()
+                self.gprime._attention_weights = self._attention_weights.copy()
                 self.gprime.learn(
                     self.current_state, action_vec, next_state,
                     error=attn_weighted_error,
@@ -1612,51 +1609,12 @@ class CognitiveCycle:
             self.last_candidate_rollouts = []
             return self.env.stay_action
 
-        # Task-lock: geometry-primary when G' is confident; else fall through to
-        # blended scorer (per-candidate predict) for prediction-primary selection.
-        _cycle_conf = (
-            float(self.last_prediction.precision[0])
-            if self.last_prediction is not None
-            else 0.0
-        )
-        if (
-            self._task_lock
-            and hasattr(self.env, "agent_pos")
-            and _cycle_conf >= TASK_LOCK_CONFIDENCE_THRESHOLD
-        ):
-            spec = getattr(self.env, "spec", None)
-            long_horizon = bool(getattr(spec, "dynamic_goals_every", 0))
-            explore_ties = self._goal_switch_cooldown > 0 or bool(
-                getattr(self.env, "switch_cycles", [])
-            )
-            goal_pos = self.env.get_goal_position()
-            on_goal = (
-                goal_pos is not None
-                and tuple(self.env.agent_pos) == tuple(goal_pos)
-            )
-            sparse_probe = long_horizon and on_goal and (
-                self.cycle_count % 50 == 0
-                or self._goal_switch_cooldown >= 14
-            )
-            greedy_action, greedy_score, greedy_comp = self._select_greedy_grid_action(
-                explore_ties=explore_ties,
-                at_goal_explore=sparse_probe,
-            )
-            self.last_candidate_scores = []
-            self.last_candidate_rollouts = []
-            self.last_action_rationale = self._finalize_action_rationale({
-                "explored": False, "eps": 0.0,
-                "goal_id": int(goal_id), "continuous": False,
-                "best_score": float(greedy_score),
-                "k_candidates": int(self.env.action_space_size),
-                "chosen_idx": int(greedy_action),
-                "task_lock": True,
-                "greedy_fallback": True,
-                "selector_mode": "task_lock_planner",
-                "score_components": greedy_comp,
-                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-            }, decision_reason="greedy_fallback")
-            return greedy_action
+        # Task-lock modulates goal context; prediction-scored path always runs.
+        # Geometry suggestion (BFS/Manhattan) is blended as an uncertainty-weighted
+        # prior — strongest when G' is uncertain, fading as confidence grows.
+        geo_action: Optional[int] = None
+        if hasattr(self.env, "agent_pos") and self.env.get_goal_position() is not None:
+            geo_action, _, _ = self._select_greedy_grid_action()
 
         best_action = self.env.stay_action
         best_score = -float("inf")
@@ -1699,12 +1657,9 @@ class CognitiveCycle:
                 conf = min(confidence, 1.0)
                 alignment = 0.0
 
-                # P0-2: prediction-primary under low confidence; task-lock stays geometry-primary
+                # P0-2: prediction-primary when model is uncertain (explore via G')
                 mean_conf_preview = float(np.mean(action_confidences)) if action_confidences else conf
-                if self._task_lock:
-                    prediction_primary = False
-                else:
-                    prediction_primary = mean_conf_preview < 0.4
+                prediction_primary = mean_conf_preview < 0.4
 
                 if goal_id in (1, 3):
                     if target is not None:
@@ -1729,6 +1684,11 @@ class CognitiveCycle:
                     state_align = self._state_space_alignment(predicted, target)
                     score = state_align
                     alignment = state_align
+
+                # Geometry prior: boost action matching BFS/Manhattan when G' uncertain
+                if geo_action is not None and action_idx == geo_action:
+                    w_geo = max(0.0, 0.5 - conf)
+                    score += w_geo * (1.0 - float(distance_gain))
 
                 scores_per_action[action_idx] = float(score)
                 if score > best_score:
@@ -1761,10 +1721,6 @@ class CognitiveCycle:
         else:
             self.last_candidate_rollouts = []
 
-        _gated_fallback = (
-            self._task_lock
-            and _cycle_conf < TASK_LOCK_CONFIDENCE_THRESHOLD
-        )
         self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
@@ -1772,7 +1728,6 @@ class CognitiveCycle:
             "k_candidates": int(self.env.action_space_size),
             "chosen_idx": int(best_action),
             "task_lock": bool(self._task_lock),
-            "prediction_gated_fallback": bool(_gated_fallback),
             "selector_mode": "prediction_scored",
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
@@ -2346,7 +2301,110 @@ class CognitiveCycle:
             gprime_energy = self._cycle_flops / ENERGY_NORM_FLOPS
             self.energy_log["G'"] = max(0.1, min(10.0, gprime_energy))
         # Belief entropy from MC-dropout epistemic uncertainty (A3: Incomplete Knowledge)
-        self.belief_entropies = {"G'": self._epistemic_entropy()}
+        # Collect entropy for all modules with entropy_floor bounds so RBTA
+        # can enforce the invariant globally, not just on G'.
+        g_entropy = self._epistemic_entropy()
+        self.belief_entropies = {"G'": g_entropy}
+        # MDIM drive-deficit entropy: how spread out drive selection is
+        if hasattr(self, "mdim") and self.mdim is not None:
+            deficits = np.array([self.mdim.drives[d].deficit for d in range(1, 7)], dtype=np.float64)
+            d_norm = deficits / (deficits.sum() + 1e-8)
+            d_ent = float(-np.sum(d_norm * np.log(d_norm + 1e-8))) / np.log(6.0)
+            self.belief_entropies["MDIM"] = d_ent
+        # Attention weight entropy
+        if hasattr(self, "_attention_weights") and self._attention_weights is not None:
+            aw_abs = np.abs(self._attention_weights).flatten()
+            aw_norm = aw_abs / (aw_abs.sum() + 1e-8)
+            aw_norm = np.clip(aw_norm, 1e-8, 1.0)
+            attn_ent = float(-np.sum(aw_norm * np.log(aw_norm))) / np.log(len(aw_norm))
+            self.belief_entropies["ATTN"] = attn_ent
+        # Nominal entropy for remaining modules (above default floor 0.01)
+        for mod in ("ASI", "WM", "PE", "PEU", "TSPL-P", "CR", "HPM", "CONSOL", "ACTION"):
+            if mod not in self.belief_entropies:
+                self.belief_entropies[mod] = 0.1
+
+    # ── G' Factory Helpers ────────────────────────────────────
+
+    @staticmethod
+    def _build_discrete_graph_nodes(graph: Any, state_dim: int) -> None:
+        """Populate a discrete G' with binary state-nodes and temporal edges.
+
+        Shared by the discrete-only and hybrid (ensemble) branches to
+        eliminate a ~15-line duplication.
+        """
+        from phca.world_model.graph import StateNode, TemporalEdge
+
+        for i in range(min(state_dim, 10)):
+            name_t = f"s{i}_t"
+            name_t1 = f"s{i}_t1"
+            graph.add_node(StateNode(
+                name=name_t, cpd_type="discrete", parents=[],
+                cardinality=2,
+                params=np.array([[0.5], [0.5]], dtype=np.float32),
+            ))
+            graph.add_node(StateNode(
+                name=name_t1, cpd_type="discrete", parents=[name_t],
+                cardinality=2,
+                params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
+            ))
+            graph.add_temporal_edge(TemporalEdge(
+                source=name_t, target=name_t1, lag=1,
+            ))
+
+    @classmethod
+    def _build_gprime(
+        cls,
+        state_dim: int,
+        action_dim: int,
+        use_mlp: bool = False,
+        use_continuous: bool = False,
+        use_ensemble: bool = False,
+        mlp_hidden_dim: int = 128,
+        mlp_lr: float = 0.2,
+        seed: int = 42,
+    ) -> Any:
+        """Build the world-model (G') module, dispatching by mode.
+
+        Supports four modes:
+          - ensemble:  HybridGraphMLP (graph + MLP)
+          - use_mlp:   WorldModelMLP (pure NumPy)
+          - continuous: WorldModelGPrime (Gaussian CPDs)
+          - discrete:  WorldModelGPrime (binary pgmpy, default)
+        """
+
+        if use_ensemble:
+            from phca.world_model.graph import WorldModelGPrime
+            from phca.world_model.hybrid import HybridGraphMLP
+
+            graph = WorldModelGPrime(
+                state_dim=state_dim, action_dim=action_dim, seed=seed,
+            )
+            cls._build_discrete_graph_nodes(graph, state_dim)
+            mlp = WorldModelMLP(
+                state_dim=state_dim, action_dim=action_dim,
+                hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
+            )
+            return HybridGraphMLP(graph_model=graph, mlp_model=mlp)
+        elif use_mlp:
+            return WorldModelMLP(
+                state_dim=state_dim, action_dim=action_dim,
+                hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
+            )
+        elif use_continuous:
+            from phca.world_model.graph import WorldModelGPrime
+
+            return WorldModelGPrime.build_gaussian_grid(
+                state_dim=state_dim, action_dim=action_dim,
+                transition_std=0.5, seed=seed,
+            )
+        else:
+            from phca.world_model.graph import WorldModelGPrime
+
+            gprime = WorldModelGPrime(
+                state_dim=state_dim, action_dim=action_dim, seed=seed,
+            )
+            cls._build_discrete_graph_nodes(gprime, state_dim)
+            return gprime
 
     # ── Unified Builder (Phase 4) ─────────────────────────────
 
@@ -2409,80 +2467,16 @@ class CognitiveCycle:
         m2 = M2WorkingMemory(capacity=7)
 
         use_ensemble = getattr(interventions, "prediction_mode", "normal") == "ensemble"
-        if use_ensemble:
-            from phca.world_model.graph import StateNode, TemporalEdge, WorldModelGPrime
-
-            graph = WorldModelGPrime(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                seed=seed,
-            )
-            for i in range(min(state_dim, 10)):
-                name_t = f"s{i}_t"
-                name_t1 = f"s{i}_t1"
-                graph.add_node(StateNode(
-                    name=name_t, cpd_type="discrete", parents=[],
-                    cardinality=2,
-                    params=np.array([[0.5], [0.5]], dtype=np.float32),
-                ))
-                graph.add_node(StateNode(
-                    name=name_t1, cpd_type="discrete", parents=[name_t],
-                    cardinality=2,
-                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
-                ))
-                graph.add_temporal_edge(TemporalEdge(
-                    source=name_t, target=name_t1, lag=1,
-                ))
-            mlp = WorldModelMLP(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                hidden_dim=mlp_hidden_dim,
-                seed=seed,
-                lr=mlp_lr,
-            )
-            gprime = HybridGraphMLP(graph_model=graph, mlp_model=mlp)
-        elif use_mlp:
-            gprime = WorldModelMLP(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                hidden_dim=mlp_hidden_dim,
-                seed=seed,
-                lr=mlp_lr,
-            )
-        elif use_continuous:
-            from phca.world_model.graph import WorldModelGPrime
-
-            gprime = WorldModelGPrime.build_gaussian_grid(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                transition_std=0.5,
-                seed=seed,
-            )
-        else:
-            # Phase 3.1: Discrete binary G' with pgmpy exact inference
-            from phca.world_model.graph import StateNode, TemporalEdge, WorldModelGPrime
-
-            gprime = WorldModelGPrime(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                seed=seed,
-            )
-            for i in range(min(state_dim, 10)):
-                name_t = f"s{i}_t"
-                name_t1 = f"s{i}_t1"
-                gprime.add_node(StateNode(
-                    name=name_t, cpd_type="discrete", parents=[],
-                    cardinality=2,
-                    params=np.array([[0.5], [0.5]], dtype=np.float32),
-                ))
-                gprime.add_node(StateNode(
-                    name=name_t1, cpd_type="discrete", parents=[name_t],
-                    cardinality=2,
-                    params=np.array([[0.6, 0.4], [0.4, 0.6]], dtype=np.float32),
-                ))
-                gprime.add_temporal_edge(TemporalEdge(
-                    source=name_t, target=name_t1, lag=1,
-                ))
+        gprime = cls._build_gprime(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            use_mlp=use_mlp,
+            use_continuous=use_continuous,
+            use_ensemble=use_ensemble,
+            mlp_hidden_dim=mlp_hidden_dim,
+            mlp_lr=mlp_lr,
+            seed=seed,
+        )
 
         engine = PredictionEngine(gprime)
         peu = PredictionErrorUnit()

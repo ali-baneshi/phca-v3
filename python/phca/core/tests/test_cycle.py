@@ -158,7 +158,7 @@ class TestCognitiveCycleCollectLogs:
         assert cycle._epistemic_entropy() == pytest.approx(0.0)
 
     def test_task_lock_low_confidence_uses_blended_scorer(self):
-        """Task-lock with low G' confidence falls through to per-candidate predict."""
+        """Task-lock with low G' confidence uses prediction-scored path (always on)."""
         from phca.prediction.engine import PredictionEngine
 
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
@@ -186,12 +186,12 @@ class TestCognitiveCycleCollectLogs:
             with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
                 cycle._select_action()
             assert calls["n"] >= 2
-            assert cycle.last_action_rationale.get("prediction_gated_fallback") is True
+            assert cycle.last_action_rationale.get("selector_mode") == "prediction_scored"
         finally:
             PredictionEngine.predict = orig
 
-    def test_task_lock_high_confidence_uses_greedy(self):
-        """Task-lock with high G' confidence uses geometry-primary greedy."""
+    def test_task_lock_high_confidence_still_uses_prediction(self):
+        """Task-lock with high G' confidence still uses prediction-scored path (no bypass)."""
         from phca.prediction.engine import PredictionEngine
 
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
@@ -218,11 +218,10 @@ class TestCognitiveCycleCollectLogs:
         try:
             with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
                 cycle._select_action()
-            assert calls["n"] == 0
-            assert cycle.last_action_rationale.get("decision_reason") == "greedy_fallback"
+            assert calls["n"] >= 2  # prediction always called, no geometry bypass
+            assert cycle.last_action_rationale.get("selector_mode") == "prediction_scored"
         finally:
             PredictionEngine.predict = orig
-        assert cycle.last_action_rationale.get("selector_mode") == "task_lock_planner"
 
     def test_prediction_path_marks_selector_mode(self):
         """Low-confidence discrete selection reports prediction_scored path."""

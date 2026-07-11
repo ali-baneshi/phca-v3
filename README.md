@@ -15,7 +15,7 @@
 
 **PHCA v3.0** is a research codebase for studying **resource-bounded cognitive agents** — systems that perceive, predict, remember, and act under explicit limits on time, memory, energy, and belief entropy.
 
-Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (discrete geometry on GridWorld, or MPC on continuous MuJoCo) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. Temporal order and discrete vs continuous paths are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log. A dual-signal **FallbackController** (`python/phca/resilience/fallback_controller.py`) provides an additional fail-closed layer triggered by entropy-band overlap or FailureDetector cascade.
+Rather than collapsing cognition into a single learner, the implementation wires specialised modules into a **12-step cognitive cycle** orchestrated by [`phca/core/cycle.py`](python/phca/core/cycle.py). Each cycle follows: sanitise (ASI) → working memory (M1/M2) → G′ predict → MDIM/APC/attention regulate → action (unified prediction-scored selector for all envs, with confidence-weighted geometry prior) → `env.step` → PEU error → TSPL + G′.learn → RBTA enforce → consolidate (M3) → advance. The old `task_lock` geometry-bypass path was removed in 2026-07-11 — all action selection goes through G′ prediction and MDIM 6-drive competition. Temporal order and selector details are documented in [docs/action_selection.md](docs/action_selection.md). The Resource-Bounded Turing Supervisor ([`phca/regulation/rbta_enforcer.py`](python/phca/regulation/rbta_enforcer.py)) checks per-module time, memory, energy, and entropy-floor bounds each cycle; on violation it can interrupt rollouts or terminate to a safe action (D-113), not merely log. A dual-signal **FallbackController** (`python/phca/resilience/fallback_controller.py`) provides an additional fail-closed layer triggered by entropy-band overlap or FailureDetector cascade.
 
 **Research framing.** PHCA studies agents that adapt from **prediction error** and intrinsic MDIM drives, not from an external reward function optimised by RL — avoiding reward hacking at the cost of narrower task scope. The method is a modular cycle plus **falsifiable invariants A1–A5** (`scripts/assumption_validation.py --ci`, run on **nightly** / extended local CI — not every PR job). Evidence in this repo: Φ-IQ GridWorld composite, causal GridWorld gate, MuJoCo smoke benchmarks, Level-4-lite continual metrics, cognitive resilience injectables (E1 FallbackController + NoiseInjector), hybrid-map ablation, and nightly hardening gates. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) and [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) for honest gate status.
 
@@ -304,9 +304,9 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
 on three scenario levels: simple navigation, constrained partial observation,
 and long-horizon goal switching/interruption. Current 200-cycle × 5-seed result:
 Levels 1–3 **pass** versus gated controls (`random`; L2/L3 also vs `greedy_observed`).
-Greedy full-info remains a ceiling on all levels. PHCA GridWorld policy uses
-task-lock observed-greedy navigation with sparse L3 coverage probes; it does not
-yet exploit memory/consolidation for action selection on grid tasks.
+Greedy full-info remains a ceiling on all levels. PHCA action selection uses the
+unified prediction-scored path with all 6 MDIM drives active (no `task_lock`
+bypass as of 2026-07-11).
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md).
 
@@ -337,8 +337,10 @@ the vectorisation (see Limitations / D-092).
 Phase 6/7, each env declares its true action space via `get_action_space()`:
 Pendulum-v1 (`ContinuousSpace([-2,2], dim=1)`) and Reacher-v5 (`ContinuousSpace([-1,1]², dim=2)`)
 use an MPC-style, prediction-driven sampler (no reward, no policy gradient).
-Cartpole stays on a discrete 3-bin path — the **clean A4 prediction-primary path**
-is the continuous MPC selector (Pendulum, Reacher). MuJoCo is opt-in
+Cartpole and GridWorld use the same prediction-scored path, with a
+confidence-weighted geometry prior for discrete actions. The old `task_lock`
+bypass was removed in 2026-07-11: all action selection is prediction-primary.
+MuJoCo is opt-in
 (`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
 
 **MuJoCo RBTA bounds** (D-128, D-131, `build_for_mujoco` only): G′ time **0.120 s**;

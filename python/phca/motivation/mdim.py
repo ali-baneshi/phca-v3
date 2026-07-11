@@ -433,24 +433,22 @@ class MDIM:
         )
         weights = exp_deficits / (exp_deficits.sum() + 1e-8)
 
-        # Task-lock: force D1 when extrinsic goal is active (P0-3).
-        if context.get("task_lock"):
-            winner = 1
-        else:
-            rng = np.random.RandomState(self._cycle)
-            winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
-            prev_goal = self.current_goal
-            prev_drive_id = int(getattr(prev_goal, "drive_id", 0) or 0)
-            if prev_drive_id:
-                prev_weight = float(weights[prev_drive_id - 1])
-                winner_weight = float(weights[winner - 1])
-                if (
-                    prev_goal is not None
-                    and winner != prev_drive_id
-                    and not context.get("goal_switch_boost")
-                    and prev_weight >= winner_weight * self._goal_switch_hysteresis_ratio
-                ):
-                    winner = prev_drive_id
+        # All 6 drives compete via softmax; task_lock provides context signals
+        # (prediction_error, model_entropy, etc.) that naturally influence deficits.
+        rng = np.random.RandomState(self._cycle)
+        winner = int(rng.choice(6, p=weights)) + 1  # 1-indexed
+        prev_goal = self.current_goal
+        prev_drive_id = int(getattr(prev_goal, "drive_id", 0) or 0)
+        if prev_drive_id:
+            prev_weight = float(weights[prev_drive_id - 1])
+            winner_weight = float(weights[winner - 1])
+            if (
+                prev_goal is not None
+                and winner != prev_drive_id
+                and not context.get("goal_switch_boost")
+                and prev_weight >= winner_weight * self._goal_switch_hysteresis_ratio
+            ):
+                winner = prev_drive_id
 
         # Generate goal from winning drive
         goal = self._goal_from_drive(winner, weights[int(winner) - 1], context)

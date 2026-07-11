@@ -30,7 +30,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
 | **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
 | **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** |
-| **A4** Prediction + Spatial Heuristics as Hybrid Cognitive Map | G′ predict every cycle + spatial heuristics for discrete navigation | A4 test on continuous MPC + hybrid selector metrics | **Hybrid Cognitive Map** (D-136) — GridWorld: confidence-gated task_lock (τ=0.6) with Manhattan/BFS geometry + blended G′ fallback; continuous MPC remains prediction-primary (measured) |
+| **A4** Prediction as Primary | G′ predict every cycle, unified prediction-scored action selection | A4 test on all envs | **Unified scorer** — task_lock geometry-bypass removed (2026-07-11). All action selection uses prediction-scored path with confidence-weighted geometry prior. MDIM 6-drive always active. Continuous MPC remains prediction-primary. |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) for behavioral
@@ -113,9 +113,9 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 ## Action Selection Modes
 
 | Environment | Mode | A4 "prediction-primary"? |
-|---|---|---|
-| GridWorld discrete | Confidence-gated task_lock (τ=0.6) + Manhattan/BFS geometry + blended G′ fallback | **Hybrid Cognitive Map** (D-136) |
-| Cartpole | 3-bin discrete | **Partial** |
+|---|---|---|---|
+| GridWorld discrete | Unified prediction-scored argmax with confidence-weighted geometry prior; no task_lock bypass | **Yes** (task_lock bypass removed 2026-07-11) |
+| Cartpole | 3-bin discrete (unified path) | **Yes** |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |
 

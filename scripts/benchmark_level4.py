@@ -329,6 +329,12 @@ def run_level4_benchmark(
                 _forward_transfer = forward_transfer(_perf_only)
             except Exception:
                 pass
+        # Model-level forgetting: prediction error on old tasks during eval
+        eval_pred_errors: Dict[int, float] = {}
+        for tid, hist in per_task_history.items():
+            errs = [m.prediction_error for m in hist if m.prediction_error > 0]
+            eval_pred_errors[tid] = float(np.mean(errs)) if errs else 0.0
+
         seed_entry: Dict[str, Any] = {
             "seed": seed,
             "baselines": baselines,
@@ -338,6 +344,7 @@ def run_level4_benchmark(
             "forgetting_rate": forgetting_rate(delta),
             "passes_gate": passes_forgetting_gate(delta),
             "per_task_accuracy": current,
+            "eval_prediction_error": eval_pred_errors,
             "forward_transfer": _forward_transfer,
             "m3_replay_total": cycle._m3_replay_total,
             "novel_goal_rate": cycle.mdim.snapshot().get("novel_goal_rate", 0.0) if hasattr(cycle, "mdim") and cycle.mdim is not None else 0.0,
@@ -399,6 +406,10 @@ def run_level4_benchmark(
         "passes_gate": passes_forgetting_gate(agg_delta),
         "per_task_accuracy": {
             tid: float(np.mean([r["per_task_accuracy"].get(tid, 0.0) for r in seed_results]))
+            for tid in range(n_tasks)
+        },
+        "eval_prediction_error": {
+            tid: float(np.mean([r["eval_prediction_error"].get(tid, 0.0) for r in seed_results]))
             for tid in range(n_tasks)
         },
         "forward_transfer": {

@@ -189,17 +189,25 @@ class RBTAEnforcer:
     def _classify_action(self, violations: List[ConstraintViolation]) -> EnforcerAction:
         """Classify aggregate enforcement action (v3.0 §2.1 Definition 2.3).
 
-        0 violations → CONTINUE
-        1-2 violations → INTERRUPT
-        3+ violations → TERMINATE
+        Uses severity-weighted sum: a severe TIME overrun counts more than
+        a barely-over ENTROPY floor. Thresholds calibrated for grid envs.
+
+        0 weighted-severity → CONTINUE
+        0.1–1.5 → INTERRUPT
+        >1.5 or any single violation with severity > 0.8 → TERMINATE
         """
-        count = len(violations)
-        if count == 0:
+        if not violations:
             return EnforcerAction.CONTINUE
-        elif count <= 2:
+
+        weighted = sum(v.severity for v in violations)
+        max_sev = max(v.severity for v in violations)
+
+        if max_sev > 0.8 or weighted > 1.5:
+            return EnforcerAction.TERMINATE
+        elif weighted > 0.0:
             return EnforcerAction.INTERRUPT
         else:
-            return EnforcerAction.TERMINATE
+            return EnforcerAction.CONTINUE
 
     def _check_composition_tree(
         self,

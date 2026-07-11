@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Union
+from typing import Optional, Union
 
 
 # ── Action Space Types (Phase 6 — continuous-action unlock) ────
@@ -194,11 +194,21 @@ class ConstraintViolation:
         bound_type: which resource bound was violated
         measured: the measured value
         allowed: the maximum allowed value
+        severity: violation magnitude (0-1); 0=barely over, 1=far over
     """
     module_id: str
     bound_type: str  # "TIME", "MEM", "ENERGY", "ENTROPY", "SENSOR"
     measured: float
     allowed: float
+    severity: float = 0.5
+
+    def __post_init__(self):
+        # Severity = how far over the bound, normalised to [0, 1]
+        if self.allowed > 0 and self.measured > self.allowed:
+            ratio = (self.measured - self.allowed) / max(self.allowed, 1e-9)
+            self.severity = float(np.clip(ratio / 5.0, 0.0, 1.0))
+        else:
+            self.severity = 0.0
 
 
 # ── Default Configurations ────────────────────────────────────

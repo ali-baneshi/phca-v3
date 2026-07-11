@@ -261,6 +261,10 @@ class WorldModelMLP:
         # Output sensitivity cache: gradient of mean(out) w.r.t input — set by _backward()
         self._last_output_sens: Optional[np.ndarray] = None
 
+        # Per-dimension attention weights (set by cycle.py each step)
+        # Modulate gradient so high-attention dimensions drive more learning
+        self._attention_weights: np.ndarray = np.ones(state_dim, dtype=np.float32)
+
         # Experience replay buffer
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
         self._replay_idx: int = 0
@@ -361,7 +365,11 @@ class WorldModelMLP:
         state_t1: StateVector,
         error: float,
     ) -> None:
-        """Learn from observed transition via SGD with experience replay.
+        """Learn from observed transition via attention-weighted SGD.
+
+        Per-dimension attention weights (`self._attention_weights`) modulate
+        the gradient: dimensions with higher attention produce larger weight
+        updates. Set by cycle.py each step via `gprime._attention_weights`.
 
         Hybrid schedule (G-017 / D-080):
           - Warm-up (`len(replay_buffer) < batch_size`): a single ONLINE
@@ -382,7 +390,7 @@ class WorldModelMLP:
             state_t: State at time t.
             action: Action taken.
             state_t1: Observed state at time t+1 (target).
-            error: Scalar prediction error (unused — MSE gradient used instead).
+            error: Scalar prediction error (logged, not used in gradient — per-dim attention weights modulate instead).
         """
         # Redo forward pass with the actual action for immediate learning
         x = np.concatenate([state_t.values.astype(np.float32), action.astype(np.float32)])
@@ -405,7 +413,7 @@ class WorldModelMLP:
         # Warm-up: buffer too small to form a mini-batch — single online
         # step, then return (no replay in the same cycle).
         if len(self._replay_buffer) < self.batch_size:
-            grad = self._backward(x, z1, z2, out, target)
+            grad = self._backward(x, z1, z2, out, target, per_dim_weights=self._attention_weights)
             self._apply_gradient(grad, lr=effective_lr)
             return
 
@@ -424,7 +432,7 @@ class WorldModelMLP:
             X = np.stack([self._replay_buffer[i][0] for i in indices]).astype(np.float32)
             T = np.stack([self._replay_buffer[i][1] for i in indices]).astype(np.float32)
             Z1, Z2, Out = self._forward_batch(X)
-            avg_grad = self._backward_batch(X, Z1, Z2, Out, T)
+            avg_grad = self._backward_batch(X, Z1, Z2, Out, T, per_dim_weights=self._attention_weights)
             self._apply_gradient(avg_grad, lr=effective_lr)
 
     def learn_m3_episodes(
@@ -547,19 +555,22 @@ class WorldModelMLP:
     def _backward_batch(
         self, X: np.ndarray, Z1: np.ndarray, Z2: np.ndarray,
         Out: np.ndarray, T: np.ndarray,
+        per_dim_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, np.ndarray]:
-        """Batched backward pass of MSE loss over a mini-batch (Phase 5 / D-092).
+        """Batched backward pass of attention-weighted MSE loss.
 
-        Mirrors _backward (MSE + conditional softmax CE on the first
-        min(25, S) agent-position dims, gradient clipping to [-1,1]) then
-        averages over the batch. Zero-trust verification (D-092) confirmed
-        this is dynamics-equivalent to the original per-sample loop on this
-        machine: dynamic-goal L2 is ~0.43 for both (D-090's 0.573 was
-        machine-specific).
+        Mirrors _backward (attention-weighted MSE + conditional softmax CE
+        on the first min(25, S) agent-position dims, gradient clipping to
+        [-1,1]) then averages over the batch.
+
+        Args:
+            per_dim_weights: Attention weights (S,). If None, uniform.
         """
         B, S = Out.shape
         n = float(S)
         d_out = (Out - T) / n  # (B, S)
+        if per_dim_weights is not None:
+            d_out = d_out * per_dim_weights[np.newaxis, :]  # (B, S) * (1, S)
 
         # Conditional CE on the first min(25, S) dims (agent position).
         pos_dim = min(25, S)
@@ -635,15 +646,13 @@ class WorldModelMLP:
         z2: np.ndarray,
         out: np.ndarray,
         target: np.ndarray,
+        per_dim_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, np.ndarray]:
-        """Backward pass of MSE loss.
+        """Backward pass of attention-weighted MSE loss.
 
-        Computes gradients of MSE = 0.5 * mean((out - target)²) w.r.t.
-        all parameters, with gradient clipping to [-1, 1].
-
-        Note: For linear output + MSE, dL/d(z) = (z - target) / state_dim,
-        which is identical to the sigmoid+BCE combined gradient formula.
-        The backward pass code is unchanged from the BCE version.
+        Computes gradients of MSE = 0.5 * mean(w * (out - target)²) w.r.t.
+        all parameters, where w are per-dimension attention weights.
+        High-attention dimensions produce larger gradients.
 
         Args:
             x: Input vector (state_dim + action_dim,).
@@ -651,13 +660,16 @@ class WorldModelMLP:
             z2: Pre-activation of layer 2 (hidden_dim,).
             out: Linear output (state_dim,).
             target: Target vector (state_dim,).
+            per_dim_weights: Attention weights (state_dim,). If None, uniform.
 
         Returns:
             Dict mapping parameter keys to gradient arrays.
         """
-        # dL/d(out) for MSE: (out - target) / state_dim
+        # dL/d(out) for attention-weighted MSE: w * (out - target) / state_dim
         n = float(out.shape[0])
         d_out = (out - target) / n
+        if per_dim_weights is not None:
+            d_out = d_out * per_dim_weights
 
         # Add cross-entropy on agent position (first 25 dims)
         # Treats out[:25] as logits for a 25-class softmax.
@@ -671,7 +683,7 @@ class WorldModelMLP:
             probs = exp_l / (exp_l.sum() + 1e-8)
             ce_grad = probs.copy()
             ce_grad[pos_idx] -= 1.0  # = softmax - one_hot
-            d_out[:25] += ce_grad / n  # same scaling as MSE
+            d_out[:25] += ce_grad / n  # same scaling as MSE (attention weights already applied above)
 
         a1 = np.maximum(0, z1)
         a2 = np.maximum(0, z2)
