@@ -23,6 +23,22 @@ still open as a result. Every claim below that could be checked against code or 
 benchmark output has been checked; where a number is known to be stale relative to a
 recent architectural change, that is stated explicitly rather than left implied.
 
+**A note on two unrelated numbering systems in this repository, since they are easy to
+confuse.** The **12-step cognitive cycle** described below is a fixed, architectural
+concept: it is the sequence a single execution of the runtime loop follows (sanitize,
+write memory, predict, select action, regulate, enforce, learn, consolidate, and so on).
+Within the code and diagrams, some of these 12 stages are further broken into finer
+numeric sub-labels (for example, "G' Prediction" spans internal labels 2 through 4), which
+is why diagrams reference up to 20 individual numbers — that is a labeling granularity
+choice, not a claim that the cycle has 20 stages. Separately, and unrelated to the cycle
+itself, **the project was built across roughly 19-20 development phases** (a project
+roadmap, not a runtime concept — e.g. the Phase 5 performance work and the Phase 6
+scientific-hardening work referenced later in this document) and has since moved into an
+ongoing, round-based **hardening and maturation** process refining that already-built
+architecture, which is what most of the recent decisions cited in this document (D-14x
+onward) belong to. If you see "Phase 6" or "round 27" elsewhere in this repository, that
+is this second, project-history axis — not a 27th cognitive-cycle step.
+
 ---
 
 ## What this project is, in one paragraph
@@ -58,7 +74,10 @@ rounds of hardening work tested this claim directly:
    benchmark: a 10×10 grid, and a direct comparison against a simple greedy baseline with
    the same information access as PHCA. The result: **the prediction-scored path did not
    merely underperform, it collapsed** — 0.03% goal-reaching rate at 10×10 (worse than a
-   random agent), versus 26.8% for the pure geometric planner on the same grid.
+   random agent), versus 26.8% for the pure geometric planner on the same grid and
+   scenario. This is not the whole picture, however — pure geometry does not pass every
+   scale and scenario either; see "Current default performance" below for the complete,
+   more mixed set of measured results.
 
 The response, as of 2026-07-12, was to **make pure geometric action selection the
 default again** for discrete environments (`InterventionConfig.disable_blended_scorer =
@@ -80,8 +99,49 @@ project's main open technical problem. See `IMPLEMENTATION_STATUS.md` for the up
 per-environment breakdown and `DECISIONS.md` D-156 for the full experimental record.
 
 The continuous-control path (MuJoCo Pendulum, Reacher — MPC-style sampling scored by G′)
-is unaffected by this finding and remains prediction-primary by construction; it was not
-part of the environments where the collapse was observed.
+was not part of the environments where the discrete-path collapse was observed, and its
+selection mechanism has always scored every candidate by G′ prediction regardless of the
+`disable_blended_scorer` flag, which only affects discrete environments. That is a
+structural argument for why this path should be unaffected, not a re-run benchmark under
+the current default configuration specifically confirming it — no such re-run has been
+done as of this writing, and this document says so rather than presenting the structural
+argument as if it were measured evidence.
+
+### Current default performance (pure geometric action selection, post D-156)
+
+The historical Φ-IQ numbers quoted later in this document were produced with the
+learned-model-scored path active and have not been re-run end-to-end under the current
+default. However, the causal-evaluation experiments that motivated the D-156 default
+change do provide real, measured numbers for pure geometric action selection specifically,
+across both grid sizes tested, and they are reported here in full rather than only citing
+the single number that motivated the change:
+
+| Level | Grid | PHCA (pure geometry) goal_rate | `greedy_observed` goal_rate | Gate |
+| :--- | :--- | :--- | :--- | :--- |
+| L2 | 5×5 | 0.503 | 0.555 | **FAIL** (0/3 required metrics) |
+| L2 | 10×10 | 0.268 | 0.240 | PASS (3/3) |
+| L3 | 5×5 | 0.288 | 0.279 | PASS (5/5) |
+| L3 | 10×10 (15 seeds) | 0.136 | 0.137 | FAIL (2/5) |
+| L3 | 10×10 (30 seeds) | 0.131 | 0.137 | FAIL (3/5) |
+
+This is a more mixed picture than "pure geometry fixed the problem," and it is reported
+here precisely because the more one-sided framing in `DECISIONS.md` D-156 (about the
+10×10 L2 result specifically, which is accurate) could otherwise be read as implying pure
+geometry passes generally. It does not: **the current default configuration still fails
+the fair-comparison causal gate outright in two of the five level/grid combinations
+measured**, including the original 5×5 L2 scenario that most of this document's other
+benchmark numbers are drawn from. No Φ-IQ number (the composite score used elsewhere in
+this document) has yet been computed under the current default at any grid size; the
+table above is the most complete honest picture available today, from the causal-gate
+logs already in this repository (`logs/causal_eval_5x5_pure_geo.json`,
+`logs/causal_eval_10x10_l2_pure_geo.json`, `logs/causal_eval_10x10_l3_pure_geo.json`,
+`logs/causal_eval_10x10_l3_30seeds.json`), rather than a fresh Φ-IQ run.
+
+**The honest summary is: neither action-selection mode currently passes this gate
+reliably across levels and scales.** The learned-model-scored path fails worse and less
+predictably (including the 10×10 L2 collapse); pure geometry fails less catastrophically
+but is not a general solution either. Closing this gap — not simply picking the
+less-broken of the two current options — remains the project's central open problem.
 
 ---
 
@@ -601,7 +661,11 @@ items, in rough order of significance:
   is not currently enforced as broadly as the whitepaper's description implies.
 - **NoiseInjector is not a grounding adapter.** Synthetic Gaussian noise for robustness
   testing (`python/phca/asi/noise_injector.py`) is a proxy; real multi-level grounding
-  would require sensor-specific corruption models.
+  would require sensor-specific corruption models. Note that `make bench-noise-closedloop`
+  and similar command names describe what the test exercises (a closed-loop noise ramp),
+  not a claim that it validates robustness to real-world sensor noise — the same proxy
+  caveat above applies to every command built on NoiseInjector, even where the command
+  name alone does not repeat it.
 - **Dynamic goals are validated at one cadence only** (every 75 cycles); every-50 is
   documented as not achievable rather than silently omitted.
 - **P-Stream only** (E/S streams removed earlier in the project's history).
