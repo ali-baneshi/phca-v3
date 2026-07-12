@@ -150,7 +150,7 @@ if RBTA violations exceed 10% of total cycles.
 |---|---|---|
 | Cycle latency | < 500 ms mean | ~17 ms mean, ~31 ms p95 ✅ |
 | Failure rate | < 10% violations | **0 violations** ✅ |
-| Goal autonomy (L3) | Drive diversity > 0.1 | Achieved ✅ |
+| Goal autonomy (L3) | ≥1 novel goal / 100 cycles (novel_goal_rate > 0.01) | Achieved ✅ |
 | Overall Φ-IQ | > 0.5 | **0.7718** ✅ |
 | Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ |
 

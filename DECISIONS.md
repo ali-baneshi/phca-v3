@@ -1746,3 +1746,41 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** Single source of truth for the full-cycle composition tree structure. Eliminates risk of the two copies diverging. Factory method is 12 lines — less than half the original 30.
 - **v3.0 trace:** §2.1 (RBTA composition tree), `cycle.py`.
 - **Tests/Validation:** All 698 tests pass (same as before); no behavioural change.
+
+## Decision D-149: Complete F-04 — extract _build_hpm_spec() factory
+
+- **Date:** 2026-07-12
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3 (code quality)
+- **Problem:** Round 4 review found that `_run_perception_cycle` (line 757) and `_finalize_learning_cycle` (line 1136) each built an identical `hpm_spec` dict inline — a full-cycle structural description consumed by `hpm_validator.compute_bounds()`. Only the `composition_tree` (which is separate) had been extracted in D-148.
+- **Option chosen:** Extract `_build_hpm_spec()` factory method returning the standard `hpm_spec` dict. Both sites now call it. The minimal variant (early-exit/desync path at line 638, `{"type": "SEQUENCE", "id": "minimal_cycle", "children": ["ACTION"]}`) is intentionally different and stays inline.
+- **Rationale:** F-04 is now fully closed — all three duplicated structure-building sites (composition_tree ×2, hpm_spec ×2) use factory methods.
+- **v3.0 trace:** §2.1 (HPM bound computation), `cycle.py`.
+- **Tests/Validation:** All 698 tests pass.
+
+## Decision D-150: Fix goal_autonomy threshold to match whitepaper (F-08)
+
+- **Date:** 2026-07-12
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3 (pass criteria calibration)
+- **Problem:** The `goal_autonomy_achieved` pass criterion in `check_pass_criteria()` used `novel_rate > 0.004` (≈1 novel goal / 250 cycles), but the whitepaper §1.3 target is "≥1 novel goal / 100 cycles" = 0.01. The code was 2.5× more lenient than the spec. Additionally, `docs/phi_iq_metric.md` described the gate as "Drive diversity > 0.1" which was inaccurate.
+- **Option chosen:** Raise threshold from 0.004 to 0.01 in `phi_iq.py:check_pass_criteria()`. Update `docs/phi_iq_metric.md` to state "≥1 novel goal / 100 cycles (novel_goal_rate > 0.01)". IMPLEMENTATION_STATUS.md already correctly documented 0.01.
+- **Alternatives:** (a) Keep 0.004 (rejected — contradicts whitepaper). (b) Remove the gate entirely (rejected — goal autonomy is a core whitepaper criterion).
+- **Rationale:** At the canonical 200-cycle benchmark, 0.01 requires at least 2 novel goals across the L3 run. The current L3 output (novel_goal_rate=0.0333) passes comfortably. The fix aligns code with documented spec.
+- **v3.0 trace:** §1.3 (success criteria), L3 pass criteria.
+- **Tests/Validation:** `check_pass_criteria()` now uses 0.01. L3 benchmark (50 cycles) still PASSes.
+
+## Decision D-151: NEW-04 — Causal gate L2/L3 FAIL at 30 seeds (persistent architectural gap)
+
+- **Date:** 2026-07-12
+- **Author:** Lead Implementation Engineer (confirmed by re-run)
+- **Category:** Tier 1 (architectural — behavioural gap vs baselines)
+- **Problem:** Round 4 review (2026-07-12) identified that `results/validation/baselines/causal_eval.json` (30 seeds, MLP, 200 cycles, pre-Round-1 fixes) showed L2 gate FAIL vs `greedy_observed`. The reviewer hypothesized this might resolve after the task_lock bypass removal (Round 1).
+- **Option chosen:** Re-ran `phca_causal_eval.py --levels all --cycles 200 --seeds 30 --use-mlp --gate` with current code (post all 3 rounds of fixes) → `results/validation/baselines/causal_eval_round4.json`.
+- **Result:** L1 **PASS** (PHCA beats random, beats greedy_observed on ≥75% metrics). L2 **FAIL** — PHCA beats greedy_observed on only 1/3 metrics (goal_rate 0.558 vs 0.598, distance 1.033 vs 0.884, cum_reward 110.7 vs 118.8). L3 **FAIL** — PHCA beats greedy_observed on only 2/5 metrics (goal_rate 0.290 vs 0.291, distance 2.197 vs 1.981, cum_reward 56.55 vs 56.68). The round-1 fix did NOT change this result.
+- **Impact:** This is the deepest finding across all 4 review rounds. Even with the task_lock bypass removed and all other fixes applied, PHCA cannot beat a simple greedy `if-else` heuristic in L2 (obstacle navigation) and L3 (self-motivated exploration) at 30-seed statistical power. The 5-seed nightly runs that claimed "PASS" were underpowered and gave a false positive.
+- **Hypothesized root causes:** (a) Grid 5×5 may be too small for prediction to provide advantage over greedy feedback. (b) The learned G′ world model may not converge to sufficient accuracy within 200 cycles. (c) Action selection architecture may still not use prediction scors effectively despite the Round 1 fix.
+- **Immediate action:** All README/docs claims of "Causal gate PASS" must be corrected. The gate is **FAIL** at adequate statistical power.
+- **Next step (recommended):** Run L2 at larger grid (10×10) to test hypothesis (a). If PHCA outperforms greedy_observed in a larger space where prediction provides genuine advantage, the architecture is sound but 5×5 is too simple. If still FAIL, investigation must focus on G′ prediction quality or action selection logic.
+- **v3.0 trace:** §1.3 (causal gate), `phca_causal_eval.py`.
+- **Tests/Validation:** 30 seeds × 200 cycles × 3 levels × 4 agents. Output saved to `results/validation/baselines/causal_eval_round4.json`. L1 PASS, L2 FAIL, L3 FAIL. `gate: false`.

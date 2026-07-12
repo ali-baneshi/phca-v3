@@ -78,7 +78,7 @@ Documented in `reproducibility.md` after this audit.
 | Scaling slip=0 (30 seeds) | 5×5 **0.700**, 10×10 **0.325**, 20×20 **0.147** | `results/validation/scaling/` |
 | Predictive validity **r≈0.992** | `phi_iq_validation.py` 100 seeds | H006; tautology caveat in docs |
 | **768** tests | `PYTHONPATH=python pytest python/` | Core + evaluation alignment tests |
-| Causal gate L1–L3 | `phca_causal_eval.py` | PASS vs gated controls |
+| Causal gate L1–L3 | `phca_causal_eval.py` | **FAIL** (L2/L3 at 30 seeds, D-151) |
 
 **Do not cite** benchmark numbers from `docs/archive/*` without cross-checking STATUS.
 

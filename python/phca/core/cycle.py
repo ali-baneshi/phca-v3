@@ -754,23 +754,7 @@ class CognitiveCycle:
             metrics.module_timings["attn"] = (time.perf_counter() - t_attn) * 1000
 
             t_hpm = time.perf_counter()
-            hpm_spec = {
-                "type": "SEQUENCE", "id": "cognitive_cycle",
-                "children": [
-                    {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
-                    {"type": "SEQUENCE", "id": "prediction_block",
-                     "children": [
-                        "WM",
-                        {"type": "Predict", "id": "G'_PE", "horizon": 1},
-                    ]},
-                    {"type": "PARALLEL", "id": "regulation_block",
-                     "children": ["MDIM", "CR", "ATTN", "HPM"]},
-                    "ACTION",
-                    {"type": "SEQUENCE", "id": "feedback_block",
-                     "children": ["PEU", "TSPL-P"]},
-                    "CYCLE",
-                ],
-            }
+            hpm_spec = self._build_hpm_spec()
             metrics.module_timings["hpm"] = (time.perf_counter() - t_hpm) * 1000
 
         if desync:
@@ -1132,21 +1116,7 @@ class CognitiveCycle:
         # RBTA enforcement
         self._collect_runtime_log(metrics)
         self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
-        # Build a minimal hpm spec for RBTA (use last one from perception cycle)
-        hpm_spec: Dict[str, Any] = {
-            "type": "SEQUENCE", "id": "cognitive_cycle",
-            "children": [
-                {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
-                {"type": "SEQUENCE", "id": "prediction_block",
-                 "children": ["WM", {"type": "Predict", "id": "G'_PE", "horizon": 1}]},
-                {"type": "PARALLEL", "id": "regulation_block",
-                 "children": ["MDIM", "CR", "ATTN", "HPM"]},
-                "ACTION",
-                {"type": "SEQUENCE", "id": "feedback_block",
-                 "children": ["PEU", "TSPL-P"]},
-                "CYCLE",
-            ],
-        }
+        hpm_spec = self._build_hpm_spec()
         hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
         reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
         composition_tree = self._build_full_composition_tree(reg_b_time, reg_b_energy)
@@ -2166,6 +2136,27 @@ class CognitiveCycle:
                 "B_time": reg_b_time * 2 + 0.050,
                 "B_energy": reg_b_energy * 2 + 0.010,
             },
+        }
+
+    def _build_hpm_spec(self) -> dict:
+        """Build the standard full-cycle HPM specification for RBTA bound computation.
+
+        Duplicated across _run_perception_cycle and _finalize_learning_cycle —
+        extracted here (F-04 completion).
+        """
+        return {
+            "type": "SEQUENCE", "id": "cognitive_cycle",
+            "children": [
+                {"type": "ASI_Input", "id": "ASI", "dim": self.state_dim},
+                {"type": "SEQUENCE", "id": "prediction_block",
+                 "children": ["WM", {"type": "Predict", "id": "G'_PE", "horizon": 1}]},
+                {"type": "PARALLEL", "id": "regulation_block",
+                 "children": ["MDIM", "CR", "ATTN", "HPM"]},
+                "ACTION",
+                {"type": "SEQUENCE", "id": "feedback_block",
+                 "children": ["PEU", "TSPL-P"]},
+                "CYCLE",
+            ],
         }
 
     def _rbta_preflight_check(

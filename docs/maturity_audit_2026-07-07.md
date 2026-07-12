@@ -116,7 +116,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 | Forgetting unit | test_forgetting | T1 | Via pytest | PASS | E |
 | Resilience unit | test_resilience | T1 | Via pytest | PASS | F |
 | Static contracts | test_static_contracts | T1 | Via pytest | PASS | B |
-| Causal smoke | phca_causal_eval | T1 | ci-local | PASS | G |
+| Causal smoke | phca_causal_eval | T1 | ci-local | L1 PASS, L2/L3 FAIL (30 seeds, D-151) | G |
 | Assumption validation | assumption_validation --ci | T2 | nightly | PASS | C |
 | Full Φ-IQ MLP | benchmark.py --use-mlp | T2 | nightly | PASS | G |
 | OOD calibration | ood_calibration | T2 | nightly | PASS | G |

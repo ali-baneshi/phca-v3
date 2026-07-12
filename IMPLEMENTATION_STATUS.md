@@ -81,7 +81,7 @@ evidence separate from invariant tests.
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
 | Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7317) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
-| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | PASS (Gaussian default; use `--use-mlp` for deployment mode) |
+| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 FAIL** at 30 seeds (MLP, 200 cyc). 5-seed nightly gave false positive (underpowered). See D-151. |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |

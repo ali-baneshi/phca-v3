@@ -194,9 +194,9 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 | **Total (python + MuJoCo)** | 2026-07-05 | **802 passed** |
 | Reproduce quick (`make reproduce-quick`) | 2026-07-05 | Gate path updated (D-127); run locally for executed report |
 | CI Φ-IQ gate | 2026-07-04 | PASS (quick Φ-IQ 0.8415 ≥ floor 0.5486) |
-| Causal behavior gate | 2026-07-04 | **PASS** — L1/L2/L3 vs gated controls (`logs/phca_causal_eval.json`) |
+| Causal behavior gate | 2026-07-12 | **FAIL** (L2/L3 at 30 seeds) — see D-151; 5-seed nightly was underpowered |
 | Assumption validation `--ci` | 2026-07-04 | **5/5 PASS** (A1–A5 incl. A2 temporal order) |
-| `make nightly NIGHTLY_CYCLES=10000` | 2026-07-05 | **PASS** — post-cap retention (late RSS ~1257 B/cyc ≤ 1600); causal nightly gate PASS |
+| `make nightly NIGHTLY_CYCLES=10000` | 2026-07-05 | **PASS** — post-cap retention (late RSS ~1257 B/cyc ≤ 1600); causal nightly gate underpowered (5 seeds) |
 
 **Failing tests:** None (unit/integration).
 
@@ -208,7 +208,7 @@ Copy-paste planning prompts: [docs/observatory_phase_prompts/](docs/observatory_
 |--------|-------|-------------------|--------|
 | Overall Φ-IQ (4-level MLP, 200 cyc) | **0.7323** | ≥ 0.5486 floor — PASS | `logs/benchmark_report.json` |
 | L0 / L1 / L2 / L3 Φ-IQ | 0.7750 / 0.6748 / 0.7924 / 0.6868 | L2 ≥ 0.5 — PASS | same |
-| Causal behavior gate (GridWorld levels 1–3, 200 cyc × 5 seeds) | **PASS** | L1/L2/L3 vs gated controls | `logs/phca_causal_eval.json` |
+| Causal behavior gate (GridWorld levels 1–3, 200 cyc × 30 seeds) | **FAIL** (L2/L3) | L1 PASS, L2/L3 FAIL vs greedy_observed | `results/validation/baselines/causal_eval_round4.json` (D-151) |
 | Nightly stress 1000-cyc | **PASS** fill-phase | late slope ~2195 B/cyc (threshold 5000) | `logs/nightly_stress.json` |
 | Nightly stress 10000-cyc | **PASS** post-cap | late slope ~1257 B/cyc (threshold 1600, D-113) | `logs/nightly_stress_10k.json` |
 | Assumption validation | A1–A5 PASS | `--ci` exit 0 | `logs/assumption_validation.json` |

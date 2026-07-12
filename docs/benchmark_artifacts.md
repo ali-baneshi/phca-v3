@@ -14,7 +14,7 @@ experiments — do not cite without checking dates and config blocks.
 | `logs/reproduce_report.json` | Reproduce driver audit trail (per-step PASS/FAIL) | `make reproduce` / `make reproduce-quick` |
 | `logs/benchmark_report.json` | **Primary Φ-IQ report** (MLP, 200 cyc, L0–L3) | Manual canonical run |
 | `logs/benchmark_ci_baseline.json` | CI regression floor (L0 quick, Gaussian) | Intentionally pinned; bump via DECISIONS |
-| `logs/phca_causal_eval.json` | Causal gate L1–L3 (200 cyc × 5 seeds) | After causal eval changes |
+| `results/validation/baselines/causal_eval_round4.json` | Causal gate L1–L3 (200 cyc × 30 seeds, MLP) | D-151 — authoritative 30-seed measurement |
 | `logs/nightly_static.json` | Nightly MLP Φ-IQ snapshot | `make nightly` step 1 |
 | `logs/nightly_stress.json` | Long-run RSS/latency/Φ proxy | `make nightly` step 5 |
 | `logs/nightly_ood.json` | OOD σ-sweep confidence | `make nightly` step 4 |

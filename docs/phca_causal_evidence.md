@@ -57,10 +57,6 @@ are required. When `first_goal_cycle` ties `greedy_observed` (common at mean
 metrics (`goal_rate`, `mean_distance_to_goal`, `cumulative_reward`,
 `coverage_rate`, `switch_recovery_cycle`). A single loss fails the gate.
 
-Nightly CI (D-133) uses `--seeds 5` for level2 and `--level-seeds level3=10`
-because L2 aggregate metrics are stable at 5 seeds while L3
-`mean_distance_to_goal` needs 10 seeds to clear runner variance.
-
 Default gated controls:
 
 | Level | Gated controls |
@@ -71,22 +67,69 @@ Default gated controls:
 
 This rule is deliberately not tuned to force a pass.
 
-## Current Measurement
+## Current Measurement (2026-07-12)
 
-Command (Gaussian G', default):
+Re-run after all 4 rounds of fixes (MLP, 200 cycles × 30 seeds, D-151):
+
+```bash
+PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 30 --use-mlp --gate \
+  --output results/validation/baselines/causal_eval_round4.json
+```
+
+### Results
+
+| Level | Result | PHCA vs greedy_observed |
+|-------|--------|-------------------------|
+| `level1` | **PASS** | PHCA beats random on 4/4; beats `greedy_observed` on ≥75% metrics. Mean goal_rate: phca **0.855** vs greedy 0.793. |
+| `level2` | **FAIL** | PHCA beats random on 4/4; beats `greedy_observed` on only **1/3** metrics. Mean goal_rate: phca **0.558** vs greedy **0.598**. Mean distance: phca 1.033 vs greedy 0.884. |
+| `level3` | **FAIL** | PHCA beats `greedy_observed` on only **2/6** metrics. Mean goal_rate: phca **0.290** vs greedy **0.291**. Mean distance: phca 2.197 vs greedy 1.981. |
+
+Selected means (MLP, 200 cycles × 30 seeds):
+
+| Level | Agent | Goal rate | First goal | Mean distance | Reward |
+|-------|-------|-----------|------------|---------------|--------|
+| `level1` | `phca` | 0.855 | 2.7 | 0.299 | 170.61 |
+| `level1` | `greedy_observed` | 0.793 | 1.9 | 0.487 | 158.09 |
+| `level2` | `phca` | 0.558 | 7.5 | 1.033 | 110.75 |
+| `level2` | `greedy_observed` | 0.598 | 4.1 | 0.884 | 118.76 |
+| `level3` | `phca` | 0.290 | 24.5 | 2.197 | 56.55 |
+| `level3` | `greedy_observed` | 0.291 | 19.5 | 1.981 | 56.68 |
+
+> **Note:** Earlier 5-seed measurements (below) showed PASS at both levels, but this was a statistical false positive caused by underpowered sampling (D-151). The 30-seed run is authoritative.
+
+## Interpretation
+
+Supported claims:
+
+- PHCA improves measured GridWorld behavior relative to random controls across all three levels.
+- The benchmark exposes PHCA architecture signals (episodic storage, consolidation facts, prediction error, RBTA violations, occlusion handling, dynamic goals, recovery after switches).
+
+Unsupported claims:
+
+- **PHCA does NOT currently beat `greedy_observed` (a simple one-step Manhattan heuristic) at adequate statistical power in L2 (obstacle navigation) or L3 (self-motivated exploration).**
+- PHCA does not beat a full-information greedy controller.
+
+### Why this matters (D-151)
+
+This is the deepest finding across all 4 review rounds. After removing the task_lock bypass (Round 1) and fixing all other identified issues, PHCA still cannot outperform a simple `if-else` greedy heuristic in the two hardest benchmark levels. Likely root causes:
+
+1. **Grid 5×5 may be too small** — prediction and planning offer no advantage over immediate feedback in a tiny state space. A larger grid (10×10 or 20×20) should be tested.
+2. **G′ world model may not converge fast enough** — within 200 cycles the learned dynamics may not be accurate enough to improve action selection beyond greedy.
+3. **Action selection may still underuse prediction scores** — despite the Round-1 fix, the architecture might still effectively default to geometry-based selection in practice.
+
+### Recommendation
+
+Run L2 at `--grid-size 10` to test hypothesis (1). If PHCA outperforms greedy_observed in a larger space, the architecture is sound but 5×5 is too simple a discriminator. If still FAIL at 10×10, investigation must focus on G′ prediction quality and the action selection integration path.
+
+## Prior Measurement (5 seeds, historical)
+
+Command (Gaussian G', 5 seeds, pre-round-4):
 
 ```bash
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --output logs/phca_causal_eval.json
 ```
 
-**Recommended deployment mode** (MLP world model, matches Φ-IQ benchmark):
-
-```bash
-PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 5 --use-mlp --gate \
-  --output logs/phca_causal_eval_mlp.json
-```
-
-Measured on 2026-07-04 (post P0 gap-closure + L3 coverage fix, D-112):
+Measured on 2026-07-04 (post P0 gap-closure + L3 coverage fix, D-112) — **underpowered, superseded by 30-seed run above**:
 
 | Level | Result | Gate detail |
 |-------|--------|-------------|
@@ -109,23 +152,4 @@ Prior measurement (2026-07-04 pre-L3-coverage fix):
 |-------|--------|-------------------------|
 | `level2` | PASS | 3/4 metrics |
 | `level3` | FAIL | 4/6 metrics (`coverage_rate` short) |
-
-## Interpretation
-
-Supported claims:
-
-- PHCA improves measured GridWorld behavior relative to random controls across
-  all three levels.
-- The benchmark now exposes PHCA architecture signals such as episodic storage,
-  consolidation facts, prediction error, RBTA violations, occlusion handling,
-  dynamic goals, and recovery after switches.
-
-Unsupported claims:
-
-- PHCA currently beats a full-information greedy controller.
-
-This is a better benchmark shape. Levels 2–3 now pass versus `greedy_observed`
-after P0 cycle reorder, task-lock, observed-greedy navigation, and sparse L3
-coverage probes (`cycle_count % 50 == 0` or `_goal_switch_cooldown >= 14` on-goal
-unvisited steps, D-112/D-133).
 

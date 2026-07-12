@@ -148,7 +148,7 @@ MUJOCO_GL=disabled PYTHONPATH=python python scripts/aggregate_validation.py \
 |---|---|---|
 | `logs/benchmark_report.json` | overall_phi_iq | ~0.74 (±0.01 run variance) |
 | `logs/benchmark_ci_baseline.json` | L0 quick floor | gate ≥ 0.5486 (5% tolerance) |
-| `logs/phca_causal_eval.json` | L1–L3 gate | PASS vs gated controls |
+| `results/validation/baselines/causal_eval_round4.json` | L1–L3 gate (30 seeds MLP) | **L1 PASS, L2 FAIL, L3 FAIL** — see D-151 |
 | `logs/nightly_stress.json` | fill-phase slope @ 1k | ≤ 5000 B/cyc |
 
 Re-measure on your machine before citing numbers externally (D-090 zero-trust policy).

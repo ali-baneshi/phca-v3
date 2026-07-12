@@ -286,7 +286,7 @@ within-run proxy, **not** cross-task transfer (see [docs/phi_iq_metric.md](docs/
     [✓] Overall Φ-IQ > 0.5
     [✓] L2 Φ-IQ ≥ 0.5
 
-  Causal gate L1/L2/L3: PASS (200 cyc × 5 seeds)
+  Causal gate L1/L2/L3: ⚠️ L1 PASS, L2 FAIL, L3 FAIL (200 cyc × 30 seeds — see D-151; 5-seed nightly was underpowered)
   Assumption validation --ci: 5/5 PASS (A1–A5)
   Nightly 11k soak: PASS (post-M3 late RSS ≤ 1600 B/cyc, D-134)
 

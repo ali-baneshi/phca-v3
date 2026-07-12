@@ -179,10 +179,10 @@ nightly: nightly-mujoco
 	@echo "[5/7] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."
 	@MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
 	    python scripts/nightly_stress.py --output=logs/nightly_stress.json
-	@echo "[6/7] Causal behavior gate (level2+level3, 200cyc; L3 uses 10 seeds)..."
+	@echo "[6/7] Causal behavior gate (level2+level3, 200cyc; 30 seeds)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
-	    --levels level2,level3 --cycles 200 --seeds 5 --level-seeds level3=10 \
-	    --use-mlp --gate --output logs/phca_causal_eval_nightly.json
+	    --levels level2,level3 --cycles 200 --seeds 30 --use-mlp --gate \
+	    --output logs/phca_causal_eval_nightly.json
 	@echo "[7/7] Session anomaly gate..."
 	@PYTHONPATH=python python scripts/nightly_anomaly_gate.py --output=logs/nightly_anomaly_gate.json
 	@echo "============================================"
