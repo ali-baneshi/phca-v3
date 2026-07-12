@@ -120,7 +120,7 @@ integrity checks.
 | Problem | Solution |
 |---|---|
 | `ModuleNotFoundError: No module named 'phca'` | Run from repo root: `python scripts/<script>.py` (scripts bootstrap `python/` automatically). Legacy: `PYTHONPATH=python python scripts/...` |
-| Benchmark Overall FAIL on 10×10 (`failure_rate_under_10pct`) | Expected on scaling configs. Fail column `1.26` = ~126% violations/cycle, not 12.6%. Use canonical `python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5` for full pass. See [phi_iq_metric.md](phi_iq_metric.md). |
+| Benchmark Overall FAIL on 10×10 (Φ-IQ ~0.32 below 0.5 threshold) | Expected on larger grids — prediction advantage is smaller. Violation gate now PASS after D-152 recalibration (grid 10 L2 Gaussian < 15% violations). Use canonical `python scripts/benchmark.py --use-mlp --cycles=200 --grid-size 5` for full Φ-IQ pass. See [phi_iq_metric.md](phi_iq_metric.md). |
 | `ModuleNotFoundError: No module named 'structlog'` | `pip install -r requirements.txt` |
 | `ModuleNotFoundError: No module named 'gymnasium'` | Optional — install `requirements-mujoco.txt` |
 | `pytest: error: unrecognized arguments: --timeout` | `pip install -r requirements-dev.txt` |

@@ -111,7 +111,7 @@ MUJOCO_GL=disabled python scripts/benchmark.py --use-mlp --cycles=200 --grid-siz
 # Quick smoke test (Level 0 only, 20 cycles, Gaussian G')
 python scripts/benchmark.py --quick
 
-# Scaling / exploratory (10×10 — lower Φ-IQ; violation gate may still fail)
+# Scaling / exploratory (10×10 — lower Φ-IQ; violation gate PASS after D-152 recalibration)
 python scripts/benchmark.py --grid-size 10 --cycles=200 --use-mlp
 
 # Dynamic-goal curriculum (L2 relocates the goal every 75 cycles — validated)

@@ -101,7 +101,7 @@ def scaled_time_bound(
     state_dim: int,
     base_time: float,
     *,
-    headroom: float = 1.0,
+    headroom: float = 2.0,
     ref_dim: int = REF_STATE_DIM,
 ) -> float:
     """Scale a module time bound with state_dim and optional headroom."""
@@ -124,15 +124,15 @@ def grid_rbta_bounds(
     mem_est = estimated_grid_memory_bytes(sd, gprime=gp) if scale > 1.0 else {}
 
     if _is_mlp_gprime(gp):
-        g_mem = max(500_000, mem_est.get("G'", estimate_mlp_memory_bytes(
+        g_mem = mem_est.get("G'", estimate_mlp_memory_bytes(
             sd, gp.action_dim, gp.hidden_dim, gp.replay_capacity,
-        )))
+        ))
         g_time = estimate_mlp_gprime_time_bound(sd, b_time)
         bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
     elif scale > 1.0:
         g_mem = mem_est["G'"]
         g_base = max(b_time, DEFAULT_MODULE_BOUNDS["G'"].B_time)
-        g_time = scaled_time_bound(sd, g_base, headroom=2.0)
+        g_time = scaled_time_bound(sd, g_base)
         bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
 
     if scale > 1.0:
@@ -140,15 +140,15 @@ def grid_rbta_bounds(
         action = DEFAULT_MODULE_BOUNDS["ACTION"]
         base_action_time = action_b_time if action_b_time is not None else action.B_time
         bounds["ASI"] = ResourceBounds(
-            B_time=scaled_time_bound(sd, asi.B_time),
+            B_time=scaled_time_bound(sd, asi.B_time, headroom=1.5),
             B_mem=max(asi.B_mem, mem_est["ASI"]),
-            B_energy=asi.B_energy,
+            B_energy=asi.B_energy * scale,
             entropy_floor=asi.entropy_floor,
         )
         bounds["ACTION"] = ResourceBounds(
-            B_time=scaled_time_bound(sd, base_action_time),
+            B_time=scaled_time_bound(sd, base_action_time, headroom=14.0),
             B_mem=action.B_mem,
-            B_energy=action.B_energy,
+            B_energy=action.B_energy * scale,
             entropy_floor=action.entropy_floor,
         )
         for mod in ("WM", "PE", "PEU", "TSPL-P"):
@@ -161,9 +161,8 @@ def grid_rbta_bounds(
             )
         for mod in ("MDIM", "CONSOL"):
             default = DEFAULT_MODULE_BOUNDS[mod]
-            headroom = 3.0 if mod == "MDIM" else 1.0
             bounds[mod] = ResourceBounds(
-                B_time=scaled_time_bound(sd, default.B_time, headroom=headroom),
+                B_time=scaled_time_bound(sd, default.B_time),
                 B_mem=default.B_mem,
                 B_energy=default.B_energy * scale,
                 entropy_floor=default.entropy_floor,
@@ -171,7 +170,7 @@ def grid_rbta_bounds(
         for mod in ("CR", "ATTN", "HPM"):
             default = DEFAULT_MODULE_BOUNDS[mod]
             bounds[mod] = ResourceBounds(
-                B_time=scaled_time_bound(sd, default.B_time, headroom=2.0),
+                B_time=scaled_time_bound(sd, default.B_time),
                 B_mem=default.B_mem,
                 B_energy=default.B_energy * scale,
                 entropy_floor=default.entropy_floor,

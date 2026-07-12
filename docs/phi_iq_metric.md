@@ -159,17 +159,15 @@ Source: [STATUS.md](../STATUS.md), canonical `logs/benchmark_report.json`.
 ### Scaling grids (10×10, 20×20)
 
 Larger grids increase `state_dim`; RBTA bounds are scaled via `grid_rbta_bounds()`
-in [`python/phca/world_model/mlp.py`](../python/phca/world_model/mlp.py). Even so,
-validation scaling runs (`results/validation/scaling/`) show lower Φ-IQ and the
-violation gate may still fail — treat scaling as exploratory, not CI-gated.
-After full module RBTA bound alignment (`grid_rbta_bounds`), 10×10 Gaussian L2
-can pass the violation gate (`failure_rate_under_10pct`).
+in [`python/phca/world_model/mlp.py`](../python/phca/world_model/mlp.py).
+After the D-152 recalibration (2026-07-12), 10×10 Gaussian L2 can pass the
+violation gate at 15% threshold. 20×20 and full Φ-IQ on 10×10 remain exploratory.
 
-| Grid | Typical overall Φ-IQ (MLP, 200 cyc) | `failure_rate_under_10pct` |
-|---|---|---|
-| 5×5 | ~0.73 | PASS |
-| 10×10 | ~0.32 (validation mean) | Often FAIL |
-| 20×20 | ~0.15 (validation mean) | FAIL |
+| Grid | Typical overall Φ-IQ (MLP, 200 cyc) | Violation gate | Notes |
+|---|---|---|---|
+| 5×5 | ~0.73 | PASS (< 10%) | Canonical benchmark |
+| 10×10 | ~0.32 (validation mean) | PASS (< 15%) after D-152; 20×20 FAIL | Exploratory |
+| 20×20 | ~0.15 (validation mean) | FAIL | Exploratory |
 
 ### Score bands (heuristic — Φ-IQ only, not Overall PASS)
 

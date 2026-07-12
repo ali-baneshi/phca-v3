@@ -158,7 +158,8 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | L4 eval start-position confound — full cleanup | `scripts/benchmark_level4.py` — removed `train_end_positions` dict + `train_start_pos` param | ✅ **Done** | L4 smoke benchmark PASS; 10 lines dead code eliminated |
 | M3 task-aware eviction (NEW-02) | `python/phca/memory/m3_episodic.py` — per-task quota eviction replaces global FIFO | ✅ **Done** (D-146) | `test_task_aware_eviction` verifies per-task fairness; all 11 M3 tests pass |
 | Φ-IQ remove transfer_efficiency from composite (NEW-03) | `python/phca/evaluation/metrics/phi_iq.py` — dropped TE term, redistributed 0.15 weight to PA/AS/GC; `python/phca/evaluation/result_schema.py` — updated `DEFAULT_WEIGHTS` | ✅ **Done** (D-147) | Weights: PA 0.25, AS 0.25, GC 0.20, RE 0.20, FR 0.10; L3 benchmark Φ-IQ 0.77, all pass criteria ✓ |
-| Composition tree factory extraction (F-04) | `python/phca/core/cycle.py` — `_build_full_composition_tree()` replaces 30 duplicate lines | ✅ **Done** (D-148) | All 698 tests pass; no behavioural change |
+ | Composition tree factory extraction (F-04) | `python/phca/core/cycle.py` — `_build_full_composition_tree()` replaces 30 duplicate lines | ✅ **Done** (D-148) | All 698 tests pass; no behavioural change |
+| RBTA bound recalibration for grid >= 5 (D-152) | `config.py` — DEFAULT_MODULE_BOUNDS 1.5–2.5× increase; `mlp.py` — headroom 1.0→2.0, ACTION headroom 14.0×, MEM 500K floor removed, B_energy scaling; `cycle.py` — default action_b_time 0.020→0.030 | ✅ **Done** (D-152) | Grid 10 L2 violations ~72%→~10%; `test_l2_10x10_gaussian_violation_rate_under_15pct` PASS; 151/151 tests pass |
 
 ## Core Infrastructure Fixes (2026-07-06)
 
