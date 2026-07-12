@@ -58,6 +58,10 @@ class InterventionConfig:
     disable_blended_scorer: bool = True
     adaptive_confidence_gating: bool = True  # D-156: fall back to geometry when G' confidence < threshold
     before_blended_warmup_cycles: int = 50  # D-157: pure geometry for first N cycles before enabling blended scorer
+    calibration_probe_interval: int = 100  # D-158: cycles between self-calibration probes
+    calibration_probe_samples: int = 16    # D-158: number of (s,a,s') triples per probe
+    calibration_min_threshold: float = 0.4 # D-158: floor for adaptive threshold
+    calibration_max_threshold: float = 0.95# D-158: ceiling for adaptive threshold
     stage_order: Optional[List[str]] = None
     minimal_cycle: bool = False
     resource_policy: str = "time"  # time | energy | memory
@@ -115,6 +119,10 @@ class InterventionConfig:
             disable_blended_scorer=d.get("disable_blended_scorer", True),
             adaptive_confidence_gating=d.get("adaptive_confidence_gating", True),
             before_blended_warmup_cycles=int(d.get("before_blended_warmup_cycles", 50)),
+            calibration_probe_interval=int(d.get("calibration_probe_interval", 100)),
+            calibration_probe_samples=int(d.get("calibration_probe_samples", 16)),
+            calibration_min_threshold=float(d.get("calibration_min_threshold", 0.4)),
+            calibration_max_threshold=float(d.get("calibration_max_threshold", 0.95)),
             minimal_cycle=d.get("minimal_cycle", False),
             stage_order=d.get("stage_order"),
             resource_policy=d.get("resource_policy", "time"),

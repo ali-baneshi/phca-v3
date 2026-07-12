@@ -1931,3 +1931,26 @@ At 30 seeds (vs 15 for the initial run), the result holds: PHCA 13.05% vs greedy
 - **Default behavior unchanged:** Since `disable_blended_scorer=True` is now the default (D-156), adaptive gating only activates when the user explicitly opts into prediction-based action selection. This provides a safety net for future experiments with better-trained G′ models.
 - **v3.0 trace:** §3.3 (action selection with confidence gating).
 - **Tests/Validation:** `test_causal_eval.py` 5/5 PASS + 1 xfail. Adaptive gating is exercised by the blended-scorer code path (when opted in).
+
+---
+
+### D-158: Strategic reframing — A4 as environment-dependent; GridWorld geometry as inductive bias
+
+- **Date:** 2026-07-12
+- **Author:** Systems Reviewer (Round 6)
+- **Category:** Tier 1 (architectural — A4 domain scope clarification)
+- **Problem:** After six review rounds, the system has converged to pure geometry as the default for GridWorld action selection (D-156). The blended scorer (Round 1 fix) catastrophically fails at 10×10 (0.03% vs 26.8%). Yet the README and whitepaper still frame A4 as a single invariant applied uniformly across all environments, creating a persistent honesty gap between "prediction-primary" claims and geometry-primary defaults. The root issue is not implementation but scope: the architecture's prediction-primary claim was never qualified by environment type.
+- **Decision:** A4 is redefined as an **environment-dependent invariant**. The claim is now:
+
+  > *"In GridWorld with full observability and known goals, pure geometric action selection is treated as a reliable **inductive bias**, not a violation of A4. The prediction-primary claim (A4) is tested and held against the continuous-control domain (MuJoCo) and future partially-observable discrete domains, where no such heuristic exists. The learned model's role in GridWorld is to **augment** confidence, entropy, and MDIM, and to prove its worth via a confidence-gated override, not to replace the geometric prior."*
+
+  Three concrete changes follow from this reframing:
+  1. **README updated** (Round 6, NEW-08) — A4 row now explicitly states that prediction-primary is suspended for GridWorld with the D-156 evidence, matching IMPLEMENTATION_STATUS.md.
+  2. **Adaptive confidence-gating (D-157) upgraded to the primary path forward** for restoring prediction-guided action in GridWorld, but with a **self-calibrating threshold** (start at 0.9, probe every 100 cycles on exploration-policy data, lower threshold only when measured accuracy warrants it) rather than the fixed 0.65 in D-157. This avoids the paradox where a fixed high threshold prevents G′ from ever gathering the data needed to improve.
+  3. **Causal gate for GridWorld revised**: the primary comparison is no longer PHCA vs `greedy_observed` (which is near-optimal in 5×5 and unreachable for a resource-bounded agent) but **geometry+G′ vs pure geometry**, measuring whether G′ adds value as a gated override rather than as a replacement.
+- **Impact:** This reframing closes the historical "advertise prediction, ship geometry" paradox that persisted across Rounds 1–6. It converts an undisputed negative result (blended scorer fails at 10×10) from a credibility problem into a well-scoped boundary condition. It also provides a clear, measurable success criterion: "G′ gating beats pure geometry at which grid sizes and cycle budgets?" — replacing the unhelpful "does PHCA beat greedy_observed?" question.
+- **Open issues tracked:**
+  - MuJoCo 1000-cycle stability test (prerequisite — if G′ also fails in continuous control, the reframing loses its positive example)
+  - F-03 (9 modules with placeholder entropy floor — still open from Round 1)
+  - Φ-IQ weight audit (weights still empirically chosen, not theoretically derived)
+- **v3.0 trace:** §3.3 (action selection), §2.2 (G′ world model), A4 invariant scope note.

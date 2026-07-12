@@ -201,8 +201,9 @@ def main() -> None:
         args.cycles = 10
         args.output = None
 
+    model_name = 'Gaussian G\'' if not args.use_mlp else 'MLP'
     print(f"Benchmarking {args.env} with "
-          f"{'MLP' if args.use_mlp else 'Gaussian G''} "
+          f"{model_name} "
           f"({args.cycles} cycles)...")
 
     result = run_benchmark(

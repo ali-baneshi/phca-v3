@@ -1,0 +1,30 @@
+{
+  "env_name": "Pendulum-v1",
+  "n_cycles": 310,
+  "model": "MLP",
+  "state_dim": 3,
+  "action_space_size": 1,
+  "mean_prediction_error": 2.47280576607633,
+  "median_prediction_error": 0.5368834435939789,
+  "min_prediction_error": 0.009483055211603642,
+  "max_prediction_error": 166.24270629882812,
+  "early_error_mean": 4.287269510148514,
+  "late_error_mean": 0.6583420220041467,
+  "prediction_improves": true,
+  "mean_latency_ms": 12.46059103568475,
+  "p95_latency_ms": 28.459925945207942,
+  "max_latency_ms": 43.38216898031533,
+  "cycles_per_second": 73.56287231537564,
+  "total_time_s": 4.214082324993797,
+  "total_rbta_violations": 0,
+  "terminal_episodes": 0,
+  "all_cycles_finite": true,
+  "pass_criteria": {
+    "C1_no_errors": true,
+    "C2_latency_under_200ms": true,
+    "C3_latency_under_5000ms": true,
+    "C4_error_improves": true,
+    "C5_violations_under_10pct": true
+  },
+  "all_pass": true
+}

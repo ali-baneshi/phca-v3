@@ -1,0 +1,30 @@
+{
+  "env_name": "Reacher-v5",
+  "n_cycles": 1000,
+  "model": "MLP",
+  "state_dim": 10,
+  "action_space_size": 2,
+  "mean_prediction_error": 10.30167090857774,
+  "median_prediction_error": 1.662430226802826,
+  "min_prediction_error": 0.04800017923116684,
+  "max_prediction_error": 4102.63134765625,
+  "early_error_mean": 18.51179675465822,
+  "late_error_mean": 2.091545062497258,
+  "prediction_improves": true,
+  "mean_latency_ms": 26.29709676213679,
+  "p95_latency_ms": 67.68445501220413,
+  "max_latency_ms": 87.83378399675712,
+  "cycles_per_second": 34.963611118427245,
+  "total_time_s": 28.60116469700006,
+  "total_rbta_violations": 0,
+  "terminal_episodes": 1000,
+  "all_cycles_finite": true,
+  "pass_criteria": {
+    "C1_no_errors": true,
+    "C2_latency_under_200ms": true,
+    "C3_latency_under_5000ms": true,
+    "C4_error_improves": true,
+    "C5_violations_under_10pct": true
+  },
+  "all_pass": true
+}

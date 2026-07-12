@@ -282,6 +282,11 @@ class CognitiveCycle:
         # Staleness detection (Scenario 2)
         self._staleness_trigger_count: int = 0
 
+        # D-158: self-calibrating confidence gating — dynamic threshold
+        self._calibration_threshold: float = 0.65  # initial value; adjusted by probes
+        self._probe_buffer: list = []  # circular buffer of (state, action, next_state) triples
+        self._calibration_probe_history: list = []  # (cycle, mean_accuracy, mean_conf, threshold) for observability
+
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=getattr(env, "size", 0))
 
     def run(self, n_cycles: int = 1000) -> Dict[str, Any]:
@@ -532,6 +537,15 @@ class CognitiveCycle:
             # Anneal PER beta from init toward final (unbiased IS weights)
             anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
             self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
+
+            # D-158: self-calibrating confidence gating probe
+            if (
+                self.interventions.adaptive_confidence_gating
+                and self.interventions.calibration_probe_interval > 0
+                and self.cycle_count > 0
+                and self.cycle_count % self.interventions.calibration_probe_interval == 0
+            ):
+                self._run_calibration_probe()
 
             # Step 20: (removed) Sleep-cycle check — A-008 fix. Consolidation
             # handled by Steps 16-18 every consolidation_interval=10 cycles.
@@ -853,6 +867,21 @@ class CognitiveCycle:
             mlp_accuracy = self.gprime.get_prediction_accuracy(
                 self.current_state.values, action_vec, next_state.values
             )
+            _selector = self.last_action_rationale.get("selector_mode", "")
+            # D-158: collect probe data only from geometry-selected actions
+            # to avoid self-fulfilling prophecy (evaluating G' on its own choices).
+            if _selector in ("pure_geometry_ablation", "adaptive_geometry_fallback", "prediction_scored"):
+                self._probe_buffer.append({
+                    "state": self.current_state.values.copy(),
+                    "action": action_vec.copy(),
+                    "next_state": next_state.values.copy(),
+                    "mse_accuracy": mlp_accuracy,
+                    "mc_confidence": float(corrected_conf),
+                    "selector": _selector,
+                })
+                max_samples = max(self.interventions.calibration_probe_samples, 16)
+                if len(self._probe_buffer) > max_samples:
+                    self._probe_buffer.pop(0)
         t4 = time.perf_counter()
         if self.interventions.enable_tspl:
             tspl_gradient = None
@@ -1682,8 +1711,7 @@ class CognitiveCycle:
             and action_confidences
         ):
             mean_conf = float(np.mean(action_confidences))
-            CONFIDENCE_GATE_THRESHOLD = 0.65  # tuned for MLP MC-dropout scale
-            if mean_conf < CONFIDENCE_GATE_THRESHOLD:
+            if mean_conf < self._calibration_threshold:
                 best_action = geo_action
                 best_score = None
                 best_components = {
@@ -2084,6 +2112,61 @@ class CognitiveCycle:
                 gain = (current_dist - new_dist) / current_dist
                 return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
         return 0.5
+
+    def _run_calibration_probe(self) -> None:
+        """D-158: Self-calibrating confidence gating probe.
+
+        Every `calibration_probe_interval` cycles, evaluate G' prediction
+        accuracy on recent probe data (collected from geometry-selected actions
+        to avoid self-fulfilling prophecy). Compare MC-Dropout confidence with
+        measured MSE-based accuracy and adjust the gating threshold:
+          threshold = max(min_threshold, min(max_threshold, mean_accuracy * 1.1))
+
+        The 1.1 safety margin ensures the threshold is slightly above measured
+        accuracy, so G' must prove itself before being trusted.
+        """
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+            return
+        cfg = self.interventions
+        if len(self._probe_buffer) < cfg.calibration_probe_samples:
+            return  # not enough data yet
+
+        # Use the most recent `calibration_probe_samples` entries
+        recent = self._probe_buffer[-cfg.calibration_probe_samples:]
+        accuracies = []
+        confidences = []
+        for entry in recent:
+            # Recompute MSE-based accuracy on the stored triple
+            s, a, ns = entry["state"], entry["action"], entry["next_state"]
+            acc = self.gprime.get_prediction_accuracy(s, a, ns)
+            accuracies.append(acc)
+            confidences.append(entry["mc_confidence"])
+
+        mean_acc = float(np.mean(accuracies))
+        mean_conf = float(np.mean(confidences))
+        # New threshold = measured accuracy with 10% safety margin
+        new_threshold = max(
+            cfg.calibration_min_threshold,
+            min(cfg.calibration_max_threshold, mean_acc * 1.1),
+        )
+        old_threshold = self._calibration_threshold
+        # Smooth the update (50% blend) to avoid oscillation
+        self._calibration_threshold = 0.5 * old_threshold + 0.5 * new_threshold
+
+        self._calibration_probe_history.append({
+            "cycle": self.cycle_count,
+            "mean_accuracy": round(mean_acc, 4),
+            "mean_confidence": round(mean_conf, 4),
+            "old_threshold": round(old_threshold, 4),
+            "new_threshold": round(self._calibration_threshold, 4),
+            "samples": len(recent),
+        })
+        _log(logger, "info", "cycle.calibration_probe",
+             cycle=self.cycle_count,
+             accuracy=round(mean_acc, 3),
+             confidence=round(mean_conf, 3),
+             old_gate=round(old_threshold, 3),
+             new_gate=round(self._calibration_threshold, 3))
 
     def _compute_cycle_flops(self) -> float:
         """Compute total FLOPs for current cycle (C3 fix: unified energy signal).
