@@ -155,6 +155,7 @@ class ResourceBounds:
     def __post_init__(self):
         assert self.B_time > 0, "B_time must be positive"
         assert self.B_mem > 0, "B_mem must be positive"
+        assert self.B_energy > 0, "B_energy must be positive"
         assert self.entropy_floor >= 0, "entropy_floor must be non-negative"
 
 
@@ -203,9 +204,11 @@ class ConstraintViolation:
     severity: float = 0.5
 
     def __post_init__(self):
-        # Severity = how far over the bound, normalised to [0, 1]
-        if self.allowed > 0 and self.measured > self.allowed:
-            ratio = (self.measured - self.allowed) / max(self.allowed, 1e-9)
+        # Severity = normalised absolute deviation from bound, direction-agnostic.
+        # Works for both "over" (TIME/MEM/ENERGY/SENSOR: measured > allowed) and
+        # "under" (ENTROPY: measured < allowed) violations.
+        if self.allowed > 0:
+            ratio = abs(self.measured - self.allowed) / max(self.allowed, 1e-9)
             self.severity = float(np.clip(ratio / 5.0, 0.0, 1.0))
         else:
             self.severity = 0.0

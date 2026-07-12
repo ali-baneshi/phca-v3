@@ -189,22 +189,26 @@ class RBTAEnforcer:
     def _classify_action(self, violations: List[ConstraintViolation]) -> EnforcerAction:
         """Classify aggregate enforcement action (v3.0 §2.1 Definition 2.3).
 
-        Uses severity-weighted sum: a severe TIME overrun counts more than
-        a barely-over ENTROPY floor. Thresholds calibrated for grid envs.
+        Count-based with a severity override: any critical-severity violation
+        (severity > 0.8) triggers immediate TERMINATE regardless of count.
+        Otherwise: 0→CONTINUE, 1-2→INTERRUPT, 3+→TERMINATE.
 
-        0 weighted-severity → CONTINUE
-        0.1–1.5 → INTERRUPT
-        >1.5 or any single violation with severity > 0.8 → TERMINATE
+        The severity-weighted sum approach was removed in 2026-07-11 because
+        the severity formula was direction-blind (only handled "over" violations)
+        and silently zeroed ENTROPY floor violations, breaking A3 enforcement.
+        Count-based is direction-agnostic and provably correct for all bound types.
         """
         if not violations:
             return EnforcerAction.CONTINUE
 
-        weighted = sum(v.severity for v in violations)
         max_sev = max(v.severity for v in violations)
-
-        if max_sev > 0.8 or weighted > 1.5:
+        if max_sev > 0.8:
             return EnforcerAction.TERMINATE
-        elif weighted > 0.0:
+
+        count = len(violations)
+        if count >= 3:
+            return EnforcerAction.TERMINATE
+        elif count >= 1:
             return EnforcerAction.INTERRUPT
         else:
             return EnforcerAction.CONTINUE

@@ -72,8 +72,8 @@ class TestRBTAEnforcer:
         assert action == EnforcerAction.INTERRUPT
 
     def test_entropy_floor_violation(self, enforcer: RBTAEnforcer):
-        """H(beliefs) < entropy_floor → 1 violation."""
-        violations, _ = enforcer.check_cycle(
+        """H(beliefs) < entropy_floor → 1 violation → INTERRUPT."""
+        violations, action = enforcer.check_cycle(
             runtime_log={},
             memory_log={},
             energy_log={},
@@ -85,6 +85,9 @@ class TestRBTAEnforcer:
         assert violations[0].module_id == "G'"
         assert violations[0].measured == 0.001
         assert violations[0].allowed == 0.01
+        assert action == EnforcerAction.INTERRUPT, (
+            f"ENTROPY floor violation should trigger INTERRUPT, got {action}"
+        )
 
     def test_sensor_failure_limit(self, enforcer: RBTAEnforcer):
         """sensor_failure > asi_failure_limit → SENSOR_FAILURE violation.
@@ -281,14 +284,14 @@ class TestCompositionTree:
         assert abs(actual - expected) < 1e-6, f"Expected {expected}, got {actual}"
 
     def test_sequence_violation_detected(self, enforcer: RBTAEnforcer):
-        """SEQUENCE time > bound → composite violation recorded."""
+        """SEQUENCE time > bound → composite violation → INTERRUPT."""
         tree = {
             "type": "SEQUENCE", "id": "tight_pipe",
             "children": ["ASI", "G'", "PE"],
             "bounds": {"B_time": 0.020},  # too tight
         }
         runtime_log = {"ASI": 0.010, "G'": 0.010, "PE": 0.010}
-        violations, _ = enforcer.check_cycle(
+        violations, action = enforcer.check_cycle(
             runtime_log=runtime_log,
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
@@ -299,16 +302,17 @@ class TestCompositionTree:
         assert composite_violations[0].bound_type == "TIME"
         expected = (0.010 + 0.010 + 0.010) + self.TAU_COMP
         assert abs(composite_violations[0].measured - expected) < 1e-6
+        assert action == EnforcerAction.INTERRUPT
 
     def test_parallel_within_bound(self, enforcer: RBTAEnforcer):
-        """PARALLEL time ≤ bound → no composite violation."""
+        """PARALLEL time ≤ bound → no composite violation → CONTINUE."""
         tree = {
             "type": "PARALLEL", "id": "fast_branch",
             "children": ["ASI", "WM"],
             "bounds": {"B_time": 0.010},
         }
         runtime_log = {"ASI": 0.002, "WM": 0.003}
-        violations, _ = enforcer.check_cycle(
+        violations, action = enforcer.check_cycle(
             runtime_log=runtime_log,
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
@@ -316,12 +320,13 @@ class TestCompositionTree:
         )
         composite_violations = [v for v in violations if v.module_id.startswith("composite:")]
         assert len(composite_violations) == 0
+        assert action == EnforcerAction.CONTINUE
 
     def test_empty_children_no_crash(self, enforcer: RBTAEnforcer):
-        """Empty children list → no crash, no violation."""
+        """Empty children list → no crash, no violation → CONTINUE."""
         tree = {"type": "SEQUENCE", "children": [], "id": "empty"}
         runtime_log = {"ASI": 0.010}
-        violations, _ = enforcer.check_cycle(
+        violations, action = enforcer.check_cycle(
             runtime_log=runtime_log,
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
@@ -329,16 +334,18 @@ class TestCompositionTree:
         )
         composite_violations = [v for v in violations if v.module_id.startswith("composite:")]
         assert len(composite_violations) == 0
+        # ASI runtime=0.010 > B_time=0.005 → 1 TIME violation → INTERRUPT
+        assert action == EnforcerAction.INTERRUPT
 
     def test_unknown_operator_skipped(self, enforcer: RBTAEnforcer):
-        """Unknown composition type → skipped, no violation."""
+        """Unknown composition type → skipped, no composite violation."""
         tree = {
             "type": "CUSTOM_FORK", "id": "custom",
             "children": ["ASI", "G'"],
             "bounds": {"B_time": 0.005},
         }
         runtime_log = {"ASI": 0.010, "G'": 0.020}
-        violations, _ = enforcer.check_cycle(
+        violations, action = enforcer.check_cycle(
             runtime_log=runtime_log,
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
@@ -346,6 +353,8 @@ class TestCompositionTree:
         )
         composite_violations = [v for v in violations if v.module_id.startswith("composite:")]
         assert len(composite_violations) == 0
+        # ASI=0.010 > 0.005, G'=0.020 == 0.020 → 1 TIME violation → INTERRUPT
+        assert action == EnforcerAction.INTERRUPT
 
     def test_no_bounds_no_violation(self, enforcer: RBTAEnforcer):
         """No bounds field → no composite bound check (implicit ∞)."""
@@ -354,7 +363,7 @@ class TestCompositionTree:
             "children": ["ASI", "G'"],
         }
         runtime_log = {"ASI": 999.0, "G'": 999.0}
-        violations, _ = enforcer.check_cycle(
+        violations, action = enforcer.check_cycle(
             runtime_log=runtime_log,
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
@@ -362,6 +371,8 @@ class TestCompositionTree:
         )
         composite_violations = [v for v in violations if v.module_id.startswith("composite:")]
         assert len(composite_violations) == 0
+        # ASI=999 >> 0.005, G'=999 >> 0.020 → 2 extreme violations → TERMINATE
+        assert action == EnforcerAction.TERMINATE
 
     def test_three_level_deep_nesting(self, enforcer: RBTAEnforcer):
         """Three-level nesting: SEQUENCE → PARALLEL → SEQUENCE."""
