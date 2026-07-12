@@ -1,8 +1,8 @@
 # Φ-IQ Metric — Benchmarking & Evaluation
 
 Φ-IQ (Phi-Intelligence Quotient) is a **composite task-performance heuristic** for
-**PHCA v3.0** on scripted GridWorld benchmarks. It combines six sub-metrics into a
-single score between 0.0 and 1.0.
+**PHCA v3.0** on scripted GridWorld benchmarks. It combines five independent
+sub-metrics into a single score between 0.0 and 1.0.
 
 > **What Φ-IQ is not:** It is not psychometric IQ, general intelligence, or a
 > cross-domain capability score. It measures performance on four fixed GridWorld
@@ -13,29 +13,31 @@ single score between 0.0 and 1.0.
 ## Definition
 
 ```
-Φ-IQ = 0.20 × PredictionAccuracy
-     + 0.20 × AdaptationSpeed
-     + 0.15 × GoalComplexity
-     + 0.15 × TransferEfficiency
+Φ-IQ = 0.25 × PredictionAccuracy
+     + 0.25 × AdaptationSpeed
+     + 0.20 × GoalComplexity
      + 0.20 × ResourceEfficiency
      - 0.10 × FailureRate
 ```
 
 | Sub-Metric | Weight | What It Measures |
 |---|---|---|
-| PredictionAccuracy | 0.20 | Inverse of normalised mean prediction error |
-| AdaptationSpeed | 0.20 | Early vs late error/goals improvement |
-| GoalComplexity | 0.15 | L2 goal rate; L0/L3 drive diversity; L1 `unique_actions / action_space_size` |
-| TransferEfficiency | 0.15 | **`adaptation × prediction` proxy** — not cross-task transfer |
+| PredictionAccuracy | 0.25 | Inverse of normalised mean prediction error |
+| AdaptationSpeed | 0.25 | Early vs late error/goals improvement |
+| GoalComplexity | 0.20 | L2 goal rate; L0/L3 drive diversity; L1 `unique_actions / action_space_size` |
 | ResourceEfficiency | 0.20 | `1 − mean_latency_ms / 500` |
 | FailureRate | 0.10 | RBTA violations per cycle (subtracted) |
 
-### TransferEfficiency disclaimer
+### TransferEfficiency note (removed from Φ-IQ 2026-07-11)
 
-`TransferEfficiency` is computed as `adaptation_speed × prediction_accuracy` in
-[`scripts/benchmark.py`](../scripts/benchmark.py). It does **not** measure
-retention across tasks or environments. Use **Level-4-lite** for cross-task
-forgetting measurement:
+`TransferEfficiency` was removed from the Φ-IQ composite per **D-147** (NEW-03):
+it is a derived metric (`adaptation_speed × prediction_accuracy`), not an
+independent measurement — its 0.15 weight double-counted PA and AS. The weight
+was redistributed: PA +0.05, AS +0.05, GC +0.05.
+
+`transfer_efficiency` is still computed and stored on `BenchmarkResult` for
+diagnostics, but does not contribute to the Φ-IQ score. Use **Level-4-lite**
+for cross-task forgetting measurement:
 
 ```bash
 PYTHONPATH=python python scripts/benchmark_level4.py \
@@ -45,7 +47,6 @@ PYTHONPATH=python python scripts/benchmark_level4.py \
 
 Gate: `forgetting_rate < 0.05` (max relative drop per task). Implemented in
 [`python/phca/evaluation/metrics/forgetting.py`](../python/phca/evaluation/metrics/forgetting.py).
-This is **not** the same as `TransferEfficiency` above.
 
 ---
 
@@ -150,7 +151,7 @@ if RBTA violations exceed 10% of total cycles.
 | Cycle latency | < 500 ms mean | ~17 ms mean, ~31 ms p95 ✅ |
 | Failure rate | < 10% violations | **0 violations** ✅ |
 | Goal autonomy (L3) | Drive diversity > 0.1 | Achieved ✅ |
-| Overall Φ-IQ | > 0.5 | **0.7323** ✅ |
+| Overall Φ-IQ | > 0.5 | **0.7718** ✅ |
 | Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ |
 
 Source: [STATUS.md](../STATUS.md), canonical `logs/benchmark_report.json`.
@@ -184,18 +185,18 @@ can pass the violation gate (`failure_rate_under_10pct`).
 
 ## Latest Results
 
-**Date:** 2026-07-05  
-**Configuration:** MLP (hidden 128, ~38,868 params), 200 cycles/level, seed 42, 5×5 GridWorld
+**Date:** 2026-07-11  
+**Configuration:** MLP (hidden 128, ~38,868 params), 50 cycles/level, seed 42, 5×5 GridWorld (Φ-IQ formula updated D-147)
 
 ```
-Overall Φ-IQ: 0.7323
+Overall Φ-IQ: 0.7718
 
 Level  Φ-IQ
 ────────────────
-L0     0.7750
-L1     0.6748
-L2     0.7924
-L3     0.6868
+L0     0.7886
+L1     0.7837
+L2     0.8527
+L3     0.6624
 ```
 
 ---

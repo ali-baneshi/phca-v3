@@ -757,6 +757,9 @@ class M3EpisodicMemory:
     def _evict_if_needed(self) -> None:
         """Evict oldest episodes if over max_episodes.
 
+        Task-aware eviction: maintains a per-task quota so that early-task
+        episodes are not starved by FIFO ordering (NEW-02 fix 2026-07-11).
+
         Prefers evicting consolidated episodes over unconsolidated to avoid
         losing experience before M4 extraction.
         """
@@ -764,35 +767,79 @@ class M3EpisodicMemory:
             total = self.count()
             if total <= self._max_episodes:
                 return
-            excess = total - self._max_episodes
+            # Get all task_ids that have episodes
+            cursor = self._connection.execute(
+                "SELECT DISTINCT task_id FROM episodes"
+            )
+            rows = cursor.fetchall()
+            task_ids = [r[0] for r in rows if r[0] is not None]
+            has_null = any(r[0] is None for r in rows)
+            if has_null:
+                # Count NULL-group episodes; treat as one extra "task"
+                null_cnt = self._connection.execute(
+                    "SELECT COUNT(*) FROM episodes WHERE task_id IS NULL"
+                ).fetchone()[0] or 0
+            else:
+                null_cnt = 0
+            if not task_ids and not has_null:
+                return
+            groups = len(task_ids) + (1 if has_null else 0)
+            max_per_group = self._max_episodes // groups
             deleted = 0
-            # Phase 1: evict consolidated episodes first
-            cons_count = self.count(consolidated=1)
-            if cons_count > 0:
-                n1 = min(excess, cons_count)
-                self._connection.execute(
-                    "DELETE FROM episodes WHERE episode_id IN ("
-                    "SELECT episode_id FROM episodes WHERE consolidated = 1 "
-                    "ORDER BY timestamp ASC LIMIT ?"
-                    ")", (n1,),
-                )
-                deleted += n1
-            # Phase 2: evict unconsolidated only if still over limit
-            remaining = excess - deleted
-            if remaining > 0:
-                self._connection.execute(
-                    "DELETE FROM episodes WHERE episode_id IN ("
-                    "SELECT episode_id FROM episodes WHERE consolidated = 0 "
-                    "ORDER BY timestamp ASC LIMIT ?"
-                    ")", (remaining,),
-                )
-                deleted += remaining
-            self._connection.commit()
-            self._pending_commits = 0  # eviction commit also flushes pending writes
-            _log(logger, "debug", "m3.evict", count=deleted)
-            # Track deletions for VACUUM scheduling (G-010)
-            self._episodes_since_vacuum += deleted
-            self._vacuum_if_needed()
+
+            def _evict_group(group_filter: str, group_params: tuple, target: int) -> int:
+                """Evict from a single task (or NULL) group down to ``target``."""
+                n = 0
+                while True:
+                    cnt = self._connection.execute(
+                        f"SELECT COUNT(*) FROM episodes WHERE {group_filter}",
+                        group_params,
+                    ).fetchone()[0] or 0
+                    if cnt <= target:
+                        break
+                    excess = cnt - target
+                    # Phase 1: consolidated
+                    cons = self._connection.execute(
+                        f"SELECT episode_id FROM episodes WHERE {group_filter} AND consolidated = 1 "
+                        "ORDER BY timestamp ASC LIMIT ?",
+                        (*group_params, excess),
+                    ).fetchall()
+                    cons_ids = [r[0] for r in cons]
+                    if cons_ids:
+                        ph = ",".join("?" for _ in cons_ids)
+                        self._connection.execute(
+                            f"DELETE FROM episodes WHERE episode_id IN ({ph})", cons_ids,
+                        )
+                        n += len(cons_ids)
+                        excess -= len(cons_ids)
+                    if excess <= 0:
+                        break
+                    # Phase 2: unconsolidated
+                    unc = self._connection.execute(
+                        f"SELECT episode_id FROM episodes WHERE {group_filter} AND consolidated = 0 "
+                        "ORDER BY timestamp ASC LIMIT ?",
+                        (*group_params, excess),
+                    ).fetchall()
+                    unc_ids = [r[0] for r in unc]
+                    if not unc_ids:
+                        break
+                    ph = ",".join("?" for _ in unc_ids)
+                    self._connection.execute(
+                        f"DELETE FROM episodes WHERE episode_id IN ({ph})", unc_ids,
+                    )
+                    n += len(unc_ids)
+                return n
+
+            for tid in task_ids:
+                deleted += _evict_group("task_id = ?", (tid,), max_per_group)
+            if has_null:
+                deleted += _evict_group("task_id IS NULL", (), max_per_group)
+            if deleted > 0:
+                self._connection.commit()
+                self._pending_commits = 0
+                _log(logger, "debug", "m3.evict", count=deleted)
+                self._episodes_since_vacuum += deleted
+                self._vacuum_if_needed()
 
     def purge_consolidated(self, keep_recent: int = 500) -> int:
         """Delete consolidated episodes, retaining the most recent (P1-4 retention).

@@ -32,7 +32,8 @@ expensive feedback phases.
 2. `RBTAEnforcer.check_cycle()` detects TIME violations when runtime exceeds
    `B_time`.
 3. With 1–2 violations → `EnforcerAction.INTERRUPT` (limits action candidates,
-   skips consolidation).
+   skips consolidation). Exception: any single violation with `severity > 0.8`
+   (e.g., runtime > 5× budget or entropy < 5× below floor) → `TERMINATE`.
 4. With 3+ violations → `EnforcerAction.TERMINATE` (uses neutral action, skips
    feedback entirely).
 5. The cycle never crashes — it continues stepping with degraded processing.

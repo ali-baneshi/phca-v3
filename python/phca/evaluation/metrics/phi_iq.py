@@ -12,13 +12,17 @@ from phca.evaluation.result_schema import BenchmarkReport, BenchmarkResult, DEFA
 
 
 def compute_phi_iq(result: BenchmarkResult, weights: Optional[Dict[str, float]] = None) -> float:
-    """Compute the Φ-IQ composite score from sub-metrics."""
+    """Compute the Φ-IQ composite score from sub-metrics.
+
+    ``transfer_efficiency`` is excluded from the formula (NEW-03, 2026-07-11):
+    it is derived from ``adaptation_speed × prediction_accuracy``, not an
+    independent measurement. Weight redistributed to PA, AS, GC.
+    """
     w = weights or DEFAULT_WEIGHTS
     score = (
         w["prediction_accuracy"] * result.prediction_accuracy
         + w["adaptation_speed"] * result.adaptation_speed
         + w["goal_complexity"] * result.goal_complexity
-        + w["transfer_efficiency"] * result.transfer_efficiency
         + w["resource_efficiency"] * result.resource_efficiency
         - w["failure_rate"] * result.failure_rate
     )

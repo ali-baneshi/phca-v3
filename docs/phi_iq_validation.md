@@ -59,3 +59,14 @@ make validate-science
 ## Current Status
 
 **Complete** (2026-07-05). Artifacts: `results/validation/phi_iq_validation.json`, `summary.json`, `hypothesis_verdicts.json`. Predictive validity **passes** (r=0.992). Sensitivity is **partial** (full > minimal, not full > no_prediction). Cite scaling corroboration with grid-size caveats.
+
+## Formula Change (2026-07-11)
+
+**D-147 (NEW-03):** `transfer_efficiency` removed from Φ-IQ composite.
+Weight redistributed: PA 0.25, AS 0.25, GC 0.20, RE 0.20, FR 0.10.
+See [`phi_iq_metric.md`](phi_iq_metric.md) for current formula.
+
+> **Re-validation recommended:** The sensitivity and predictive-validity studies
+> above were run against the old 6-metric formula. After re-running:
+> - Sensitivity on 1/2 contrasts may change (fewer degrees of freedom).
+> - Predictive validity r should remain ≥ 0.7 (PA+AS dominate the score).

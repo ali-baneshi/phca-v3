@@ -38,7 +38,7 @@ def test_compute_phi_iq_bounds():
                         resource_efficiency=1.0, failure_rate=0.0)
     score = compute_phi_iq(r, DEFAULT_WEIGHTS)
     assert 0.0 <= score <= 1.0
-    assert score > 0.9
+    assert score >= 0.89  # 0.25+0.25+0.20+0.20 = 0.90; allow FP epsilon
 
 
 def test_strategy_diversity():

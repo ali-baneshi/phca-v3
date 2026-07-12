@@ -411,27 +411,7 @@ class CognitiveCycle:
             reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
             # Build composition tree reflecting the 21-step cycle's structure
             # with full three-dimensional bounds (B_time, B_energy) per A1 fix.
-            composition_tree = {
-                "type": "SEQUENCE", "id": "cognitive_cycle",
-                "children": [
-                    "ASI",
-                    "WM",
-                    "PE",
-                    {
-                        "type": "PARALLEL", "id": "regulation_block",
-                        "children": ["MDIM", "CR", "ATTN", "HPM"],
-                        "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy},
-                    },
-                    "ACTION",
-                    "PEU",
-                    "TSPL-P",
-                    "CYCLE",
-                ],
-                "bounds": {
-                    "B_time": reg_b_time * 2 + 0.050,  # 2× regulator + safety margin
-                    "B_energy": reg_b_energy * 2 + 0.010,  # 2× regulator + energy overhead
-                },
-            }
+            composition_tree = self._build_full_composition_tree(reg_b_time, reg_b_energy)
             violations, enforcer_action = self.rbta.check_cycle(
                 runtime_log=self.runtime_log,
                 memory_log=self.memory_log,
@@ -1169,20 +1149,7 @@ class CognitiveCycle:
         }
         hpm_bounds = self.hpm_validator.compute_bounds(hpm_spec, self.runtime_log)
         reg_b_time, reg_b_energy = self._scaled_hpm_composite_bounds(hpm_bounds)
-        composition_tree = {
-            "type": "SEQUENCE", "id": "cognitive_cycle",
-            "children": [
-                "ASI", "WM", "PE",
-                {"type": "PARALLEL", "id": "regulation_block",
-                 "children": ["MDIM", "CR", "ATTN", "HPM"],
-                 "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy}},
-                "ACTION", "PEU", "TSPL-P", "CYCLE",
-            ],
-            "bounds": {
-                "B_time": reg_b_time * 2 + 0.050,
-                "B_energy": reg_b_energy * 2 + 0.010,
-            },
-        }
+        composition_tree = self._build_full_composition_tree(reg_b_time, reg_b_energy)
         violations, enforcer_action = self.rbta.check_cycle(
             runtime_log=self.runtime_log,
             memory_log=self.memory_log,
@@ -2178,6 +2145,28 @@ class CognitiveCycle:
             reg_b_time = scaled_time_bound(self.state_dim, reg_b_time)
             reg_b_energy = reg_b_energy * grid_scale(self.state_dim)
         return reg_b_time, reg_b_energy
+
+    def _build_full_composition_tree(
+        self, reg_b_time: float, reg_b_energy: float,
+    ) -> dict:
+        """Build the standard full-cycle composition tree for RBTA.
+
+        Duplicated across step() and _finalize_learning_cycle — extracted here (F-04).
+        """
+        return {
+            "type": "SEQUENCE", "id": "cognitive_cycle",
+            "children": [
+                "ASI", "WM", "PE",
+                {"type": "PARALLEL", "id": "regulation_block",
+                 "children": ["MDIM", "CR", "ATTN", "HPM"],
+                 "bounds": {"B_time": reg_b_time, "B_energy": reg_b_energy}},
+                "ACTION", "PEU", "TSPL-P", "CYCLE",
+            ],
+            "bounds": {
+                "B_time": reg_b_time * 2 + 0.050,
+                "B_energy": reg_b_energy * 2 + 0.010,
+            },
+        }
 
     def _rbta_preflight_check(
         self,

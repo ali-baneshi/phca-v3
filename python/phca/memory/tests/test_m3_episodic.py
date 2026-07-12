@@ -85,6 +85,26 @@ class TestM3EpisodicMemory:
 
         assert m3.count() <= 100  # should evict to max_episodes
 
+    def test_task_aware_eviction(self, sample_episode_data):
+        """Eviction must preserve per-task fairness (NEW-02)."""
+        m3 = M3EpisodicMemory(
+            db_path=":memory:", max_episodes=50,
+            state_dim=4, action_dim=2,
+        )
+        state_before, action, state_after = sample_episode_data
+        # Store 30 episodes for task 0 and 30 for task 1 = 60, quota 25 each
+        for i in range(30):
+            m3.store_episode(state_before, action, state_after, 0.1,
+                             task_id=0, timestamp=i)
+        for i in range(30):
+            m3.store_episode(state_before, action, state_after, 0.1,
+                             task_id=1, timestamp=i)
+
+        assert m3.count() <= 50  # total must stay under max
+        assert m3.count_for_task(0) >= 20  # at most 10 evicted per task
+        assert m3.count_for_task(1) >= 20
+        assert m3.count_for_task(0) + m3.count_for_task(1) == m3.count()
+
 
 # ── SQLite Hardening (G-010 / D-082) ──────────────────────────
 

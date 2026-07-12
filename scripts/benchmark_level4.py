@@ -111,7 +111,6 @@ def _run_eval_on_task(
     b4_events: int,
     env_type: str = "gridworld",
     metric: str = "goal_rate",
-    train_start_pos: tuple | None = None,
 ) -> tuple[List[CycleMetrics], int]:
     if env_type == "pendulum":
         assert isinstance(task, PendulumTask)
@@ -119,9 +118,6 @@ def _run_eval_on_task(
     else:
         assert isinstance(task, GridWorldTask)
         cycle.env.apply_task_layout(task.goal_pos, task.obstacles)
-        if train_start_pos is not None and hasattr(cycle.env, "agent_pos"):
-            cycle.env.agent_pos = train_start_pos
-            cycle.env.start_pos = train_start_pos
     if mitigation:
         cycle.on_task_boundary(task.task_id)
     else:
@@ -238,7 +234,6 @@ def run_level4_benchmark(
         train_curves: Dict[int, List[Dict[str, float]]] = {}
         b4_events = 0
         m3_replay_at_train_end = 0
-        train_end_positions: Dict[int, tuple] = {}
 
         for task in tasks:
             if env_type == "pendulum":
@@ -261,8 +256,6 @@ def run_level4_benchmark(
                     b4_events += 1
 
             per_task_train[task.task_id] = train_hist
-            if hasattr(cycle.env, "agent_pos"):
-                train_end_positions[task.task_id] = cycle.env.agent_pos
             baseline = _baseline_for_task(
                 train_hist,
                 task_id=task.task_id,
@@ -303,7 +296,6 @@ def run_level4_benchmark(
                 b4_events=b4_events,
                 env_type=env_type,
                 metric=metric,
-                train_start_pos=train_end_positions.get(task.task_id),
             )
 
             per_task_history[task.task_id] = eval_hist

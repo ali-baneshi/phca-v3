@@ -6,10 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 DEFAULT_WEIGHTS = {
-    "prediction_accuracy": 0.20,
-    "adaptation_speed": 0.20,
-    "goal_complexity": 0.15,
-    "transfer_efficiency": 0.15,
+    "prediction_accuracy": 0.25,
+    "adaptation_speed": 0.25,
+    "goal_complexity": 0.20,
     "resource_efficiency": 0.20,
     "failure_rate": 0.10,
 }

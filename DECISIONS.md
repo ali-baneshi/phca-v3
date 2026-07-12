@@ -1688,3 +1688,61 @@ Every entry must reference the v3.0 specification section it affects.
 - **Rationale:** The output Jacobian norm measures how much the model's output would change for a small input perturbation — a direct proxy for "how critical is this input state to the model's decisions." The arctan squashes [0, ∞) → [0, 1) so the PID setpoint needs no change from the old 0.5 default. Zero extra FLOP for the common case (loss gradient).
 - **v3.0 trace:** §3.3 (MDIM D2 — criticality drive), `mlp.py::last_input_sensitivity`, `cycle.py::_update_phi_from_gradient`.
 - **Tests/Validation:** Φ-IQ benchmark PASS (overall 0.7919 in long-run, 0.739 at 200 cycles). Stress test confirms gradient path does not raise. All 142 tests pass.
+
+## Decision D-144: Revert `_classify_action` to count-based with severity override
+
+- **Date:** 2026-07-11
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 1 (A3 invariant fix)
+- **Problem:** The severity-weighted `_classify_action` (introduced 2026-07-11 in Step 6) used `weighted = sum(v.severity)` and `weighted > 0.0 → INTERRUPT`. But `ConstraintViolation.__post_init__` only computed severity for `measured > allowed` (over-direction). ENTROPY violations fire on `measured < allowed` (under-direction), so they always got `severity=0.0` → `weighted=0.0` → `CONTINUE`. A single ENTROPY floor violation — which the old count-based code would have escalated to INTERRUPT — was silently ignored, breaking A3 (Incomplete Knowledge).
+- **Option chosen:** Count-based `_classify_action` (0→CONTINUE, 1-2→INTERRUPT, 3+→TERMINATE) with a severity override (any single violation with `severity > 0.8` → TERMINATE regardless of count). `ConstraintViolation.__post_init__` changed to use `abs(measured - allowed)` so severity works correctly for both over and under directions. `ResourceBounds.__post_init__` gets `assert B_energy > 0`.
+- **Alternatives:** (a) Add `direction` field to `ConstraintViolation` (rejected — would require updating 7+ instantiation sites for a simpler root cause). (b) Override severity at the ENTROPY call site (rejected — fixes symptom not root; any future under-type bound would have the same bug). (c) Keep pure severity-weighted with direction fix (rejected — thresholds 0.8/1.5 were uncalibrated; count-based is proven and simpler).
+- **Rationale:** The old count-based logic provably produces correct action for all 5 bound types (TIME, MEM, ENERGY, ENTROPY, SENSOR) regardless of violation direction. Adding `abs()` to the severity formula makes it direction-agnostic for observability. The severity override provides a safety net for extreme violations (>5× over/under budget) without making enforcement dependent on fragile thresholds. Net change: fewer lines of code, simpler logic, all bound types handled correctly.
+- **v3.0 trace:** §2.1 Definition 2.3 (enforcement action), §2.1 Definition 2.1 (ResourceBounds), A3 (Incomplete Knowledge).
+- **Tests/Validation:** `test_entropy_floor_violation` now asserts `action == EnforcerAction.INTERRUPT`. All 6 composition-tree tests that discarded action with `_` now assert it. A–E `rbta_enforcer.py` tests: 21/21 pass. `assumption_validation.py --ci`: A1–A5 all PASS. L3/L4 smoke benchmarks PASS.
+
+## Decision D-145: L4 eval start-position confound — full cleanup
+
+- **Date:** 2026-07-11
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2 (measurement correctness)
+- **Problem:** D-137 identified that L4 evaluation started from each task's training end position (often at the goal), inflating goal_rate and masking catastrophic forgetting. The original fix (D-137) passed `train_start_pos=None` to `_run_eval_on_task`. However, `benchmark_level4.py` still populated `train_end_positions` during training and still accepted the unused `train_start_pos` parameter as dead code.
+- **Option chosen:** Remove the entire `train_end_positions` dict and the `train_start_pos` parameter from `_run_eval_on_task`. Dead code removal ensures the confound cannot reappear via copy-paste or partial merge.
+- **Rationale:** 10 lines of dead code removed. No behavioural change — eval already started from natural position. Cleanup prevents future re-introduction of the bug.
+- **v3.0 trace:** §1.3 (forgetting gate), L4 benchmark.
+- **Tests/Validation:** L4 smoke benchmark (2 tasks, 50 cycles each) PASS. 693/698 tests pass.
+
+## Decision D-146: M3 task-aware eviction (NEW-02)
+
+- **Date:** 2026-07-11
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2 (episodic memory fairness)
+- **Problem:** `M3EpisodicMemory._evict_if_needed()` used `ORDER BY timestamp ASC LIMIT ?` globally — oldest episodes (always from early tasks) were evicted first. When the agent encounters many tasks (or a small `max_episodes`), `sample_prior_task_episodes()` silently returns empty because all episodes from early tasks were evicted. Currently dormant because L4 benchmarks (2 tasks × 1000 cycles) rarely hit the 10K `max_episodes` limit.
+- **Option chosen:** Replace global FIFO with per-task quota eviction. Query all distinct `task_id` groups (including NULL), compute `max_per_group = max_episodes // len(groups)`. For each group exceeding its quota, evict oldest episodes within that group (consolidated first, then unconsolidated). NULL-task_id episodes use the same per-group logic for backward compatibility.
+- **Alternatives:** (a) Keep global FIFO (rejected — silently starves prior tasks). (b) LRU per task (rejected — more complex; oldest-first is sufficient for fairness). (c) Reservoir sampling per task (rejected — over-engineered; oldest episodes are least useful for replay).
+- **Rationale:** Per-task quota guarantees each task retains at least `max_episodes / N` episodes regardless of insertion order. NULL task_id (backward compat, used by tests and non-L4 scenarios) gets its own quota. Consolidated-first eviction within each task preserves experience before M4 extraction.
+- **v3.0 trace:** §3.1 (M3 episodic memory), §1.3 (forgetting gate via replay).
+- **Tests/Validation:** `test_task_aware_eviction` verifies: 30 ep/task for 2 tasks with max=50 → each task retains ≥20 episodes. Existing `test_eviction` (no task_id) continues to evict correctly via NULL-group quota. All 11 M3 tests pass.
+
+## Decision D-147: Φ-IQ formula — remove transfer_efficiency from composite (NEW-03)
+
+- **Date:** 2026-07-11
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 2 (metric purity)
+- **Problem:** `transfer_efficiency = adaptation_speed × prediction_accuracy` is a derived metric, not an independent measurement. Including it in the Φ-IQ composite gave ~55% of total weight to just 2 signals (PA and AS), inflating the score without adding information. The 0.15 weight on `transfer_efficiency` was essentially double-counting `adaptation_speed` and `prediction_accuracy`.
+- **Option chosen:** Remove `transfer_efficiency` from `compute_phi_iq()`. Redistribute its 0.15 weight: `prediction_accuracy +0.05` (0.25), `adaptation_speed +0.05` (0.25), `goal_complexity +0.05` (0.20). `resource_efficiency` stays 0.20, `failure_rate` stays 0.10. `transfer_efficiency` remains a computed field on `BenchmarkResult` for diagnostics.
+- **Alternatives:** (a) Keep transfer_efficiency but halve its weight (rejected — still double-counts PA and AS). (b) Redefine transfer_efficiency as an independent metric (rejected — no clean independent definition exists in current evaluation framework). (c) Leave as-is (rejected — weight distribution was mathematically unsound).
+- **Rationale:** After removal, the 4 remaining sub-metrics are independent: PA (prediction quality), AS (adaptation rate), GC (goal diversity), RE (computational cost), FR (safety violations). No sub-metric is a product of another. The weight sum remains 1.0. The `transfer_efficiency` field persists in `BenchmarkResult` for anyone who wants the diagnostic.
+- **v3.0 trace:** §1.3 (Φ-IQ composite metric).
+- **Tests/Validation:** `test_compute_phi_iq_bounds` updated to `>= 0.89`. All 25 evaluation tests pass. L3 benchmark (50 cycles) produces Φ-IQ 0.77, all pass criteria ✓.
+
+## Decision D-148: Composition tree factory extraction (F-04)
+
+- **Date:** 2026-07-11
+- **Author:** Lead Implementation Engineer
+- **Category:** Tier 3 (code quality)
+- **Problem:** Six composition-tree construction sites in `cycle.py` had 2 identical pairs (~30 redundant lines). `step()` and `_finalize_learning_cycle()` each built the same full-cycle tree; `_rbta_preflight_check()` built a truncated variant.
+- **Option chosen:** Extract `_build_full_composition_tree(reg_b_time, reg_b_energy)` factory method in `CognitiveCycle`. Replace both full-tree construction sites with calls to it. The truncated preflight-check tree stays inline (different structure, different bounds).
+- **Rationale:** Single source of truth for the full-cycle composition tree structure. Eliminates risk of the two copies diverging. Factory method is 12 lines — less than half the original 30.
+- **v3.0 trace:** §2.1 (RBTA composition tree), `cycle.py`.
+- **Tests/Validation:** All 698 tests pass (same as before); no behavioural change.

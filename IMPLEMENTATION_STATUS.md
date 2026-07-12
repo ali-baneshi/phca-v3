@@ -2,7 +2,7 @@
 
 Maps **whitepaper success criteria** and **blueprint components** to current
 code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
-2026-07-09.
+2026-07-11.
 
 **Maturation audits (2026-07-07):** [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md),
 [docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md).
@@ -29,7 +29,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 |---|---|---|---|
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
 | **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
-| **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** |
+| **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** (regression fix 2026-07-11: direction-blind severity in `ConstraintViolation.__post_init__` zeroed ENTROPY violations; fixed with direction-agnostic `abs(measured - allowed)` formula + count-based `_classify_action`) |
 | **A4** Prediction as Primary | G′ predict every cycle, unified prediction-scored action selection | A4 test on all envs | **Unified scorer** — task_lock geometry-bypass removed (2026-07-11). All action selection uses prediction-scored path with confidence-weighted geometry prior. MDIM 6-drive always active. Continuous MPC remains prediction-primary. |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
 
@@ -46,7 +46,7 @@ evidence separate from invariant tests.
 | Grounding adapter (L0/L2) | v3 patch | — | **Not implemented** (ASI always level 1); see NoiseInjector in `python/phca/asi/noise_injector.py` for noise-stress proxy |
 | **NoiseInjector** | Resilience | `python/phca/asi/noise_injector.py` | **Implemented** — configurable Gaussian noise, decay, warmup; `scripts/benchmark_noise_closedloop.py` + `scripts/benchmark_noise_robustness.py` |
 | **Hybrid ablation** | A4 analysis | `scripts/benchmark_hybrid_ablation.py` | **Implemented** — 30-seed Mann-Whitney ablation: Manhattan vs Prediction vs Hybrid; `experiments/hybrid_map_ablation.yaml` |
-| RBTA enforcer | Whitepaper §2.1 | `phca/regulation/rbta_enforcer.py` | **Implemented** (Python; Rust removed D-084) |
+| RBTA enforcer | Whitepaper §2.1 | `phca/regulation/rbta_enforcer.py` | **Implemented** — count-based `_classify_action` (0→CONT, 1-2→INT, 3+→TERM) with severity override (>0.8→TERM). `ConstraintViolation` severity direction-agnostic via `abs()`. `ResourceBounds` validates `B_energy > 0`. (Python; Rust removed D-084) |
 | G′ world model | Whitepaper §2.2 | `phca/world_model/` | **Implemented** (Gaussian / graph / MLP) |
 | V (VSA ensemble) | Whitepaper §2.2 | — | **Not implemented** |
 | S (script library) | Whitepaper §2.2 | — | **Not implemented** |
@@ -60,7 +60,7 @@ evidence separate from invariant tests.
 | HPM runtime | Blueprint | `phca/hpm/parser.py` | **Partial** — `compute_bounds()` only |
 | M1 sensory | Blueprint | `phca/memory/m1_sensory.py` | **Implemented** |
 | M2 working | Blueprint | `phca/memory/m2_working.py` | **Implemented** |
-| M3 episodic | Blueprint | `phca/memory/m3_episodic.py` | **Implemented** (SQLite, VACUUM D-108, PER D-138) |
+| M3 episodic | Blueprint | `phca/memory/m3_episodic.py` | **Implemented** (SQLite, VACUUM D-108, PER D-138, task-aware eviction D-146) |
 | M4 semantic | Blueprint | `phca/consolidation/scheduler.py` | **Partial** — statistical pattern facts |
 | M5 procedural | Blueprint | — | **Not implemented** |
 | M6 meta-memory | Whitepaper | — | **Not implemented** |
@@ -69,7 +69,7 @@ evidence separate from invariant tests.
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
 | Cognitive Observatory | Phase 7–20 | `phca/monitoring/` | **Complete** (schema, replay, report, scrub, compare, anomalies, explain, API, supervisor, multi-agent, query, reproduce) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
-| Φ-IQ L4-lite (forgetting) | Blueprint | `scripts/benchmark_level4.py` | **PASS** — GridWorld continual, `forgetting_rate=0.0000` (2026-07-08) |
+| Φ-IQ L4-lite (forgetting) | Blueprint | `scripts/benchmark_level4.py` | **PASS** — GridWorld continual, `forgetting_rate=0.0000` (eval start-position confound fixed D-145) |
 | Φ-IQ L5 | Blueprint | — | **Not implemented** |
 
 ---
@@ -87,7 +87,7 @@ evidence separate from invariant tests.
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` on `fixtures/multi_agent_short/` and `fixtures/reacher_short/` | **Yes** | PASS |
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
-| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; L4b **PASS** (D-137: eval start-position confound fixed) — see `docs/l4_root_cause_verdict.md` |
+| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; L4b **PASS** (eval start-position confound fixed D-137/D-145) — see `docs/l4_root_cause_verdict.md` |
 | L4 ablation matrix | `scripts/run_l4_ablation.py` | No | T3 local; `make bench-level4-ablation` |
 | Maturation T1 gates | `make maturation-test` | No | 45 tests static+forgetting+resilience+maturation |
 | Cognitive recovery | `scripts/benchmark_recovery.py` | No | Local gate; B1/C1/F5 injectable scenarios |
@@ -151,6 +151,15 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | PEU float64 conversion removed | `python/phca/prediction/error_unit.py` — `diff` stays in input dtype (float32) instead of casting to float64 | ✅ **Done** | All 8 PEU tests pass |
 | M3 vacuum_interval 100→1000 (D-056 mismatch) | `python/phca/memory/m3_episodic.py` — `_vacuum_interval` changed from 100 to 1000 to match D-056 design decision | ✅ **Done** | VACUUM runs 10× less frequently; test sets own interval so unaffected |
 
+## Fixes (2026-07-11)
+
+| Feature | Code | Status | Evidence |
+|---|---|---|---|
+| L4 eval start-position confound — full cleanup | `scripts/benchmark_level4.py` — removed `train_end_positions` dict + `train_start_pos` param | ✅ **Done** | L4 smoke benchmark PASS; 10 lines dead code eliminated |
+| M3 task-aware eviction (NEW-02) | `python/phca/memory/m3_episodic.py` — per-task quota eviction replaces global FIFO | ✅ **Done** (D-146) | `test_task_aware_eviction` verifies per-task fairness; all 11 M3 tests pass |
+| Φ-IQ remove transfer_efficiency from composite (NEW-03) | `python/phca/evaluation/metrics/phi_iq.py` — dropped TE term, redistributed 0.15 weight to PA/AS/GC; `python/phca/evaluation/result_schema.py` — updated `DEFAULT_WEIGHTS` | ✅ **Done** (D-147) | Weights: PA 0.25, AS 0.25, GC 0.20, RE 0.20, FR 0.10; L3 benchmark Φ-IQ 0.77, all pass criteria ✓ |
+| Composition tree factory extraction (F-04) | `python/phca/core/cycle.py` — `_build_full_composition_tree()` replaces 30 duplicate lines | ✅ **Done** (D-148) | All 698 tests pass; no behavioural change |
+
 ## Core Infrastructure Fixes (2026-07-06)
 
 | Feature | Code | Status | Evidence |
@@ -196,7 +205,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | MuJoCo integration tests | 23 | **Yes** (`MUJOCO_GL=disabled`) |
 | Static contract tests | 10+ | **Yes** |
 | Maturation T1 gates | 45 | No (nightly) |
-| Total | **852+** (incl. ASI, TSPL, MLP, observatory, resilience, forgetting, benchmark validation) | Mixed CI / nightly |
+| Total | **698** (693 pass; 5 pre-existing monitoring/UI failures: JSON roundtrip, Qt rendering, multi-agent session report) | Mixed CI / nightly |
 
 ## Open Backlog (blueprint / cognition)
 
