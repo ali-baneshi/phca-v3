@@ -55,6 +55,9 @@ class InterventionConfig:
     enable_gprime_learn: bool = True
     disable_task_lock: bool = False
     disable_planning_grid: bool = False
+    disable_blended_scorer: bool = True
+    adaptive_confidence_gating: bool = True  # D-156: fall back to geometry when G' confidence < threshold
+    before_blended_warmup_cycles: int = 50  # D-157: pure geometry for first N cycles before enabling blended scorer
     stage_order: Optional[List[str]] = None
     minimal_cycle: bool = False
     resource_policy: str = "time"  # time | energy | memory
@@ -109,6 +112,9 @@ class InterventionConfig:
             enable_gprime_learn=d.get("enable_gprime_learn", True),
             disable_task_lock=d.get("disable_task_lock", False),
             disable_planning_grid=d.get("disable_planning_grid", False),
+            disable_blended_scorer=d.get("disable_blended_scorer", True),
+            adaptive_confidence_gating=d.get("adaptive_confidence_gating", True),
+            before_blended_warmup_cycles=int(d.get("before_blended_warmup_cycles", 50)),
             minimal_cycle=d.get("minimal_cycle", False),
             stage_order=d.get("stage_order"),
             resource_policy=d.get("resource_policy", "time"),

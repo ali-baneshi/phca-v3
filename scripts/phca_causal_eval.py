@@ -25,6 +25,7 @@ from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld
 from phca.evaluation.baselines.greedy import greedy_action
 from phca.evaluation.baselines.random_agent import random_action
 from phca.evaluation.baselines.search import bfs_action
+from phca.evaluation.interventions import InterventionConfig
 from phca.evaluation.metrics.statistics import seed_sequence
 from phca.world_model.mlp import gprime_stress_bounds
 
@@ -427,6 +428,7 @@ def run_phca_agent(
     *,
     use_mlp: bool,
     action_slip: float = 0.0,
+    interventions: Optional[InterventionConfig] = None,
 ) -> Dict[str, Any]:
     env = build_scenario_env(seed, size, spec, action_slip=action_slip)
     cycle = CognitiveCycle.build(
@@ -434,6 +436,7 @@ def run_phca_agent(
         seed=seed + 2,
         use_mlp=use_mlp,
         gprime_b_time=0.080 if use_mlp else 0.020,
+        interventions=interventions,
     )
     if use_mlp:
         cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
@@ -577,6 +580,7 @@ def run_level(
     use_mlp: bool,
     base_seed: int = 42,
     action_slip: float = 0.0,
+    interventions: Optional[InterventionConfig] = None,
 ) -> Dict[str, Any]:
     spec = SCENARIOS[level]
     selected = list(agents)
@@ -585,6 +589,7 @@ def run_level(
         if "phca" in selected:
             runs.append(run_phca_agent(
                 seed, cycles, size, spec, use_mlp=use_mlp, action_slip=action_slip,
+                interventions=interventions,
             ))
         for agent in ("random", "greedy_observed", "greedy_full_info", "bfs_search"):
             if agent in selected:
@@ -644,6 +649,7 @@ def run_evaluation(
     base_seed: int = 42,
     action_slip: float = 0.0,
     level_seeds: Optional[Dict[str, int]] = None,
+    interventions: Optional[InterventionConfig] = None,
 ) -> Dict[str, Any]:
     selected_levels = list(levels)
     overrides = level_seeds or {}
@@ -653,6 +659,7 @@ def run_evaluation(
             seeds=int(overrides.get(level, seeds)),
             size=size,
             agents=agents, use_mlp=use_mlp, base_seed=base_seed, action_slip=action_slip,
+            interventions=interventions,
         )
         for level in selected_levels
     }
@@ -722,11 +729,14 @@ def main() -> None:
     parser.add_argument("--levels", default="level1")
     parser.add_argument("--agents", default="phca,random,greedy_observed,greedy_full_info")
     parser.add_argument("--use-mlp", action="store_true")
+    parser.add_argument("--enable-blended-scorer", action="store_true",
+                        help="D-156: enable G' prediction blend (default now pure geometry)")
     parser.add_argument("--output", default="logs/phca_causal_eval.json")
     parser.add_argument("--gate", action="store_true")
     args = parser.parse_args()
 
     agents = [a.strip() for a in args.agents.split(",") if a.strip()]
+    iv = InterventionConfig(disable_blended_scorer=not args.enable_blended_scorer)
     report = run_evaluation(
         cycles=args.cycles,
         seeds=args.seeds,
@@ -737,6 +747,7 @@ def main() -> None:
         base_seed=args.base_seed,
         action_slip=args.action_slip,
         level_seeds=parse_level_seeds(args.level_seeds, args.seeds),
+        interventions=iv,
     )
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

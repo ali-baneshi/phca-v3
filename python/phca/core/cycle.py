@@ -1553,6 +1553,28 @@ class CognitiveCycle:
         if hasattr(self.env, "agent_pos") and self.env.get_goal_position() is not None:
             geo_action, _, _ = self._select_greedy_grid_action()
 
+        # NEW-05 / D-156 / D-157: skip prediction-scored loop when geometry is forced
+        should_skip_blended = self.interventions.disable_blended_scorer or (
+            self.interventions.adaptive_confidence_gating
+            and not self.interventions.disable_blended_scorer
+            and self.interventions.before_blended_warmup_cycles > 0
+            and self.cycle_count < self.interventions.before_blended_warmup_cycles
+        )
+        if should_skip_blended and geo_action is not None:
+            self.last_action_rationale = self._finalize_action_rationale({
+                "explored": False, "eps": float(eps),
+                "goal_id": int(goal_id), "continuous": False,
+                "best_score": None,
+                "k_candidates": int(self.env.action_space_size),
+                "chosen_idx": int(geo_action),
+                "task_lock": bool(self._task_lock),
+                "selector_mode": "pure_geometry_ablation",
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+            }, decision_reason="ablation_pure_geometry")
+            self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
+            return geo_action
+
         best_action = self.env.stay_action
         best_score = -float("inf")
         action_confidences = []
@@ -1650,6 +1672,35 @@ class CognitiveCycle:
         # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
         self._cached_confidences = action_confidences
         self.last_candidate_scores = scores_per_action
+
+        # D-156/D-157: adaptive confidence-gating — fall back to pure geometry when
+        # G' is uncertain, even with the blended scorer active.
+        if (
+            self.interventions.adaptive_confidence_gating
+            and not should_skip_blended
+            and geo_action is not None
+            and action_confidences
+        ):
+            mean_conf = float(np.mean(action_confidences))
+            CONFIDENCE_GATE_THRESHOLD = 0.65  # tuned for MLP MC-dropout scale
+            if mean_conf < CONFIDENCE_GATE_THRESHOLD:
+                best_action = geo_action
+                best_score = None
+                best_components = {
+                    "distance_gain": None,
+                    "pga": None,
+                    "confidence": mean_conf,
+                    "alignment": None,
+                    "prediction_primary": False,
+                    "fact_boost": None,
+                    "adaptive_fallback": True,
+                    "mean_conf_preview": mean_conf,
+                }
+                selector_mode = "adaptive_geometry_fallback"
+            else:
+                selector_mode = "prediction_scored"
+        else:
+            selector_mode = "prediction_scored"
         if _obs:
             for r in _rollouts:
                 r["chosen"] = (r["action_idx"] == best_action)
@@ -1661,14 +1712,14 @@ class CognitiveCycle:
         self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
-            "best_score": float(best_score),
+            "best_score": float(best_score) if best_score is not None else 0.0,
             "k_candidates": int(self.env.action_space_size),
             "chosen_idx": int(best_action),
             "task_lock": bool(self._task_lock),
-            "selector_mode": "prediction_scored",
+            "selector_mode": selector_mode,
             "score_components": best_components,
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-        }, decision_reason="prediction")
+        }, decision_reason="adaptive_geo_fallback" if selector_mode == "adaptive_geometry_fallback" else "prediction")
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:

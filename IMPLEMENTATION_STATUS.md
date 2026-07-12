@@ -30,7 +30,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | **A1** Resource boundedness | `rbta_enforcer.py` | `assumption_validation.py --ci` | **Measured PASS** |
 | **A2** Temporal causality | Pipeline order in `cycle.py` | `assumption_validation.py --ci` (A2 monitor) | **Measured PASS** |
 | **A3** Incomplete knowledge | `_epistemic_entropy()` → RBTA entropy_floor (MC-dropout mutual info) | `assumption_validation.py --ci` | **Measured PASS** (regression fix 2026-07-11: direction-blind severity in `ConstraintViolation.__post_init__` zeroed ENTROPY violations; fixed with direction-agnostic `abs(measured - allowed)` formula + count-based `_classify_action`) |
-| **A4** Prediction as Primary | G′ predict every cycle, unified prediction-scored action selection | A4 test on all envs | **Unified scorer** — task_lock geometry-bypass removed (2026-07-11). All action selection uses prediction-scored path with confidence-weighted geometry prior. MDIM 6-drive always active. Continuous MPC remains prediction-primary. |
+| **A4** Prediction as Primary | G′ predict every cycle, unified prediction-scored action selection | A4 test on all envs | **Suspended for GridWorld (D-156)** — blended G′ scorer caused catastrophic navigation failure at 10×10 (goal_rate 0.03% vs pure-geometry 26.8%; vs greedy_observed 24.0%). Default reverted to pure BFS/Manhattan geometry. Prediction-primary still active for continuous-control (Cartpole, Pendulum, Reacher) via MPC. |
 | **A5** Feedback-driven adaptation | PEU → TSPL → G′.learn | Weight freeze/active test | **Measured PASS** |
 
 See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) for behavioral
@@ -81,7 +81,7 @@ evidence separate from invariant tests.
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
 | Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7317) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
-| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 FAIL** at 30 seeds (MLP, 200 cyc). 5-seed nightly gave false positive (underpowered). See D-151. |
+| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 PASS** at 15 seeds (MLP, 200 cyc) with pure-geometry default (D-156). L3 gate PASS at 5×5 (goal 28.8% vs greedy 27.9%). L2 FAIL is inherent ceiling (greedy_observed 55.5% vs PHCA 50.3% at 5×5). 10×10: L2 PASS (26.8% vs 24.0%), L3 marginal FAIL (13.57% vs 13.73% — tied within noise). Blended scorer caused catastrophic collapse at 10×10 (0.03% goal rate). See D-156. |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
@@ -114,7 +114,7 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 
 | Environment | Mode | A4 "prediction-primary"? |
 |---|---|---|---|
-| GridWorld discrete | Unified prediction-scored argmax with confidence-weighted geometry prior; no task_lock bypass | **Yes** (task_lock bypass removed 2026-07-11) |
+| GridWorld discrete | Pure BFS/Manhattan geometry (default since D-156; G' prediction blend available via `--enable-blended-scorer`) | **No** (prediction-primary suspended — blended scorer caused catastrophic 0.03% goal rate at 10×10; pure geometry 26.8%) |
 | Cartpole | 3-bin discrete (unified path) | **Yes** |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |
