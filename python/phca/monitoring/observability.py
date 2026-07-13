@@ -774,6 +774,8 @@ class ObservabilityFrame:
                 d[nested] = _recursive_json(v)
         if self.action_rationale:
             d["action_rationale"] = _recursive_json(self.action_rationale)
+        if self.m3_top_error:
+            d["m3_top_error"] = _recursive_json(self.m3_top_error)
         # ── Skill IDs ──
         d["tspl_compiled_skill_ids"] = [str(x) for x in self.tspl_compiled_skill_ids]
         # ── Agent ──
