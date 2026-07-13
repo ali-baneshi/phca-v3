@@ -5,13 +5,16 @@ agent behavior, not whether the runtime can execute without crashing.
 
 ## Benchmark Shape
 
-The gate has three scenario levels:
+The core gate has three scenario levels plus three viewport (partial-observability) levels:
 
 | Level | Scenario | Expected control behavior |
 |-------|----------|---------------------------|
 | `level1` | Simple goal navigation | Full-information greedy should be the ceiling |
 | `level2` | Noisy/delayed observation, partial wall map, dynamic obstacles | Fair `greedy_observed` is the main non-PHCA control |
 | `level3` | Long horizon with goal switching, interruption/occlusion windows, partial map | PHCA must show recovery/adaptation, not just navigation |
+| `viewport1` | GridWorld with `partial_obs_radius=1` (3×3 viewport) | `greedy_observed` sees same restricted goal/walls as PHCA |
+| `viewport2` | GridWorld with `partial_obs_radius=2` (5×5 viewport) | Same control structure |
+| `viewport3` | GridWorld with `partial_obs_radius=3` (7×7 viewport) | Same control structure |
 
 The evaluator compares:
 
@@ -19,7 +22,7 @@ The evaluator compares:
 |-------|-------------|-------------|
 | `phca` | `CognitiveCycle.build(...)` with prediction, learning, action selection, MDIM/APC, M3/consolidation, and RBTA | Yes |
 | `random` | Uniform random GridWorld action | No |
-| `greedy_observed` | One-step Manhattan-distance controller using the same delayed/partial observed goal and wall map exposed by the scenario wrapper | No |
+| `greedy_observed` | One-step Manhattan-distance controller using the same observed goal and wall map exposed by the scenario wrapper. Under `partial_obs_radius` (viewport levels), `env.get_goal_position()` returns `None` when the goal is outside the viewport, and `env.grid` comes from `env.observed_grid` (only known walls). | No |
 | `greedy_full_info` | One-step Manhattan-distance controller using true agent/goal/wall state | No |
 
 `greedy_full_info` is reported as a sanity ceiling. It is not gated by default.
@@ -64,6 +67,9 @@ Default gated controls:
 | `level1` | `random` |
 | `level2` | `random`, `greedy_observed` |
 | `level3` | `random`, `greedy_observed` |
+| `viewport1` | `random`, `greedy_observed` |
+| `viewport2` | `random`, `greedy_observed` |
+| `viewport3` | `random`, `greedy_observed` |
 
 This rule is deliberately not tuned to force a pass.
 
@@ -96,6 +102,42 @@ Selected means (MLP, 200 cycles × 30 seeds):
 | `level3` | `greedy_observed` | 0.291 | 19.5 | 1.981 | 56.68 |
 
 > **Note:** Earlier 5-seed measurements (below) showed PASS at both levels, but this was a statistical false positive caused by underpowered sampling (D-151). The 30-seed run is authoritative.
+
+## Viewport Results (2026-07-13)
+
+Run after D-160 partial-observability infrastructure (MLP, 50 cycles × 5 seeds × 10×10 grid):
+
+```bash
+PYTHONPATH=python python scripts/phca_causal_eval.py --levels viewport1,viewport2,viewport3 \
+  --cycles 50 --seeds 5 --grid-size 10 --use-mlp
+```
+
+| Level | Viewport | Result | PHCA vs greedy_observed |
+|-------|----------|--------|-------------------------|
+| `viewport1` | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA beats both controls on ≥75% metrics. Mean goal_rate: phca **0.61** vs greedy_observed **0.33**. High seed variance (0–100%). |
+| `viewport2` | 5×5 (`partial_obs_radius=2`) | **PASS** | Mean goal_rate: phca **0.58** vs greedy_observed **0.40**. |
+| `viewport3` | 7×7 (`partial_obs_radius=3`) | **PASS** | Mean goal_rate: phca **0.77** vs greedy_observed **0.59**. |
+
+Selected means (MLP, 50 cycles × 5 seeds):
+
+| Level | Agent | Goal rate | First goal | Mean distance | Reward |
+|-------|-------|-----------|------------|---------------|--------|
+| `viewport1` | `phca` | 0.613 | 19.7 | 3.493 | 30.47 |
+| `viewport1` | `greedy_observed` | 0.333 | 34.0 | 2.667 | 16.33 |
+| `viewport1` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
+| `viewport2` | `phca` | 0.580 | 20.0 | 2.893 | 28.89 |
+| `viewport2` | `greedy_observed` | 0.400 | 30.0 | 4.400 | 19.70 |
+| `viewport2` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
+| `viewport3` | `phca` | 0.768 | 8.0 | 1.940 | 38.38 |
+| `viewport3` | `greedy_observed` | 0.592 | 22.0 | 3.812 | 29.49 |
+| `viewport3` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
+
+`greedy_full_info` uses `env.true_*` accessors (bypasses partial obs) and remains the
+unfair ceiling. Under tight viewports (`viewport1`), `greedy_observed` collapses to
+33% goal rate because it cannot see far enough to plan a Manhattan route — the core
+`observed_grid` delegation correctly imposes the same information constraint on the
+baseline. PHCA bridges part of this gap through learned prediction, but variance
+remains high (D-160 open issues).
 
 ## Interpretation
 

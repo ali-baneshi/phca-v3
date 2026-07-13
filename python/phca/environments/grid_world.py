@@ -58,6 +58,7 @@ class GridWorld:
         seed: int = 42,
         action_slip: float = 0.0,
         maze: bool = False,
+        partial_obs_radius: int | None = None,
     ):
         """
         Initialize the grid-world.
@@ -68,6 +69,8 @@ class GridWorld:
             seed: Random seed for reproducibility.
             action_slip: Probability [0,1] that action is replaced with STAY.
             maze: If True, generate maze-like walls instead of random density.
+            partial_obs_radius: If set (>0), agent only sees walls/goal within this
+                Manhattan distance. None = full observability (default).
         """
         assert size in (5, 10, 20), f"size must be 5, 10, or 20, got {size}"
         self.size = size
@@ -75,6 +78,7 @@ class GridWorld:
         self.max_steps = size * size * 4
         self.action_slip = float(np.clip(action_slip, 0.0, 1.0))
         self.maze = maze
+        self.partial_obs_radius = partial_obs_radius
 
         # Initialize empty grid
         self.grid = np.zeros((size, size), dtype=np.int32)
@@ -98,6 +102,12 @@ class GridWorld:
         self.start_pos = tuple(start_cells[self.rng.randint(len(start_cells))])
         self.agent_pos = self.start_pos
         self.step_count = 0
+
+        # Partial observability tracking
+        self._known_walls = np.zeros((size, size), dtype=bool)
+        self._goal_seen = False
+        if partial_obs_radius is not None:
+            self._reveal_around(self.agent_pos)
 
         # Thread-safety lock for async cycle (Feature 1)
         self._env_lock = threading.Lock()
@@ -128,21 +138,31 @@ class GridWorld:
         return [(r, c) for r in range(self.size) for c in range(self.size)
                 if self.grid[r, c] != self.WALL]
 
+    def _reveal_around(self, pos: tuple[int, int]) -> None:
+        if self.partial_obs_radius is None:
+            return
+        r, c = pos
+        radius = self.partial_obs_radius
+        for dr in range(-radius, radius + 1):
+            for dc in range(-radius, radius + 1):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.size and 0 <= nc < self.size:
+                    if self.grid[nr, nc] == self.WALL:
+                        self._known_walls[nr, nc] = True
+        gr, gc = self.goal_pos
+        if abs(r - gr) + abs(c - gc) <= radius:
+            self._goal_seen = True
+
     def reset(self, seed: int | None = None) -> np.ndarray:
-        """
-        Reset the environment to the start state.
-
-        Args:
-            seed: Optional new seed for reproducibility.
-
-        Returns:
-            Initial state vector (flattened grid + agent position).
-        """
         with self._env_lock:
             if seed is not None:
                 self.rng = np.random.RandomState(seed)
             self.agent_pos = self.start_pos
             self.step_count = 0
+            self._known_walls.fill(False)
+            self._goal_seen = False
+            if self.partial_obs_radius is not None:
+                self._reveal_around(self.agent_pos)
             return self._get_observation()
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
@@ -169,6 +189,8 @@ class GridWorld:
             if (0 <= new_r < self.size and 0 <= new_c < self.size
                     and self.grid[new_r, new_c] != self.WALL):
                 self.agent_pos = (new_r, new_c)
+            if self.partial_obs_radius is not None:
+                self._reveal_around(self.agent_pos)
 
             self.step_count += 1
 
@@ -203,17 +225,19 @@ class GridWorld:
         """
         r, c = self.agent_pos
 
-        # Agent position map
         agent_map = np.zeros((self.size, self.size), dtype=np.float32)
         agent_map[r, c] = 1.0
 
-        # Goal position map
         goal_map = np.zeros((self.size, self.size), dtype=np.float32)
-        gr, gc = self.goal_pos
-        goal_map[gr, gc] = 1.0
+        if self.partial_obs_radius is None or self._goal_seen:
+            gr, gc = self.goal_pos
+            goal_map[gr, gc] = 1.0
 
-        # Wall map
-        wall_map = (self.grid == self.WALL).astype(np.float32)
+        wall_map = np.zeros((self.size, self.size), dtype=np.float32)
+        if self.partial_obs_radius is None:
+            wall_map = (self.grid == self.WALL).astype(np.float32)
+        else:
+            wall_map[self._known_walls] = 1.0
 
         # Local 3×3 neighborhood
         local_view = np.zeros((3, 3), dtype=np.float32)
@@ -286,7 +310,17 @@ class GridWorld:
         """Return mapping of action names to (row_delta, col_delta)."""
         return dict(zip(ACTION_NAMES, ACTION_DELTAS))
 
+    @property
+    def observed_grid(self) -> np.ndarray:
+        if self.partial_obs_radius is None:
+            return self.grid
+        obs = self.grid.copy()
+        obs[~self._known_walls] = self.EMPTY
+        return obs
+
     def get_goal_position(self) -> tuple[int, int] | None:
+        if self.partial_obs_radius is not None and not self._goal_seen:
+            return None
         return self.goal_pos
 
     def apply_task_layout(
@@ -329,4 +363,7 @@ class GridWorld:
         new_pos = tuple(empty[self.rng.randint(len(empty))])
         self.grid[new_pos] = self.GOAL
         self.goal_pos = new_pos
+        self._goal_seen = False
+        if self.partial_obs_radius is not None:
+            self._reveal_around(self.agent_pos)
         return new_pos

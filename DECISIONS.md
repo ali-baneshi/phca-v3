@@ -37,6 +37,7 @@ Every entry must reference the v3.0 specification section it affects.
 - **Option chosen:** Agent one-hot map + goal one-hot map + wall map (3×size²) + 3×3 local neighborhood (9)
 - **Alternatives:** Full grid encoding, compact coordinates
 - **Rationale:** One-hot agent/goal/wall maps provide unambiguous position encoding. Local 3×3 view enables local navigation without full grid visibility.
+- **Update (2026-07-13, D-160):** Under `partial_obs_radius > 0`, the goal channel is all-zero when goal has never been within the agent's viewport (``_goal_seen == False``), and the wall channel only shows cells in ``_known_walls`` (walls that have been within the viewport at some point). The 3×3 local neighborhood always reflects the true grid (used for local avoidance).
 - **v3.0 trace:** Blueprint §D.1
 
 ## Decision D-004: structlog fallback to stdlib logging
@@ -1990,4 +1991,55 @@ At 30 seeds (vs 15 for the initial run), the result holds: PHCA 13.05% vs greedy
   1. **D-156 collapse (0.03%) does not reproduce** with the RBTA fix — ungated blended achieves 77.8%. The collapse was caused by pre-existing RBTA TERMINATE violations (99%, now fixed), NOT a training data feedback loop.
   2. **The feedback loop EXISTS** (B vs A: pred_error +8.9%, distance +466%) but is a **second-order effect**. G' training is robust enough that modest noise doesn't cascade into catastrophic failure.
   3. **Agreement gating (C) recovers most of the penalty**: goal_rate 0.941 vs 0.971 (3% gap). The gate prevents the blended scorer from choosing erratic actions.
-  4. **RBTA recalibration was the real root cause** of the D-156 collapse. Without it, ALL conditions at 10x10 MLP suffered 99% violation rates.
+   4. **RBTA recalibration was the real root cause** of the D-156 collapse. Without it, ALL conditions at 10x10 MLP suffered 99% violation rates.
+
+---
+
+## Decision D-160: GridWorld partial observability — core viewport infrastructure + viewport causal scenarios
+
+- **Date:** 2026-07-13
+- **Author:** Implementation Engineer
+- **Category:** Tier 2 (GridWorld environment extension)
+- **Problem:** Partial observability was only implemented in the `ScenarioGridWorld` wrapper
+  (`scripts/phca_causal_eval.py`) via `_known_walls` / `_sync_observed()` / `_observed_grid()`.
+  The core `GridWorld` had no concept of limited viewing — it always exposed the full wall map
+  and goal position, even when the architecture should only see a restricted viewport.
+- **Decision:** Add `partial_obs_radius` (Manhattan distance viewport) to `GridWorld.__init__()`:
+  - `_known_walls` (bool matrix): tracks which walls have been within the agent's viewport
+  - `_goal_seen` (bool): set when the goal enters the agent's viewport
+  - `_reveal_around(pos)`: called on `__init__`, `reset()`, `step()`, `apply_task_layout()`,
+    and `relocate_goal()` to expand the known area each cycle
+  - `_get_observation()`: goal channel is all-zero when `_goal_seen` is False; wall channel
+    only shows cells where `_known_walls` is True
+  - `get_goal_position()`: returns `None` when `_goal_seen` is False (the cycle's
+    BFS/Manhattan planners treat a None goal as stay-and-wait)
+  - `observed_grid` property: returns the full grid with unknown walls blanked to EMPTY,
+    used by the cycle for path planning
+- **Cycle integration:** `_select_greedy_grid_action`, `_build_planning_wall_grid`, and
+  `_compute_distance_gain` all read `observed_grid` via `getattr(env, "observed_grid", env.grid)`,
+  ensuring BFS/Manhattan routing only uses known walls. The D5 energy-stay guard continues
+  to check `hasattr(env, 'grid')` (unchanged).
+- **Causal eval scenarios:** Added three viewport scenario levels:
+  - `viewport1` (`partial_obs_radius=1`, 3×3 viewport) — tight field of view
+  - `viewport2` (`partial_obs_radius=2`, 5×5 viewport) — moderate field of view
+  - `viewport3` (`partial_obs_radius=3`, 7×7 viewport) — mild field of view
+  `ScenarioGridWorld` delegates to `self.base.observed_grid` and `self.base.get_goal_position()`
+  when `partial_obs_radius > 0`, skipping its own `_known_walls` tracking and goal/wall channel
+  patching in `_transform_observation()`.
+- **Result:** All 3 viewport levels **PASS** the causal gate at 5 seeds × 50 cycles × 10×10 grid
+  with MLP. PHCA beats both `random` and `greedy_observed` on ≥75% of scenario metrics.
+  `greedy_observed` performance degrades sharply at tight viewports (viewport1 mean goal_rate
+  0.33 vs 0.61 for PHCA, 0.96 for full-info ceiling), confirming that the `observed_grid`
+  delegation correctly imposes information constraints on baselines.
+- **Impact:** Partial observability is now a first-class GridWorld property, testable without
+  the `ScenarioGridWorld` wrapper. This enables realistic evaluation (agents face genuine
+  information constraints) and future work on active perception / exploration. The core
+  implementation (95 lines added across GridWorld and cycle) is fully backward compatible:
+  `partial_obs_radius=None` preserves the original full-observability behavior.
+- **Open issues:**
+  - `ScenarioGridWorld` has a separate `partial_map=True` flag with its own 3×3 reveal logic;
+    the two systems should eventually be unified under the core's `partial_obs_radius`.
+  - BFS planner (`bfs_action` in `search.py`) still reads `env.grid` directly; the cycle's
+    `_select_greedy_grid_action` wraps it but standalone BFS use bypasses `observed_grid`.
+  - Viewport scenarios only tested at 10×10 with 5 seeds; larger experiments needed.
+- **v3.0 trace:** §D.1 (GridWorld), §3.3 (action selection with `observed_grid`).

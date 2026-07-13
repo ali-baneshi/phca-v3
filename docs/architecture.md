@@ -171,6 +171,15 @@ Dynamic mode is experimental and measured separately from the canonical static b
   `get_goal_position()`, `get_observation()`, `get_action_space()`, `get_action_deltas()`,
   `neutral_action()`, `get_goal_reference()`, `get_state_dim()`, and `reset()` can drive
   the cycle (D-135). Both `GridWorld` and `MuJoCoSimpleEnv` implement it.
+  `GridWorld` additionally exposes an `observed_grid` property (D-160) that returns the
+  grid with unknown walls blanked to EMPTY under `partial_obs_radius`; the cycle reads
+  `observed_grid` via `getattr(env, "observed_grid", env.grid)` for BFS/Manhattan planning.
+- **GridWorld `partial_obs_radius` parameter (D-160).** When set to a positive integer,
+  the agent only perceives walls and goal within that Manhattan distance from its current
+  position. `_get_observation()` blanks walls outside the viewport and hides the goal until
+  first seen. `get_goal_position()` returns `None` when the goal has never been in the
+  viewport (the cycle's planners treat a `None` goal as stay-and-wait). The `observed_grid`
+  property enables the cycle's BFS/Manhattan planners to route only through known walls.
 - **No terminal-on-goal.** The environment does not return terminal=True when the agent reaches
   the goal (D-070). Unlike RL episodic conventions, the PHCA cognitive architecture sustains
   goal achievement rather than resetting on success. The `goal_reached` flag is still reported

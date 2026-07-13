@@ -77,6 +77,13 @@ Implemented via the unified scorer in `CognitiveCycle._select_action()`:
 - **Confidence-weighted blend** with Manhattan/BFS heuristic
 - **PGA** (predicted-goal-alignment) ramps cycles 50–150 (D-087)
 - **MDIM** goal alignment (drive competition)
+- **Partial-observability planning (D-160):** `_select_greedy_grid_action()`,
+  `_build_planning_wall_grid()`, and `_compute_distance_gain()` read
+  `getattr(env, "observed_grid", env.grid)` rather than `env.grid` directly.
+  This ensures BFS/Manhattan routes only through walls that the agent has
+  seen within its viewport (`partial_obs_radius`). When the goal has never
+  been seen, `env.get_goal_position()` returns `None` and the planners
+  fall back to `stay_action`.
 
 **D5 energy-stay guard:** In cycle.py, the D5 energy-efficiency action (STAY when
 energy is low) fires only when `hasattr(self.env, 'grid')` is true (GridWorld

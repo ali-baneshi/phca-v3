@@ -76,6 +76,10 @@ This hybrid approach is honest about its mechanism: the architecture's **A4** cl
 
 Session reporting exposes selector-path metadata (`task_lock_planner` vs `prediction_scored`) for full transparency; a GridWorld run can be goal-successful while planner-dominated, and this is accurately reflected in metrics.
 
+### Partial-observability viewport is wall/goal-only
+
+The `partial_obs_radius` feature (D-160) only masks walls and goal outside the agent's viewport. Cell-type classification (EMPTY, WALL, GOAL, HAZARD) in the local 3×3 neighborhood is unaffected — the agent always sees the true cell type of its 8 neighbors regardless of viewport distance. This means hazards are always visible when adjacent even if outside the viewport.
+
 ### MLP default hidden_dim = 128
 
 The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-028/D-072. This is the canonical capacity for GridWorld-scale environments.

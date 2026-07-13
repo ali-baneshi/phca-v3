@@ -62,6 +62,7 @@ class ScenarioSpec:
     sensor_dropout_len: int = 0
     sensor_dropout_fraction: float = 0.0
     gate_controls: Tuple[str, ...] = ("random",)
+    partial_obs_radius: int = 0
 
 
 SCENARIOS: Dict[str, ScenarioSpec] = {
@@ -93,6 +94,24 @@ SCENARIOS: Dict[str, ScenarioSpec] = {
         sensor_dropout_fraction=0.2,
         gate_controls=("random", "greedy_observed"),
     ),
+    "viewport1": ScenarioSpec(
+        name="viewport1",
+        description="GridWorld with partial_obs_radius=1 (3x3 viewport); tests gate robustness under tight FoV.",
+        partial_obs_radius=1,
+        gate_controls=("random", "greedy_observed"),
+    ),
+    "viewport2": ScenarioSpec(
+        name="viewport2",
+        description="GridWorld with partial_obs_radius=2 (5x5 viewport); moderate partial view.",
+        partial_obs_radius=2,
+        gate_controls=("random", "greedy_observed"),
+    ),
+    "viewport3": ScenarioSpec(
+        name="viewport3",
+        description="GridWorld with partial_obs_radius=3 (7x7 viewport); mild partial view.",
+        partial_obs_radius=3,
+        gate_controls=("random", "greedy_observed"),
+    ),
 }
 
 
@@ -113,7 +132,8 @@ class ScenarioGridWorld:
         spec: ScenarioSpec,
         action_slip: float = 0.0,
     ) -> None:
-        self.base = GridWorld(size=size, obstacles=obstacles, seed=seed, action_slip=action_slip)
+        self.base = GridWorld(size=size, obstacles=obstacles, seed=seed, action_slip=action_slip,
+                              partial_obs_radius=spec.partial_obs_radius or None)
         self.size = self.base.size
         self.rng = np.random.RandomState(seed + 10_000)
         self.spec = spec
@@ -207,6 +227,11 @@ class ScenarioGridWorld:
         return self._transform_observation(self.base._get_observation())
 
     def _sync_observed(self, *, force: bool = False) -> None:
+        if self.spec.partial_obs_radius > 0:
+            self.goal_pos = self.base.get_goal_position()
+            self.agent_pos = tuple(self.base.agent_pos)
+            self.grid = self.base.observed_grid
+            return
         self._goal_history.append(self.true_goal_pos)
         self._agent_history.append(self.true_agent_pos)
         if force:
@@ -241,11 +266,12 @@ class ScenarioGridWorld:
         out = np.asarray(obs, dtype=np.float32).copy()
         n = self.size * self.size
 
-        out[n:2 * n] = 0.0
-        gr, gc = self.goal_pos
-        out[n + gr * self.size + gc] = 1.0
+        if self.spec.partial_obs_radius == 0:
+            out[n:2 * n] = 0.0
+            gr, gc = self.goal_pos
+            out[n + gr * self.size + gc] = 1.0
 
-        if self.spec.partial_map:
+        if self.spec.partial_map and self.spec.partial_obs_radius == 0:
             out[2 * n:3 * n] = self._known_walls.astype(np.float32).ravel()
 
         if self.spec.sensor_noise > 0.0:

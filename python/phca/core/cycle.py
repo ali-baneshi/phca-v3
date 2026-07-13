@@ -875,7 +875,7 @@ class CognitiveCycle:
             _selector = self.last_action_rationale.get("selector_mode", "")
             # D-158: collect probe data only from geometry-selected actions
             # to avoid self-fulfilling prophecy (evaluating G' on its own choices).
-            if _selector in ("pure_geometry_ablation", "adaptive_geometry_fallback", "prediction_scored"):
+            if _selector in ("pure_geometry_ablation", "adaptive_geometry_fallback"):
                 # Round 7 (NEW-10): also record agreement rate for probe analysis
                 geo_agreement = None
                 if self._geo_action_cache is not None:
@@ -1990,7 +1990,8 @@ class CognitiveCycle:
         if not (hasattr(env, "grid") and hasattr(env, "WALL") and hasattr(env, "size")):
             return None
         n = env.size * env.size
-        grid = np.array(env.grid, copy=True)
+        source = getattr(env, "observed_grid", env.grid)
+        grid = np.array(source, copy=True)
         if self.current_state is not None and len(self.current_state.values) >= 3 * n:
             obs_walls = self.current_state.values[2 * n:3 * n].reshape(env.size, env.size)
             grid = np.where(obs_walls > 0.5, env.WALL, grid)
@@ -2043,7 +2044,7 @@ class CognitiveCycle:
                 "greedy_fallback": True,
                 "bfs_planner": True,
             }
-        grid = env.grid
+        grid = getattr(env, "observed_grid", env.grid)
         best_action = env.stay_action
         best_distance = abs(agent_pos[0] - goal_pos[0]) + abs(agent_pos[1] - goal_pos[1])
         best_unvisited = False
@@ -2127,7 +2128,7 @@ class CognitiveCycle:
         goal_pos = env.get_goal_position()
         if goal_pos is not None and hasattr(env, "agent_pos"):
             if hasattr(env, "grid") and hasattr(env, "WALL"):
-                grid = self._planning_grid if self._planning_grid is not None else env.grid
+                grid = self._planning_grid if self._planning_grid is not None else getattr(env, "observed_grid", env.grid)
                 deltas_fn = getattr(env, "get_action_deltas", None)
                 if not callable(deltas_fn):
                     return 0.5
@@ -2192,13 +2193,14 @@ class CognitiveCycle:
         # Round 7 (NEW-10): incorporate agreement rate into threshold adjustment.
         # When the blended scorer persistently disagrees with geometry (low agreement),
         # the one-step accuracy alone is misleading (structurally high in GridWorld).
-        # We raise the effective accuracy by a disagreement penalty, making the
-        # gate more likely to fire when predictions are unreliable for navigation.
+        # We lower the effective accuracy when G' disagrees with geometry (low agreement),
+        # making the gate more likely to fire when predictions are unreliable for navigation.
+        # This is the D-158 disagreement penalty: disagreement → lower effective accuracy → gate fires more.
         agreements = [e.get("geo_agreement") for e in recent if e.get("geo_agreement") is not None]
         agreement_rate = float(np.mean(agreements)) if agreements else -1.0
         if agreement_rate >= 0:
             disagreement_penalty = max(0, 1.0 - agreement_rate) * 0.3
-            effective_accuracy = mean_acc + disagreement_penalty
+            effective_accuracy = mean_acc - disagreement_penalty
         else:
             effective_accuracy = mean_acc
 

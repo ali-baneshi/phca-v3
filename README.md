@@ -486,7 +486,8 @@ identified.
 (`random`, `greedy_observed` — same information access as PHCA, and `greedy_full_info`,
 reported as an unfair ceiling rather than a gate) on three scenario levels of increasing
 difficulty (simple navigation, partial observability with obstacles, longer-horizon
-goal switching).
+goal switching), plus three partial-observability viewport levels that test the agent
+under restricted fields of view (3×3, 5×5, and 7×7 viewports via `partial_obs_radius`).
 
 **This gate has a documented history of a false-positive result, and it is worth stating
 plainly rather than only in the decision log.** An early configuration ran this gate at 5
@@ -513,6 +514,20 @@ further:
 | L1 | PASS | Underperforms pure geometry as grid size grows |
 | L2 | FAIL against `greedy_observed` at 5x5 (see D-151); PASSES with pure geometry at 10x10 (D-156) | FAIL, and collapses at 10x10 |
 | L3 | PASS with pure geometry (D-155 ablation) | FAIL at 5x5; not re-tested at 10x10 |
+
+**Viewport partial-observability scenarios (5 seeds x 50 cycles x 10x10, MLP):**
+
+| Level | Viewport | Result | Notes |
+| :--- | :--- | :--- | :--- |
+| viewport1 | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA goal_rate 0.61 vs greedy_observed 0.33; high variance (D-160) |
+| viewport2 | 5×5 (`partial_obs_radius=2`) | **PASS** | PHCA goal_rate 0.58 vs greedy_observed 0.40 |
+| viewport3 | 7×7 (`partial_obs_radius=3`) | **PASS** | PHCA goal_rate 0.77 vs greedy_observed 0.59 |
+
+`greedy_observed` uses `env.get_goal_position()` which returns `None` when the goal
+is outside the viewport (core `partial_obs_radius` feature, D-160). All viewport
+scenarios gate against `random` and `greedy_observed`. See
+[DECISIONS.md D-160](DECISIONS.md#d-160) for the infrastructure design and
+[`docs/phca_causal_evidence.md`](docs/phca_causal_evidence.md) for detailed results.
 
 The practical implication is stated in "Current status of the core hypothesis" above:
 pure geometric action selection is the more reliable choice today, and is the default.
