@@ -709,10 +709,11 @@ class ObservabilityFrame:
         """
         d: Dict[str, Any] = {}
         # ── Scalar integers ──
-        for k in ("cycle_id", "episode_count", "fact_count", "violations_count",
-                  "drive_id", "active_drive_id", "rss_bytes", "m3_cap",
-                  "m4_cap", "m4_prune_target", "state_dim", "action_dim",
-                  "action_count", "goal_creation_cycle", "schema_version"):
+        for k in ("cycle_id", "episode_count", "fact_count", "task_id",
+                   "violations_count", "drive_id", "active_drive_id",
+                   "rss_bytes", "m3_cap", "m4_cap", "m4_prune_target",
+                   "state_dim", "action_dim", "action_count",
+                   "goal_creation_cycle", "schema_version"):
             v = getattr(self, k, None)
             if v is not None:
                 d[k] = int(v)
@@ -740,6 +741,14 @@ class ObservabilityFrame:
         for lst in ("drive_levels", "drive_targets", "attention_saliences",
                     "candidate_scores", "drive_deficits", "attention_precisions"):
             d[lst] = [float(v) for v in getattr(self, lst, [])]
+        # ── String-list fields ──
+        for lst in ("failure_events",):
+            d[lst] = list(getattr(self, lst, []))
+        # ── Bool fields ──
+        for k in ("recovery_active",):
+            v = getattr(self, k, None)
+            if v is not None:
+                d[k] = bool(v)
         # ── Int-list fields ──
         for lst in ("attention_indices", "pareto_front", "goal_history"):
             d[lst] = [int(v) for v in getattr(self, lst, [])]

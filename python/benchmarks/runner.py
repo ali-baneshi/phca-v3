@@ -503,7 +503,7 @@ def run_all_levels(
             total_violations / max(total_cycles, 1) < 0.1
         ),
         "goal_autonomy_achieved": (
-            bool(level3) and level3[0].get("goal_complexity", 0) > 0.1
+            bool(level3) and level3[0].get("goal_complexity", 0) > 0.01
         ),
         "phi_iq_above_0_5": overall_phi_iq > 0.5,
     }

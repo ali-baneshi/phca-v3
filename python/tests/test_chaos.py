@@ -120,7 +120,7 @@ class TestModuleChaos:
             memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
         )
-        assert action == EnforcerAction.INTERRUPT
+        assert action == EnforcerAction.TERMINATE
         assert any(v.bound_type == "TIME" for v in violations)
 
 

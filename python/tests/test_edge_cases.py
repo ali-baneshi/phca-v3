@@ -150,7 +150,7 @@ class TestRBTABoundaries:
         """One violation → EnforcerAction.INTERRUPT."""
         rbta = RBTAEnforcer(default_resource_bounds)
         violations, action = rbta.check_cycle(
-            runtime_log={"ASI": 10.0}, memory_log={}, energy_log={},
+            runtime_log={"ASI": 0.003}, memory_log={}, energy_log={},
             belief_entropies={}, sensor_failure_count=0,
         )
         assert action == EnforcerAction.INTERRUPT

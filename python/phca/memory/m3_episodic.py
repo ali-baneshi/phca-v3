@@ -774,13 +774,6 @@ class M3EpisodicMemory:
             rows = cursor.fetchall()
             task_ids = [r[0] for r in rows if r[0] is not None]
             has_null = any(r[0] is None for r in rows)
-            if has_null:
-                # Count NULL-group episodes; treat as one extra "task"
-                null_cnt = self._connection.execute(
-                    "SELECT COUNT(*) FROM episodes WHERE task_id IS NULL"
-                ).fetchone()[0] or 0
-            else:
-                null_cnt = 0
             if not task_ids and not has_null:
                 return
             groups = len(task_ids) + (1 if has_null else 0)
