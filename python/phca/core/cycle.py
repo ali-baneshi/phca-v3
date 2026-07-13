@@ -283,9 +283,14 @@ class CognitiveCycle:
         self._staleness_trigger_count: int = 0
 
         # D-158: self-calibrating confidence gating — dynamic threshold
-        self._calibration_threshold: float = 0.65  # initial value; adjusted by probes
+        self._calibration_threshold: float = 0.9  # D-158: initial value; adjusted by probes
         self._probe_buffer: list = []  # circular buffer of (state, action, next_state) triples
         self._calibration_probe_history: list = []  # (cycle, mean_accuracy, mean_conf, threshold) for observability
+
+        # Round 7 (NEW-10): agreement-based gating buffer
+        self._agreement_buffer: list = []  # 1.0 if blended-scorer agreed with geometry, 0.0 otherwise
+        self._last_agreement_rate: float = 1.0
+        self._geo_action_cache: Optional[int] = None  # cached geo_action for probe recording
 
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=getattr(env, "size", 0))
 
@@ -871,6 +876,12 @@ class CognitiveCycle:
             # D-158: collect probe data only from geometry-selected actions
             # to avoid self-fulfilling prophecy (evaluating G' on its own choices).
             if _selector in ("pure_geometry_ablation", "adaptive_geometry_fallback", "prediction_scored"):
+                # Round 7 (NEW-10): also record agreement rate for probe analysis
+                geo_agreement = None
+                if self._geo_action_cache is not None:
+                    geo_agreement = 1.0 if (
+                        self.last_action_rationale.get("chosen_idx") == self._geo_action_cache
+                    ) else 0.0
                 self._probe_buffer.append({
                     "state": self.current_state.values.copy(),
                     "action": action_vec.copy(),
@@ -878,6 +889,7 @@ class CognitiveCycle:
                     "mse_accuracy": mlp_accuracy,
                     "mc_confidence": float(corrected_conf),
                     "selector": _selector,
+                    "geo_agreement": geo_agreement,
                 })
                 max_samples = max(self.interventions.calibration_probe_samples, 16)
                 if len(self._probe_buffer) > max_samples:
@@ -1581,6 +1593,7 @@ class CognitiveCycle:
         geo_action: Optional[int] = None
         if hasattr(self.env, "agent_pos") and self.env.get_goal_position() is not None:
             geo_action, _, _ = self._select_greedy_grid_action()
+        self._geo_action_cache = geo_action  # cache for probe recording
 
         # NEW-05 / D-156 / D-157: skip prediction-scored loop when geometry is forced
         should_skip_blended = self.interventions.disable_blended_scorer or (
@@ -1704,6 +1717,16 @@ class CognitiveCycle:
 
         # D-156/D-157: adaptive confidence-gating — fall back to pure geometry when
         # G' is uncertain, even with the blended scorer active.
+        #
+        # Round 7 (NEW-10): agreement-based gating — fall back to pure geometry when the
+        # blended scorer persistently disagrees with the geometry suggestion. This
+        # addresses the finding that one-step prediction confidence is saturated near
+        # 0.99 in GridWorld (one-step transitions are trivially predictable), so the
+        # confidence gate never fires even when chained predictions are unreliable.
+        # The agreement rate directly measures whether G' predictions are useful for
+        # action selection: if the blended scorer keeps disagreeing with the optimal
+        # geometric action, its predictions are not trustworthy.
+        _agreement_gating_triggered = False
         if (
             self.interventions.adaptive_confidence_gating
             and not should_skip_blended
@@ -1711,7 +1734,26 @@ class CognitiveCycle:
             and action_confidences
         ):
             mean_conf = float(np.mean(action_confidences))
-            if mean_conf < self._calibration_threshold:
+
+            # Round 7: record agreement with geometry and compute agreement rate
+            if self.interventions.agreement_gating:
+                agreed = (best_action == geo_action)
+                self._agreement_buffer.append(1.0 if agreed else 0.0)
+                window = max(1, self.interventions.agreement_window)
+                if len(self._agreement_buffer) > window:
+                    self._agreement_buffer.pop(0)
+                agreement_rate = float(
+                    np.mean(self._agreement_buffer)
+                ) if self._agreement_buffer else 1.0
+                self._last_agreement_rate = agreement_rate
+                persistent_disagreement = (
+                    len(self._agreement_buffer) >= window
+                    and agreement_rate < self.interventions.agreement_threshold
+                )
+            else:
+                persistent_disagreement = False
+
+            if mean_conf < self._calibration_threshold or persistent_disagreement:
                 best_action = geo_action
                 best_score = None
                 best_components = {
@@ -1723,8 +1765,10 @@ class CognitiveCycle:
                     "fact_boost": None,
                     "adaptive_fallback": True,
                     "mean_conf_preview": mean_conf,
+                    "agreement_rate": self._last_agreement_rate,
                 }
                 selector_mode = "adaptive_geometry_fallback"
+                _agreement_gating_triggered = persistent_disagreement
             else:
                 selector_mode = "prediction_scored"
         else:
@@ -2144,10 +2188,24 @@ class CognitiveCycle:
 
         mean_acc = float(np.mean(accuracies))
         mean_conf = float(np.mean(confidences))
+
+        # Round 7 (NEW-10): incorporate agreement rate into threshold adjustment.
+        # When the blended scorer persistently disagrees with geometry (low agreement),
+        # the one-step accuracy alone is misleading (structurally high in GridWorld).
+        # We raise the effective accuracy by a disagreement penalty, making the
+        # gate more likely to fire when predictions are unreliable for navigation.
+        agreements = [e.get("geo_agreement") for e in recent if e.get("geo_agreement") is not None]
+        agreement_rate = float(np.mean(agreements)) if agreements else -1.0
+        if agreement_rate >= 0:
+            disagreement_penalty = max(0, 1.0 - agreement_rate) * 0.3
+            effective_accuracy = mean_acc + disagreement_penalty
+        else:
+            effective_accuracy = mean_acc
+
         # New threshold = measured accuracy with 10% safety margin
         new_threshold = max(
             cfg.calibration_min_threshold,
-            min(cfg.calibration_max_threshold, mean_acc * 1.1),
+            min(cfg.calibration_max_threshold, effective_accuracy * 1.1),
         )
         old_threshold = self._calibration_threshold
         # Smooth the update (50% blend) to avoid oscillation
@@ -2160,6 +2218,7 @@ class CognitiveCycle:
             "old_threshold": round(old_threshold, 4),
             "new_threshold": round(self._calibration_threshold, 4),
             "samples": len(recent),
+            "agreement_rate": round(agreement_rate, 4) if agreement_rate >= 0 else None,
         })
         _log(logger, "info", "cycle.calibration_probe",
              cycle=self.cycle_count,

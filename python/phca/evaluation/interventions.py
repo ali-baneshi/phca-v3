@@ -57,6 +57,9 @@ class InterventionConfig:
     disable_planning_grid: bool = False
     disable_blended_scorer: bool = True
     adaptive_confidence_gating: bool = True  # D-156: fall back to geometry when G' confidence < threshold
+    agreement_gating: bool = True            # Round 7 (NEW-10): fall back to geometry when blended scorer persistently disagrees with geometry
+    agreement_window: int = 30               # Round 7: number of recent cycles to track agreement rate
+    agreement_threshold: float = 0.3         # Round 7: minimum agreement rate below which blended scorer is overridden
     before_blended_warmup_cycles: int = 50  # D-157: pure geometry for first N cycles before enabling blended scorer
     calibration_probe_interval: int = 100  # D-158: cycles between self-calibration probes
     calibration_probe_samples: int = 16    # D-158: number of (s,a,s') triples per probe
@@ -118,6 +121,9 @@ class InterventionConfig:
             disable_planning_grid=d.get("disable_planning_grid", False),
             disable_blended_scorer=d.get("disable_blended_scorer", True),
             adaptive_confidence_gating=d.get("adaptive_confidence_gating", True),
+            agreement_gating=d.get("agreement_gating", True),
+            agreement_window=int(d.get("agreement_window", 30)),
+            agreement_threshold=float(d.get("agreement_threshold", 0.3)),
             before_blended_warmup_cycles=int(d.get("before_blended_warmup_cycles", 50)),
             calibration_probe_interval=int(d.get("calibration_probe_interval", 100)),
             calibration_probe_samples=int(d.get("calibration_probe_samples", 16)),

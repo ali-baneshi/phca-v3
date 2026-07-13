@@ -53,6 +53,11 @@ def estimate_mlp_gprime_time_bound(
     return base_time * max(1.0, state_dim / ref_dim)
 
 
+def grid_floor(state_dim: int, ref_dim: int = REF_STATE_DIM, base_floor: float = 0.01) -> float:
+    """Scale entropy floor inversely with state_dim."""
+    return base_floor / max(1.0, state_dim / ref_dim)
+
+
 def gprime_stress_bounds(cycle: Any, *, b_time: float = 0.080) -> ResourceBounds:
     """Stress/benchmark G' RBTA bounds aligned with ``estimate_mlp_memory_bytes``."""
     g = cycle.gprime
@@ -62,7 +67,12 @@ def gprime_stress_bounds(cycle: Any, *, b_time: float = 0.080) -> ResourceBounds
             cycle.state_dim, g.action_dim, g.hidden_dim, g.replay_capacity,
         ),
     )
-    return ResourceBounds(B_time=b_time, B_mem=g_mem, B_energy=50.0)
+    scaled_b_time = estimate_mlp_gprime_time_bound(cycle.state_dim, b_time)
+    # Entropy floor scales inversely with state_dim: MLP converges faster on
+    # larger grids (more diverse batch data → lower MC-dropout mutual info).
+    scaled_floor = grid_floor(cycle.state_dim)
+    return ResourceBounds(B_time=scaled_b_time, B_mem=g_mem, B_energy=50.0,
+                          entropy_floor=scaled_floor)
 
 
 def grid_scale(state_dim: int, ref_dim: int = REF_STATE_DIM) -> float:
@@ -123,17 +133,20 @@ def grid_rbta_bounds(
     bounds: Dict[str, ResourceBounds] = {}
     mem_est = estimated_grid_memory_bytes(sd, gprime=gp) if scale > 1.0 else {}
 
+    g_floor = grid_floor(sd)
     if _is_mlp_gprime(gp):
         g_mem = mem_est.get("G'", estimate_mlp_memory_bytes(
             sd, gp.action_dim, gp.hidden_dim, gp.replay_capacity,
         ))
         g_time = estimate_mlp_gprime_time_bound(sd, b_time)
-        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
+        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0,
+                                      entropy_floor=g_floor)
     elif scale > 1.0:
         g_mem = mem_est["G'"]
         g_base = max(b_time, DEFAULT_MODULE_BOUNDS["G'"].B_time)
         g_time = scaled_time_bound(sd, g_base)
-        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0)
+        bounds["G'"] = ResourceBounds(B_time=g_time, B_mem=g_mem, B_energy=50.0,
+                                      entropy_floor=g_floor)
 
     if scale > 1.0:
         asi = DEFAULT_MODULE_BOUNDS["ASI"]

@@ -217,18 +217,18 @@ class ConstraintViolation:
 # ── Default Configurations ────────────────────────────────────
 
 DEFAULT_MODULE_BOUNDS: dict[str, ResourceBounds] = {
-    "ASI": ResourceBounds(B_time=0.010, B_mem=100_000, B_energy=10.0),
-    "WM": ResourceBounds(B_time=0.010, B_mem=50_000, B_energy=5.0),
+    "ASI": ResourceBounds(B_time=0.010, B_mem=100_000, B_energy=10.0, entropy_floor=0.0),
+    "WM": ResourceBounds(B_time=0.010, B_mem=50_000, B_energy=5.0, entropy_floor=0.0),
     "G'": ResourceBounds(B_time=0.040, B_mem=1000_000, B_energy=50.0),
-    "PE": ResourceBounds(B_time=0.300, B_mem=200_000, B_energy=20.0),
-    "PEU": ResourceBounds(B_time=0.010, B_mem=10_000, B_energy=1.0),
-    "TSPL-P": ResourceBounds(B_time=0.030, B_mem=300_000, B_energy=30.0),
+    "PE": ResourceBounds(B_time=0.300, B_mem=200_000, B_energy=20.0, entropy_floor=0.0),
+    "PEU": ResourceBounds(B_time=0.010, B_mem=10_000, B_energy=1.0, entropy_floor=0.0),
+    "TSPL-P": ResourceBounds(B_time=0.030, B_mem=300_000, B_energy=30.0, entropy_floor=0.0),
     "MDIM": ResourceBounds(B_time=0.200, B_mem=100_000, B_energy=10.0),
-    "CR": ResourceBounds(B_time=0.010, B_mem=50_000, B_energy=5.0),
+    "CR": ResourceBounds(B_time=0.010, B_mem=50_000, B_energy=5.0, entropy_floor=0.0),
     "ATTN": ResourceBounds(B_time=0.005, B_mem=20_000, B_energy=2.0),
-    "HPM": ResourceBounds(B_time=0.005, B_mem=50_000, B_energy=5.0),
-    "CONSOL": ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=1.0),
-    "ACTION": ResourceBounds(B_time=0.030, B_mem=10_000, B_energy=10.0),
+    "HPM": ResourceBounds(B_time=0.005, B_mem=50_000, B_energy=5.0, entropy_floor=0.0),
+    "CONSOL": ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=1.0, entropy_floor=0.0),
+    "ACTION": ResourceBounds(B_time=0.030, B_mem=10_000, B_energy=10.0, entropy_floor=0.0),
 }
 
 # Cycle timing constants (seconds)

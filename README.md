@@ -411,7 +411,6 @@ D-156) rather than the originally-intended unconditional prediction-scored desig
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole discrete; Pendulum + Reacher continuous). |
 
-<<<<<<< HEAD
 ### Verified Invariants (A1–A5)
 
 | Invariant | Enforcement |
@@ -419,11 +418,8 @@ D-156) rather than the originally-intended unconditional prediction-scored desig
 | **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle; TERMINATE→STAY and INTERRUPT→limited rollouts **alter cycle behavior** (D-113), not log-only. **Measured**: inject over-budget → ≥1 violation. |
 | **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. **Measured** (D-113): `experiment_a2_temporal_order()` in `--ci`. |
 | **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured**: 100-cyc min entropy ≥ 0.01. |
-| **A4** Prediction + Spatial Heuristics as Hybrid Cognitive Map | Every cycle computes sₜ→ŝₜ₊₁. **Continuous MPC (Pendulum, Reacher): prediction-primary** — predict per candidate (D-101). **Discrete GridWorld: pure BFS/Manhattan geometry (default since D-156)** — the blended G′ scorer caused catastrophic 0.03% goal rate at 10×10 (pure geometry 26.8%); prediction-primary suspended for GridWorld pending G′ reliability improvements. The blended scorer remains available opt-in via `--enable-blended-scorer`, with adaptive confidence-gating (D-157) as a safety net. **OOD measured**: blended confidence drops 0.97→0.26 as σ rises 0→1.0. |
+| **A4** Prediction + Spatial Heuristics as Hybrid Cognitive Map | Every cycle computes sₜ→ŝₜ₊₁. A4 is **environment-scoped (D-158)**: **Continuous MPC (Pendulum, Reacher): prediction-primary** — predict per candidate (D-101). **Discrete GridWorld: pure BFS/Manhattan geometry (default since D-156)**, treated as a reliable **inductive bias** for GridWorld's fully-observable known-goal setting, not a violation of A4. The learned model's role in GridWorld is to augment confidence, entropy, and MDIM, with a confidence-gated override (D-157, opt-in via `--enable-blended-scorer`) as the path to restoring prediction-guided action. **Caveat (Round 7, NEW-10):** the original confidence-gating mechanism (one-step prediction accuracy) does not work — G′ confidence is saturated near 0.99 because one-step transitions are trivially predictable in GridWorld. Fix: agreement-based gating (Round 7) — when the blended scorer persistently disagrees with the geometry suggestion over a window of cycles, the gate triggers and falls back to pure geometry, directly measuring whether G′ predictions are useful for action selection. |
 | **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured**: no-op learn → frozen weights (rel Δ 0.0000); active learn → weights update (rel Δ 0.043). |
-
-=======
->>>>>>> 09d8672a9eaef770a8932127ece92b50e1669b75
 ---
 
 ## Benchmark & Results
