@@ -152,17 +152,20 @@ def posterior(
     Σ_QE = cov[np.ix_(q_idx, e_idx)]
 
     # Compute posterior mean and covariance
+    # Use solve() instead of inv() + multiply for speed and numerical stability.
+    resid = e_vec - mu_E
     try:
-        Σ_EE_inv = np.linalg.inv(Σ_EE)
+        solved = np.linalg.solve(Σ_EE, resid)
+        mu_Q_given_E = mu_Q + Σ_QE @ solved
+        solved_cov = np.linalg.solve(Σ_EE, Σ_QE.T)
+        Σ_QQ_given_E = Σ_QQ - Σ_QE @ solved_cov
     except np.linalg.LinAlgError:
         # If singular, use pseudoinverse
         _log(logger, "warning", "gaussian.singular_posterior",
              fallback="pinv", exc_info=True)
         Σ_EE_inv = np.linalg.pinv(Σ_EE)
-
-    resid = e_vec - mu_E
-    mu_Q_given_E = mu_Q + Σ_QE @ Σ_EE_inv @ resid
-    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
+        mu_Q_given_E = mu_Q + Σ_QE @ Σ_EE_inv @ resid
+        Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
 
     # Extract diagonal (variances) and ensure non-negative
     variances = np.maximum(np.diag(Σ_QQ_given_E), 1e-12)
