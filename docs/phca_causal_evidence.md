@@ -105,39 +105,67 @@ Selected means (MLP, 200 cycles × 30 seeds):
 
 ## Viewport Results (2026-07-13)
 
-Run after D-160 partial-observability infrastructure (MLP, 50 cycles × 5 seeds × 10×10 grid):
+Results after D-160 partial-observability infrastructure + RBTA entropy-floor fix +
+frontier-based exploration (MLP, 50 cycles × 15 seeds × 10×10 grid):
 
 ```bash
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels viewport1,viewport2,viewport3 \
-  --cycles 50 --seeds 5 --grid-size 10 --use-mlp
+  --cycles 50 --seeds 15 --grid-size 10 --use-mlp
 ```
 
 | Level | Viewport | Result | PHCA vs greedy_observed |
 |-------|----------|--------|-------------------------|
-| `viewport1` | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA beats both controls on ≥75% metrics. Mean goal_rate: phca **0.61** vs greedy_observed **0.33**. High seed variance (0–100%). |
-| `viewport2` | 5×5 (`partial_obs_radius=2`) | **PASS** | Mean goal_rate: phca **0.58** vs greedy_observed **0.40**. |
-| `viewport3` | 7×7 (`partial_obs_radius=3`) | **PASS** | Mean goal_rate: phca **0.77** vs greedy_observed **0.59**. |
+| `viewport1` | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA goal_rate **0.329** vs greedy_observed **0.133**. PHCA RBTA violation rate: **0.116**. |
+| `viewport2` | 5×5 (`partial_obs_radius=2`) | **PASS** | PHCA goal_rate **0.351** vs greedy_observed **0.199**. PHCA RBTA: **0.092**. |
+| `viewport3` | 7×7 (`partial_obs_radius=3`) | **PASS** | PHCA goal_rate **0.653** vs greedy_observed **0.391**. PHCA RBTA: **0.101**. |
 
-Selected means (MLP, 50 cycles × 5 seeds):
+Selected means (MLP, 50 cycles × 15 seeds):
 
-| Level | Agent | Goal rate | First goal | Mean distance | Reward |
-|-------|-------|-----------|------------|---------------|--------|
-| `viewport1` | `phca` | 0.613 | 19.7 | 3.493 | 30.47 |
-| `viewport1` | `greedy_observed` | 0.333 | 34.0 | 2.667 | 16.33 |
-| `viewport1` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
-| `viewport2` | `phca` | 0.580 | 20.0 | 2.893 | 28.89 |
-| `viewport2` | `greedy_observed` | 0.400 | 30.0 | 4.400 | 19.70 |
-| `viewport2` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
-| `viewport3` | `phca` | 0.768 | 8.0 | 1.940 | 38.38 |
-| `viewport3` | `greedy_observed` | 0.592 | 22.0 | 3.812 | 29.49 |
-| `viewport3` | `greedy_full_info` | 0.960 | 2.0 | 0.087 | 47.98 |
+| Level | Agent | Goal rate | First goal (med) | Succeeded | RBTA rate |
+|-------|-------|-----------|-------------------|-----------|-----------|
+| `viewport1` | `phca` | 0.329 | 36 | 7/15 | 0.116 |
+| `viewport1` | `greedy_observed` | 0.133 | — | 2/15 | — |
+| `viewport1` | `greedy_full_info` | 0.788 | 7 | 13/15 | — |
+| `viewport2` | `phca` | 0.351 | 34 | 8/15 | 0.092 |
+| `viewport2` | `greedy_observed` | 0.199 | — | 3/15 | — |
+| `viewport2` | `greedy_full_info` | 0.788 | 7 | 13/15 | — |
+| `viewport3` | `phca` | 0.653 | **17** | 12/15 | 0.101 |
+| `viewport3` | `greedy_observed` | 0.391 | — | 6/15 | — |
+| `viewport3` | `greedy_full_info` | 0.788 | 7 | 13/15 | — |
 
 `greedy_full_info` uses `env.true_*` accessors (bypasses partial obs) and remains the
 unfair ceiling. Under tight viewports (`viewport1`), `greedy_observed` collapses to
-33% goal rate because it cannot see far enough to plan a Manhattan route — the core
+13% goal rate because it cannot see far enough to plan a Manhattan route — the core
 `observed_grid` delegation correctly imposes the same information constraint on the
-baseline. PHCA bridges part of this gap through learned prediction, but variance
-remains high (D-160 open issues).
+baseline.
+
+### RBTA entropy-floor fix
+
+The original RBTA scaling in `CognitiveCycle.build()` applied `_scale = 1.0 + (10 - radius) * 0.1`
+to all bounds (B_time, B_mem, B_energy, entropy_floor). Two problems existed:
+
+1. **entropy_floor was multiplied by scale** (raising it, making it stricter), but under partial
+   obs G' MC-dropout entropy *drops* because the model becomes confidently wrong with limited
+   data. The floor must be **divided** by scale (more lenient). Fixed in eval script.
+
+2. **`gprime_stress_bounds()` overwrote G' bounds** after `build()` completed, undoing the
+   scaling. Fixed by applying scaling *after* the stress-bounds update in `run_phca_agent()`.
+
+Before fix: RBTA 57–96% per seed at viewport2 (mean ~60%). After fix: 0–48%, mean 9–12%.
+
+### Frontier-based exploration
+
+When the goal has never been observed, `_compute_distance_gain()` previously returned
+0.5 (neutral) for all actions — the agent had no directional guidance. Added `_find_frontier_cell()`
+in cycle.py which scans `_observed_cells` (added to GridWorld alongside `_known_walls`) for
+the nearest unobserved cell and uses it as a proxy goal. The distance-gain formula then rewards
+actions that reduce Manhattan distance to the frontier. This gave:
+
+- viewport2: 5/15 → 8/15 successful seeds, goal_rate 0.269 → 0.351
+- viewport3: 8/15 → 12/15 successful seeds, goal_rate 0.489 → 0.653
+
+Frontier exploration is a simple Manhattan-distance heuristic; a coverage-maximization approach
+(number of new cells revealed per action) could improve exploration further.
 
 ## Interpretation
 

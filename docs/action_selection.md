@@ -82,8 +82,12 @@ Implemented via the unified scorer in `CognitiveCycle._select_action()`:
   `getattr(env, "observed_grid", env.grid)` rather than `env.grid` directly.
   This ensures BFS/Manhattan routes only through walls that the agent has
   seen within its viewport (`partial_obs_radius`). When the goal has never
-  been seen, `env.get_goal_position()` returns `None` and the planners
-  fall back to `stay_action`.
+  been seen, `env.get_goal_position()` returns `None` and `_compute_distance_gain()`
+  falls back to **frontier-based exploration**: `_find_frontier_cell()` finds the
+  nearest cell with `_observed_cells == False` (a bool matrix in GridWorld tracking
+  all cells ever within the viewport) and uses it as a proxy goal for distance-gain
+  computation. This encourages the agent to move toward unexplored areas when the
+  goal location is unknown, rather than returning 0.5 (neutral) for all actions.
 
 **D5 energy-stay guard:** In cycle.py, the D5 energy-efficiency action (STAY when
 energy is low) fires only when `hasattr(self.env, 'grid')` is true (GridWorld

@@ -515,13 +515,13 @@ further:
 | L2 | FAIL against `greedy_observed` at 5x5 (see D-151); PASSES with pure geometry at 10x10 (D-156) | FAIL, and collapses at 10x10 |
 | L3 | PASS with pure geometry (D-155 ablation) | FAIL at 5x5; not re-tested at 10x10 |
 
-**Viewport partial-observability scenarios (5 seeds x 50 cycles x 10x10, MLP):**
+**Viewport partial-observability scenarios (15 seeds x 50 cycles x 10x10, MLP, RBTA-fixed + frontier):**
 
-| Level | Viewport | Result | Notes |
-| :--- | :--- | :--- | :--- |
-| viewport1 | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA goal_rate 0.61 vs greedy_observed 0.33; high variance (D-160) |
-| viewport2 | 5×5 (`partial_obs_radius=2`) | **PASS** | PHCA goal_rate 0.58 vs greedy_observed 0.40 |
-| viewport3 | 7×7 (`partial_obs_radius=3`) | **PASS** | PHCA goal_rate 0.77 vs greedy_observed 0.59 |
+| Level | Viewport | PHCA goal_rate | greedy_observed goal_rate | PHCA succ | PHCA RBTA |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| viewport1 | 3×3 (`partial_obs_radius=1`) | **0.329** | 0.133 | 7/15 | 0.116 |
+| viewport2 | 5×5 (`partial_obs_radius=2`) | **0.351** | 0.199 | 8/15 | 0.092 |
+| viewport3 | 7×7 (`partial_obs_radius=3`) | **0.653** | 0.391 | 12/15 | 0.101 |
 
 `greedy_observed` uses `env.get_goal_position()` which returns `None` when the goal
 is outside the viewport (core `partial_obs_radius` feature, D-160). All viewport

@@ -105,6 +105,7 @@ class GridWorld:
 
         # Partial observability tracking
         self._known_walls = np.zeros((size, size), dtype=bool)
+        self._observed_cells = np.zeros((size, size), dtype=bool)
         self._goal_seen = False
         if partial_obs_radius is not None:
             self._reveal_around(self.agent_pos)
@@ -147,6 +148,7 @@ class GridWorld:
             for dc in range(-radius, radius + 1):
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < self.size and 0 <= nc < self.size:
+                    self._observed_cells[nr, nc] = True
                     if self.grid[nr, nc] == self.WALL:
                         self._known_walls[nr, nc] = True
         gr, gc = self.goal_pos
@@ -160,6 +162,7 @@ class GridWorld:
             self.agent_pos = self.start_pos
             self.step_count = 0
             self._known_walls.fill(False)
+            self._observed_cells.fill(False)
             self._goal_seen = False
             if self.partial_obs_radius is not None:
                 self._reveal_around(self.agent_pos)
@@ -348,6 +351,11 @@ class GridWorld:
             self.start_pos = (0, 0)
         self.agent_pos = self.start_pos
         self.step_count = 0
+        self._known_walls.fill(False)
+        self._observed_cells.fill(False)
+        self._goal_seen = False
+        if self.partial_obs_radius is not None:
+            self._reveal_around(self.agent_pos)
 
     def relocate_goal(self) -> tuple[int, int]:
         """Move the goal to a new random empty cell (not a wall, not the agent cell).

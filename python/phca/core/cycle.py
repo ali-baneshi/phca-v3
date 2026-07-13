@@ -2113,6 +2113,26 @@ class CognitiveCycle:
             "greedy_fallback": True,
         }
 
+    def _find_frontier_cell(self) -> tuple[int, int] | None:
+        """Find nearest unobserved cell as exploration target when goal unknown."""
+        env = self.env
+        observed = getattr(env, "_observed_cells", None)
+        if observed is None:
+            base = getattr(env, "base", None)
+            observed = getattr(base, "_observed_cells", None) if base is not None else None
+        if observed is None or not hasattr(env, "agent_pos"):
+            return None
+        ar, ac = env.agent_pos
+        best, best_dist = None, float("inf")
+        for r in range(env.size):
+            for c in range(env.size):
+                if not observed[r, c]:
+                    d = abs(ar - r) + abs(ac - c)
+                    if d < best_dist:
+                        best_dist = d
+                        best = (r, c)
+        return best
+
     def _compute_distance_gain(self, action_idx: int) -> float:
         """Compute normalized distance gain for an action.
 
@@ -2120,6 +2140,9 @@ class CognitiveCycle:
         0.5 if same distance or environment lacks position information.
         Continuous metric: (current_dist - new_dist) / current_dist mapped
         to [0, 1] where lower = better.
+
+        When goal is unknown (partial obs, not yet seen), uses nearest
+        unobserved cell as proxy goal (frontier exploration).
 
         STAY (idx=4) penalized when not at goal (0.7 vs 0.5) to discourage
         lingering. For environments without position, falls back to 0.5 (neutral).
@@ -2156,6 +2179,26 @@ class CognitiveCycle:
 
                 gain = (current_dist - new_dist) / current_dist
                 return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
+        # Frontier exploration: when goal unknown, move toward nearest unobserved cell
+        frontier = self._find_frontier_cell()
+        if frontier is not None and hasattr(env, "agent_pos"):
+            if hasattr(env, "grid") and hasattr(env, "WALL"):
+                grid = self._planning_grid if self._planning_grid is not None else getattr(env, "observed_grid", env.grid)
+                deltas_fn = getattr(env, "get_action_deltas", None)
+                if callable(deltas_fn):
+                    action_names = env.get_action_names()
+                    if action_idx < len(action_names):
+                        dr, dc = deltas_fn()[action_names[action_idx]]
+                        new_row = env.agent_pos[0] + dr
+                        new_col = env.agent_pos[1] + dc
+                        if 0 <= new_row < env.size and 0 <= new_col < env.size and grid[new_row, new_col] != env.WALL:
+                            g_row, g_col = frontier
+                            current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
+                            new_dist = abs(new_row - g_row) + abs(new_col - g_col)
+                            if current_dist == 0:
+                                return 0.0
+                            gain = (current_dist - new_dist) / current_dist
+                            return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
         return 0.5
 
     def _run_calibration_probe(self) -> None:

@@ -80,6 +80,24 @@ Session reporting exposes selector-path metadata (`task_lock_planner` vs `predic
 
 The `partial_obs_radius` feature (D-160) only masks walls and goal outside the agent's viewport. Cell-type classification (EMPTY, WALL, GOAL, HAZARD) in the local 3×3 neighborhood is unaffected — the agent always sees the true cell type of its 8 neighbors regardless of viewport distance. This means hazards are always visible when adjacent even if outside the viewport.
 
+### RBTA partial-obs violations reduced but not eliminated
+
+The RBTA entropy-floor fix (dividing `entropy_floor` by the partial-obs scale factor) dropped
+violation rates from ~60% to 9–12% across viewports. However, individual seeds still reach
+48–56% violation rates at small radii (viewport1/2). The remaining violations are primarily
+G' ENTROPY on cycles where MC-dropout uncertainty is lowest. A non-linear scaling (e.g.,
+dividing floor by `scale²`) could eliminate residual violations but risks hiding genuine
+entropy anomalies.
+
+### Frontier exploration is Manhattan-distance heuristic
+
+`_find_frontier_cell()` uses Manhattan distance to the nearest unobserved cell as a proxy
+goal. This is a simple heuristic that works well when the frontier is close and reachable,
+but can send the agent toward unreachable cells (behind walls) or fail to balance exploration
+across multiple frontiers. A coverage-maximization approach (number of new cells revealed per
+action) would be more robust but computationally heavier. The current heuristic is sufficient
+for 10×10 grids at current viewport radii (1–3).
+
 ### MLP default hidden_dim = 128
 
 The MLP world model uses 128 hidden units (~38,868 parameters) by default per D-028/D-072. This is the canonical capacity for GridWorld-scale environments.

@@ -178,8 +178,12 @@ Dynamic mode is experimental and measured separately from the canonical static b
   the agent only perceives walls and goal within that Manhattan distance from its current
   position. `_get_observation()` blanks walls outside the viewport and hides the goal until
   first seen. `get_goal_position()` returns `None` when the goal has never been in the
-  viewport (the cycle's planners treat a `None` goal as stay-and-wait). The `observed_grid`
-  property enables the cycle's BFS/Manhattan planners to route only through known walls.
+  viewport. The `observed_grid` property enables the cycle's BFS/Manhattan planners to route
+  only through known walls. An `_observed_cells` bool matrix tracks all cells (walls and
+  empty) that have ever been within the viewport, enabling frontier-based exploration:
+  when the goal is unseen, `_find_frontier_cell()` finds the nearest unobserved cell and
+  `_compute_distance_gain()` uses it as a proxy goal, rewarding actions that reduce
+  Manhattan distance to unexplored areas.
 - **No terminal-on-goal.** The environment does not return terminal=True when the agent reaches
   the goal (D-070). Unlike RL episodic conventions, the PHCA cognitive architecture sustains
   goal achievement rather than resetting on success. The `goal_reached` flag is still reported

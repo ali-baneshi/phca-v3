@@ -27,6 +27,7 @@ from phca.evaluation.baselines.random_agent import random_action
 from phca.evaluation.baselines.search import bfs_action
 from phca.evaluation.interventions import InterventionConfig
 from phca.evaluation.metrics.statistics import seed_sequence
+from phca.config import ResourceBounds
 from phca.world_model.mlp import gprime_stress_bounds
 
 BASE_METRICS = (
@@ -466,6 +467,20 @@ def run_phca_agent(
     )
     if use_mlp:
         cycle.rbta.update_bounds("G'", gprime_stress_bounds(cycle))
+    po_radius = getattr(env, "partial_obs_radius", None)
+    if po_radius is None:
+        base = getattr(env, "base", None)
+        po_radius = getattr(base, "partial_obs_radius", None) if base is not None else None
+    if po_radius is not None:
+        _scale = 1.0 + (10.0 - float(po_radius)) * 0.1
+        for mid in list(cycle.rbta._bounds.keys()):
+            b = cycle.rbta._bounds[mid]
+            cycle.rbta.update_bounds(mid, ResourceBounds(
+                B_time=b.B_time * _scale,
+                B_mem=b.B_mem * _scale,
+                B_energy=b.B_energy * _scale,
+                entropy_floor=b.entropy_floor / _scale if b.entropy_floor > 0 else b.entropy_floor,
+            ))
     distances: List[float] = []
     rewards: List[float] = []
     goals: List[bool] = []

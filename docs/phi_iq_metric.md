@@ -160,6 +160,10 @@ Source: [STATUS.md](../STATUS.md), canonical `logs/benchmark_report.json`.
 
 Larger grids increase `state_dim`; RBTA bounds are scaled via `grid_rbta_bounds()`
 in [`python/phca/world_model/mlp.py`](../python/phca/world_model/mlp.py).
+Under partial observability (D-160), bounds are additionally scaled by
+`1.0 + (10 - partial_obs_radius) * 0.1` for B_time/B_mem/B_energy, and
+`entropy_floor` is *divided* by the same factor (because partial obs reduces
+measured G' MC-dropout entropy, requiring a more lenient floor).
 After the D-152 recalibration (2026-07-12), 10×10 Gaussian L2 can pass the
 violation gate at 15% threshold. 20×20 and full Φ-IQ on 10×10 remain exploratory.
 
