@@ -772,6 +772,8 @@ class ObservabilityFrame:
             v = getattr(self, nested, None)
             if v is not None and v:
                 d[nested] = _recursive_json(v)
+        if self.action_rationale:
+            d["action_rationale"] = _recursive_json(self.action_rationale)
         # ── Skill IDs ──
         d["tspl_compiled_skill_ids"] = [str(x) for x in self.tspl_compiled_skill_ids]
         # ── Agent ──
