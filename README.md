@@ -73,11 +73,11 @@ rounds of hardening work tested this claim directly:
 2. That change was then tested against harder conditions than the original 5×5 GridWorld
    benchmark: a 10×10 grid, and a direct comparison against a simple greedy baseline with
    the same information access as PHCA. The result: **the prediction-scored path did not
-   merely underperform, it collapsed** — 0.03% goal-reaching rate at 10×10 (worse than a
-   random agent), versus 26.8% for the pure geometric planner on the same grid and
-   scenario. This is not the whole picture, however — pure geometry does not pass every
-   scale and scenario either; see "Current default performance" below for the complete,
-   more mixed set of measured results.
+    merely underperform, it collapsed** — 0.03% goal-reaching rate at 10×10 (worse than a
+    random agent)[^rbta-artifact], versus 26.8% for the pure geometric planner on the same
+    grid and scenario. This is not the whole picture, however — pure geometry does not pass
+    every scale and scenario either; see "Current default performance" below for the
+    complete, more mixed set of measured results.
 
 The response, as of 2026-07-12, was to **make pure geometric action selection the
 default again** for discrete environments (`InterventionConfig.disable_blended_scorer =
@@ -503,9 +503,9 @@ further:
   (simple, low partial-observability) but measurably hurt Level 3 (noisier, partial
   observability), because the blended scorer weights unreliable predictions into its
   decision even when they are wrong.
-- At a 10x10 grid, this effect became severe: the learned-model-scored path reduced
-  goal-reaching to 0.03% (below random), while pure geometric action selection on the
-  same grid reached 26.8%, beating the `greedy_observed` control.
+- At a 10x10 grid, this effect appeared severe: the learned-model-scored path reduced
+  goal-reaching to 0.03%[^rbta-artifact] (below random), while pure geometric action
+  selection on the same grid reached 26.8%, beating the `greedy_observed` control.
 
 **Current honest status of the causal gate, at 30 seeds x 200 cycles, per level:**
 
@@ -528,6 +528,15 @@ is outside the viewport (core `partial_obs_radius` feature, D-160). All viewport
 scenarios gate against `random` and `greedy_observed`. See
 [DECISIONS.md D-160](DECISIONS.md#d-160) for the infrastructure design and
 [`docs/phca_causal_evidence.md`](docs/phca_causal_evidence.md) for detailed results.
+
+**RBTA note (NEW-14):** the 9-12% RBTA violation rates reported here are from 50-cycle
+runs. At 200 cycles, violation rates rise to ~30-60% in some configurations, but
+individual seeds with >90% violation still achieve 100% goal rate, confirming these are
+INTERRUPT-level (not TERMINATE) — they slow the agent without blocking goal-reaching.
+This is consistent with time-bound accumulation under partial observability, where each
+newly-revealed cell adds computation. The violations are benign, not a second confound
+masked by the horizon (verified against `logs/causal_frontier_full.json` and
+`logs/causal_prio2_viewports_15s.json`).
 
 The practical implication is stated in "Current status of the core hypothesis" above:
 pure geometric action selection is the more reliable choice today, and is the default.
@@ -658,7 +667,7 @@ Selected decisions most relevant to interpreting the benchmark numbers above:
 | D-150 | Tightened the `goal_autonomy_achieved` pass threshold to match the whitepaper's stated target (2.5x stricter than the prior implementation). |
 | D-151 | Documented that the causal-evaluation gate, previously reported as passing at 5 seeds, fails at an adequate 30-seed sample for two of three levels. |
 | D-152 / D-154 | Recalibrated RBTA resource bounds against measured (not estimated) timings, and added an independent variance-based regression test so future latency-variance regressions are caught even as absolute bounds are tuned. |
-| D-153 / D-155 / D-156 | Diagnosed and confirmed, via targeted ablation and a 10x10-grid experiment, that the learned-model-scored action-selection path collapses at scale; reverted the default to pure geometric action selection while keeping the learned path available for continued development. |
+| D-153 / D-155 / D-156 | Diagnosed an apparent collapse of the learned-model-scored action-selection path at 10x10 (0.03% goal rate); default reverted to pure geometry. **Subsequent correction (D-159 addendum):** the 0.03% number was an RBTA bound-scaling artifact, not a scorer failure — after fixing `gprime_stress_bounds()`, the same ungated blended scorer reached 77.8%. Pure geometry (97.1%) remains the more reliable default, but the causal story was wrong; see [^rbta-artifact]. |
 
 ---
 
@@ -768,7 +777,7 @@ sign-off reports.
 | [DECISIONS.md](DECISIONS.md) | Complete design decision log, including reverted attempts and negative results - the single most authoritative document in this repository. |
 | [docs/architecture.md](docs/architecture.md) | Architecture overview - 12-step cycle, module map, invariants. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Current Phi-IQ definition, levels, and interpretation caveats. |
-| [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors. As of this writing this document has not yet been fully updated to reflect D-156; cross-check against `DECISIONS.md` for the current default. |
+| [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors. Updated for D-156/Round-8 — carries a default-behavior warning at the top and links to the RBTA artifact caveat. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot currently do; open backlog items. |
 | [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | Root-cause history of the Level-4 forgetting benchmark, including the evaluation-protocol confound found and fixed in D-145. |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; cross-check against D-151/D-153/D-155/D-156 for the current 30-seed results if this document has not yet been refreshed. |
@@ -853,12 +862,30 @@ permissions and limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 
+## Footnotes
+
+[^rbta-artifact]: The 0.03% "collapse" at 10×10 was initially interpreted as a failure of
+    the learned-model-scored action selection. A subsequent investigation (D-159 addendum)
+    found the real root cause was a separate bug: `gprime_stress_bounds()` returned a fixed
+    `B_time=0.080s` regardless of grid size, which did not scale with the build-time bounds.
+    At 10×10, this caused **99% of cycles to register an RBTA time violation**, forcing the
+    agent into a safe STAY-equivalent action (TERMINATE path) every cycle — regardless of
+    which action-selection strategy was in use. When this bound bug was fixed and the exact
+    D-156 configuration (ungated blended scorer, 10×10, MLP) was re-run, goal rate was
+    **77.8%**, not 0.03%. The original number was measuring "an agent force-stopped by a
+    resource-bound bug on 99% of cycles," not "the learned model makes catastrophically bad
+    navigation decisions." Pure geometry (97.1%) remains measurably better, so the default
+    has not changed, but the *magnitude* and *causal story* were wrong, not the direction.
+    See [DECISIONS.md D-159](DECISIONS.md#d-159) for the addendum and
+    [docs/lessons/phca-v3-review-round8.md](docs/lessons/phca-v3-review-round8.md) for the
+    full external review that caught this.
+
 Full license text and third-party dependency licenses: [docs/license.md](docs/license.md).
 
 ---
 
-*This document reflects the repository state at commit `7656681` (2026-07-12) and the
-findings of a six-round external code and data review conducted alongside that work. It
+*This document reflects the repository state at commit `39021de` (2026-07-13) and the
+findings of eight rounds of external code and data review conducted alongside that work. It
 supersedes prior versions of this README that did not reflect the D-153 through D-156
 findings. Where any benchmark number above has not been re-verified since 2026-07-12, that
 is stated explicitly rather than left implied.*

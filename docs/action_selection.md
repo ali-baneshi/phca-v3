@@ -1,5 +1,18 @@
 # Action Selection — Discrete vs Continuous
 
+> **⚠️ Default behavior note (post D-156):** This document describes the
+> **opt-in blended scorer path** (`--enable-blended-scorer`). In the current
+> default configuration (`disable_blended_scorer=True`), discrete GridWorld
+> uses **pure BFS/Manhattan geometry** without prediction scoring.
+> The original 0.03% collapse that motivated this default (D-156) was later
+> found to be an RBTA bound-scaling artifact — after the fix, the ungated
+> blended scorer reaches 77.8% (not 0.03%), but pure geometry at 97.1%
+> remains the more reliable default for now. See the [footnote in README]
+> and [DECISIONS.md D-159](DECISIONS.md#d-159) for details.
+>
+> The continuous MPC path (MuJoCo) is unaffected by this flag and always
+> scores every candidate by G′ prediction.
+
 PHCA uses **two distinct action-selection mechanisms** depending on the
 environment's `ActionSpace`. This matters for interpreting **A4 (Prediction as
 Primary)** claims.
