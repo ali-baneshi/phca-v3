@@ -774,7 +774,7 @@ sign-off reports.
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | Which docs are living vs. historical vs. aspirational. |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria x code x gates matrix; the most current per-environment status, including the D-156 default change. |
 | [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log, including reverted attempts and negative results - the single most authoritative document in this repository. |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log, including reverted attempts and negative results — the single most authoritative document in this repository. D-161 contains the post-RBTA-fix re-evaluation of the blended-scorer default. |
 | [docs/architecture.md](docs/architecture.md) | Architecture overview - 12-step cycle, module map, invariants. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Current Phi-IQ definition, levels, and interpretation caveats. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors. Updated for D-156/Round-8 — carries a default-behavior warning at the top and links to the RBTA artifact caveat. |
@@ -884,8 +884,9 @@ Full license text and third-party dependency licenses: [docs/license.md](docs/li
 
 ---
 
-*This document reflects the repository state at commit `39021de` (2026-07-13) and the
+*This document reflects the repository state at commit `2e2e43c` (2026-07-14) and the
 findings of eight rounds of external code and data review conducted alongside that work. It
 supersedes prior versions of this README that did not reflect the D-153 through D-156
-findings. Where any benchmark number above has not been re-verified since 2026-07-12, that
-is stated explicitly rather than left implied.*
+findings, and the post-RBTA-fix re-evaluation in D-161. Where any benchmark number above
+has not been re-verified since 2026-07-12, that is stated explicitly rather than left
+implied.*
