@@ -2072,3 +2072,65 @@ At 30 seeds (vs 15 for the initial run), the result holds: PHCA 13.05% vs greedy
   - Viewport scenarios only tested at 10×10 with 15 seeds; larger grids (20×20) and more
     seeds (30) would increase confidence.
 - **v3.0 trace:** §D.1 (GridWorld), §3.3 (action selection with `observed_grid` and frontier).
+
+---
+
+## D-161 — Post-RBTA-fix re-evaluation of the blended-scorer default (Round 8 follow-up)
+
+**Context:** D-156 set `disable_blended_scorer = True` after the learned-model-scored path
+appeared to collapse to 0.03% at 10×10. D-159's addendum found the 0.03% number was an
+RBTA bound-scaling artifact — after fixing `gprime_stress_bounds()`, the same ungated
+blended scorer reached 77.8%. This entry re-evaluates whether the default should change,
+using the corrected code and adequate sample sizes (30 seeds per D-151's standard).
+
+**Configurations tested,** all at L2 causal gate (200 cycles, MLP, 30 seeds, 5×5 and 10×10):
+
+| Config | 5×5 goal_rate | 5×5 RBTA_rate | 5×5 Gate | 10×10 goal_rate | 10×10 RBTA_rate | 10×10 Gate |
+|---|---|---|---|---|---|---|
+| Pure geometry (current default) | 0.552 | 0.030 | FAIL | 0.199 | 0.503 | PASS |
+| Agreement-gated blended (opt-in) | 0.544 | 0.032 | FAIL | 0.134 | 0.534 | FAIL |
+
+**Viewport scenarios** (10×10, 50 cycles, 15 seeds, all three viewport levels): both modes
+produced identical goal rates (0.329/0.351/0.653) and RBTA rates (0.116/0.092/0.101),
+all PASS. The blended scorer did not diverge from pure geometry under viewport conditions
+at this horizon.
+
+**Finding 1 — neither mode wins universally.** At 5×5 L2, pure geometry itself fails the
+causal gate against `greedy_observed` (0.552 vs 0.598, 0/3 required metrics). The RBTA
+violation rate at 5×5 is low for both modes (~0.03), so this failure is not RBTA-driven
+— it is a genuine navigation-quality gap. At 10×10 L2, pure geometry passes (0.199 vs
+0.187, 3/3) but carries a high RBTA violation rate (~0.50), making the comparison
+partially confounded per Round 8's central lesson.
+
+**Finding 2 — the agreement-gated blended path does not close the gap.** Across both
+scales, agreement-gated blended equals or underperforms pure geometry on goal rate.
+At 10×10 it is substantially worse (0.134 vs 0.199). The gap is *larger* than the 3%
+difference reported in D-159's addendum, because the L2 causal gate includes confounders
+(sensor noise, partial map, dynamic obstacles) that the simpler ablation did not.
+
+**Decision:** `disable_blended_scorer = True` remains the default for discrete GridWorld
+environments. The qualitative conclusion of D-156 — geometry is currently the more
+reliable default — holds after the RBTA fix, even though the magnitude and causal story
+of D-156's headline number were wrong.
+
+**What would change this answer:**
+- If agreement-gated blended beats pure geometry at 5×5 L2 (where geometry itself fails)
+  and at least ties at 10×10 L2 (where geometry currently passes), with RBTA rates
+  reported alongside to confirm the comparison is not confounded.
+- If the gap persists across both scales, the strategic question becomes
+  scale-conditional rather than a single global default — e.g., a heuristic that selects
+  pure geometry at 10×10 and agreement-gated at 5×5, or a per-grid-size configuration.
+- That analysis requires 30-seed re-runs of both modes at both scales with the RBTA
+  bound post-fix code, which this entry provides as a baseline.
+
+**Open items:**
+- Viewport divergence was not observed at 50 cycles; a 200-cycle viewport comparison
+  might reveal differences.
+- The 5×5 L2 failure of pure geometry itself is worth a separate investigation —
+  `greedy_observed` is a simple one-step Manhattan controller, and being beaten by it
+  at the default benchmark grid size is a genuine architectural concern, not a confound.
+- See `logs/phase1a_5x5_l2_pure_geo_30s.json`, `phase1b_5x5_l2_agreement_30s.json`,
+  `phase1c_10x10_l2_pure_geo_30s.json`, `phase1d_10x10_l2_agreement_30s.json`,
+  `phase3c_viewport_agreement_15s.json` for the raw experimental records.
+
+- **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld), §6 (RBTA as enforcement layer).
