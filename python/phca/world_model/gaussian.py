@@ -225,9 +225,12 @@ def conditional_covariance(
     Σ_QQ = cov[np.ix_(q_idx, q_idx)]
     Σ_QE = cov[np.ix_(q_idx, e_idx)]
 
-    # Use pinv unconditionally — solve() can hang on near-singular matrices.
-    solved = np.linalg.pinv(Σ_EE) @ Σ_QE.T
-    Σ_QQ_given_E = Σ_QQ - Σ_QE @ solved
+    try:
+        Σ_EE_inv = np.linalg.inv(Σ_EE)
+    except np.linalg.LinAlgError:
+        Σ_EE_inv = np.linalg.pinv(Σ_EE)
+
+    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
     return Σ_QQ_given_E
 
 
