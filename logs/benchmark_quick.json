@@ -5,11 +5,17 @@
     "seed": 42,
     "grid_size": 5,
     "use_continuous": true,
+    "use_mlp": false,
+    "diagnose_level": -1,
+    "dynamic_goals": false,
+    "dynamic_goals_every": 100,
+    "action_slip": 0.0,
+    "environment": "gridworld",
+    "mujoco_env": "Pendulum-v1",
     "weights": {
-      "prediction_accuracy": 0.2,
-      "adaptation_speed": 0.2,
-      "goal_complexity": 0.15,
-      "transfer_efficiency": 0.15,
+      "prediction_accuracy": 0.25,
+      "adaptation_speed": 0.25,
+      "goal_complexity": 0.2,
       "resource_efficiency": 0.2,
       "failure_rate": 0.1
     }
@@ -19,52 +25,32 @@
       "level": 0,
       "level_name": "Stationary Prediction",
       "n_cycles": 20,
-      "prediction_accuracy": 0.9184999985396858,
-      "adaptation_speed": 0.0,
-      "goal_complexity": 0.0,
-      "transfer_efficiency": 0.0,
-      "resource_efficiency": 0.0,
-      "failure_rate": 5.55,
-      "phi_iq": 0.0,
+      "prediction_accuracy": 0.9222500026226044,
+      "adaptation_speed": 0.9222500026226044,
+      "goal_complexity": 1.0,
+      "transfer_efficiency": 0.8505450673373938,
+      "resource_efficiency": 0.6482539440017717,
+      "failure_rate": 0.0,
+      "phi_iq": 0.7907757901116566,
       "raw_metrics": {
-        "mean_error": 0.8150000146031428,
+        "mean_error": 0.7774999737739563,
         "mean_confidence": 0.8,
-        "mean_latency_ms": 18953.589614546217,
-        "p95_latency_ms": 21359.02074464684,
-        "violations": 111,
-        "skill_accuracy": 0.9014993343868789,
-        "skill_compiled": true
-      }
-    },
-    {
-      "level": 1,
-      "level_name": "Reactive Control",
-      "n_cycles": 20,
-      "prediction_accuracy": 0.9174999985098834,
-      "adaptation_speed": 0.0,
-      "goal_complexity": 0.2,
-      "transfer_efficiency": 0.0,
-      "resource_efficiency": 0.0,
-      "failure_rate": 5.4,
-      "phi_iq": 0.0,
-      "raw_metrics": {
-        "mean_error": 0.8250000149011658,
-        "mean_latency_ms": 20779.560875153402,
-        "p95_latency_ms": 27057.464555613114,
-        "violations": 108,
-        "unique_actions": 1,
-        "skill_accuracy": 0.9008968782084873,
-        "skill_compiled": true
-      }
+        "mean_latency_ms": 175.87302799911413,
+        "p95_latency_ms": 237.635852744279,
+        "violations": 0,
+        "skill_accuracy": 0.9037921413358682,
+        "skill_compiled": false,
+        "active_drives": 5
+      },
+      "emergence": {}
     }
   ],
-  "overall_phi_iq": 0.0,
-  "total_cycles": 40,
-  "duration_s": 1176.7298154340242,
+  "overall_phi_iq": 0.7907757901116566,
+  "total_cycles": 20,
+  "duration_s": 7.033929327000806,
   "pass_criteria": {
-    "latency_under_500ms": false,
-    "failure_rate_under_10pct": false,
-    "goal_autonomy_achieved": false,
-    "phi_iq_above_0_5": false
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": true,
+    "phi_iq_above_0_5": true
   }
 }
