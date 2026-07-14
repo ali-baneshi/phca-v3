@@ -152,13 +152,24 @@ def posterior(
     Σ_QE = cov[np.ix_(q_idx, e_idx)]
 
     # Compute posterior mean and covariance
-    # Use pinv unconditionally — solve() can hang on near-singular matrices
-    # (cond ~1e8) without raising LinAlgError, and pinv is robust at negligible
-    # performance cost for the matrix sizes in use (~300x300).
+    # Use solve() for well-conditioned matrices (fast, O(n³)), fall back to
+    # pinv() for near-singular matrices where solve() can hang.
     resid = e_vec - mu_E
-    Σ_EE_inv = np.linalg.pinv(Σ_EE)
-    mu_Q_given_E = mu_Q + Σ_QE @ Σ_EE_inv @ resid
-    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
+    cond = np.linalg.cond(Σ_EE)
+    if cond < 1e12:
+        try:
+            Σ_EE_inv_resid = np.linalg.solve(Σ_EE, resid)
+            Σ_EE_inv_QET = np.linalg.solve(Σ_EE, Σ_QE.T)
+        except np.linalg.LinAlgError:
+            Σ_EE_inv = np.linalg.pinv(Σ_EE)
+            Σ_EE_inv_resid = Σ_EE_inv @ resid
+            Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
+    else:
+        Σ_EE_inv = np.linalg.pinv(Σ_EE)
+        Σ_EE_inv_resid = Σ_EE_inv @ resid
+        Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
+    mu_Q_given_E = mu_Q + Σ_QE @ Σ_EE_inv_resid
+    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv_QET
 
     # Extract diagonal (variances) and ensure non-negative
     variances = np.maximum(np.diag(Σ_QQ_given_E), 1e-12)
@@ -225,12 +236,18 @@ def conditional_covariance(
     Σ_QQ = cov[np.ix_(q_idx, q_idx)]
     Σ_QE = cov[np.ix_(q_idx, e_idx)]
 
-    try:
-        Σ_EE_inv = np.linalg.inv(Σ_EE)
-    except np.linalg.LinAlgError:
+    cond = np.linalg.cond(Σ_EE)
+    if cond < 1e12:
+        try:
+            Σ_EE_inv_QET = np.linalg.solve(Σ_EE, Σ_QE.T)
+        except np.linalg.LinAlgError:
+            Σ_EE_inv = np.linalg.pinv(Σ_EE)
+            Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
+    else:
         Σ_EE_inv = np.linalg.pinv(Σ_EE)
+        Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
 
-    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv @ Σ_QE.T
+    Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv_QET
     return Σ_QQ_given_E
 
 
