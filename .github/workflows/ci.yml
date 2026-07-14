@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -15,6 +16,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -32,6 +34,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -46,7 +49,7 @@ jobs:
             --ignore=python/tests/test_mujoco_env.py \
             --ignore=python/tests/test_cycle_with_mujoco.py \
             --ignore=python/tests/test_continuous_actions.py \
-            -v --tb=short --timeout=30 -x --benchmark-skip
+            -v --tb=short --timeout=30 --maxfail=5 --benchmark-skip
 
   observatory-check:
     runs-on: ubuntu-latest
@@ -57,6 +60,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -66,6 +70,26 @@ jobs:
         run: |
           PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
           PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/reacher_short/
+
+  noise-injector:
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: NoiseInjector unit tests
+        run: |
+          PYTHONPATH=python:$PYTHONPATH python -m pytest python/phca/asi/tests/ \
+            -v --tb=short --maxfail=5
 
   benchmark-level-0:
     runs-on: ubuntu-latest
@@ -77,6 +101,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -104,6 +129,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
