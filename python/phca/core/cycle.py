@@ -80,7 +80,11 @@ if TYPE_CHECKING:
     from phca.monitoring.observability import ObservabilityStore
 
 # AF-005: Normalisation factor for FLOP-based energy signals.
-# ~30M FLOPs (MLP forward at h=128, bs=32, ts=4) ≈ 0.5 on energy scale.
+# ~120M FLOPs (MLP forward+backward at h=128, bs=64, ts=8) → energy ≈ 1.0.
+# Constant set at 60M to keep legacy energy values stable; the [0.1, 10.0]
+# clamp bounds the range regardless.  The 30M/bs=32/ts=4 comment in the
+# original was stale — default batch_size went to 64 and train_steps to 8
+# in D-092 (Phase 5).
 ENERGY_NORM_FLOPS = 60_000_000.0
 
 STEADY_STATE_GPRIME_ERROR_THRESHOLD = 1.5
@@ -291,6 +295,9 @@ class CognitiveCycle:
         self._agreement_buffer: list = []  # 1.0 if blended-scorer agreed with geometry, 0.0 otherwise
         self._last_agreement_rate: float = 1.0
         self._geo_action_cache: Optional[int] = None  # cached geo_action for probe recording
+
+        # D-165: one-shot warning that energy/memory/entropy bounds are estimated
+        self._warned_estimated_bounds: bool = False
 
         _log(logger, "info", "cycle.init", state_dim=state_dim, grid_size=getattr(env, "size", 0))
 
@@ -872,28 +879,27 @@ class CognitiveCycle:
             mlp_accuracy = self.gprime.get_prediction_accuracy(
                 self.current_state.values, action_vec, next_state.values
             )
-            _selector = self.last_action_rationale.get("selector_mode", "")
-            # D-158: collect probe data only from geometry-selected actions
-            # to avoid self-fulfilling prophecy (evaluating G' on its own choices).
-            if _selector in ("pure_geometry_ablation", "adaptive_geometry_fallback"):
-                # Round 7 (NEW-10): also record agreement rate for probe analysis
-                geo_agreement = None
-                if self._geo_action_cache is not None:
-                    geo_agreement = 1.0 if (
-                        self.last_action_rationale.get("chosen_idx") == self._geo_action_cache
-                    ) else 0.0
-                self._probe_buffer.append({
-                    "state": self.current_state.values.copy(),
-                    "action": action_vec.copy(),
-                    "next_state": next_state.values.copy(),
-                    "mse_accuracy": mlp_accuracy,
-                    "mc_confidence": float(corrected_conf),
-                    "selector": _selector,
-                    "geo_agreement": geo_agreement,
-                })
-                max_samples = max(self.interventions.calibration_probe_samples, 16)
-                if len(self._probe_buffer) > max_samples:
-                    self._probe_buffer.pop(0)
+            # D-158/D-167: collect probe data from ALL cycles regardless of
+            # action selector mode (was previously filtered to geometry-only,
+            # which created a sampling bias when the blended scorer was enabled).
+            # Also record agreement rate for Round 7 agreement-gating analysis.
+            geo_agreement = None
+            if self._geo_action_cache is not None:
+                geo_agreement = 1.0 if (
+                    self.last_action_rationale.get("chosen_idx") == self._geo_action_cache
+                ) else 0.0
+            self._probe_buffer.append({
+                "state": self.current_state.values.copy(),
+                "action": action_vec.copy(),
+                "next_state": next_state.values.copy(),
+                "mse_accuracy": mlp_accuracy,
+                "mc_confidence": float(corrected_conf),
+                "selector": self.last_action_rationale.get("selector_mode", ""),
+                "geo_agreement": geo_agreement,
+            })
+            max_samples = max(self.interventions.calibration_probe_samples, 16)
+            if len(self._probe_buffer) > max_samples:
+                self._probe_buffer.pop(0)
         t4 = time.perf_counter()
         if self.interventions.enable_tspl:
             tspl_gradient = None
@@ -2444,12 +2450,22 @@ class CognitiveCycle:
         """Collect module runtime/memory/energy logs for RBTA from actual measurements.
 
         Uses time.perf_counter() timings from metrics.module_timings.
-        Memory/energy/entropy are still estimated (need instrumentation in Phase 3.3+).
+        Memory/energy/entropy are still estimated (need instrumentation in Phase 3.3+):
+          - Energy: runtime * 50.0 clamped [0.1, 10.0] for non-G' modules.
+            G' uses FLOP-based estimate via ``_cycle_flops / ENERGY_NORM_FLOPS``.
+          - Memory: formulaic estimates from state dimensionality (``state_dim * 4 * N``).
+          - Belief entropy: hardcoded 0.1 for ASI, WM, PE, PEU, TSPL-P, CR, HPM, CONSOL, ACTION.
+            G' uses MC-Dropout mutual information; MDIM uses drive-deficit Shannon entropy;
+            ATTN uses attention-weight entropy.
 
         Args:
             metrics: Current cycle's metrics (with module_timings populated).
                 If None (e.g., during testing), uses hardcoded fallback.
         """
+        if not self._warned_estimated_bounds:
+            self._warned_estimated_bounds = True
+            _log(logger, "warning", "rbta.estimated_bounds",
+                 detail="energy=runtime×50 memory=formulaic entropy=hardcoded_0.1_for_9_of_12_modules")
         # Map metric keys → RBTA module IDs
         # Map metric keys → RBTA module IDs.
         # NOTE: action_selection uses "ACTION" (not "WM") to avoid overwriting

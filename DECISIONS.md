@@ -2134,3 +2134,67 @@ of D-156's headline number were wrong.
   `phase3c_viewport_agreement_15s.json` for the raw experimental records.
 
 - **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld), §6 (RBTA as enforcement layer).
+
+---
+
+## Decision D-162: Restructure nightly Makefile target to surface step failures (NEW-19)
+
+- **Date:** 2026-07-15
+- **Author:** (retroactive — rounds 40-42 changes, re-fixed 2026-07-15)
+- **Category:** Tier 2 (CI correctness)
+- **Option chosen:** Replace per-step `|| echo "FAILED (continuing)"` blanket with a `FAILED=""` accumulator; each failing step appends its name; final echo and exit code conditional on accumulator being non-empty. MuJoCo gate is included inline as step [2/7] rather than as a prerequisite target.
+- **Alternatives:** Keep the blanket swallow (was hiding all failures). Remove `||` entirely (would stop on first failure, hiding remaining checks).
+- **Rationale:** The original fix for NEW-16 prevented one known L2 failure from aborting the recipe, but the `|| echo` pattern made each line's exit code always 0 and the unconditional `ALL PASS` at line 195 made the target always report success. The accumulator pattern preserves the "don't abort on the first failure" intent while making the final status reflect reality.
+- **v3.0 trace:** CI/ops (no spec chapter)
+
+## Decision D-163: Gaussian CPD numerical stability — condition-number-guarded solve vs pinv
+
+- **Date:** 2026-07-15
+- **Author:** (retroactive — rounds 40-42)
+- **Category:** Tier 2 (numerical correctness)
+- **Option chosen:** `posterior()` and `conditional_covariance()` in `gaussian.py` now check `np.linalg.cond(Σ_EE)` and use `np.linalg.solve()` for well-conditioned matrices (cond < 1e12), falling back to `np.linalg.pinv()` only when singular or solve raises.
+- **Alternatives:** Unconditional `inv()` (raises on singular). Unconditional `pinv()` (robust but slow — caused SVD timeouts in prior rounds).
+- **Rationale:** Correctly balances the two prior failure modes: `inv()` alone raises on singular matrices, while unconditional `pinv()` is robust but slow enough to have caused timeouts. The condition-number check picks the fast path for the common case and the robust path only when needed.
+- **v3.0 trace:** §2.2 Def 2.4b (G')
+
+## Decision D-164: phca_causal_eval.py gate distinguishes expected L2 failure from critical L3 regression
+
+- **Date:** 2026-07-15
+- **Author:** (retroactive — rounds 40-42)
+- **Category:** Tier 2 (test correctness)
+- **Option chosen:** The script exit code now distinguishes L2-only failure (per D-161, does not raise `sys.exit(1)`) from L3/L4 regression (still raises `sys.exit(1)`).
+- **Alternatives:** Single exit code (cannot tell expected L2 from unexpected L3 regression). Separate Makefile targets per level (more surface area).
+- **Rationale:** Preserves ability to detect a new L3 regression without crying wolf about the known L2 gap. This is the correct fix at the correct layer — the Makefile just needs to propagate the exit code, not re-implement the distinction.
+- **v3.0 trace:** CI/ops (no spec chapter)
+
+---
+
+## Decision D-165: Document that RBTA energy/memory/entropy bounds are estimated, not instrumented
+
+- **Date:** 2026-07-15
+- **Author:** Current review session
+- **Category:** Tier 3 (documentation / instrumentation gap)
+- **Option chosen:** Add `warn_once` log on first RBTA check noting that energy (runtime×50 clamp), memory (formulaic), and belief entropy (hardcoded 0.1 for 9/12 modules) are estimated values, not direct measurements. Add docstring in `_collect_runtime_log` listing which bounds are real vs notional.
+- **Alternatives:** Implement module-specific energy models (Phase 3.3+ scope). Remove energy/memory bounds entirely (would lose the intended A1/A3 enforcement structure).
+- **Rationale:** The docstring already says "Memory/energy/entropy are still estimated (need instrumentation in Phase 3.3+)" — making this visible at runtime via a `warn_once` log means anyone reading CI output sees the caveat without having to read source. The bounds are structurally intentional (they define the A1/A3 contract) but their numerical values are not yet meaningful.
+- **v3.0 trace:** §2.1 Def 2.2 (RBTA bounds), §6 (enforcement)
+
+## Decision D-166: Document disable_blended_scorer default rationale on InterventionConfig
+
+- **Date:** 2026-07-15
+- **Author:** Current review session
+- **Category:** Tier 3 (documentation)
+- **Option chosen:** Add docstring on `InterventionConfig.disable_blended_scorer` and `InterventionConfig` class explaining that the default `True` means GridWorld action selection uses pure BFS/Manhattan geometry, not prediction-scored evaluation, per D-156/D-161 findings that the blended scorer does not outperform geometry at either 5×5 or 10×10 L2.
+- **Alternatives:** Flip default to `False` (would change production behavior — requires 30-seed re-validation). Remove the field entirely (loses the experimental code path).
+- **Rationale:** The default is intentional and data-supported. A future reviewer can find the rationale in the code itself without having to cross-reference DECISIONS.md.
+- **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld)
+
+## Decision D-167: Fix calibration probe to collect data from all action-selection modes
+
+- **Date:** 2026-07-15
+- **Author:** Current review session
+- **Category:** Tier 2 (sampling bias fix)
+- **Option chosen:** Remove the `selector in ("pure_geometry_ablation", "adaptive_geometry_fallback")` filter from probe data collection. Probe buffer now records every cycle, regardless of which action selector ran. When the blended scorer is experimentally enabled, probe data from prediction-scored cycles is included on equal footing.
+- **Alternatives:** Keep the filter (probe is a failure sample — self-reinforcing when scorer is enabled). Implement separate thresholds per mode (more complex, not justified while scorer is experimental).
+- **Rationale:** The original filter was intended to avoid self-fulfilling prophecy (evaluating G' on its own choices), but it created a confound: when the scorer IS enabled, probe data shrinks to only the gating-triggered (failure) cycles, making the calibration threshold more conservative precisely when the scorer is trusted. With the scorer disabled by default, the filter had no practical effect — it's a latent bug that would surface if the default were ever flipped.
+- **v3.0 trace:** §3.3 (action selection), §D.6 (confidence gating)

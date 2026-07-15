@@ -42,7 +42,15 @@ DESYNC_STAGE_ORDER = [
 
 @dataclass
 class InterventionConfig:
-    """Single place to configure module enables and cycle variants."""
+    """Single place to configure module enables and cycle variants.
+
+    Default state: ``disable_blended_scorer=True`` — GridWorld action selection
+    uses pure BFS/Manhattan geometry, not prediction-scored evaluation.  This
+    is intentional (per D-156 / D-161): the blended scorer does not outperform
+    geometry at either 5×5 or 10×10 L2 causal gate after the RBTA fix.
+    Set ``disable_blended_scorer=False`` to enable prediction-scored selection
+    with adaptive confidence gating and agreement-based fallback.
+    """
 
     enable_prediction: bool = True
     enable_mdim: bool = True

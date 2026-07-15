@@ -158,42 +158,60 @@ pre-gate-1:
 # OOD calibration, and the long-run stress test. Override the stress length
 # with NIGHTLY_CYCLES (default 11000 for post-M3 retention gate; 1000 fill-phase):
 #     make nightly NIGHTLY_CYCLES=11000
+# Each step appends its name to a FAILED accumulator on failure; the final
+# echo and exit code are computed from actual step outcomes, not unconditional.
+# The standalone `nightly-mujoco` target is kept for direct MuJoCo-only runs.
 # This is a script+gate target, NOT a cron job — schedule it externally
 # (GitHub Actions nightly, systemd timer, or cron) as documented in README.
 
-nightly: nightly-mujoco
-	@echo "============================================"
-	@echo "  PHCA v3.0 — Nightly CI Hardening"
-	@echo "============================================"
-	@echo "[1/7] Static Φ-IQ benchmark (200cyc MLP)..."
-	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+nightly:
+	@FAILED=""; \
+	echo "============================================"; \
+	echo "  PHCA v3.0 — Nightly CI Hardening"; \
+	echo "============================================"; \
+	echo "[1/7] Static Φ-IQ benchmark (200cyc MLP)..."; \
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --use-mlp --cycles=200 --output=logs/nightly_static.json >/dev/null \
 	    && python scripts/check_benchmark_gate.py logs/nightly_static.json logs/benchmark_ci_baseline.json \
-	    || echo "⚠️ [1/7] Static Φ-IQ benchmark FAILED (continuing)"
-	@echo "[2/7] MuJoCo benchmark gate (see nightly-mujoco) — done."
-	@echo "[3/7] Assumption validation (A1–A5 incl. A2, --ci)..."
-	@MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
+	    || FAILED="$${FAILED} static-phi-iq"; \
+	echo "[2/7] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."; \
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null \
+	    && MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env cartpole --use-mlp --cycles=100 --output=logs/nightly_mujoco_cartpole.json >/dev/null \
+	    && MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
+	    --env reacher --use-mlp --cycles=100 --output=logs/nightly_mujoco_reacher.json >/dev/null \
+	    && python scripts/check_benchmark_gate.py --mujoco \
+	    logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json logs/nightly_mujoco_reacher.json \
+	    && python scripts/check_benchmark_gate.py --neg-test >/dev/null \
+	    || FAILED="$${FAILED} mujoco-gate"; \
+	echo "[3/7] Assumption validation (A1–A5 incl. A2, --ci)..."; \
+	MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
 	    --output=logs/nightly_assumptions.json \
-	    || echo "⚠️ [3/7] Assumption validation FAILED (continuing)"
-	@echo "[4/7] OOD calibration (σ-sweep, monotonic)..."
-	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/ood_calibration.py \
+	    || FAILED="$${FAILED} assumption-validation"; \
+	echo "[4/7] OOD calibration (σ-sweep, monotonic)..."; \
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/ood_calibration.py \
 	    --output=logs/nightly_ood.json \
-	    || echo "⚠️ [4/7] OOD calibration FAILED (continuing)"
-	@echo "[5/7] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."
-	@MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
+	    || FAILED="$${FAILED} ood-calibration"; \
+	echo "[5/7] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."; \
+	MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
 	    python scripts/nightly_stress.py --output=logs/nightly_stress.json \
-	    || echo "⚠️ [5/7] Nightly stress FAILED (continuing)"
-	@echo "[6/7] Causal behavior gate (level2+level3, 200cyc; 30 seeds)..."
-	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
+	    || FAILED="$${FAILED} nightly-stress"; \
+	echo "[6/7] Causal behavior gate (level2+level3, 200cyc; 30 seeds)..."; \
+	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
 	    --levels level2,level3 --cycles 200 --seeds 30 --use-mlp --gate \
 	    --output logs/phca_causal_eval_nightly.json \
-	    || echo "⚠️ [6/7] Causal behavior gate FAILED: note L2 failure expected per D-161 (continuing)"
-	@echo "[7/7] Session anomaly gate..."
-	@PYTHONPATH=python python scripts/nightly_anomaly_gate.py --output=logs/nightly_anomaly_gate.json \
-	    || echo "⚠️ [7/7] Session anomaly gate FAILED (continuing)"
-	@echo "============================================"
-	@echo "  Nightly hardening: ALL PASS"
-	@echo "============================================"
+	    || FAILED="$${FAILED} causal-gate(check-if-L3-only-see-D161)"; \
+	echo "[7/7] Session anomaly gate..."; \
+	PYTHONPATH=python python scripts/nightly_anomaly_gate.py --output=logs/nightly_anomaly_gate.json \
+	    || FAILED="$${FAILED} session-anomaly-gate"; \
+	echo "============================================"; \
+	if [ -n "$$FAILED" ]; then \
+	    echo "  Nightly hardening: FAILED —$$FAILED"; exit 1; \
+	else \
+	    echo "  Nightly hardening: ALL PASS"; \
+	fi; \
+	echo "============================================"
 
 nightly-mujoco:
 	@echo "[2/7] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."
