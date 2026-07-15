@@ -72,7 +72,8 @@ class GridWorld:
             partial_obs_radius: If set (>0), agent only sees walls/goal within this
                 Manhattan distance. None = full observability (default).
         """
-        assert size in (5, 10, 20), f"size must be 5, 10, or 20, got {size}"
+        if size not in (5, 10, 20):
+            raise ValueError(f"size must be 5, 10, or 20, got {size}")
         self.size = size
         self.rng = np.random.RandomState(seed)
         self.max_steps = size * size * 4
@@ -179,7 +180,8 @@ class GridWorld:
             (next_state, reward, terminal, info)
         """
         with self._env_lock:
-            assert 0 <= action <= 4, f"Invalid action {action}"
+            if not (0 <= action <= 4):
+                raise ValueError(f"Invalid action {action}")
 
             if self.action_slip > 0.0 and self.rng.random() < self.action_slip:
                 action = 4  # STAY

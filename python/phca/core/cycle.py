@@ -213,8 +213,10 @@ class CognitiveCycle:
 
         self.metrics_history: List[CycleMetrics] = []
 
-        # Cached Φ (gradient-norm criticality) from the most recent backward pass
-        self._cached_phi: float = 1.0
+        # Cached Φ (gradient-norm criticality) from the most recent backward pass.
+        # Initialised at 0.5 (neutral) — only MLP/HybridGraphMLP update this via
+        # _update_phi_from_gradient; discrete/Gaussian G' stay at neutral.
+        self._cached_phi: float = 0.5
         # Exposed error volatility for observability (read by ObservabilityFrame)
         self.last_error_volatility: float = 0.0
 
@@ -903,13 +905,12 @@ class CognitiveCycle:
                 self._probe_buffer.pop(0)
         t4 = time.perf_counter()
         if self.interventions.enable_tspl:
-            tspl_gradient = None
             theta_new, _ = self.tspl.update(
                 StreamID.P_STREAM,
                 metrics.prediction_error,
                 self.current_state,
                 self.last_prediction,
-                gradient=tspl_gradient,
+                gradient=None,
                 accuracy_override=mlp_accuracy,
             )
             if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
@@ -1352,6 +1353,7 @@ class CognitiveCycle:
                 alpha=PER_ALPHA, beta=self._per_beta,
             )
         else:
+            _log(logger, "debug", "cycle.m3_replay.fallback_stratified")
             episodes = m3.sample_prior_task_episodes(n_budget, self._current_task_id)
 
         if not episodes:
@@ -1359,6 +1361,9 @@ class CognitiveCycle:
         steps, priority_updates = self.gprime.learn_m3_episodes(episodes)
         if priority_updates and hasattr(m3, "batch_update_priorities"):
             m3.batch_update_priorities(priority_updates)
+        elif priority_updates:
+            _log(logger, "debug", "cycle.m3_replay.no_batch_update",
+                 has_m3=hasattr(m3, "batch_update_priorities"))
         return steps
 
     def _current_task_goal_rate(self) -> Optional[float]:
@@ -1749,7 +1754,6 @@ class CognitiveCycle:
         # The agreement rate directly measures whether G' predictions are useful for
         # action selection: if the blended scorer keeps disagreeing with the optimal
         # geometric action, its predictions are not trustworthy.
-        _agreement_gating_triggered = False
         if (
             self.interventions.adaptive_confidence_gating
             and not should_skip_blended
@@ -1791,7 +1795,6 @@ class CognitiveCycle:
                     "agreement_rate": self._last_agreement_rate,
                 }
                 selector_mode = "adaptive_geometry_fallback"
-                _agreement_gating_triggered = persistent_disagreement
             else:
                 selector_mode = "prediction_scored"
         else:
@@ -1962,9 +1965,9 @@ class CognitiveCycle:
             0.0-1.0 alignment score (1.0 = exact match).
         """
         if target is None:
+            _log(logger, "debug", "cycle.state_alignment.no_target")
             return 0.5
 
-        # Use minimum dimension to avoid shape mismatch
         min_dim = min(
             predicted.values.shape[0],
             target.values.shape[0],
@@ -1973,10 +1976,12 @@ class CognitiveCycle:
         t = target.values[:min_dim].astype(np.float64)
         w = target.precision[:min_dim].astype(np.float64)
 
-        # Weighted cosine similarity
         p_norm = np.linalg.norm(p * w)
         t_norm = np.linalg.norm(t * w)
         if p_norm < 1e-8 or t_norm < 1e-8:
+            _log(logger, "debug", "cycle.state_alignment.zero_norm",
+                 p_norm=round(float(p_norm), 6),
+                 t_norm=round(float(t_norm), 6))
             return 0.5
 
         cos_sim = float(np.dot(p * w, t * w) / (p_norm * t_norm))
@@ -1993,13 +1998,19 @@ class CognitiveCycle:
         """
         env = self.env
         goal_pos = env.get_goal_position()
-        if goal_pos is None or not hasattr(env, "agent_pos") or not hasattr(env, "size"):
+        if goal_pos is None:
+            _log(logger, "debug", "cycle.pred_goal_align.no_goal",
+                 partial_obs=not hasattr(env, "agent_pos"))
+            return 0.5
+        if not hasattr(env, "agent_pos") or not hasattr(env, "size"):
             return 0.5
         n_pos = env.size * env.size
         pred_agent = predicted.values[:n_pos]
         peak = int(np.argmax(pred_agent))
         max_val = float(pred_agent[peak])
         if max_val < 0.05:
+            _log(logger, "debug", "cycle.pred_goal_align.flat_prediction",
+                 max_val=round(max_val, 4))
             return 0.5
         g_row, g_col = goal_pos
         p_row, p_col = peak // env.size, peak % env.size
@@ -2222,6 +2233,11 @@ class CognitiveCycle:
                                 return 0.0
                             gain = (current_dist - new_dist) / current_dist
                             return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
+        _log(logger, "debug", "cycle.distance_gain.fallback",
+             goal_known=goal_pos is not None,
+             frontier=frontier is not None,
+             has_agent=hasattr(env, "agent_pos"),
+             has_grid=hasattr(env, "grid"))
         return 0.5
 
     def _run_calibration_probe(self) -> None:
@@ -2307,8 +2323,8 @@ class CognitiveCycle:
             s = self.state_dim
             a = self.gprime.action_dim
             fwd = 2.0 * ((s + a) * h + h * h + h * s)
-            bs = getattr(self.gprime, 'batch_size', 32)
-            ts = getattr(self.gprime, 'train_steps', 4)
+            bs = getattr(self.gprime, 'batch_size', 64)
+            ts = getattr(self.gprime, 'train_steps', 8)
             passes = bs * ts
             return fwd * passes * 3.0
         if hasattr(self.gprime, 'state_dim'):
@@ -2361,18 +2377,24 @@ class CognitiveCycle:
         The arctan maps [0, ∞) → [0, 1) so PID setpoints and MDIM drive
         targets need no adjustment from the old error-volatility heuristic.
         """
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
-            try:
-                raw = self.gprime.last_input_sensitivity(self.state_dim)
-            except Exception:
-                return
-            normalized = float(np.arctan(raw) * 2.0 / np.pi)
-            self._cached_phi = self._cached_phi * 0.7 + normalized * 0.3
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+            _log(logger, "debug", "cycle.phi_update.skipped_non_mlp",
+                 gprime_type=type(self.gprime).__name__)
+            return
+        try:
+            raw = self.gprime.last_input_sensitivity(self.state_dim)
+        except Exception:
+            return
+        normalized = float(np.arctan(raw) * 2.0 / np.pi)
+        self._cached_phi = self._cached_phi * 0.7 + normalized * 0.3
 
     def _scaled_hpm_composite_bounds(
         self, hpm_bounds: Optional[Dict[str, float]],
     ) -> tuple[float, float]:
         """Scale HPM composite bounds for large GridWorld state dimensions."""
+        if hpm_bounds is None:
+            _log(logger, "debug", "cycle.hpm_bounds_fallback",
+                 state_dim=self.state_dim)
         reg_b_time = hpm_bounds["B_time"] if hpm_bounds else 0.200
         reg_b_energy = hpm_bounds.get("B_energy", 10.0) if hpm_bounds else 10.0
         if grid_scale(self.state_dim) > 1.0:

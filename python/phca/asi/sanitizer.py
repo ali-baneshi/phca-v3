@@ -71,10 +71,10 @@ class ASISanitizer:
             (clean_state_vector, status)
 
         Raises:
-            ValueError: If raw has NaN/Inf after sanitization (should never happen).
+            ValueError: If raw has wrong shape.
         """
-        assert raw.shape == (self.sensor_dim,), \
-            f"Expected shape ({self.sensor_dim},), got {raw.shape}"
+        if raw.shape != (self.sensor_dim,):
+            raise ValueError(f"Expected shape ({self.sensor_dim},), got {raw.shape}")
 
         clean = np.copy(raw).astype(np.float32)
         failure_mask = np.zeros(self.sensor_dim, dtype=bool)

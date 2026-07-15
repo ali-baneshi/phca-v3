@@ -74,7 +74,8 @@ class RBTAEnforcer:
 
     @asi_failure_limit.setter
     def asi_failure_limit(self, value: int) -> None:
-        assert value > 0, f"asi_failure_limit must be positive, got {value}"
+        if value <= 0:
+            raise ValueError(f"asi_failure_limit must be positive, got {value}")
         self._asi_failure_limit = value
 
     def check_cycle(

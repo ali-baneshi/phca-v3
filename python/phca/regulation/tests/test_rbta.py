@@ -180,10 +180,10 @@ class TestRBTAEnforcer:
         enforcer.asi_failure_limit = 10
         assert enforcer.asi_failure_limit == 10
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="must be positive"):
             enforcer.asi_failure_limit = 0
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="must be positive"):
             enforcer.asi_failure_limit = -1
 
     def test_update_bounds(self, enforcer: RBTAEnforcer):

@@ -97,6 +97,11 @@ def compute_joint_moments(
     )
     cov = inv_I_minus_B @ diag_sigma2 @ inv_I_minus_B.T
 
+    if not np.all(np.isfinite(cov)):
+        _log(logger, "warning", "gaussian.covariance_overflow",
+             max_val=float(np.max(np.abs(cov[~np.isnan(cov)]))) if np.any(~np.isnan(cov)) else float("nan"),
+             min_val=float(np.min(cov[np.isfinite(cov)])) if np.any(np.isfinite(cov)) else float("nan"))
+
     return mu, cov
 
 
@@ -133,6 +138,10 @@ def posterior(
     for var in evidence:
         if var not in name_to_idx:
             raise ValueError(f"Evidence variable '{var}' not found in graph")
+
+    if not evidence:
+        return {v: (float(mu[name_to_idx[v]]), float(np.sqrt(cov[name_to_idx[v], name_to_idx[v]])))
+                for v in query_vars if v in name_to_idx}
 
     # Build indices
     e_idx = [name_to_idx[v] for v in evidence]

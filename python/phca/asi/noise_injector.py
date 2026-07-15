@@ -49,8 +49,8 @@ class NoiseInjector:
         self.intensity = float(np.clip(level, 0.0, 1.0))
 
     def inject(self, raw: np.ndarray, cycle: int = 0) -> np.ndarray:
-        assert raw.shape == (self.sensor_dim,), \
-            f"Expected ({self.sensor_dim},), got {raw.shape}"
+        if raw.shape != (self.sensor_dim,):
+            raise ValueError(f"Expected ({self.sensor_dim},), got {raw.shape}")
         noisy = raw.copy()
         if self.intensity <= 0.0:
             return noisy

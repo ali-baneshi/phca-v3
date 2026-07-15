@@ -95,8 +95,10 @@ class StateVector:
     grounding_level: int = 1
 
     def __post_init__(self):
-        assert self.values.shape == self.precision.shape, \
-            f"values shape {self.values.shape} != precision shape {self.precision.shape}"
+        if self.values.shape != self.precision.shape:
+            raise ValueError(
+                f"values shape {self.values.shape} != precision shape {self.precision.shape}"
+            )
 
     @property
     def dim(self) -> int:
@@ -153,10 +155,14 @@ class ResourceBounds:
     entropy_floor: float = 0.01  # default ε > 0 per A3
 
     def __post_init__(self):
-        assert self.B_time > 0, "B_time must be positive"
-        assert self.B_mem > 0, "B_mem must be positive"
-        assert self.B_energy > 0, "B_energy must be positive"
-        assert self.entropy_floor >= 0, "entropy_floor must be non-negative"
+        if self.B_time <= 0:
+            raise ValueError(f"B_time must be positive, got {self.B_time}")
+        if self.B_mem <= 0:
+            raise ValueError(f"B_mem must be positive, got {self.B_mem}")
+        if self.B_energy <= 0:
+            raise ValueError(f"B_energy must be positive, got {self.B_energy}")
+        if self.entropy_floor < 0:
+            raise ValueError(f"entropy_floor must be non-negative, got {self.entropy_floor}")
 
 
 @dataclass

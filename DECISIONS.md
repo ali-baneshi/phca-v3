@@ -2322,3 +2322,76 @@ of D-156's headline number were wrong.
 - **Option chosen:** Added a "Note on throttling" paragraph to the `_replay_m3_prior_tasks` docstring, explaining the STEADY_STATE_GPRIME_SKIP_MOD pattern and the forgetting-mitigation bypass.
 - **Rationale:** 3-line docstring addition prevents future confusion about why M3 replay appears to produce half the expected steps.
 - **v3.0 trace:** §3.1 (M3 replay), STEADY_STATE_GPRIME_SKIP_MOD
+
+---
+
+## Decision D-179: Fix _action_loop RBTA sticky flags + _neutral_action + -inf best_score
+
+- **Date:** 2026-07-15
+- **Category:** Tier 2 (async path bug — stuck neutral actions + latent crashes)
+- **Problem:** (1) `_action_loop` never reset `_rbta_skip_feedback`, `_rbta_skip_consolidation`, `_rbta_action_candidate_limit` at the start of each iteration. If `_rbta_preflight_check` returned TERMINATE once, `_rbta_skip_feedback` stayed True forever, locking the agent into neutral actions. (2) `_neutral_action` returned `np.zeros(0)` when `self.action_space` had no `dim` attribute, causing `env.step()` dimension mismatch. (3) `best_score` of `-float("inf")` leaked into rationale dict when the candidate loop ran zero iterations, breaking JSON serialization.
+- **Option chosen:** (1) Added flag reset at top of `_action_loop` iteration, matching `step()` and `_finalize_learning_cycle`. (2) Changed fallback `dim` from `getattr(..., 0)` to `getattr(..., self.env.action_space_size)`. (3) Changed `best_score` serialization to `max(0.0, float(best_score))`.
+- **v3.0 trace:** §3.1 (cycle orchestrator async path), A1
+
+## Decision D-180: Dead _cached_confidences removal + entropy normalization fix
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (code hygiene)
+- **Problem:** (1) `self._cached_confidences` was written at line 1731 but never read anywhere — dead code. (2) ATTN belief entropy clipped `aw_norm` AFTER normalization, breaking the `sum=1` invariant of the probability distribution and producing numerically incorrect Shannon entropy.
+- **Option chosen:** (1) Removed the dead assignment. (2) Reversed the order: clip absolute weights BEFORE normalizing, then divide by sum.
+- **v3.0 trace:** §2.1 Def 2.2 (belief entropy logging)
+
+## Decision D-181: Add logging to silent diagnostic fallbacks across cycle.py
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (observability)
+- **Problem:** Eight diagnostic/fallback paths in cycle.py returned hardcoded default values with zero logging, making silent degradation invisible in logs:
+  - `_compute_cycle_flops`: returned 0.0 for unrecognized model types
+  - `_estimate_empowerment`: returned 0.3 when state is None or no estimate_empowerment method
+  - `_epistemic_entropy`: returned 0.5 via getattr default when model has no mutual info
+  - `_scaled_hpm_composite_bounds`: returned hardcoded 0.200/10.0 when hpm_bounds is None
+  - `_state_space_alignment`: returned 0.5 on no target or zero-norm vectors
+  - `_predicted_goal_alignment`: returned 0.5 on no goal position or flat prediction
+  - `_compute_distance_gain`: returned 0.5 on final fallback with no context
+  - `_replay_m3_prior_tasks`: silently chose stratified sampling vs PER without logging
+  - Priority updates silently skipped when M3 lacks batch_update_priorities
+- **Option chosen:** Added `_log(logger, "debug", ...)` calls to all eight paths with relevant context (model type, values, flags). Each fires once or rarely — no log spam.
+- **v3.0 trace:** §2.1 Def 2.2 (RBTA observability)
+
+## Decision D-182: Fix _update_phi_from_gradient dead code + _cached_phi init + ENERGY_NORM_FLOPS defaults
+
+- **Date:** 2026-07-15
+- **Category:** Tier 2 (critical dead code — Φ never updated) / Tier 3 (constants drift)
+- **Problem:** (1) `_update_phi_from_gradient` had the Φ computation (`normalized = ...`, `self._cached_phi = ...`) inside an `else:` block after a `return` statement — dead code since D-139 introduced it in 2026-07-08. `_cached_phi` was frozen at 1.0 (then 0.5 after init fix), meaning `error_volatility` (fed to PID controller + MDIM D2) never varied. (2) `_cached_phi` initialised at 1.0 was misleading for non-MLP models — they never update it. (3) `ENERGY_NORM_FLOPS = 60M` was calibrated for `bs=64, ts=8`, but `_compute_cycle_flops` getattr defaults were still `bs=32, ts=4` (stale since D-092). (4) `tspl_gradient = None` was a dead variable placeholder.
+- **Option chosen:** (1) Restructured `_update_phi_from_gradient`: early-return guard before computation, removed dead `else:` block. (2) Changed `_cached_phi` init from 1.0 to 0.5 (neutral). (3) Updated getattr defaults to `bs=64, ts=8`. (4) Inlined `gradient=None`.
+- **Impact:** `error_volatility` now dynamically tracks G′ gradient norm — PID controller and MDIM D2 receive a varying signal as intended since D-139.
+- **v3.0 trace:** §2.2 Def 2.4b (G′ gradient), §3.3 Def 3.5 (MDIM D2), D-139 (Φ redesign)
+
+## Decision D-183: Remove dead _agreement_gating_triggered + assert→ValueError migration + gaussian overflow check
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (code hygiene) / Tier 3 (correctness)
+- **Problem:** (1) `_agreement_gating_triggered` local variable was set twice but never read — dead code from Round 7 development. (2) Six `assert` statements across 4 files silently vanish under `python -O`: `StateVector.__post_init__`, `ResourceBounds.__post_init__`, `GridWorld.__init__` size validation, `GridWorld.step` action validation, `RBTAEnforcer.asi_failure_limit` setter, `M3EpisodicMemory._connection` guard. (3) `gaussian.py` used `np.errstate(over="ignore")` which suppresses floating-point overflow warnings during covariance computation, masking numerical degradation.
+- **Option chosen:** (1) Removed the dead variable. (2) Replaced all 6 `assert` statements with `if/raise ValueError(...)` or `raise RuntimeError(...)`. (3) Added `np.all(np.isfinite(cov))` check after matrix ops in `compute_joint_moments` with warning log on overflow.
+- **v3.0 trace:** §2.2 Def 2.4b (Gaussian G′), §2.1 Def 2.2 (RBTA bounds), §D.1 (GridWorld)
+
+---
+
+## Decision D-184: Fix gaussian empty-evidence edge case (numpy 2.x compat)
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (edge case)
+- **Problem:** `posterior()` called `np.linalg.cond(Σ_EE)` on a 2D empty array when `evidence={}`. numpy 2.x raises `LinAlgError("cond is not defined on empty arrays")` instead of returning a value. The old `test_no_evidence` test had been skipped/deselected.
+- **Option chosen:** Added early return at top of `posterior()` when `evidence` is empty: "posterior with no evidence = prior". Returns the prior mean and std (from diagonal of cov) for each query variable.
+- **Impact:** `test_no_evidence` now passes. No behavioral change for any caller — no caller ever passed empty evidence before.
+- **v3.0 trace:** §2.2 Def 2.4b (Gaussian posterior)
+
+---
+
+## Decision D-185: assert→ValueError migration — ASI module (noise_injector + sanitizer)
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (code hygiene — migration continuation)
+- **Problem:** Two remaining `assert` statements in `asi/noise_injector.py:52` and `asi/sanitizer.py:76` performed input-shape validation in production code. Under `python -O`, these vanish, producing cryptic NumPy errors on shape mismatch instead of clear diagnostics.
+- **Option chosen:** Replaced both with `if/raise ValueError(...)`. Updated the existing `test_inject_assert_shape_mismatch` test to expect `ValueError`. No test existed for the sanitizer shape check.
+- **v3.0 trace:** §2.2 Patch B (ASI sanitizer), D-183 (previous assert migration)

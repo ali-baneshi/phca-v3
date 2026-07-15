@@ -260,7 +260,8 @@ class M3EpisodicMemory:
             with self._lock:
                 if self._conn is None:
                     self._init_db()
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("M3 connection not initialized")
         return self._conn
 
     # ── Write ─────────────────────────────────────────────────

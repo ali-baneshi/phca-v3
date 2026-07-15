@@ -90,6 +90,6 @@ class TestNoiseInjector:
         inj = NoiseInjector(84)
         try:
             inj.inject(np.zeros(10, dtype=np.float32))
-            assert False, "should have raised AssertionError"
-        except AssertionError:
+            assert False, "should have raised ValueError"
+        except ValueError:
             pass
