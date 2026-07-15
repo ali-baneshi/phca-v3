@@ -2189,6 +2189,42 @@ of D-156's headline number were wrong.
 - **Rationale:** The default is intentional and data-supported. A future reviewer can find the rationale in the code itself without having to cross-reference DECISIONS.md.
 - **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld)
 
+## Decision D-170: Wire PER priority_updates into consolidation feedback loop (NEW-24)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 2 (broken feedback loop — PER priorities never updated from consolidation replay)
+- **Problem:** `scheduler.py:202` discarded the `priority_updates` return value via `_ = gprime.learn_m3_episodes(...)`. Consolidation computed prediction errors and gradient updates for each replayed episode but never fed the error-reduction signal back to M3 for PER priority updates. The PER feedback loop was broken for the consolidation code path (the cycle path correctly called `batch_update_priorities` at `cycle.py:1345`).
+- **Option chosen:** Captured `priority_updates` and called `self.m3.batch_update_priorities(priority_updates)` when available, matching the pattern in `cycle.py:1344-1346`. 4 lines added.
+- **Rationale:** Without this, consolidation replay — which runs at a reduced `lr_scale=0.1` with a full snapshot of episodes — never updated PER priorities, so the priority signal only reflected the per-cycle M3 replay. This half of the feedback loop was dead code.
+- **v3.0 trace:** §3.1 (M3 episodic memory), D-138 (PER), §2.3 (consolidation)
+- **Tests/Validation:** 80 core+motivation+memory tests pass unchanged.
+
+## Decision D-171: Fix fact_count/D4 modulation denominator to match actual supply (NEW-25)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 2 (dead modulation — D4 target changed by at most 5%, effectively non-functional)
+- **Problem:** `mdim.py:132` set `_max_facts_for_curiosity=20`, but `fact_count` in `mdim_context` was `len(self._relevant_facts)` from `get_relevant_facts(n=5)` at `cycle.py:677-679`, which caps at 5. At max `fact_count=5`: `5/20=0.25 → 1-0.2*0.25=0.95` → D4 target dropped from 0.3 to 0.285 (5% reduction). The D4 curiosity modulation was effectively non-functional since D-063 wired it.
+- **Option chosen:** Changed `_max_facts_for_curiosity` from 20 to 5, matching the actual maximum supply from the relevant-facts query. At `fact_count=5`: `5/5=1.0 → 1-0.2*1.0=0.8` → D4 target drops to 0.24 (20% reduction). Meaningful modulation restored.
+- **Alternatives:** Change `get_relevant_facts(n=5)` to `n=20` (changes fact-retrieval semantics). Use global `consolidation_facts` count for D4 (changes to a global signal, not per-state exploration).
+- **Rationale:** The denominator should reflect the actual maximum signal value. The D-063 design intended per-state fact count to modulate D4; reducing the denominator to match the actual supply is the minimal fix that makes the mechanism functional as designed.
+- **v3.0 trace:** §3.3 Def 3.5 (D4 Epistemic Curiosity), D-063 (C4 fix)
+- **Tests/Validation:** 32 MDIM tests pass unchanged.
+
+## Decision D-172: Fix MDIM stale prediction_error — MDIM was one cycle behind (NEW-26)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 2 (signal freshness — MDIM drives reacted one cycle late)
+- **Problem:** `cycle.py:721` passed `self._last_prediction_error` to `mdim_context["prediction_error"]`. `_last_prediction_error` was set at line 957 — AFTER the learning phase and M3 storage of the previous cycle. This meant MDIM's D1 (prediction error minimization) always received the error from the previous cycle, not the current cycle's freshly computed PEU error. Current-cycle `metrics.prediction_error` was available at line 863, well before MDIM context construction at line 719.
+- **Option chosen:** Changed to `"prediction_error": metrics.prediction_error`. MDIM now receives the same-cycle prediction error.
+- **Rationale:** A one-cycle lag in the primary drive signal (D1) means the system always reacts to stale errors. Under rapid state changes (viewport transitions, obstacle encounters) this one-cycle delay is a meaningful fraction of the 12-step cycle. The current-cycle error is already computed and available at line 863 — there was no reason to delay it by a full cycle.
+- **v3.0 trace:** §3.3 Def 3.5 (D1 Prediction Error Minimization)
+- **Tests/Validation:** 80 core+motivation+memory tests pass unchanged.
+
+---
+
 ## Decision D-168: Fix M3 PER current-task bug — PER sampled current task, not prior tasks (NEW-22)
 
 - **Date:** 2026-07-15

@@ -199,9 +199,11 @@ class ConsolidationScheduler:
             # Replay consolidated transitions back into G' before marking,
             # so the raw episodic data contributes a gradient signal (Gap B).
             if gprime is not None and hasattr(gprime, "learn_m3_episodes"):
-                replayed, _ = gprime.learn_m3_episodes(snapshot.episodes, lr_scale=0.1)
+                replayed, priority_updates = gprime.learn_m3_episodes(snapshot.episodes, lr_scale=0.1)
                 _log(logger, "debug", "consolidation.replay",
                      episodes=replayed, lr_scale=0.1)
+                if priority_updates and hasattr(self.m3, "batch_update_priorities"):
+                    self.m3.batch_update_priorities(priority_updates)
             # Flush pending M3 writes so episodes are durable before marking
             self.m3.flush()
             marked = self.m3.mark_consolidated(episode_ids)

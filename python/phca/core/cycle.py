@@ -718,7 +718,7 @@ class CognitiveCycle:
 
             if self.interventions.enable_mdim:
                 mdim_context = {
-                    "prediction_error": self._last_prediction_error,
+                    "prediction_error": metrics.prediction_error,
                     "error_volatility": error_volatility,
                     "skill_accuracy": self.tspl.skill_accuracy,
                     "model_entropy": model_entropy,

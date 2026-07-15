@@ -129,7 +129,7 @@ class MDIM:
         self._baseline_wm_entropy: float = 0.5
 
         # C4: consolidation facts modulate D3/D4 targets
-        self._max_facts_for_curiosity: int = 20
+        self._max_facts_for_curiosity: int = 5
 
         # CR-controlled temperature (set externally by CognitiveCycle)
         self.temperature: float = 1.0
