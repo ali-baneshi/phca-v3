@@ -2189,6 +2189,30 @@ of D-156's headline number were wrong.
 - **Rationale:** The default is intentional and data-supported. A future reviewer can find the rationale in the code itself without having to cross-reference DECISIONS.md.
 - **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld)
 
+## Decision D-168: Fix M3 PER current-task bug — PER sampled current task, not prior tasks (NEW-22)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 1 (logic error — forgetting-mitigation mechanism ineffective with PER enabled)
+- **Problem:** `_replay_m3_prior_tasks()` in `cycle.py:1335` called `m3.sample_episodes_per(task_id=self._current_task_id)`, which sampled episodes from the **current** task only. The method's documented purpose is to replay prior-task episodes for forgetting mitigation. PER-based replay therefore provided zero forgetting-mitigation benefit — it reinforced the current task's dynamics instead of preserving prior-task knowledge. The fallback path (`sample_prior_task_episodes`) correctly sampled prior tasks, but the PER branch (the primary path when M3 supports it) was wrong.
+- **Option chosen:** Changed `task_id=self._current_task_id` to `task_id=None` — PER now samples from all tasks (current and prior). This is a one-line fix. The ideal fix (exclude current task) would require an `exclude_task_id` parameter on `sample_episodes_per`, which is deferred as unnecessary complexity: with PER's priority-based sampling, prior-task episodes with high error-reduction rates will dominate naturally.
+- **Rationale:** A bug that made the headline PER forgetting-mitigation mechanism wire itself to the wrong task pool. The one-line fix restores correct behavior with zero API changes. PER naturally samples the most informative transitions regardless of task origin.
+- **v3.0 trace:** §3.1 (M3 episodic memory), §1.3 (forgetting mitigation via replay)
+- **Tests/Validation:** 48 memory+core tests pass unchanged.
+
+## Decision D-169: Fix PER negative-improvement death spiral — regressed episodes permanently excluded (NEW-23)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 1 (sampling trap — episodes where model regressed permanently excluded from PER)
+- **Problem:** `update_priority()` in `m3_episodic.py:603` sets `priority = max(PER_EPSILON, improvement)`. When `current_error > stored_error` (model regressed on an episode), `improvement < 0`, so `priority = PER_EPSILON = 0.01`. The PER sampling query at lines 517-525 used `priority > PER_EPSILON` (strict greater than), meaning `0.01` (the floor) was excluded. An episode the model regressed on was **permanently excluded from PER sampling forever** — the model could never recover its performance on that episode because it would never be replayed to correct its error.
+- **Option chosen:** Changed both SQL queries from `priority > ?` to `priority >= ?`. Episodes at the floor (0.01) are now eligible for sampling. They remain the lowest-priority items (last resort), but they are not permanently excluded.
+- **Rationale:** A regressed episode at floor priority is still the lowest-priority item in the buffer — it will only be sampled when higher-priority items are exhausted. This is the correct behavior: the model can eventually recover on it, but it won't dominate sampling. The fix is two characters (`>=` vs `>`).
+- **v3.0 trace:** §3.1 (M3 episodic memory), D-138 (PER implementation)
+- **Tests/Validation:** 48 memory+core tests pass unchanged.
+
+---
+
 ## Decision D-167: Fix calibration probe to collect data from all action-selection modes
 
 - **Date:** 2026-07-15

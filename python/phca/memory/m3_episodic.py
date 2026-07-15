@@ -515,12 +515,12 @@ class M3EpisodicMemory:
             if task_id is not None:
                 cursor = self._connection.execute(
                     "SELECT episode_id, priority FROM episodes WHERE task_id = ? "
-                    "AND priority > ? ORDER BY priority DESC",
+                    "AND priority >= ? ORDER BY priority DESC",
                     (task_id, PER_EPSILON),
                 )
             else:
                 cursor = self._connection.execute(
-                    "SELECT episode_id, priority FROM episodes WHERE priority > ? "
+                    "SELECT episode_id, priority FROM episodes WHERE priority >= ? "
                     "ORDER BY priority DESC",
                     (PER_EPSILON,),
                 )

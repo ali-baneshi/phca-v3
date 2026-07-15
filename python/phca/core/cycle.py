@@ -1333,7 +1333,7 @@ class CognitiveCycle:
 
         if hasattr(m3, "sample_episodes_per"):
             episodes = m3.sample_episodes_per(
-                n_budget, task_id=self._current_task_id,
+                n_budget, task_id=None,
                 alpha=PER_ALPHA, beta=self._per_beta,
             )
         else:
