@@ -2189,6 +2189,19 @@ of D-156's headline number were wrong.
 - **Rationale:** The default is intentional and data-supported. A future reviewer can find the rationale in the code itself without having to cross-reference DECISIONS.md.
 - **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld)
 
+## Decision D-173: Regenerate CI baseline JSON with post-D-147 weights (NEW-27)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 2 (broken CI gate — baseline used pre-D-147 weights)
+- **Problem:** `logs/benchmark_ci_baseline.json` was generated with pre-D-147 weights that included `transfer_efficiency: 0.15` and had `prediction_accuracy: 0.20`. The CI regression gate computed a Φ-IQ of 0.5775, but the same benchmark run with post-D-147 weights gives 0.8185. The baseline was semantically meaningless as a regression detector — it compared apples to oranges.
+- **Option chosen:** Ran `scripts/benchmark.py --quick` with current code (post-D-147 weights). New baseline Φ-IQ = 0.8185. Verified gate PASSes on a re-run.
+- **Rationale:** A regression detector must compare like with like. The stale baseline could mask a regression that only affects the post-D-147 weight distribution.
+- **v3.0 trace:** §1.3 (Φ-IQ composite metric), D-075 (CI gate), D-147 (weight change)
+- **Tests/Validation:** `check_benchmark_gate.py` PASS with new baseline.
+
+---
+
 ## Decision D-170: Wire PER priority_updates into consolidation feedback loop (NEW-24)
 
 - **Date:** 2026-07-15

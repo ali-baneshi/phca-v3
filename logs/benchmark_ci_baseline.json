@@ -6,11 +6,16 @@
     "grid_size": 5,
     "use_continuous": true,
     "use_mlp": false,
+    "diagnose_level": -1,
+    "dynamic_goals": false,
+    "dynamic_goals_every": 100,
+    "action_slip": 0.0,
+    "environment": "gridworld",
+    "mujoco_env": "Pendulum-v1",
     "weights": {
-      "prediction_accuracy": 0.2,
-      "adaptation_speed": 0.2,
-      "goal_complexity": 0.15,
-      "transfer_efficiency": 0.15,
+      "prediction_accuracy": 0.25,
+      "adaptation_speed": 0.25,
+      "goal_complexity": 0.2,
       "resource_efficiency": 0.2,
       "failure_rate": 0.1
     }
@@ -20,32 +25,32 @@
       "level": 0,
       "level_name": "Stationary Prediction",
       "n_cycles": 20,
-      "prediction_accuracy": 0.5385000027120109,
-      "adaptation_speed": 0.44350000375509224,
-      "goal_complexity": 1.0,
-      "transfer_efficiency": 0.23882475322489402,
-      "resource_efficiency": 0.9763026588829234,
+      "prediction_accuracy": 0.9222500026226044,
+      "adaptation_speed": 0.9222500026226044,
+      "goal_complexity": 0.8,
+      "transfer_efficiency": 0.8505450673373938,
+      "resource_efficiency": 0.9867392115978874,
       "failure_rate": 0.0,
-      "phi_iq": 0.5774842460537395,
+      "phi_iq": 0.8184728436308797,
       "raw_metrics": {
-        "mean_error": 4.6149999728798905,
+        "mean_error": 0.7774999737739563,
         "mean_confidence": 0.8,
-        "mean_latency_ms": 11.848670558538288,
-        "p95_latency_ms": 13.643615393084474,
+        "mean_latency_ms": 6.630394201056333,
+        "p95_latency_ms": 7.948305601166795,
         "violations": 0,
-        "skill_accuracy": 0.649575089384755,
+        "skill_accuracy": 0.9037921413358682,
         "skill_compiled": false,
-        "active_drives": 5
-      }
+        "active_drives": 4
+      },
+      "emergence": {}
     }
   ],
-  "overall_phi_iq": 0.5774842460537395,
+  "overall_phi_iq": 0.8184728436308797,
   "total_cycles": 20,
-  "duration_s": 0.7738536730175838,
+  "duration_s": 1.9213329289923422,
   "pass_criteria": {
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,
-    "goal_autonomy_achieved": false,
     "phi_iq_above_0_5": true
   }
 }
