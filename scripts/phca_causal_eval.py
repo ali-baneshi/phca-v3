@@ -393,6 +393,7 @@ def summarize_trace(
     rewards: List[float],
     goals: List[bool],
     rbta_violations: int = 0,
+    rbta_violations_by_type: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     first_goal: Optional[int] = None
     for idx, reached in enumerate(goals):
@@ -410,6 +411,7 @@ def summarize_trace(
         "coverage_rate": float(len(env.visited) / float(env.size * env.size)),
         "switch_recovery_cycle": switch_recovery_cycle(env, cycles),
         "rbta_violation_rate": float(rbta_violations / max(cycles, 1)),
+        "rbta_violations_by_type": dict(rbta_violations_by_type) if rbta_violations_by_type else {},
     }
 
 
@@ -485,16 +487,20 @@ def run_phca_agent(
     rewards: List[float] = []
     goals: List[bool] = []
     violations = 0
+    violations_by_type: Dict[str, int] = {}
     for _ in range(cycles):
         metrics = cycle.step()
         distances.append(float(distance_to_goal(env)))
         rewards.append(reward_from_env(env))
         goals.append(bool(metrics.goal_reached))
         violations += int(metrics.violations_count)
+        for bt, cnt in metrics.violations_by_type.items():
+            violations_by_type[bt] = violations_by_type.get(bt, 0) + cnt
     row = summarize_trace(
         agent="phca", seed=seed, cycles=cycles, env=env,
         distances=distances, rewards=rewards, goals=goals,
         rbta_violations=violations,
+        rbta_violations_by_type=violations_by_type,
     )
     row["model"] = "MLP" if use_mlp else "Gaussian"
     row["prediction_error_mean"] = float(mean(

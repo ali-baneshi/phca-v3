@@ -2189,6 +2189,19 @@ of D-156's headline number were wrong.
 - **Rationale:** The default is intentional and data-supported. A future reviewer can find the rationale in the code itself without having to cross-reference DECISIONS.md.
 - **v3.0 trace:** §3.3 (action selection), §D.1 (GridWorld)
 
+## Decision D-174: Add violation-type breakdown to causal eval output (NEW-14 instrumentation)
+
+- **Date:** 2026-07-15
+- **Author:** Current review session (Round 11 follow-up)
+- **Category:** Tier 3 (instrumentation — enables NEW-14 investigation)
+- **Problem:** The viewport RBTA violation rate (9-12% per D-160) could not be investigated by type because `phca_causal_eval.py` only reported the aggregate `rbta_violation_rate` (a scalar). The per-type breakdown (TIME vs MEM vs ENERGY vs ENTROPY) — already captured in the MuJoCo runner at `runner.py:250-257` — was absent from the causal eval output.
+- **Option chosen:** Added `violations_by_type: Dict[str, int]` field to `CycleMetrics` dataclass in `cycle.py`. Populated from RBTA violation `bound_type` strings. Modified `summarize_trace()` in `phca_causal_eval.py` to accept and persist the breakdown. Modified `run_phca_agent()` to aggregate per-cycle breakdowns. Total: ~15 lines across 2 files.
+- **Rationale:** With the per-type breakdown, any future investigation of RBTA violation rates under viewport or other conditions can directly determine which bound type fires most frequently, without re-running with extra instrumentation. For NEW-14 specifically, this allows ruling in/out TIME vs ENTROPY as the dominant violation type.
+- **v3.0 trace:** A1 (resource boundedness — RBTA enforcement observability)
+- **Tests/Validation:** 80 core+motivation+memory tests + 6 causal eval tests pass. 1 pre-existing failure in test_phase_dashboard.py (unrelated).
+
+---
+
 ## Decision D-173: Regenerate CI baseline JSON with post-D-147 weights (NEW-27)
 
 - **Date:** 2026-07-15

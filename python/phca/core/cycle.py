@@ -100,6 +100,7 @@ class CycleMetrics:
     prediction_confidence: float = 0.0
     rbta_action: str = "CONTINUE"
     violations_count: int = 0
+    violations_by_type: Dict[str, int] = field(default_factory=dict)
     goal_reached: bool = False
     action_taken: int = -1
     action_name: str = ""
@@ -440,6 +441,9 @@ class CognitiveCycle:
             )
             metrics.rbta_action = enforcer_action.name
             metrics.violations_count = len(violations)
+            metrics.violations_by_type = {}
+            for v in violations:
+                metrics.violations_by_type[v.bound_type] = metrics.violations_by_type.get(v.bound_type, 0) + 1
             self.last_violations = violations  # Observability v2: RBTA reasons
             metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
             self._rbta_carry_action = enforcer_action
