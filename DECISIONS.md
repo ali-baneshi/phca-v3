@@ -2283,4 +2283,42 @@ of D-156's headline number were wrong.
 - **Option chosen:** Remove the `selector in ("pure_geometry_ablation", "adaptive_geometry_fallback")` filter from probe data collection. Probe buffer now records every cycle, regardless of which action selector ran. When the blended scorer is experimentally enabled, probe data from prediction-scored cycles is included on equal footing.
 - **Alternatives:** Keep the filter (probe is a failure sample — self-reinforcing when scorer is enabled). Implement separate thresholds per mode (more complex, not justified while scorer is experimental).
 - **Rationale:** The original filter was intended to avoid self-fulfilling prophecy (evaluating G' on its own choices), but it created a confound: when the scorer IS enabled, probe data shrinks to only the gating-triggered (failure) cycles, making the calibration threshold more conservative precisely when the scorer is trusted. With the scorer disabled by default, the filter had no practical effect — it's a latent bug that would surface if the default were ever flipped.
-- **v3.0 trace:** §3.3 (action selection), §D.6 (confidence gating)
+ - **v3.0 trace:** §3.3 (action selection), §D.6 (confidence gating)
+
+---
+
+## Decision D-175: Add logging to M3 replay short-circuit conditions
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (observability)
+- **Problem:** `_replay_m3_prior_tasks` had 4 silent short-circuit conditions (forgetting_mitigation inactive, non-MLP G′, no prior task, M3 write disabled). When M3 replay was unexpectedly skipped, no log indicated which condition fired.
+- **Option chosen:** Added `_log(logger, "debug", ...)` calls to the two non-obvious short-circuits: `prior_id <= 0` and `not enable_m3_write`. The first two conditions (`forgetting_mitigation inactive`, `non-MLP G'`) are self-evident from the cycle state and left silent.
+- **Rationale:** Debug logs enable diagnosis when M3 replay appears to underperform. All test suites pass unchanged.
+- **v3.0 trace:** §3.1 (M3 episodic memory)
+
+## Decision D-176: Consolidate duplicated PER beta annealing into shared method
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (code hygiene — maintenance-hazard duplication)
+- **Problem:** The PER beta annealing formula (`anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS); self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress`) was duplicated verbatim at `cycle.py:554-555` (sync path in `step()`) and `cycle.py:1278-1279` (async path in `_finalize_learning_cycle()`). Both paths run independently — the duplication is a maintenance hazard, not a double-advance bug.
+- **Option chosen:** Extracted `_anneal_per_beta()` method. Both call sites now invoke the shared method. Follows the same extraction pattern as `_build_full_composition_tree` (D-148) and `_build_hpm_spec` (D-149).
+- **Rationale:** Single source of truth for the annealing formula. Eliminates risk of future divergence between sync and async paths.
+- **v3.0 trace:** D-138 (PER constants)
+
+## Decision D-177: Add ENV to DEFAULT_MODULE_BOUNDS — RBTA was collecting env_step timing but never checking it
+
+- **Date:** 2026-07-15
+- **Category:** Tier 2 (gap — RBTA collected runtime_log["ENV"] but had no bounds for it)
+- **Problem:** The `timing_map` at `cycle.py:2491` mapped `"env_step"` → `"ENV"`, so env_step timing was collected and stored in `runtime_log["ENV"]`. However, `DEFAULT_MODULE_BOUNDS` in `config.py` had no `"ENV"` entry. RBTA's `check_cycle()` iterates over `self._bounds.items()`, not `runtime_log.items()` — so ENV timing was never checked against any bound. The MuJoCo builder (`build_for_mujoco`) added ENV bounds via `cycle.rbta.update_bounds` (D-131), but GridWorld and other builders never registered ENV.
+- **Option chosen:** Added `"ENV": ResourceBounds(B_time=0.005, B_mem=10_000, B_energy=1.0, entropy_floor=0.0)` to `DEFAULT_MODULE_BOUNDS`. GridWorld environments now have RBTA enforcement of env_step timing (5ms bound — generous for a grid movement). MuJoCo continues to override with its own 0.250s bound via `build_for_mujoco`.
+- **Rationale:** The gap meant env_step timing was the only collected metric without a corresponding RBTA bound. Fixing it ensures consistent enforcement across all environment types.
+- **v3.0 trace:** §2.1 Def 2.2 (DEFAULT_MODULE_BOUNDS), D-131 (ACTION/ENV timing split)
+
+## Decision D-178: Document M3 replay every-other-cycle throttling on STEADY_STATE_GPRIME_SKIP_MOD
+
+- **Date:** 2026-07-15
+- **Category:** Tier 3 (documentation)
+- **Problem:** `_replay_m3_prior_tasks` is called from the G′ learning block (`_run_learning_phase`), which is throttled to every other cycle by `_should_skip_gprime_learn` / `STEADY_STATE_GPRIME_SKIP_MOD=2` when the model is in steady state. This throttling was undocumented, so a reader studying `_replay_m3_prior_tasks` alone would not realize it only fires on even cycles (except during the first 100 cycles after task switch when `_forgetting_mitigation_active` bypasses the throttle).
+- **Option chosen:** Added a "Note on throttling" paragraph to the `_replay_m3_prior_tasks` docstring, explaining the STEADY_STATE_GPRIME_SKIP_MOD pattern and the forgetting-mitigation bypass.
+- **Rationale:** 3-line docstring addition prevents future confusion about why M3 replay appears to produce half the expected steps.
+- **v3.0 trace:** §3.1 (M3 replay), STEADY_STATE_GPRIME_SKIP_MOD

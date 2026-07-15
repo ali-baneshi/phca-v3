@@ -229,6 +229,7 @@ DEFAULT_MODULE_BOUNDS: dict[str, ResourceBounds] = {
     "HPM": ResourceBounds(B_time=0.005, B_mem=50_000, B_energy=5.0, entropy_floor=0.0),
     "CONSOL": ResourceBounds(B_time=0.050, B_mem=10_000, B_energy=1.0, entropy_floor=0.0),
     "ACTION": ResourceBounds(B_time=0.030, B_mem=10_000, B_energy=10.0, entropy_floor=0.0),
+    "ENV": ResourceBounds(B_time=0.005, B_mem=10_000, B_energy=1.0, entropy_floor=0.0),
 }
 
 # Cycle timing constants (seconds)

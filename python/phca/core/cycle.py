@@ -547,12 +547,9 @@ class CognitiveCycle:
             consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
             self.energy_log["CONSOL"] = consol_energy
 
-            # Step 19: Increment cycle counter
+            # Step 19: Increment cycle counter + anneal PER beta
             self.cycle_count += 1
-
-            # Anneal PER beta from init toward final (unbiased IS weights)
-            anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
-            self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
+            self._anneal_per_beta()
 
             # D-158: self-calibrating confidence gating probe
             if (
@@ -1019,6 +1016,11 @@ class CognitiveCycle:
         """
         while not self._stop_event.is_set():
             try:
+                # Reset RBTA enforcement flags each cycle (D-168 style carry-forward)
+                self._rbta_skip_feedback = False
+                self._rbta_skip_consolidation = False
+                self._rbta_action_candidate_limit = None
+
                 # Phase A: Perception + Prediction + Regulation
                 self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
 
@@ -1275,8 +1277,7 @@ class CognitiveCycle:
 
         # Increment cycle counter + anneal PER beta
         self.cycle_count += 1
-        anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
-        self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
+        self._anneal_per_beta()
 
     def on_task_boundary(self, task_id: int) -> None:
         """Called by Level-4 runner on task switch — enable anti-forgetting hooks."""
@@ -1319,6 +1320,12 @@ class CognitiveCycle:
         supports it.  Falls back to stratified random sampling for backward
         compatibility.
 
+        Note on throttling: this method is called from the G′ learning block
+        (``_run_learning_phase``) which may be throttled to every other cycle
+        via ``_should_skip_gprime_learn`` / ``STEADY_STATE_GPRIME_SKIP_MOD=2``.
+        During the first 100 cycles after a task switch (``_forgetting_mitigation_active``)
+        the throttle is bypassed and this runs every cycle.
+
         Returns:
             Number of gradient steps taken.
         """
@@ -1328,8 +1335,12 @@ class CognitiveCycle:
             return 0
         prior_id = self._current_task_id
         if prior_id <= 0:
+            _log(logger, "debug", "cycle.m3_replay.skipped_no_prior_task",
+                 prior_id=prior_id, cycle=self.cycle_count)
             return 0
         if not self.interventions.enable_m3_write:
+            _log(logger, "debug", "cycle.m3_replay.skipped_write_disabled",
+                 cycle=self.cycle_count)
             return 0
         m3 = self.consolidation.m3
         boost_mult = 2 if self.gprime.replay_boost else 1
@@ -1496,7 +1507,7 @@ class CognitiveCycle:
             getter = getattr(self.env, "neutral_action", None)
             if callable(getter):
                 return np.asarray(getter(), dtype=np.float32)
-            dim = int(getattr(self.action_space, "dim", 0) or 0)
+            dim = int(getattr(self.action_space, "dim", self.env.action_space_size) or self.env.action_space_size)
             return np.zeros(dim, dtype=np.float32)
         return self.env.stay_action
 
@@ -1509,8 +1520,12 @@ class CognitiveCycle:
           - WorldModelMLP: MC-Dropout mutual information ≈ log(1+var)
           - HybridGraphMLP: MLP MI + scaled graph/MLP disagreement
         """
-        mi = float(getattr(self.gprime, "_last_mutual_info", 0.5))
-        return float(np.clip(mi, 0.0, 1.0))
+        mi = getattr(self.gprime, "_last_mutual_info", None)
+        if mi is None:
+            _log(logger, "debug", "cycle.epistemic_entropy.unavailable",
+                 gprime_type=type(self.gprime).__name__)
+            mi = 0.5
+        return float(np.clip(float(mi), 0.0, 1.0))
 
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
@@ -1721,8 +1736,6 @@ class CognitiveCycle:
                      error=str(e))
                 continue
 
-        # Cache confidences for _estimate_empowerment (avoids duplicate 5× predict)
-        self._cached_confidences = action_confidences
         self.last_candidate_scores = scores_per_action
 
         # D-156/D-157: adaptive confidence-gating — fall back to pure geometry when
@@ -1794,7 +1807,7 @@ class CognitiveCycle:
         self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
-            "best_score": float(best_score) if best_score is not None else 0.0,
+            "best_score": max(0.0, float(best_score)) if best_score is not None else 0.0,
             "k_candidates": int(self.env.action_space_size),
             "chosen_idx": int(best_action),
             "task_lock": bool(self._task_lock),
@@ -2301,6 +2314,8 @@ class CognitiveCycle:
         if hasattr(self.gprime, 'state_dim'):
             s = getattr(self.gprime, 'state_dim', self.state_dim)
             return 2.0 * s ** 3 + 4.0 * s ** 2
+        _log(logger, "debug", "cycle.flops_estimate_unavailable",
+             gprime_type=type(self.gprime).__name__)
         return 0.0
 
     def _estimate_empowerment(self) -> float:
@@ -2319,14 +2334,15 @@ class CognitiveCycle:
             Float in [0.0, 1.0] estimating empowerment.
         """
         if self.current_state is None:
+            _log(logger, "debug", "cycle.empowerment.no_state")
             return 0.3
 
-        # Both MLP and Gaussian G' now implement estimate_empowerment()
         if hasattr(self.gprime, 'estimate_empowerment'):
             empowerment = self.gprime.estimate_empowerment(self.current_state)
             return float(np.clip(empowerment, 0.0, 1.0))
 
-        # Fallback
+        _log(logger, "debug", "cycle.empowerment.fallback",
+             gprime_type=type(self.gprime).__name__)
         return 0.3
 
     def _compute_phi_criticality(self) -> float:
@@ -2363,6 +2379,10 @@ class CognitiveCycle:
             reg_b_time = scaled_time_bound(self.state_dim, reg_b_time)
             reg_b_energy = reg_b_energy * grid_scale(self.state_dim)
         return reg_b_time, reg_b_energy
+
+    def _anneal_per_beta(self) -> None:
+        anneal_progress = min(1.0, self.cycle_count / PER_BETA_ANNEAL_STEPS)
+        self._per_beta = PER_BETA_INIT + (PER_BETA_FINAL - PER_BETA_INIT) * anneal_progress
 
     def _build_full_composition_tree(
         self, reg_b_time: float, reg_b_energy: float,
@@ -2551,9 +2571,8 @@ class CognitiveCycle:
             self.belief_entropies["MDIM"] = d_ent
         # Attention weight entropy
         if hasattr(self, "_attention_weights") and self._attention_weights is not None:
-            aw_abs = np.abs(self._attention_weights).flatten()
-            aw_norm = aw_abs / (aw_abs.sum() + 1e-8)
-            aw_norm = np.clip(aw_norm, 1e-8, 1.0)
+            aw_abs = np.clip(np.abs(self._attention_weights).flatten(), 1e-8, None)
+            aw_norm = aw_abs / aw_abs.sum()
             attn_ent = float(-np.sum(aw_norm * np.log(aw_norm))) / np.log(len(aw_norm))
             self.belief_entropies["ATTN"] = attn_ent
         # Nominal entropy for remaining modules (above default floor 0.01)
