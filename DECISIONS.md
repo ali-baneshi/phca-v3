@@ -2451,3 +2451,18 @@ of D-156's headline number were wrong.
 - **Option chosen:** Added a `Cross-reference` line to D-168's rationale section linking it to Round 1 finding F-06/D-145 (L4 forgetting claim). Both findings independently undermine the "0% forgetting" headline from different angles.
 - **v3.0 trace:** §3.1 (M3 episodic), §1.3 (forgetting mitigation), F-06/D-145
 - **Tests/Validation:** Documentation only.
+
+---
+
+## Decision D-191: Phase 1c failure-pattern checklist — all 4 patterns clean, no new issues
+
+- **Date:** 2026-07-16
+- **Category:** Tier 3 (audit — systematic failure-pattern inspection)
+- **Findings (4 patterns checked):**
+- **Pattern 1 — Dead/unconsumed keys (beyond mdim_context):** Scanned `memory_log` (11 keys: ASI, WM, G', PE, PEU, TSPL-P, MDIM, CR, ATTN, HPM, CONSOL), `energy_log` (dynamic keys from runtime_log + baseline fill), and `belief_entropies` (12 keys: G', MDIM, ATTN, ASI, WM, PE, PEU, TSPL-P, CR, HPM, CONSOL, ACTION). All keys are consumed generically via display/logging systems (`qt_flow.py`, `qt_retention.py`, `observability.py`, `qt_memory.py`) — no specific key is a dead-wire like the mdim_context pattern. Minor note: `qt_phase.py:618` reads `belief_entropies.get("total")`, but `"total"` is never written in `cycle.py` — the fallback (first available value) always runs. Harmless but slightly misleading.
+- **Pattern 2 — Async-only state skew:** Compared every field written by `step()` (sync) vs `_finalize_learning_cycle()` (async). Only difference: `metrics.staleness_ratio` is written in `_learning_loop` (async) but not in `step()` (sync). This field is already known as dead (no consumer, flagged in Phase 1a and left in place). No other skew found.
+- **Pattern 3 — Rationale non-update:** Traced all 7 return paths in `_select_action` (discrete) and all 3 return paths in `_select_continuous_action` (continuous). Every path now sets `self.last_action_rationale`. The no_state branch was the only missing one (fixed in D-186). No remaining early-return branches skip rationale.
+- **Pattern 4 — Frozen-signal-vulnerable tests:** Searched all test files for aggregate-only assertions (mean > threshold, ratio checks) that could pass a frozen constant signal. Only candidate was `test_prediction_error_decreases` (compares late mean vs early mean × 1.5), but `prediction_error` depends on live environment interaction and cannot freeze like `_cached_phi` (which was in dead code). No D-182-like pattern found elsewhere.
+- **Option chosen:** No code changes needed. All 4 patterns are clean. The qt_phase.py `"total"` key read noted for future cleanup if that code section is touched for other reasons.
+- **v3.0 trace:** §3.1 (cycle orchestrator audit), §3.3 (MDIM context), §1.3 (metrics)
+- **Tests/Validation:** Existing 90+ tests unchanged.
