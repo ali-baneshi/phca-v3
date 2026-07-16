@@ -52,5 +52,6 @@
     "latency_under_500ms": true,
     "failure_rate_under_10pct": true,
     "phi_iq_above_0_5": true
-  }
+  },
+  "weight_hash": "b165803bf2d7"
 }

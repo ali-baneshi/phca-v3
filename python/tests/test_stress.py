@@ -75,16 +75,26 @@ class TestStressRun:
         )
 
     def test_phi_iq_stable(self):
-        """Φ (gradient-norm criticality) should stay in meaningful range."""
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42)
+        """Φ (gradient-norm criticality) should stay in meaningful range and vary.
+
+        Regression test for D-182: _cached_phi was frozen at init value because
+        _update_phi_from_gradient had its computation in dead code after a return.
+        The distinct-values check would have caught that — the old mean-only check
+        would not (any constant >0.01 trivially passes).
+        """
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
         phi_values: list[float] = []
-        for _ in range(100):
+        for _ in range(50):
             cycle.step()
             phi_values.append(cycle._cached_phi)
 
-        last_20 = phi_values[-20:]
-        mean_phi = float(np.mean(last_20))
+        mean_phi = float(np.mean(phi_values))
         assert mean_phi > 0.01, (
-            f"Mean Φ over last 20 cycles is {mean_phi:.3f} — "
+            f"Mean Φ over 50 cycles is {mean_phi:.3f} — "
             f"criticality has collapsed"
+        )
+        distinct = len(set(round(v, 6) for v in phi_values))
+        assert distinct > 1, (
+            f"Φ took only {distinct} distinct value(s) over 50 MLP cycles — "
+            f"signal is frozen (D-182 regression pattern)"
         )

@@ -2259,6 +2259,7 @@ of D-156's headline number were wrong.
 - **Problem:** `_replay_m3_prior_tasks()` in `cycle.py:1335` called `m3.sample_episodes_per(task_id=self._current_task_id)`, which sampled episodes from the **current** task only. The method's documented purpose is to replay prior-task episodes for forgetting mitigation. PER-based replay therefore provided zero forgetting-mitigation benefit — it reinforced the current task's dynamics instead of preserving prior-task knowledge. The fallback path (`sample_prior_task_episodes`) correctly sampled prior tasks, but the PER branch (the primary path when M3 supports it) was wrong.
 - **Option chosen:** Changed `task_id=self._current_task_id` to `task_id=None` — PER now samples from all tasks (current and prior). This is a one-line fix. The ideal fix (exclude current task) would require an `exclude_task_id` parameter on `sample_episodes_per`, which is deferred as unnecessary complexity: with PER's priority-based sampling, prior-task episodes with high error-reduction rates will dominate naturally.
 - **Rationale:** A bug that made the headline PER forgetting-mitigation mechanism wire itself to the wrong task pool. The one-line fix restores correct behavior with zero API changes. PER naturally samples the most informative transitions regardless of task origin.
+- **Cross-reference:** Connected to Round 1 finding F-06/D-145 (L4 forgetting claim): even setting aside the geometric-planner confound from Round 1, the PER-based anti-forgetting mechanism could not have contributed to any observed retention because it was never sampling prior-task data. The two findings independently undermine the "0% forgetting" headline claim from different angles.
 - **v3.0 trace:** §3.1 (M3 episodic memory), §1.3 (forgetting mitigation via replay)
 - **Tests/Validation:** 48 memory+core tests pass unchanged.
 
@@ -2395,3 +2396,58 @@ of D-156's headline number were wrong.
 - **Problem:** Two remaining `assert` statements in `asi/noise_injector.py:52` and `asi/sanitizer.py:76` performed input-shape validation in production code. Under `python -O`, these vanish, producing cryptic NumPy errors on shape mismatch instead of clear diagnostics.
 - **Option chosen:** Replaced both with `if/raise ValueError(...)`. Updated the existing `test_inject_assert_shape_mismatch` test to expect `ValueError`. No test existed for the sanitizer shape check.
 - **v3.0 trace:** §2.2 Patch B (ASI sanitizer), D-183 (previous assert migration)
+
+---
+
+## Decision D-186: Remove dead mdim_context keys + fix async violations_by_type gap + rationale anomalies (Phase 1a audit)
+
+- **Date:** 2026-07-16
+- **Author:** Current review session (Round 13 independent architect pass)
+- **Category:** Tier 3 (code hygiene — dead signals removed), Tier 2 (async gap)
+- **Findings (systematic field audit):** The Phase 1a exhaustive field audit traced every field in CycleMetrics, mdim_context, runtime_log, and _cached_* attributes in cycle.py. Four categories of issue found:
+- **Dead mdim_context keys (4 removed):** `cycle` (MDIM uses self._cycle), `prediction_confidence` (never read by compute_drives()), `consolidation_facts` (MDIM reads `fact_count`, a different key), `task_lock` (applied in _select_action, never in MDIM). Each was computed every cycle and inserted into the context dict but never consumed. Same dead-wire pattern as D-182 and the original Attention finding.
+- **Async violations_by_type gap:** `violations_by_type` was populated in sync `step()` but not in async `_finalize_learning_cycle()`. Fixed: added the same per-bound-type aggregation to the async path.
+- **Rationale anomalies:** `continuous_explore` branch was missing `task_lock`, `chosen_idx`, and `relevant_fact_ids` keys. The no-state discrete path (`self.current_state is None → stay_action`) silently returned without updating `last_action_rationale`, leaving the previous cycle's stale rationale in place. Both fixed.
+- **CycleMetrics dead fields (4 reported, left in place):** `skill_accuracy`, `skill_compiled` (consumers read `self.tspl` directly), `emergency_active`, `staleness_ratio` (async-only write, no consumer). Left in the dataclass to preserve serialization protocol — removing would be a separate deprecation pass.
+- **Option chosen:** Removed the 4 dead mdim_context keys (1 line each). Added `violations_by_type` aggregation to `_finalize_learning_cycle` (3 lines). Added missing rationale keys to `continuous_explore` and no-state paths (4 lines). Left dead CycleMetrics fields in place.
+- **v3.0 trace:** §3.3 (MDIM context), §3.1 (cycle orchestrator), A1 (async monitoring)
+- **Tests/Validation:** 514+ core tests pass unchanged. The pre-existing test_phase_dashboard.py failure is unchanged.
+
+## Decision D-187: NEW-14 — 0 RBTA violations under viewport conditions; D-160 bound-widening sufficient
+
+- **Date:** 2026-07-16
+- **Author:** Current review session (Round 13)
+- **Category:** Tier 3 (empirical finding — the question is answered)
+- **Finding:** `phca_causal_eval.py --levels viewport1,viewport2,viewport3 --cycles 200 --seeds 3` was run with D-174's `violations_by_type` instrumentation. All 9 PHCA runs (3 viewport levels × 3 seeds) produced **0 RBTA violations** and an empty `violations_by_type` dict. The previously reported 9-12% violation rate has been eliminated by D-160's bound-widening (`_scale = 1.0 + (10.0 - po_radius) * 0.1`), which scales all RBTA bounds proportionally to viewport tightness and relaxes the entropy floor.
+- **Conclusion:** NEW-14 is resolved. The viewport1/2/3 PASS results need no caveat — they are clean. No fix needed.
+- **v3.0 trace:** A1 (RBTA enforcement under partial ob.), §1.3 (viewport benchmarks)
+- **Tests/Validation:** All 3 viewport levels PASS the causal gate. Existing 514+ core tests pass unchanged.
+
+## Decision D-188: D-182 regression test — assert _cached_phi varies over 50-cycle MLP run
+
+- **Date:** 2026-07-16
+- **Author:** Current review session (Round 13)
+- **Category:** Tier 3 (test hardening)
+- **Problem:** The existing `test_phi_iq_stable` test checked `mean_phi > 0.01` over the last 20 of 100 cycles. A frozen signal at any constant >0.01 (the D-182 pattern) would trivially pass. A test that only checks "doesn't crash" would not have caught D-182.
+- **Option chosen:** Added `distinct = len(set(round(v, 6) for v in phi_values)); assert distinct > 1` to the existing test. Also changed the builder to `use_mlp=True` since Φ only updates for MLP/HybridGraphMLP models. The test now runs 50 cycles (sufficient for gradient norm to vary) and fails if `_cached_phi` takes only 1 distinct value.
+- **v3.0 trace:** §2.2 Def 2.4b (G' gradient criticality), D-182
+- **Tests/Validation:** `test_phi_iq_stable` PASS on this commit.
+
+## Decision D-189: CI baseline staleness guard — weight_hash in baseline JSON (D-173 thread)
+
+- **Date:** 2026-07-16
+- **Author:** Current review session (Round 13)
+- **Category:** Tier 2 (CI hardening — prevents D-173 class regression)
+- **Problem:** D-173 found that the CI regression baseline was computed under pre-D-147 Φ-IQ weights, making the gate compare incommensurate numbers for some period. No mechanism prevented this from recurring.
+- **Option chosen:** Added `_compute_weight_hash()` to `check_benchmark_gate.py` — an MD5 hash of `DEFAULT_WEIGHTS` key-value pairs sorted by key (12 hex chars, deterministic). The baseline JSON now stores `weight_hash`. At gate-check time, the hash is recomputed and compared; a mismatch fails loudly with a message to regenerate the baseline or run `--update-baseline-hash`. Added `--update-baseline-hash <baseline.json>` mode to stamp the current hash into an existing baseline without re-running the benchmark.
+- **v3.0 trace:** §1.3 (Φ-IQ composite metric), D-075 (CI gate), D-173 (baseline staleness)
+- **Tests/Validation:** `check_benchmark_gate.py` PASS with current baseline. `--update-baseline-hash` stamps and verifies. 514+ core tests pass unchanged.
+
+## Decision D-190: Cross-reference D-168 to F-06/D-145 in DECISIONS.md
+
+- **Date:** 2026-07-16
+- **Author:** Current review session (Round 13)
+- **Category:** Tier 3 (documentation — connecting related findings)
+- **Option chosen:** Added a `Cross-reference` line to D-168's rationale section linking it to Round 1 finding F-06/D-145 (L4 forgetting claim). Both findings independently undermine the "0% forgetting" headline from different angles.
+- **v3.0 trace:** §3.1 (M3 episodic), §1.3 (forgetting mitigation), F-06/D-145
+- **Tests/Validation:** Documentation only.

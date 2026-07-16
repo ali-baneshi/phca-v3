@@ -726,15 +726,11 @@ class CognitiveCycle:
                     "skill_accuracy": self.tspl.skill_accuracy,
                     "model_entropy": model_entropy,
                     "energy_cost": energy_cost,
-                    "cycle": self.cycle_count,
-                    "prediction_confidence": metrics.prediction_confidence,
                     "empowerment": empowerment,
-                    "consolidation_facts": consol_stats.get("total_facts_stored", 0),
                     "fact_confidence_mean": fact_confidence_mean,
                     "fact_count": fact_count,
                     "env_goal_pos": env_goal_pos,
                     "size": getattr(self.env, "size", 0),
-                    "task_lock": self._task_lock,
                     "goal_switch_boost": goal_switch_boost,
                 }
                 self.current_goal = self.mdim.generate_goal(mdim_context)
@@ -1185,6 +1181,9 @@ class CognitiveCycle:
         )
         metrics.rbta_action = enforcer_action.name
         metrics.violations_count = len(violations)
+        metrics.violations_by_type = {}
+        for v in violations:
+            metrics.violations_by_type[v.bound_type] = metrics.violations_by_type.get(v.bound_type, 0) + 1
         self.last_violations = violations
         self._rbta_carry_action = enforcer_action
         if enforcer_action in (EnforcerAction.INTERRUPT, EnforcerAction.TERMINATE):
@@ -1573,6 +1572,18 @@ class CognitiveCycle:
             return self._select_continuous_action()
 
         if self.current_state is None:
+            self.last_action_rationale = self._finalize_action_rationale({
+                "explored": False, "eps": 0.0,
+                "goal_id": int(self.current_goal.drive_id) if self.current_goal else 1,
+                "continuous": False,
+                "best_score": None, "k_candidates": 0,
+                "chosen_idx": int(self.env.stay_action),
+                "task_lock": bool(self._task_lock),
+                "selector_mode": "no_state_fallback",
+                "relevant_fact_ids": [],
+            }, decision_reason="no_state")
+            self.last_candidate_scores = []
+            self.last_candidate_rollouts = []
             return self.env.stay_action
 
         goal = self.current_goal
@@ -1874,7 +1885,10 @@ class CognitiveCycle:
                 "goal_id": int(goal_id) if goal_id is not None else None,
                 "continuous": True,
                 "best_score": None, "k_candidates": int(K),
+                "chosen_idx": None,
+                "task_lock": bool(self._task_lock),
                 "selector_mode": "continuous_explore",
+                "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="continuous_explore")
             self.last_candidate_scores = []
             self.last_candidate_rollouts = []
