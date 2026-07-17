@@ -49,10 +49,6 @@ def _resource_efficiency(latencies: List[float]) -> float:
     return max(0.0, 1.0 - mean_latency / target_ms)
 
 
-def _failure_rate(history: List[CycleMetrics]) -> float:
-    violations = sum(m.violations_count for m in history)
-    return violations / max(len(history), 1)
-
 
 def compute_level_0(
     history: List[CycleMetrics], cycle: CognitiveCycle, result: BenchmarkResult,
@@ -68,6 +64,14 @@ def compute_level_0(
     sd = cycle.state_dim
     result.prediction_accuracy = _prediction_accuracy(errors, sd)
 
+    # NOTE: adaptation_speed ≈ prediction_accuracy in stationary environments.
+    # ``maintenance = 1 - min(late_error/10, 1)`` is structurally identical to
+    # ``_prediction_accuracy(late_errors)``, and ``improvement ≈ 0`` when early
+    # error ≈ late error, so ``max(improvement, maintenance) ≈ PA`` at L0.
+    # This partially re-creates the D-147 double-counting pattern at one level
+    # (~12.5% effective in the overall Φ-IQ composite).  The overlap is inherent
+    # to L0's stationary-prediction design and would require a separate metric
+    # dimension to disentangle.
     if len(errors) >= 10:
         early = float(np.mean(errors[: len(errors) // 2]))
         late = float(np.mean(errors[len(errors) // 2 :]))

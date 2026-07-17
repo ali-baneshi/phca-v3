@@ -2481,3 +2481,36 @@ of D-156's headline number were wrong.
 - **Conclusion:** D-160's RBTA bound scaling is correct and sufficient at 15-seed statistical power. No additional fix needed. The original 9–12% violation rate was dominated by ENTROPY floor violations from G' MC-dropout entropy dropping under partial observability. The viewport1/2/3 PASS results can be trusted without caveat at 15-seed power.
 - **v3.0 trace:** A1 (RBTA enforcement under partial observability), §1.3 (viewport benchmarks), NEW-14
 - **Tests/Validation:** Causal eval gate PASS for all 3 viewport levels. Existing 514+ core tests unchanged.
+
+---
+
+## Decision D-193: P1/P2 fixes — RBTA→PA confound, timing docs, frontier wall-check, PER doc, dead code
+
+- **Date:** 2026-07-17
+- **Author:** Current review session (Round 13 execution phase)
+- **Category:** Tier 2 (P1: metric confound fix) / Tier 3 (P2: documentation + dead code)
+
+### P1.1 — RBTA TERMINATE → prediction_accuracy inflation (cycle.py:838-841)
+**Problem:** When `_rbta_skip_feedback = True` (TERMINATE carry-forward), `_run_learning_phase()` returned early before computing PEU error. `metrics.prediction_error` retained the CycleMetrics default of `0.0`, artificially inflating `prediction_accuracy`.
+**Fix:** On the early-return path, copy `self._last_prediction_error` into `metrics.prediction_error` so the metric reflects the last known model error.
+
+### P1.2 — Prediction error timing lag documented (cycle.py:724)
+**Problem:** MDIM context built in the regulation phase (before `_run_learning_phase` sets `metrics.prediction_error`). D-172 was cosmetic — both `_last_prediction_error` and `metrics.prediction_error` carry the same T-1 value.
+**Fix:** Added comment at the `mdim_context["prediction_error"]` construction site noting the one-cycle lag.
+
+### P2.3 — Frontier exploration skips known walls (cycle.py:2171-2198)
+**Problem:** `_find_frontier_cell()` used raw Manhattan distance without checking if the target cell is a known wall.
+**Fix:** Added `_known_walls` lookup; known-wall cells skipped during frontier scanning.
+
+### P2.1 — PER task_id asymmetry documented (cycle.py:1356-1363)
+**Problem:** PER path (`task_id=None`) samples all tasks including current; fallback `sample_prior_task_episodes` correctly excludes current. Asymmetry was undocumented.
+**Fix:** Added comment explaining the intentional design: PER relies on priority to suppress current-task dilution.
+
+### P2.2 — L0 adaptation_speed ceiling documented (phi_iq.py:71-76)
+**Problem:** `adaptation_speed ≈ prediction_accuracy` at L0, partially re-creating D-147's double-counting.
+**Fix:** Added code comment documenting the overlap (~12.5% effective at overall level).
+
+### P2.4 — Dead `_failure_rate` function removed (phi_iq.py:52-54)
+**Fix:** Removed unused function (failure_rate already computed inline in all four level functions).
+
+- **Tests/Validation:** 125+ core/motivation/memory/evaluation/causal tests pass. Pre-existing dashboard/ASI failures unchanged.

@@ -720,6 +720,11 @@ class CognitiveCycle:
             model_entropy = self._epistemic_entropy()
 
             if self.interventions.enable_mdim:
+                # NOTE: prediction_error is T-1 (last cycle's PEU).  MDIM runs in the
+                # regulation phase, which structurally precedes PEU (_run_learning_phase).
+                # D-172 changed from _last_prediction_error to metrics.prediction_error
+                # but both carry the same value — the timing gap is architectural and
+                # would require cycle-order restructuring to fix.
                 mdim_context = {
                     "prediction_error": metrics.prediction_error,
                     "error_volatility": error_volatility,
@@ -836,6 +841,8 @@ class CognitiveCycle:
         metrics.goal_reached = info.get("goal_reached", False)
 
         if self.current_state is None or self._rbta_skip_feedback:
+            if self._rbta_skip_feedback:
+                metrics.prediction_error = self._last_prediction_error
             return
 
         # Build action vector for learning
@@ -1347,6 +1354,12 @@ class CognitiveCycle:
         n_budget = self._m3_replay_budget * boost_mult
 
         if hasattr(m3, "sample_episodes_per"):
+            # D-168: task_id=None samples ALL tasks (current + prior).  PER prioritises
+            # high-error transitions, so prior-task episodes (which the model has likely
+            # forgotten → higher error) naturally dominate.  The fallback path below
+            # excludes current-task episodes by design — the two paths are intentionally
+            # asymmetric: PER relies on priority to suppress current-task dilution,
+            # while stratified sampling needs explicit filtering.
             episodes = m3.sample_episodes_per(
                 n_budget, task_id=None,
                 alpha=PER_ALPHA, beta=self._per_beta,
@@ -2162,7 +2175,13 @@ class CognitiveCycle:
         }
 
     def _find_frontier_cell(self) -> tuple[int, int] | None:
-        """Find nearest unobserved cell as exploration target when goal unknown."""
+        """Find nearest unobserved cell as exploration target when goal unknown.
+
+        Skips known walls so the agent doesn't try walking through them toward
+        an unreachable frontier cell (P2.3 fix).  The agent can still discover
+        unknown walls by probing them — only known (already-discovered) walls
+        are excluded as targets.
+        """
         env = self.env
         observed = getattr(env, "_observed_cells", None)
         if observed is None:
@@ -2170,11 +2189,17 @@ class CognitiveCycle:
             observed = getattr(base, "_observed_cells", None) if base is not None else None
         if observed is None or not hasattr(env, "agent_pos"):
             return None
+        known_walls = getattr(env, "_known_walls", None)
+        if known_walls is None:
+            base = getattr(env, "base", None)
+            known_walls = getattr(base, "_known_walls", None) if base is not None else None
         ar, ac = env.agent_pos
         best, best_dist = None, float("inf")
         for r in range(env.size):
             for c in range(env.size):
                 if not observed[r, c]:
+                    if known_walls is not None and known_walls[r, c]:
+                        continue
                     d = abs(ar - r) + abs(ac - c)
                     if d < best_dist:
                         best_dist = d
