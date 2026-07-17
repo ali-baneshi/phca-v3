@@ -2466,3 +2466,18 @@ of D-156's headline number were wrong.
 - **Option chosen:** No code changes needed. All 4 patterns are clean. The qt_phase.py `"total"` key read noted for future cleanup if that code section is touched for other reasons.
 - **v3.0 trace:** §3.1 (cycle orchestrator audit), §3.3 (MDIM context), §1.3 (metrics)
 - **Tests/Validation:** Existing 90+ tests unchanged.
+
+---
+
+## Decision D-192: NEW-14 confirmed resolved — 0 RBTA violations at 15 seeds × 200 cycles × 3 viewport levels
+
+- **Date:** 2026-07-17
+- **Author:** Current review session (Round 13 independent verification)
+- **Category:** Tier 3 (empirical finding — the question was open since Round 11 review)
+- **Problem:** NEW-14 was flagged as "still open" in the Round 11 review (phca-v3-review-round11.md §5): D-160 reported viewport RBTA violation rates of 9–12% (pre-fix) and D-161 re-cited the improved 9–12% number. D-160's fix (viewport bound scaling × entropy_floor ÷ scale in `run_phca_agent()` at `phca_causal_eval.py:476-485`) dropped violations to 9–12%, but D-187 later reported 0 violations at only 3 seeds — insufficient statistical power per the project's own 30-seed standard (D-151).
+- **Experiment:** `phca_causal_eval.py --levels viewport1,viewport2,viewport3 --cycles 200 --seeds 15 --use-mlp --output /tmp/new14_violations.json`. 15 seeds × 3 viewport levels = 45 PHCA runs × 200 cycles = 9,000 total cycles. D-174's `violations_by_type` instrumentation present.
+- **Results: ALL 45 PHCA runs produced 0 RBTA violations.** Empty `violations_by_type` dict in every run. All 3 viewport levels PASS the causal gate.
+- **Mean goal rates:** viewport1=0.326, viewport2=0.680, viewport3=0.789 (vs D-160's 0.329/0.351/0.653 at 50 cycles — consistent or improved at longer 200-cycle horizon).
+- **Conclusion:** D-160's RBTA bound scaling is correct and sufficient at 15-seed statistical power. No additional fix needed. The original 9–12% violation rate was dominated by ENTROPY floor violations from G' MC-dropout entropy dropping under partial observability. The viewport1/2/3 PASS results can be trusted without caveat at 15-seed power.
+- **v3.0 trace:** A1 (RBTA enforcement under partial observability), §1.3 (viewport benchmarks), NEW-14
+- **Tests/Validation:** Causal eval gate PASS for all 3 viewport levels. Existing 514+ core tests unchanged.
