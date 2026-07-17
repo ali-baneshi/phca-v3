@@ -668,7 +668,6 @@ class CognitiveCycle:
                 metrics.module_timings["hpm"] = 0.0
                 return
 
-            consol_stats = self.consolidation.get_stats()
             t_mdim = time.perf_counter()
             error_volatility = self._compute_phi_criticality()
             self.last_error_volatility = error_volatility
