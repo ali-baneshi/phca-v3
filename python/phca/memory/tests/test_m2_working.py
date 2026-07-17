@@ -58,9 +58,9 @@ class TestM2WorkingMemory:
         """Capacity must be 5-9."""
         for cap in (5, 7, 9):
             M2WorkingMemory(capacity=cap)  # should not raise
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             M2WorkingMemory(capacity=4)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             M2WorkingMemory(capacity=10)
 
 

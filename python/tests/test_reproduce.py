@@ -120,7 +120,10 @@ def test_verify_gate_script_helpers():
                 ],
             },
         }
-        env = mod.build_env({"environment": {"defaults": {}}}, {})
+        env = mod.build_env(
+            {"environment": {"defaults": {"PYTHONPATH": str(ROOT / "python")}}},
+            {},
+        )
         ok, rc, _ = mod.verify_step(step, 0, env, ROOT)
         assert ok is True
         assert rc == 0

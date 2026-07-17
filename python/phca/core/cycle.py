@@ -2269,7 +2269,10 @@ class CognitiveCycle:
                             current_dist = abs(env.agent_pos[0] - g_row) + abs(env.agent_pos[1] - g_col)
                             new_dist = abs(new_row - g_row) + abs(new_col - g_col)
                             if current_dist == 0:
-                                return 0.0
+                                gain = 1.0 if new_dist == current_dist else -1.0
+                                return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
+                            if action_idx == self.env.stay_action and new_dist == current_dist:
+                                return 0.7
                             gain = (current_dist - new_dist) / current_dist
                             return float(np.clip((1.0 - gain) / 2.0, 0.0, 1.0))
         _log(logger, "debug", "cycle.distance_gain.fallback",
