@@ -50,8 +50,10 @@ class M2WorkingMemory:
             min_capacity: Minimum capacity (5).
             max_capacity: Maximum capacity (9).
         """
-        assert min_capacity <= capacity <= max_capacity, \
-            f"Capacity {capacity} must be between {min_capacity} and {max_capacity} (7±2)"
+        if not (min_capacity <= capacity <= max_capacity):
+            raise ValueError(
+                f"Capacity {capacity} must be between {min_capacity} and {max_capacity} (7±2)"
+            )
         self.capacity = capacity
         self.min_capacity = min_capacity
         self.max_capacity = max_capacity

@@ -615,9 +615,7 @@ class _PhasePortraitView(_BaseCanvas):
             mi = float(list(f.belief_entropies.values())[0])
         if mi is not None:
             self.mi_hist.append(float(mi))
-        be = f.belief_entropies.get("total") if f.belief_entropies else None
-        if be is None and f.belief_entropies:
-            be = float(list(f.belief_entropies.values())[0])
+        be = float(list(f.belief_entropies.values())[0]) if f.belief_entropies else None
         if be is not None:
             self.be_hist.append(float(be))
 
