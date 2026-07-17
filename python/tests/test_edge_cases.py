@@ -36,10 +36,10 @@ class TestASIEdgeCases:
         assert state.values.shape == (0,)
 
     def test_asi_wrong_size_vector(self):
-        """Shape mismatch between raw and sensor_dim should raise AssertionError."""
+        """Shape mismatch between raw and sensor_dim should raise ValueError."""
         sani = ASISanitizer(sensor_dim=4, v_max=100.0)
         raw = np.array([1.0, 2.0], dtype=np.float32)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             sani.sanitize(raw)
 
     def test_asi_all_nan_triggers_sensor_failure(self):
