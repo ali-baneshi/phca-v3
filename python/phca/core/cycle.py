@@ -233,6 +233,8 @@ class CognitiveCycle:
         self._relevant_facts: list = []
         self._planning_grid: Optional[np.ndarray] = None
         self._task_lock: bool = False
+        self._planner_trajectory_id: int = 0
+        self._planner_path_length: int = 0
 
         # Level-4-lite continual learning / anti-forgetting hooks
         self._current_task_id: int = 0
@@ -839,9 +841,7 @@ class CognitiveCycle:
             metrics.action_name = action_names[int(action)] if 0 <= int(action) < len(action_names) else f"#{int(action)}"
         metrics.goal_reached = info.get("goal_reached", False)
 
-        if self.current_state is None or self._rbta_skip_feedback:
-            if self._rbta_skip_feedback:
-                metrics.prediction_error = self._last_prediction_error
+        if self.current_state is None:
             return
 
         # Build action vector for learning
@@ -856,6 +856,17 @@ class CognitiveCycle:
             precision=np.ones(self.state_dim, dtype=np.float32),
             timestamp=float(self.cycle_count),
         )
+
+        if self._rbta_skip_feedback:
+            metrics.prediction_error = self._last_prediction_error
+            self._store_m3_episode(
+                metrics,
+                action_vec,
+                next_state,
+                planner_mode="rbta_safe_mode",
+            )
+            self._last_prediction_error = metrics.prediction_error
+            return
 
         # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
         corrected_prediction, corrected_conf = self.gprime.predict(
@@ -945,20 +956,54 @@ class CognitiveCycle:
                 self._m3_replay_total += self._last_m3_replay_steps
         metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
-        # Store episode in M3 episodic memory (Task B fix)
-        if self.interventions.enable_m3_write:
-            m3_drive_id = self.current_goal.drive_id if self.current_goal else None
-            self.consolidation.m3.store_episode(
-                state_before=self.current_state,
-                action_taken=action_vec,
-                state_after=next_state,
-                prediction_error=metrics.prediction_error,
-                confidence=metrics.prediction_confidence,
-                drive_id=m3_drive_id,
-                task_id=self._current_task_id,
-                timestamp=self.cycle_count,
-            )
+        self._store_m3_episode(metrics, action_vec, next_state)
         self._last_prediction_error = metrics.prediction_error
+
+    def _store_m3_episode(
+        self,
+        metrics: CycleMetrics,
+        action_vec: np.ndarray,
+        next_state: StateVector,
+        *,
+        planner_mode: Optional[str] = None,
+    ) -> None:
+        """Store transition plus planner trajectory metadata for offline replay."""
+        if not self.interventions.enable_m3_write:
+            return
+        if self.current_state is None:
+            return
+        if action_vec is None:
+            return
+        rationale = self.last_action_rationale or {}
+        mode = planner_mode or str(
+            rationale.get("selector_mode")
+            or rationale.get("decision_reason")
+            or rationale.get("mechanism")
+            or ""
+        )
+        goal_pos = self.env.get_goal_position() if hasattr(self.env, "get_goal_position") else None
+        if goal_pos is not None:
+            goal_pos = (int(goal_pos[0]), int(goal_pos[1]))
+        m3_drive_id = self.current_goal.drive_id if self.current_goal else None
+        self._planner_path_length += 1
+        self.consolidation.m3.store_episode(
+            state_before=self.current_state,
+            action_taken=action_vec,
+            state_after=next_state,
+            prediction_error=metrics.prediction_error,
+            confidence=metrics.prediction_confidence,
+            drive_id=m3_drive_id,
+            task_id=self._current_task_id,
+            timestamp=self.cycle_count,
+            trajectory_id=self._planner_trajectory_id,
+            planner_mode=mode,
+            trajectory_success=metrics.goal_reached,
+            goal_pos=goal_pos,
+            path_length=self._planner_path_length,
+        )
+        if metrics.goal_reached:
+            self._planner_trajectory_id += 1
+            self._planner_path_length = 0
 
     # ── Async Cycle (Feature 1) ──────────────────────────────────────────
 
@@ -2682,6 +2727,7 @@ class CognitiveCycle:
         mlp_hidden_dim: int = 128,
         mlp_lr: float = 0.2,
         seed: int = 42,
+        position_dim: Optional[int] = None,
     ) -> Any:
         """Build the world-model (G') module, dispatching by mode.
 
@@ -2703,12 +2749,14 @@ class CognitiveCycle:
             mlp = WorldModelMLP(
                 state_dim=state_dim, action_dim=action_dim,
                 hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
+                position_dim=position_dim,
             )
             return HybridGraphMLP(graph_model=graph, mlp_model=mlp)
         elif use_mlp:
             return WorldModelMLP(
                 state_dim=state_dim, action_dim=action_dim,
                 hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
+                position_dim=position_dim,
             )
         elif use_continuous:
             from phca.world_model.graph import WorldModelGPrime
@@ -2779,6 +2827,7 @@ class CognitiveCycle:
         """
         state_dim = env.get_state_dim()
         action_dim = env.action_space_size
+        position_dim = int(env.size * env.size) if hasattr(env, "size") else None
 
         sanitizer = ASISanitizer(
             sensor_dim=state_dim, v_max=100.0, epsilon_confidence=0.01,
@@ -2796,6 +2845,7 @@ class CognitiveCycle:
             mlp_hidden_dim=mlp_hidden_dim,
             mlp_lr=mlp_lr,
             seed=seed,
+            position_dim=position_dim,
         )
 
         engine = PredictionEngine(gprime)

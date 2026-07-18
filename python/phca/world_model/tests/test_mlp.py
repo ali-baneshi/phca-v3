@@ -184,6 +184,36 @@ class TestInterfaceCompatibility:
         pred, _ = mlp.predict(sample_state, sample_action)
         assert pred.grounding_level == sample_state.grounding_level
 
+    def test_position_ce_uses_configured_grid_area(self):
+        """10x10 grids must train all 100 agent-position logits, not only 25."""
+        model = WorldModelMLP(
+            state_dim=309, action_dim=5, hidden_dim=16, seed=7, position_dim=100,
+        )
+        x = np.zeros(314, dtype=np.float32)
+        x[3] = 1.0
+        x[309] = 1.0
+        target = np.zeros(309, dtype=np.float32)
+        target[99] = 1.0
+
+        z1, z2, out = model._forward(x)
+        grad = model._backward(x, z1, z2, out, target)
+
+        assert model.position_dim == 100
+        assert model.last_loss_components["position_ce"] > 0.0
+        assert abs(float(grad["gprime_b3"][99])) > 1e-6
+
+    def test_position_ce_diagnostic_handles_batches(self):
+        """Replay logging must report CE over valid rows in a mini-batch."""
+        model = WorldModelMLP(
+            state_dim=12, action_dim=2, hidden_dim=8, seed=11, position_dim=10,
+        )
+        pred = np.zeros((2, 12), dtype=np.float32)
+        target = np.zeros((2, 12), dtype=np.float32)
+        target[0, 8] = 1.0
+        target[1, 9] = 1.0
+
+        assert model._position_cross_entropy(pred, target) == pytest.approx(np.log(10.0))
+
 
 # ── Cache Management ──────────────────────────────────────────
 

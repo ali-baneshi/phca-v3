@@ -105,6 +105,34 @@ class TestM3EpisodicMemory:
         assert m3.count_for_task(1) >= 20
         assert m3.count_for_task(0) + m3.count_for_task(1) == m3.count()
 
+    def test_store_episode_preserves_planner_trajectory_metadata(self, m3, sample_episode_data):
+        """BFS/safe-mode trajectories must be recoverable for offline replay."""
+        state_before, action, state_after = sample_episode_data
+        m3.store_episode(
+            state_before,
+            action,
+            state_after,
+            0.3,
+            confidence=0.7,
+            drive_id=2,
+            task_id=4,
+            timestamp=12,
+            trajectory_id=9,
+            planner_mode="rbta_safe_mode",
+            trajectory_success=True,
+            goal_pos=(3, 1),
+            path_length=5,
+        )
+
+        [episode] = m3.recent_episodes(1)
+        assert episode.trajectory_id == 9
+        assert episode.planner_mode == "rbta_safe_mode"
+        assert episode.trajectory_success is True
+        assert episode.goal_pos == (3, 1)
+        assert episode.path_length == 5
+        assert episode.priority == pytest.approx(1.0)
+        assert episode.stored_error == pytest.approx(0.3)
+
 
 # ── SQLite Hardening (G-010 / D-082) ──────────────────────────
 
@@ -176,4 +204,3 @@ class TestM3Hardening:
         # Should be a no-op (no exception) for in-memory DBs.
         m3.close()
         assert m3._conn is None
-

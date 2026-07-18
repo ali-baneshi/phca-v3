@@ -38,6 +38,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import _bootstrap  # noqa: F401
+
 from phca.evaluation.result_schema import DEFAULT_WEIGHTS
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -58,6 +59,11 @@ class EpisodeRecord:
     priority: float = 1.0
     stored_error: float = 1.0
     is_weight: float = 1.0
+    trajectory_id: int | None = None
+    planner_mode: str = ""
+    trajectory_success: bool = False
+    goal_pos: tuple[int, int] | None = None
+    path_length: int = 0
 
 
 @dataclass
@@ -88,7 +94,14 @@ CREATE TABLE IF NOT EXISTS episodes (
     timestamp INTEGER NOT NULL,
     consolidated INTEGER DEFAULT 0,
     drive_id INTEGER DEFAULT NULL,
-    task_id INTEGER DEFAULT NULL
+    task_id INTEGER DEFAULT NULL,
+    priority REAL DEFAULT 1.0,
+    stored_error REAL DEFAULT 1.0,
+    trajectory_id INTEGER DEFAULT NULL,
+    planner_mode TEXT DEFAULT '',
+    trajectory_success INTEGER DEFAULT 0,
+    goal_pos TEXT DEFAULT NULL,
+    path_length INTEGER DEFAULT 0
 );
 
 -- Index for consolidation scan
@@ -102,6 +115,13 @@ CREATE INDEX IF NOT EXISTS idx_episodes_task_id
 -- (consolidation_log table removed in P2-4 — ConsolidationScheduler
 --  tracks its own reports; this table was never written to)
 """
+
+EPISODE_SELECT_COLUMNS = (
+    "episode_id, version, state_before, action_taken, state_after, "
+    "prediction_error, confidence, timestamp, consolidated, drive_id, task_id, "
+    "priority, stored_error, trajectory_id, planner_mode, trajectory_success, "
+    "goal_pos, path_length"
+)
 
 
 class M3EpisodicMemory:
@@ -232,6 +252,26 @@ class M3EpisodicMemory:
                 self._conn.execute(
                     "ALTER TABLE episodes ADD COLUMN stored_error REAL DEFAULT 1.0"
                 )
+            if "trajectory_id" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN trajectory_id INTEGER DEFAULT NULL"
+                )
+            if "planner_mode" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN planner_mode TEXT DEFAULT ''"
+                )
+            if "trajectory_success" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN trajectory_success INTEGER DEFAULT 0"
+                )
+            if "goal_pos" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN goal_pos TEXT DEFAULT NULL"
+                )
+            if "path_length" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE episodes ADD COLUMN path_length INTEGER DEFAULT 0"
+                )
             self._conn.commit()
 
             # Ensure task_id index exists (P1-2)
@@ -276,6 +316,11 @@ class M3EpisodicMemory:
         drive_id: int | None = None,
         task_id: int | None = None,
         timestamp: int | None = None,
+        trajectory_id: int | None = None,
+        planner_mode: str = "",
+        trajectory_success: bool = False,
+        goal_pos: tuple[int, int] | None = None,
+        path_length: int = 0,
     ) -> int:
         """Store a single episode in M3.
 
@@ -299,8 +344,9 @@ class M3EpisodicMemory:
                 """INSERT INTO episodes
                    (version, state_before, action_taken, state_after,
                     prediction_error, confidence, timestamp, drive_id, task_id,
-                    priority, stored_error)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    priority, stored_error, trajectory_id, planner_mode,
+                    trajectory_success, goal_pos, path_length)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     self._current_version,
                     state_before.to_bytes(),
@@ -313,6 +359,11 @@ class M3EpisodicMemory:
                     task_id,
                     1.0,
                     float(prediction_error),
+                    trajectory_id,
+                    str(planner_mode or ""),
+                    1 if trajectory_success else 0,
+                    json.dumps(list(goal_pos)) if goal_pos is not None else None,
+                    int(path_length),
                 ),
             )
             episode_id = cursor.lastrowid
@@ -379,13 +430,13 @@ class M3EpisodicMemory:
         try:
             if task_id is not None:
                 cursor = self._connection.execute(
-                    "SELECT * FROM episodes WHERE task_id = ? "
+                    f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE task_id = ? "
                     "ORDER BY RANDOM() LIMIT ?",
                     (task_id, n),
                 )
             else:
                 cursor = self._connection.execute(
-                    "SELECT * FROM episodes ORDER BY RANDOM() LIMIT ?",
+                    f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes ORDER BY RANDOM() LIMIT ?",
                     (n,),
                 )
             return [
@@ -425,7 +476,7 @@ class M3EpisodicMemory:
                     break
                 try:
                     cursor = self._connection.execute(
-                        "SELECT * FROM episodes WHERE task_id = ? "
+                        f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE task_id = ? "
                         "ORDER BY RANDOM() LIMIT 1",
                         (tid,),
                     )
@@ -448,7 +499,7 @@ class M3EpisodicMemory:
             seen_ids = {ep.episode_id for ep in result}
             try:
                 cursor = self._connection.execute(
-                    "SELECT * FROM episodes WHERE task_id IS NOT NULL "
+                    f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE task_id IS NOT NULL "
                     "AND task_id < ? ORDER BY RANDOM() LIMIT ?",
                     (int(before_task_id), remain + len(seen_ids)),
                 )
@@ -469,7 +520,7 @@ class M3EpisodicMemory:
         # Fallback: original single-query approach
         try:
             cursor = self._connection.execute(
-                "SELECT * FROM episodes WHERE task_id IS NOT NULL "
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE task_id IS NOT NULL "
                 "AND task_id < ? ORDER BY RANDOM() LIMIT ?",
                 (int(before_task_id), n),
             )
@@ -545,7 +596,7 @@ class M3EpisodicMemory:
             # Return all eligible episodes
             placeholders = ",".join("?" * N)
             cursor = self._connection.execute(
-                f"SELECT * FROM episodes WHERE episode_id IN ({placeholders})",
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE episode_id IN ({placeholders})",
                 ids,
             )
             episodes = [self._row_to_episode(r) for r in cursor.fetchall()]
@@ -564,7 +615,7 @@ class M3EpisodicMemory:
         # Phase 2: fetch only the chosen rows
         placeholders = ",".join("?" * n)
         cursor = self._connection.execute(
-            f"SELECT * FROM episodes WHERE episode_id IN ({placeholders})",
+            f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE episode_id IN ({placeholders})",
             chosen_ids,
         )
         rows_map = {r[0]: r for r in cursor.fetchall()}
@@ -655,7 +706,8 @@ class M3EpisodicMemory:
             if n == 0:
                 return []
             cursor = self._connection.execute(
-                "SELECT * FROM episodes ORDER BY timestamp DESC, episode_id DESC LIMIT ?",
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes "
+                "ORDER BY timestamp DESC, episode_id DESC LIMIT ?",
                 (n,),
             )
             return [r for r in (self._row_to_episode(row) for row in cursor.fetchall())
@@ -678,7 +730,7 @@ class M3EpisodicMemory:
             if n == 0:
                 return []
             cursor = self._connection.execute(
-                "SELECT * FROM episodes ORDER BY prediction_error DESC, "
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes ORDER BY prediction_error DESC, "
                 "timestamp DESC LIMIT ?",
                 (n,),
             )
@@ -705,7 +757,7 @@ class M3EpisodicMemory:
 
             # Read all unconsolidated episodes at this version
             cursor = self._connection.execute(
-                "SELECT * FROM episodes WHERE consolidated = 0 AND version <= ? "
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes WHERE consolidated = 0 AND version <= ? "
                 "ORDER BY timestamp ASC",
                 (snapshot_version,),
             )
@@ -929,10 +981,24 @@ class M3EpisodicMemory:
 
         # Column order: episode_id, version, state_before, action_taken,
         #               state_after, prediction_error, confidence, timestamp,
-        #               consolidated, drive_id, task_id, priority, stored_error
+        #               consolidated, drive_id, task_id, priority, stored_error,
+        #               trajectory_id, planner_mode, trajectory_success, goal_pos,
+        #               path_length
         task_id = int(row[10]) if len(row) > 10 and row[10] is not None else None
         priority = float(row[11]) if len(row) > 11 and row[11] is not None else 1.0
         stored_error = float(row[12]) if len(row) > 12 and row[12] is not None else 1.0
+        trajectory_id = int(row[13]) if len(row) > 13 and row[13] is not None else None
+        planner_mode = str(row[14]) if len(row) > 14 and row[14] is not None else ""
+        trajectory_success = bool(row[15]) if len(row) > 15 and row[15] is not None else False
+        goal_pos = None
+        if len(row) > 16 and row[16] is not None:
+            try:
+                parsed = json.loads(row[16])
+                if isinstance(parsed, list) and len(parsed) == 2:
+                    goal_pos = (int(parsed[0]), int(parsed[1]))
+            except Exception:
+                goal_pos = None
+        path_length = int(row[17]) if len(row) > 17 and row[17] is not None else 0
         return EpisodeRecord(
             episode_id=row[0],
             version=row[1],
@@ -947,4 +1013,9 @@ class M3EpisodicMemory:
             task_id=task_id,
             priority=priority,
             stored_error=stored_error,
+            trajectory_id=trajectory_id,
+            planner_mode=planner_mode,
+            trajectory_success=trajectory_success,
+            goal_pos=goal_pos,
+            path_length=path_length,
         )

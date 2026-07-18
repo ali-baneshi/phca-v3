@@ -30,7 +30,7 @@ def test_mlp_10x10_action_bound_scaled():
   cycle = CognitiveCycle.build_for_env(size=10, seed=42, use_mlp=True)
   action_bounds = cycle.rbta._bounds["ACTION"]
   base = DEFAULT_MODULE_BOUNDS["ACTION"].B_time
-  expected = estimate_mlp_gprime_time_bound(cycle.state_dim, base) * 14.0
+  expected = estimate_mlp_gprime_time_bound(cycle.state_dim, base) * 20.0
   assert action_bounds.B_time == expected
 
 

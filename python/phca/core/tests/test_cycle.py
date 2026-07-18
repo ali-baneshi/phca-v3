@@ -253,7 +253,7 @@ class TestRBTAEnforcement:
             cycle.rbta.update_bounds(mod_id, tiny)
 
     def test_terminate_skips_feedback_and_consolidation(self):
-        """TERMINATE (3+ violations) → STAY, no learn, no consolidation."""
+        """TERMINATE (3+ violations) → STAY, no learn/consolidation, M3 trace kept."""
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         self._tighten_all_bounds(cycle)
         metrics = cycle.step()
@@ -262,6 +262,12 @@ class TestRBTAEnforcement:
         assert metrics.module_timings.get("gprime_learn", 0.0) == 0.0
         assert metrics.module_timings.get("consolidation", 0.0) == 0.0
         assert metrics.action_taken == cycle.env.stay_action
+        assert cycle.consolidation.m3.count() == 1
+        [episode] = cycle.consolidation.m3.recent_episodes(1)
+        assert episode.planner_mode == "rbta_safe_mode"
+        assert episode.trajectory_id == 0
+        assert episode.path_length == 1
+        assert episode.task_id == cycle._current_task_id
 
     def test_terminate_continuous_uses_zero_vector(self):
         """CORE-A01: continuous TERMINATE must not pass stay_action int to step."""
@@ -334,6 +340,37 @@ class TestRBTAEnforcement:
         assert metrics.rbta_action in ("INTERRUPT", "TERMINATE")
         if metrics.rbta_action == "INTERRUPT":
             assert metrics.module_timings.get("consolidation", 0.0) == 0.0
+
+    def test_10x10_noisy_moving_obstacle_observation_to_action_records_m3(self):
+        """End-to-end smoke test for 10x10 GridWorld with sensor noise and obstacle drift."""
+        cycle = CognitiveCycle.build_for_env(
+            size=10,
+            seed=42,
+            use_mlp=True,
+            obstacles=[(1, 1), (2, 2), (3, 3), (4, 4)],
+            noise_profile="gaussian",
+            noise_intensity=0.02,
+        )
+        assert cycle.gprime.position_dim == 100
+
+        first = cycle.step()
+        assert first.action_taken in range(5)
+
+        old_wall = (1, 1)
+        if cycle.env.agent_pos != old_wall and cycle.env.goal_pos != old_wall:
+            cycle.env.grid[old_wall] = cycle.env.EMPTY
+        for candidate in ((0, 1), (1, 0), (5, 5), (6, 4)):
+            if candidate != cycle.env.agent_pos and candidate != cycle.env.goal_pos:
+                cycle.env.grid[candidate] = cycle.env.WALL
+                break
+
+        second = cycle.step()
+        assert second.action_taken in range(5)
+        assert cycle.consolidation.m3.count() >= 2
+        recent = cycle.consolidation.m3.recent_episodes(1)[0]
+        assert recent.goal_pos == tuple(cycle.env.goal_pos)
+        assert recent.path_length >= 1
+        assert recent.action_taken.shape == (cycle.env.action_space_size,)
 
 
 class TestActionRationaleEnrichment:

@@ -159,7 +159,7 @@ def grid_rbta_bounds(
             entropy_floor=asi.entropy_floor,
         )
         bounds["ACTION"] = ResourceBounds(
-            B_time=scaled_time_bound(sd, base_action_time, headroom=14.0),
+            B_time=scaled_time_bound(sd, base_action_time, headroom=20.0),
             B_mem=action.B_mem,
             B_energy=action.B_energy * scale,
             entropy_floor=action.entropy_floor,
@@ -236,6 +236,7 @@ class WorldModelMLP:
         train_steps: int = 8,
         dropout_rate: float = 0.1,
         mc_samples: int = 10,
+        position_dim: Optional[int] = None,
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -246,6 +247,7 @@ class WorldModelMLP:
         self.train_steps = train_steps
         self.dropout_rate = dropout_rate
         self.mc_samples = mc_samples
+        self.position_dim = int(position_dim) if position_dim is not None else min(25, state_dim)
         self.rng = np.random.RandomState(seed)
         self._mc_rng = np.random.RandomState(seed + 1)  # separate RNG for MC Dropout
 
@@ -280,6 +282,11 @@ class WorldModelMLP:
         # Experience replay buffer
         self._replay_buffer: List[Tuple[np.ndarray, np.ndarray]] = []
         self._replay_idx: int = 0
+        self.last_loss_components: Dict[str, float] = {
+            "weighted_mse": 0.0,
+            "position_ce": 0.0,
+            "grad_norm": 0.0,
+        }
 
         # Anti-forgetting: larger replay batches + extra steps when active
         self.replay_boost: bool = False
@@ -584,8 +591,9 @@ class WorldModelMLP:
         if per_dim_weights is not None:
             d_out = d_out * per_dim_weights[np.newaxis, :]  # (B, S) * (1, S)
 
-        # Conditional CE on the first min(25, S) dims (agent position).
-        pos_dim = min(25, S)
+        # Conditional CE on the agent-position dims. For GridWorld this is
+        # size^2; default remains min(25, S) for backward compatibility.
+        pos_dim = min(max(int(self.position_dim), 0), S)
         if pos_dim >= 2:
             pos_target = T[:, :pos_dim]
             mask = pos_target.max(axis=1) > 0.5
@@ -621,6 +629,13 @@ class WorldModelMLP:
         for g in grads:
             np.clip(g, -1.0, 1.0, out=g)
         grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3 = grads
+
+        grad_norm = float(np.sqrt(sum(float(np.sum(g * g)) for g in grads)))
+        self.last_loss_components = {
+            "weighted_mse": float(0.5 * np.mean((Out - T) ** 2)),
+            "position_ce": self._position_cross_entropy(Out, T),
+            "grad_norm": grad_norm,
+        }
 
         return {
             "gprime_w1": np.ascontiguousarray(grad_w1.astype(np.float32)),
@@ -683,19 +698,20 @@ class WorldModelMLP:
         if per_dim_weights is not None:
             d_out = d_out * per_dim_weights
 
-        # Add cross-entropy on agent position (first 25 dims)
-        # Treats out[:25] as logits for a 25-class softmax.
+        # Add cross-entropy on agent position dims. Treats out[:position_dim]
+        # as logits for a softmax over the agent-position map.
         # This gives a strong gradient signal for learning position dynamics.
-        pos_target = target[:25]
-        pos_idx = int(np.argmax(pos_target))
-        if pos_target.max() > 0.5:  # valid one-hot position in target
-            logits = out[:25].copy()
+        pos_dim = min(max(int(self.position_dim), 0), out.shape[0])
+        pos_target = target[:pos_dim] if pos_dim > 0 else np.array([], dtype=np.float32)
+        pos_idx = int(np.argmax(pos_target)) if pos_dim > 0 else 0
+        if pos_dim >= 2 and pos_target.max() > 0.5:  # valid one-hot position in target
+            logits = out[:pos_dim].copy()
             logits -= logits.max()  # numerical stability
             exp_l = np.exp(logits)
             probs = exp_l / (exp_l.sum() + 1e-8)
             ce_grad = probs.copy()
             ce_grad[pos_idx] -= 1.0  # = softmax - one_hot
-            d_out[:25] += ce_grad / n  # same scaling as MSE (attention weights already applied above)
+            d_out[:pos_dim] += ce_grad / n  # same scaling as MSE
 
         a1 = np.maximum(0, z1)
         a2 = np.maximum(0, z2)
@@ -735,6 +751,16 @@ class WorldModelMLP:
         for g in (grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3):
             np.clip(g, -1.0, 1.0, out=g)
 
+        grad_norm = float(np.sqrt(sum(
+            float(np.sum(g * g))
+            for g in (grad_w1, grad_b1, grad_w2, grad_b2, grad_w3, grad_b3)
+        )))
+        self.last_loss_components = {
+            "weighted_mse": float(0.5 * np.mean((out - target) ** 2)),
+            "position_ce": self._position_cross_entropy(out, target),
+            "grad_norm": grad_norm,
+        }
+
         return {
             "gprime_w1": np.ascontiguousarray(grad_w1.astype(np.float32)),
             "gprime_b1": np.ascontiguousarray(grad_b1.astype(np.float32)),
@@ -763,6 +789,42 @@ class WorldModelMLP:
         """
         mse = 0.5 * float(np.mean((prediction - target) ** 2))
         return float(np.exp(-max(mse, 0.0)))
+
+    def _position_cross_entropy(self, prediction: np.ndarray, target: np.ndarray) -> float:
+        """Diagnostic CE over the configured agent-position dimensions."""
+        prediction = np.asarray(prediction)
+        target = np.asarray(target)
+        if prediction.ndim == 2 and target.ndim == 2:
+            pos_dim = min(max(int(self.position_dim), 0), prediction.shape[1], target.shape[1])
+            if pos_dim < 2:
+                return 0.0
+            pos_target = target[:, :pos_dim]
+            mask = pos_target.max(axis=1) > 0.5
+            if not bool(mask.any()):
+                return 0.0
+            logits = prediction[:, :pos_dim].astype(np.float64, copy=True)
+            logits -= logits.max(axis=1, keepdims=True)
+            exp_l = np.exp(logits)
+            probs = exp_l / (exp_l.sum(axis=1, keepdims=True) + 1e-8)
+            pos_idx = np.argmax(pos_target, axis=1)
+            rows = np.where(mask)[0]
+            selected = probs[rows, pos_idx[rows]]
+            return float(np.mean(-np.log(np.maximum(selected, 1e-8))))
+
+        prediction = prediction.reshape(-1)
+        target = target.reshape(-1)
+        pos_dim = min(max(int(self.position_dim), 0), prediction.shape[0], target.shape[0])
+        if pos_dim < 2:
+            return 0.0
+        pos_target = target[:pos_dim]
+        if float(np.max(pos_target)) <= 0.5:
+            return 0.0
+        logits = prediction[:pos_dim].astype(np.float64, copy=True)
+        logits -= float(np.max(logits))
+        exp_l = np.exp(logits)
+        probs = exp_l / (float(np.sum(exp_l)) + 1e-8)
+        pos_idx = int(np.argmax(pos_target))
+        return float(-np.log(max(float(probs[pos_idx]), 1e-8)))
 
     def _apply_gradient(
         self, grad: Dict[str, np.ndarray], lr: float = 0.01
