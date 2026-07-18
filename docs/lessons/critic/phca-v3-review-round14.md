@@ -14,33 +14,40 @@ seeds**, not 30. Fifteen is a real improvement over D-187's 3 and matches D-160/
 own historical precedent for viewport experiments specifically — so it's not baseless —
 but it is short of the 30-seed bar I explicitly told the person to hold the agent to, and
 short of D-151's own project-wide standard. I should have been precise about this instead
-of letting it pass. See §1 for whether it matters here.
+of letting it pass. **Subsequent correction (2026-07-18):** the 30-seed viewport verification
+was completed — all 3 levels PASS, RBTA violations < 0.01. NEW-14 is now confirmed at the
+project's stated 30-seed standard. See `docs/experiments/re-run_l4_and_d161_round14.md`.
 
 **On scope drift:** the person's complaint that the agent focused on smaller items instead
 of the main plan is correct. Of the two substantial asks in the prior prompt — Phase 2
 (consolidated multi-scale/seed reconciliation, specifically re-running L4 continual
 learning now that D-168's PER fix is in place — flagged as the highest-priority
 sub-question) and Phase 3 (auditing the test suite for over-mocked tests) — **neither was
-done.** What was done instead: NEW-14 (a carryover from Round 13, already in progress),
+done in that round.** What was done instead: NEW-14 (a carryover from Round 13, already in progress),
 a cluster of smaller P1/P2 fixes (§2-3), and two small unplanned cleanup commits (§4).
 Some of this work is genuinely good (§2), but it is not what was asked for as priority,
 and the highest-value open question — does the L4 forgetting result change now that PER
-sampling is actually fixed — remains completely unanswered. That is the main finding of
-this round, more than any individual code issue.
+sampling is actually fixed — remained completely unanswered at the time.
+
+**Subsequent completion (2026-07-18):** Both items were completed in the following session:
+- L4 re-run at 30 seeds: `forgetting_rate=0.3783` (changed from 0.00%). Gate now FAILS.
+  See `docs/experiments/re-run_l4_and_d161_round14.md` for full results.
+- D-161 four-config reconciliation: pure geometry stable, agreement-gated 5×5 dropped
+  from 0.544 to 0.451 (likely D-182 Φ-fix effect).
+- NEW-14 extended to 30 seeds: confirmed.
+- Phase 3 over-mocked test audit: completed — 49 test files audited, 1 HIGH risk found
+  (`test_engine.py`), 2 MEDIUM, 4 LOW. 86% of test files use zero mocking.
+This round's main finding is now addressed.
 
 ---
 
-## 1. NEW-14 (D-192) — real progress, but not yet at the stated standard
+## 1. NEW-14 (D-192) — confirmed at the 30-seed standard
 
 15 seeds × 3 viewport levels × 200 cycles, 0 RBTA violations in all 45 runs, consistent
-goal rates with the shorter D-160 run. This is a believable, well-instrumented result and
-a genuine improvement over D-187's 3-seed number. **It should not yet be described as
-fully closing NEW-14 per this project's own D-151 standard** — the honest status is
-"strong evidence at 15 seeds, not yet verified at the project's own stated 30-seed bar."
-This is a small gap, cheap to close (rerun at 30 seeds, most of the work is already
-built), and worth closing precisely *because* this project has specifically burned a
-review cycle before (D-151 itself) on a result that looked solid at low seed count and
-flipped at 30.
+goal rates with the shorter D-160 run. **Subsequently extended to 30 seeds (2026-07-18):**
+all 3 viewport levels PASS, RBTA violations < 0.01. NEW-14 is now confirmed at the
+project's stated 30-seed standard. The gap noted in the original Round 14 review has been
+closed — see `docs/experiments/re-run_l4_and_d161_round14.md`.
 
 ## 2. D-193, P1.1 — genuine, worth keeping
 
@@ -73,29 +80,26 @@ assert migration, D-191's dead-key note), and not themselves a problem. They're 
 the person is objecting to — the objection is that time went to these instead of to
 Phase 2/3, not that these specific commits are wrong.
 
-## 5. What is still completely open — and is the real priority
+## 5. Previously open items — all now answered
 
-- **The L4 re-run.** D-168 fixed PER to sample prior tasks instead of the current one.
-  Nobody has yet re-run the Level-4-lite continual-learning benchmark with this fix
-  active to see whether the forgetting_rate number changes, or whether it's still
-  dominated by the geometric fallback per the original F-06 finding. This is, by a wide
-  margin, the single most scientifically important open question in the entire project
-  right now, and it has been open since Round 12.
-- **The D-161 4-config reconciliation.** Roughly 25 decision entries have landed since
-  D-161 (including D-182's Φ fix, which changes whether the PID controller and MDIM's D2
-  drive receive a live vs. frozen signal — plausibly relevant to D-161's own numbers).
-  Nobody has confirmed D-161's comparison table still holds.
-- **The over-mocked test audit (Phase 3).** Not started.
+- **The L4 re-run.** **Answered (2026-07-18):** `forgetting_rate=37.83%` at 30 seeds
+  (was 0.00% at 3 seeds). Gate now FAILs. See `docs/experiments/re-run_l4_and_d161_round14.md`.
+- **The D-161 4-config reconciliation.** **Answered (2026-07-18):** pure geometry stable
+  (Δ < 0.001); agreement-gated 5×5 dropped from 0.544 to 0.451 (likely D-182 effect).
+  D-161's strategic conclusion unchanged.
+- **The over-mocked test audit (Phase 3).** **Completed (2026-07-18):** 49 test files
+  audited. 1 HIGH risk (`test_engine.py`), 2 MEDIUM, 4 LOW. See
+  `docs/experiments/re-run_l4_and_d161_round14.md`.
 
 ---
 
-## 6. Cumulative status — this round
+## 6. Cumulative status — this round (updated 2026-07-18)
 
 | ID | Status |
 |---|---|
-| NEW-14 | Improved (15 seeds), **not yet at the 30-seed standard** — cheap to close |
+| NEW-14 | **Confirmed at 30 seeds** (2026-07-18) — all viewport levels PASS, RBTA < 0.01 |
 | **NEW-33 (new)** | **P1.1 (RBTA→prediction_accuracy inflation) — fixed, genuine** |
 | P1.2 | Correctly resolved as non-issue (documented, not "fixed") |
-| **The L4 re-run** | **Still not done — highest priority, unchanged since Round 12's ask** |
-| D-161 reconciliation | Still not done |
-| Over-mocked test audit | Still not done |
+| **The L4 re-run** | **Done (2026-07-18)** — forgetting_rate=37.83% at 30 seeds, gate FAILs |
+| D-161 reconciliation | **Done (2026-07-18)** — pure geometry stable; agreement-gated 5×5 dropped 17% |
+| Over-mocked test audit | **Done (2026-07-18)** — 49 files audited; 1 HIGH risk, 2 MEDIUM, 4 LOW |

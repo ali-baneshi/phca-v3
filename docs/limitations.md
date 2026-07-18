@@ -21,7 +21,7 @@ This document states what PHCA cannot do, so you can decide if it is the right t
 | **Dual G′+V ensemble / VSA** | ❌ Not implemented | Blueprint items; only G′ (Gaussian / discrete graph / MLP) is implemented. |
 | **Resilience failure matrix** | ⚠️ Partial (MVP) | B1, B4, B5, C1, F5 detect + recover in `phca/resilience/`; E1 FallbackController (dual-signal entropy + cascade); see [resilience.md](resilience.md) |
 | **NoiseInjector (grounding simulation)** | ⚠️ Limited | `python/phca/asi/noise_injector.py` adds synthetic Gaussian noise — not a true multi-level grounding adapter (L0/L2). Real-world grounding needs sensor-specific models. |
-| **Continual learning (AT-2-lite)** | ⚠️ Measured FAIL @ L4b | Level-4-lite gate `<5%` forgetting at 10 tasks not met under P-Stream + M3 replay; see [l4_root_cause_verdict.md](l4_root_cause_verdict.md) |
+| **Continual learning (AT-2-lite)** | ⚠️ Measured FAIL @ L4b (37.83% at 30 seeds) | Level-4-lite gate `<5%` forgetting at 10 tasks not met under P-Stream + M3 replay + D-168 PER fix (30-seed sample). Headline number reflects goal_rate variance from geometric planner at adequate statistical power. `eval_prediction_error` per-task metric now collected as a less-confounded baseline. See [docs/experiments/re-run_l4_and_d161_round14.md](docs/experiments/re-run_l4_and_d161_round14.md) |
 
 ---
 

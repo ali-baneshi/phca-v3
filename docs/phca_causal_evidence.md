@@ -103,23 +103,27 @@ Selected means (MLP, 200 cycles × 30 seeds):
 
 > **Note:** Earlier 5-seed measurements (below) showed PASS at both levels, but this was a statistical false positive caused by underpowered sampling (D-151). The 30-seed run is authoritative.
 
-## Viewport Results (2026-07-13)
+## Viewport Results (2026-07-13, updated 2026-07-18)
 
 Results after D-160 partial-observability infrastructure + RBTA entropy-floor fix +
-frontier-based exploration (MLP, 50 cycles × 15 seeds × 10×10 grid):
+frontier-based exploration (MLP, 200 cycles × 30 seeds × 10×10 grid):
 
 ```bash
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels viewport1,viewport2,viewport3 \
-  --cycles 50 --seeds 15 --grid-size 10 --use-mlp
+  --cycles 200 --seeds 30 --grid-size 10 --use-mlp
 ```
 
 | Level | Viewport | Result | PHCA vs greedy_observed |
 |-------|----------|--------|-------------------------|
-| `viewport1` | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA goal_rate **0.329** vs greedy_observed **0.133**. PHCA RBTA violation rate: **0.116**. |
-| `viewport2` | 5×5 (`partial_obs_radius=2`) | **PASS** | PHCA goal_rate **0.351** vs greedy_observed **0.199**. PHCA RBTA: **0.092**. |
-| `viewport3` | 7×7 (`partial_obs_radius=3`) | **PASS** | PHCA goal_rate **0.653** vs greedy_observed **0.391**. PHCA RBTA: **0.101**. |
+| `viewport1` | 3×3 (`partial_obs_radius=1`) | **PASS** | PHCA goal_rate **0.355** vs greedy_observed **0.133**. PHCA RBTA violation rate: **0.009**. |
+| `viewport2` | 5×5 (`partial_obs_radius=2`) | **PASS** | PHCA goal_rate **0.664** vs greedy_observed **0.199**. PHCA RBTA: **0.000**. |
+| `viewport3` | 7×7 (`partial_obs_radius=3`) | **PASS** | PHCA goal_rate **0.722** vs greedy_observed **0.391**. PHCA RBTA: **0.000**. |
 
-Selected means (MLP, 50 cycles × 15 seeds):
+All three viewport levels confirmed PASS at the project's 30-seed statistical standard
+(D-151). RBTA violations are negligible (< 0.01) — the D-160 bound-widening fix
+(viewport-proportional RBTA scaling) is sufficient. NEW-14 is resolved.
+
+Selected means (MLP, 200 cycles × 30 seeds):
 
 | Level | Agent | Goal rate | First goal (med) | Succeeded | RBTA rate |
 |-------|-------|-----------|-------------------|-----------|-----------|

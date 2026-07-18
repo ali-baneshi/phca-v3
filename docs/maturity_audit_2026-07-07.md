@@ -18,7 +18,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 | L0–L3 Φ-IQ | Green (T0) | `benchmark_ci_baseline.json` |
 | A1–A5 invariants | Green (T2) | nightly `assumption_validation.py --ci` |
 | Observatory Phases 7–20 | Green (T0 replay) | Resilience fields in JSONL (2026-07-07) |
-| Level-4-lite L4b | **Green (T3)** | `forgetting_rate=0.0000` (2026-07-08, budget=16) — shadow gaps resolved |
+| Level-4-lite L4b | **Red (T3)** | `forgetting_rate=0.3783` at 30 seeds (2026-07-18, post D-168 PER fix) — supersedes earlier 3-seed number; see `docs/experiments/re-run_l4_and_d161_round14.md` |
 | M3→G′ replay | **Wired** | G5-01 closed |
 | Cognitive resilience injectables | Green (T3) | G3: ≠ full matrix |
 | Maturation T1 tests | Green | `make maturation-test` |
@@ -30,7 +30,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 | ID | Claim | Target | Status | Gate | Tier | Last result | Gap | Track |
 |----|-------|--------|--------|------|------|-------------|-----|-------|
 | WP-1 | Cycle latency | <500 ms | PASS | benchmark logs | T2 | ~10–17 ms mean | — | C |
-| WP-2 | Forgetting rate | <5% @ 100 tasks | PASS | `benchmark_level4.py` | T3 | `forgetting_rate=0.0000` @ 10 (budget=16) | G2 (closed) | E |
+| WP-2 | Forgetting rate | <5% @ 100 tasks | FAIL | `benchmark_level4.py` | T3 | `forgetting_rate=0.3783` @ 10 budgets (30 seeds, 2026-07-18) | G2 (re-opened — headroom insufficient at adequate power) | E |
 | WP-3 | Goal autonomy | ≥1 novel/100 cyc | Partial | L3 diversity | — | Not measured | G0 | G |
 | WP-4 | Criticality Φ | 90% in band | Not impl | — | — | APC volatility only | G0 | — |
 | WP-5 | Failure recovery | ≥80%/10 cyc | Partial MVP | `benchmark_recovery.py` | T3 | 1.00 inject | G3 | F |
@@ -154,7 +154,7 @@ Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`matura
 
 | Rank | Item | Score | Action |
 |------|------|-------|--------|
-| 1 | L4b capacity (G2) | 9 → **0** | **Closed** — `forgetting_rate=0.0000` with budget=16 + consolidation gradient; see ChangeLog 2026-07-08 |
+| 1 | L4b capacity (G2) | 9 → **0** → **6** | **Re-opened** — `forgetting_rate=0.3783` at 30 seeds (2026-07-18); earlier 3-seed closure was underpowered per D-151 standard. See ChangeLog 2026-07-18 |
 | 2 | A4 GridWorld gap | 6 | Causal eval MLP T3 |
 | 3 | Injectable ≠ §1.3 (G3) | 5 | limitations + tests |
 | 4 | Science T4 drift | 5 | golden manifest |
@@ -180,3 +180,4 @@ make ci-local
 | 2026-07-07 | Initial audit |
 | 2026-07-07 | Expanded to 59 rows; M3/Obs wired; sign-off doc |
 | 2026-07-08 | Shadow gaps resolved (budget 16 + consolidation gradient); L4b forgetting **PASS** `0.0000` — risk item 1 closed |
+| 2026-07-18 | 30-seed re-run (post D-168 PER fix): L4b **FAIL** `forgetting_rate=0.3783` — risk item 1 re-opened. Earlier 3-seed closure was underpowered per D-151 standard. |

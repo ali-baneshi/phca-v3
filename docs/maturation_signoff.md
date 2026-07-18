@@ -24,7 +24,7 @@ Plan: **Maturation v2 — System-Wide Evidence Hardening**
 - [x] G4 metrics: documented; tests prevent conflation
 - [x] T1: `make maturation-test` (static + forgetting + resilience + maturation)
 - [x] T0: L0 bench + observatory replay (existing CI)
-- [ ] L4b PASS at 10 tasks × 3 seeds — **FAIL (Verdict B+C)** — honest limitation recorded
+- [ ] L4b PASS at 10 tasks × 30 seeds — **FAIL (37.83% forgetting_rate)** — honest limitation recorded (supersedes 3-seed result)
 - [x] Recovery injectables: `make bench-recovery` (T3 local)
 - [x] Bisection protocol documented
 - [x] No new blueprint features (M5, VSA, EWC/GEM, L5)

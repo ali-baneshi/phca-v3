@@ -714,11 +714,11 @@ skip-prevention intact). Only the extra compute from `replay_boost` expires.
 
 **Default duration:** 200 cycles (~2.5 tasks at 80 cycles/task).
 
-**Benchmark results (8-task × 30-cycle smoke):**
-- `forgetting_rate=0.0000`, `passes_gate=True`
+**Benchmark results (8-task × 30-cycle smoke — superseded by 30-seed full run):**
+- Original: `forgetting_rate=0.0000`, `passes_gate=True` (3 seeds, underpowered)
+- **30-seed re-run (2026-07-18):** `forgetting_rate=0.3783`, `passes_gate=False`
 - M3 replay total: 2520 steps (active throughout)
-- replay_boost expires at cycle ~200; last 40 cycles run with normal batch/steps
-- All 199 tests pass, no regressions
+- See `docs/experiments/re-run_l4_and_d161_round14.md` for the current result at adequate statistical power
 
 **Effort:** 30 minutes.
 

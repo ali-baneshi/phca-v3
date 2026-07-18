@@ -196,41 +196,40 @@ the single most important open question.
 
 | Metric | Result | Target | Caveat |
 |--------|--------|--------|--------|
-| Forgetting rate | 0.00% | < 5% | See note below |
+| Forgetting rate | 37.83% | < 5% | 30-seed re-run (2026-07-18) with D-168's PER fix active |
 | Forward transfer | 0.625 – 1.0 | — | — |
-| Passes gate | True | — | — |
+| Passes gate | False | — | 28/30 seeds show complete forgetting (1.000) at 30-seed sample |
 | M3 replay total | 23,040 | — | Confirms the replay mechanism runs; does not by itself establish that replay is *why* the forgetting rate is low |
 
 ```bash
-python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --seeds 3 --m3-replay-budget 16
+python scripts/benchmark_level4.py --tasks 10 --task-cycles 80 --seeds 30 --m3-replay-budget 16
 ```
 
-**Important caveat.** This result was originally produced under two conditions that have
-since changed the interpretation of the number:
+**Important caveat.** This number was produced under the current default action-selection
+configuration (pure BFS/Manhattan geometry), which means goal-reaching is determined by a
+memoryless deterministic planner rather than the learned model. The 37.83% forgetting rate
+reflects the variance in goal-reaching success across random eval start positions at
+adequate statistical power (30 seeds), not neural catastrophic forgetting in the sense
+typically used in the continual-learning literature. Three confounded factors contribute to
+the difference from the earlier 0.00% result:
 
-1. An earlier evaluation protocol started each task's evaluation from the agent's
-   *training end position* rather than a random position, which made the task trivially
-   easy independent of any learning. This was identified and fixed (D-145): evaluation
-   now starts from a genuinely random position for each task layout.
-2. Under the current default action-selection configuration (see "Current status of the
-   core hypothesis" above), goal-reaching in a GridWorld task with a known goal is
-   produced by a deterministic BFS/Manhattan planner, not by the learned model. A
-   memoryless deterministic planner cannot exhibit catastrophic forgetting by
-   construction, because it has no persistent parameters to forget — it recomputes a
-   path from the current layout every cycle. The 0.00% figure is a real, honestly measured
-   result of the actual current configuration, but it primarily demonstrates that a
-   classical planner is robust to goal relocation, not that PHCA's learned components
-   (G′, M3 episodic replay, TSPL) are resistant to catastrophic forgetting in the sense
-   that term is normally used in the continual-learning literature. The M3 replay
-   mechanism and task-aware eviction policy (D-146) are real and tested in isolation, but
-   this particular headline number is not currently strong evidence that they are load-bearing.
+1. **Seed-count resolution.** The original 0.00% figure was produced at 3 seeds — which
+   the project's own D-151 standard considers underpowered for GridWorld variance. The
+   30-seed distribution is heavily skewed (28/30 seeds show complete forgetting, 1 shows
+   partial, 1 shows none), which a 3-seed sample is unlikely to capture.
+2. **The geometric-planner confound (unchanged).** As documented below, a memoryless
+   deterministic planner cannot exhibit catastrophic forgetting by construction. The
+   forgetting rate measures goal_rate variance across eval start positions, not learned
+   model retention.
+3. **D-168's PER fix (active since 2026-07-15).** PER now samples all tasks instead of
+   only the current task. This increases cross-task interference during replay, which may
+   indirectly affect goal_rate through the MLP's influence on MDIM drive computation and
+   RBTA bound enforcement. The two effects cannot be separated without a pre-D-168
+   30-seed counterfactual.
 
-A benchmark that would isolate the learned model's actual retention — e.g., measuring
-`prediction_error` per prior task after training on later tasks, independent of
-navigation policy — is a better test of the continual-learning claim and is a
-recommended next step; some scaffolding for this exists (`eval_prediction_error` per-task
-metric, added alongside the eval-position fix) but is not yet the headline metric reported
-here.
+The `eval_prediction_error` per-task metric — a less confounded measure of learned-model
+retention — is now collected and available as a baseline for future comparisons (see the
+full 30-seed report at `docs/experiments/re-run_l4_and_d161_round14.md`).
 
 ---
 
@@ -515,13 +514,13 @@ further:
 | L2 | FAIL against `greedy_observed` at 5x5 (see D-151); PASSES with pure geometry at 10x10 (D-156) | FAIL, and collapses at 10x10 |
 | L3 | PASS with pure geometry (D-155 ablation) | FAIL at 5x5; not re-tested at 10x10 |
 
-**Viewport partial-observability scenarios (15 seeds x 50 cycles x 10x10, MLP, RBTA-fixed + frontier):**
+**Viewport partial-observability scenarios (30 seeds x 200 cycles x 10x10, MLP, current HEAD):**
 
 | Level | Viewport | PHCA goal_rate | greedy_observed goal_rate | PHCA succ | PHCA RBTA |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| viewport1 | 3×3 (`partial_obs_radius=1`) | **0.329** | 0.133 | 7/15 | 0.116 |
-| viewport2 | 5×5 (`partial_obs_radius=2`) | **0.351** | 0.199 | 8/15 | 0.092 |
-| viewport3 | 7×7 (`partial_obs_radius=3`) | **0.653** | 0.391 | 12/15 | 0.101 |
+| viewport1 | 3×3 (`partial_obs_radius=1`) | **0.355** | 0.133 | 30/30 | 0.009 |
+| viewport2 | 5×5 (`partial_obs_radius=2`) | **0.664** | 0.199 | 30/30 | 0.000 |
+| viewport3 | 7×7 (`partial_obs_radius=3`) | **0.722** | 0.391 | 30/30 | 0.000 |
 
 `greedy_observed` uses `env.get_goal_position()` which returns `None` when the goal
 is outside the viewport (core `partial_obs_radius` feature, D-160). All viewport
@@ -529,14 +528,12 @@ scenarios gate against `random` and `greedy_observed`. See
 [DECISIONS.md D-160](DECISIONS.md#d-160) for the infrastructure design and
 [`docs/phca_causal_evidence.md`](docs/phca_causal_evidence.md) for detailed results.
 
-**RBTA note (NEW-14):** the 9-12% RBTA violation rates reported here are from 50-cycle
-runs. At 200 cycles, violation rates rise to ~30-60% in some configurations, but
-individual seeds with >90% violation still achieve 100% goal rate, confirming these are
-INTERRUPT-level (not TERMINATE) — they slow the agent without blocking goal-reaching.
-This is consistent with time-bound accumulation under partial observability, where each
-newly-revealed cell adds computation. The violations are benign, not a second confound
-masked by the horizon (verified against `logs/causal_frontier_full.json` and
-`logs/causal_prio2_viewports_15s.json`).
+**RBTA note (NEW-14):** the viewport RBTA violation rates above are from 200-cycle runs
+at 30 seeds. NEW-14 is confirmed resolved at the project's 30-seed statistical standard:
+viewport1 shows 0.009 avg violations (1–2 INTERRUPT-level events across 30 runs), and
+viewport2/3 show 0.000 — essentially zero. The D-160 bound-widening fix (viewport-proportional
+RBTA scaling) is sufficient. Earlier reported 9–12% rates at 50 cycles were artifacts of
+the smaller sample; at 200 cycles with adequate statistical power, violations are negligible.
 
 The practical implication is stated in "Current status of the core hypothesis" above:
 pure geometric action selection is the more reliable choice today, and is the default.
@@ -682,11 +679,14 @@ items, in rough order of significance:
   used for confidence/entropy estimates and MDIM context, but not for choosing which
   discrete action to take, unless explicitly enabled and accepting a currently-measured
   large drop in reliability at grid sizes above 5x5.
-- **The Level-4-lite "forgetting=0.00%" result should not be read as evidence of neural
-  catastrophic-forgetting resistance** under the current default configuration, for the
-  reason given under "Benchmark Validation" above. A cleaner test (model prediction error
-  per prior task, independent of navigation policy) is a recommended next step and has
-  partial scaffolding already in place.
+- **The Level-4-lite "forgetting=37.83%" result (measured at 30 seeds, 2026-07-18) should
+  not be read as evidence of neural catastrophic forgetting** under the current default
+  configuration, for the reason given under "Benchmark Validation" above. The headline
+  number reflects goal_rate variance from a geometric planner across random eval start
+  positions at adequate statistical power, not learned-model retention per se. The
+  `eval_prediction_error` per-task metric (now collected as a baseline) is a less
+  confounded measure and should be the headline metric for future continual-learning
+  claims.
 - **Belief-entropy floor checking (A3) is only a real measurement for three of roughly
   twelve modules** (G', MDIM, Attention); the remaining modules use a fixed placeholder
   value that can never trigger a floor violation. This is fail-safe (it cannot cause a

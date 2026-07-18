@@ -16,7 +16,7 @@ Legend: **Implemented** | **Partial** | **Measured** | **Not implemented** | **S
 | Criterion | Target | Status | Gate / evidence |
 |---|---|---|---|
 | Cycle latency | < 500 ms | **Measured PASS** | Φ-IQ pass criteria; mean ~10–17 ms MLP |
-| Forgetting rate | < 5% after 100 sequential tasks | **PASS** | Level-4-lite: `scripts/benchmark_level4.py` (10-task GridWorld) — validated `forgetting_rate=0.0000`, `passes_gate=True` on 2026-07-08 with `m3_replay_budget=16` + consolidation gradient active; full 100-task AT-2 not CI-gated |
+| Forgetting rate | < 5% after 100 sequential tasks | **FAIL** | Level-4-lite: `scripts/benchmark_level4.py` (10-task GridWorld) — `forgetting_rate=0.3783`, `passes_gate=False` at 30 seeds (2026-07-18, post D-168 PER fix); rate reflects goal_rate variance from geometric planner, not pure model retention. Full 100-task AT-2 not CI-gated |
 | Goal autonomy | ≥ 1 novel goal / 100 cycles | **Measured PASS** | MDIM tracks `_seen_goal_signatures` → `novel_goal_rate` in snapshot; L3 gates `novel_goal_rate > 0.01` (✅ Done 2026-07-08) |
 | Criticality maintenance | Φ ∈ [0.9Φc, 1.1Φc] for ≥ 90% cycles | **Implemented (D-139)** | Backward-pass gradient-norm w.r.t input (output-sensitivity Jacobian, not loss gradient). `Φ = (2/π)·arctan(||∂mean(out)/∂x|| / sqrt(d))`, EMA-filtered 0.7·cached + 0.3·raw. Zero extra FLOP for loss-gradient path (already from G'.learn); ~38K FLOP extra for output-sensitivity when `last_input_sensitivity()` called directly. PID setpoint unchanged at 0.5 (arctan maps [0,∞) → [0,1)). |
 | Failure recovery | ≥ 80% mitigated within 10 cycles | **Partial (MVP)** | `phca/resilience/` B1/B4/B5/C1/F5 + `scripts/benchmark_recovery.py` |
@@ -69,7 +69,7 @@ evidence separate from invariant tests.
 | MuJoCo (3 envs) | Phase 4–7 | `phca/environments/mujoco_env.py` | **Implemented** |
 | Cognitive Observatory | Phase 7–20 | `phca/monitoring/` | **Complete** (schema, replay, report, scrub, compare, anomalies, explain, API, supervisor, multi-agent, query, reproduce) |
 | Φ-IQ L0–L3 | Blueprint | `scripts/benchmark.py` | **Implemented + measured** |
-| Φ-IQ L4-lite (forgetting) | Blueprint | `scripts/benchmark_level4.py` | **PASS** — GridWorld continual, `forgetting_rate=0.0000` (eval start-position confound fixed D-145) |
+| Φ-IQ L4-lite (forgetting) | Blueprint | `scripts/benchmark_level4.py` | **FAIL** — GridWorld continual, `forgetting_rate=0.3783` at 30 seeds (post D-168 PER fix); see `docs/experiments/re-run_l4_and_d161_round14.md` |
 | Φ-IQ L5 | Blueprint | — | **Not implemented** |
 
 ---
@@ -87,7 +87,7 @@ evidence separate from invariant tests.
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
 | Observatory integrity | `phca_replay.py --check` on `fixtures/multi_agent_short/` and `fixtures/reacher_short/` | **Yes** | PASS |
 | Scientific reproduction | `make reproduce` / `make reproduce-quick` | Local manifest | Run locally; `logs/reproduce_report.json` may be dry-run |
-| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; L4b **PASS** (eval start-position confound fixed D-137/D-145) — see `docs/l4_root_cause_verdict.md` |
+| Forgetting rate (AT-2-lite) | `scripts/benchmark_level4.py` | No | Local gate; L4b **FAIL** (`forgetting_rate=0.3783` at 30 seeds, post D-168) — see `docs/experiments/re-run_l4_and_d161_round14.md` |
 | L4 ablation matrix | `scripts/run_l4_ablation.py` | No | T3 local; `make bench-level4-ablation` |
 | Maturation T1 gates | `make maturation-test` | No | 45 tests static+forgetting+resilience+maturation |
 | Cognitive recovery | `scripts/benchmark_recovery.py` | No | Local gate; B1/C1/F5 injectable scenarios |
@@ -134,7 +134,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | M3 replay budget increased from 4→16 (Gap A) | `scripts/benchmark_level4.py` — `m3_replay_budget` default | ✅ **Done** | ~142 samples/prior-task vs ~35; addresses root cause of 100% measured forgetting |
 | Consolidation gradient feedback into G' (Gap B) | `python/phca/consolidation/scheduler.py` — `step()` takes optional `gprime`, replays episodes at `lr_scale=0.1` before marking consolidated | ✅ **Done** | M3 transitions now contribute gradient signal before eviction; eval-leak guarded by `enable_gprime_learn` |
 | Novel goal rate in benchmark JSON output (Gap C) | `scripts/benchmark_level4.py` — `novel_goal_rate` in seed_entry + aggregated return | ✅ **Done** | Enables CI trend tracking for A4 autonomy criterion |
-| 2026-07-08 validation — Shadow Gaps resolved | `scripts/benchmark_level4.py` — `--m3-replay-budget 16` | ✅ **Validated** | `forgetting_rate=0.0000`, `passes_gate=True`, `m3_replay_total=23040` |
+| 2026-07-08 validation — Shadow Gaps resolved | `scripts/benchmark_level4.py` — `--m3-replay-budget 16` | ✅ **Validated (superseded)** | `forgetting_rate=0.0000`, `passes_gate=True` at 3 seeds (underpowered per D-151 standard). Superseded by 30-seed re-run (2026-07-18): `forgetting_rate=0.3783`, `passes_gate=False` — see `docs/experiments/re-run_l4_and_d161_round14.md` |
 | **Feature 3 — PER (Prioritized Experience Replay)** | `python/phca/memory/m3_episodic.py` — `sample_episodes_per()`, `update_priority()`, `batch_update_priorities()`; `python/phca/core/cycle.py` — PER sampling + IS weights + `_per_beta` annealing 0.4→1.0; `python/phca/consolidation/scheduler.py` tuple unpacking | ✅ **Done** (D-138) | Error-reduction-rate priority: `max(ε, (stored_error − current_error)/(stored_error + ε))` — not absolute TD-error, to avoid overfitting to aleatoric noise. |
 | **Feature 2 — Φ (gradient-norm criticality)** | `python/phca/world_model/mlp.py` — `_last_output_sens` + `last_input_sensitivity()`; `python/phca/core/cycle.py` — `_update_phi_from_gradient()`, removed `_error_vol_window` + `_approximate_error_volatility()`; `python/phca/config.py` — `PHI_TARGET`, `PHI_MAX` | ✅ **Done** (D-139) | Output Jacobian norm via arctan, EMA-filtered. Replaces temporal CoV. |
 | **Feature 1 — Async Two-Thread Loop** | `python/phca/core/cycle.py` — `_action_loop()`, `_learning_loop()`, `start_async()`, `stop_async()`, `_finalize_learning_cycle()`; `python/phca/config.py` — `PerceptionFrame`, `ActionResult`, `STALE_THRESHOLD_MS` | ✅ **Done** (D-140) | Queue-based (maxsize=1) back-pressure. Sync mode default (no regression). Async: avg latency 20.2ms vs sync 12.7ms; goal success 98.8% vs 99.0%. |

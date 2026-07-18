@@ -1973,7 +1973,7 @@ At 30 seeds (vs 15 for the initial run), the result holds: PHCA 13.05% vs greedy
    3. **Threshold sync (NEW-12):** Changed `cycle.py` `_calibration_threshold` from 0.65 to 0.9.
    4. **Entropy floor cleanup (F-03):** Set `entropy_floor=0.0` for 9 modules (ASI, WM, PE, PEU, TSPL-P, CR, HPM, CONSOL, ACTION) in `DEFAULT_MODULE_BOUNDS`. These modules have no epistemic entropy computation and previously used the default 0.01 placeholder. Only G', MDIM, and ATTN retain non-zero entropy floors (A3 enforcement).
 - **Impact:** The agreement-based gate is independent of the one-step accuracy saturation — it directly measures whether G′ predictions lead to useful actions. The confidence gate remains as a secondary signal.
-- **Experimental validation (10×10 L2, 5 seeds, MLP, blended scorer enabled):** Goal rate improved from **0.03%** (D-156 ungated baseline) to **27.6% mean** with agreement gating (vs 14.8% for pure geometry at 3 seeds). Seed 46 achieved 92% goal rate. This confirms the agreement-based gate prevents the catastrophic blended-scorer collapse. Variance remains high (8.5–92%) due to stochastic exploration trajectories during the 30-cycle agreement window warmup.
+- **Experimental validation (10×10 L2, 5 seeds, MLP, blended scorer enabled):** Goal rate improved from **0.03%** (D-156 ungated baseline) to **27.6% mean** with agreement gating (vs 14.8% for pure geometry at 3 seeds — underpowered; the 30-seed D-161 baseline shows 0.199 for pure geometry at 10×10). Seed 46 achieved 92% goal rate. This confirms the agreement-based gate prevents the catastrophic blended-scorer collapse. Variance remains high (8.5–92%) due to stochastic exploration trajectories during the 30-cycle agreement window warmup.
 - **Pre-existing finding (fixed in D-159 addendum):** At 10×10 with MLP, `gprime_stress_bounds()` returned a fixed `B_time=0.080s` regardless of `state_dim`, overriding the build-time `grid_rbta_bounds` scaling. Additionally, G' entropy floor of 0.01 was invariant — the MLP converges faster at larger grids (more diverse batch data → lower MC-dropout mutual info), triggering spurious entropy violations. Fixed by:
   a) **Time scaling** (`mlp.py`): `gprime_stress_bounds` now scales `b_time` via `estimate_mlp_gprime_time_bound(state_dim, b_time)` so runtime bounds match build-time grid scaling.
   b) **Entropy floor scaling** (`mlp.py`): New `grid_floor(state_dim)` returns `0.01 / max(1.0, state_dim/84)`, lowering the G' entropy floor from 0.01 (grid 5) to ~0.0027 (grid 10). Applied in both `gprime_stress_bounds` and `grid_rbta_bounds`.
@@ -2086,14 +2086,25 @@ using the corrected code and adequate sample sizes (30 seeds per D-151's standar
 **Configurations tested,** all at L2 causal gate (200 cycles, MLP, 30 seeds, 5×5 and 10×10):
 
 | Config | 5×5 goal_rate | 5×5 RBTA_rate | 5×5 Gate | 10×10 goal_rate | 10×10 RBTA_rate | 10×10 Gate |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | Pure geometry (current default) | 0.552 | 0.030 | FAIL | 0.199 | 0.503 | PASS |
 | Agreement-gated blended (opt-in) | 0.544 | 0.032 | FAIL | 0.134 | 0.534 | FAIL |
 
-**Viewport scenarios** (10×10, 50 cycles, 15 seeds, all three viewport levels): both modes
-produced identical goal rates (0.329/0.351/0.653) and RBTA rates (0.116/0.092/0.101),
-all PASS. The blended scorer did not diverge from pure geometry under viewport conditions
-at this horizon.
+**Re-reconciliation (2026-07-18) — ~25 decision entries later, after D-182 Φ fix and others:**
+| Config | 5×5 goal_rate | 5×5 RBTA_rate | 5×5 Gate | 10×10 goal_rate | 10×10 RBTA_rate | 10×10 Gate |
+|---|---|---|---|---|---|---|
+| Pure geometry (current default) | **0.552** (Δ 0.000) | **0.030** | FAIL | **0.199** (Δ 0.000) | **0.502** | PASS |
+| Agreement-gated blended (opt-in) | **0.451** (Δ −0.094) | **0.025** | FAIL | **0.139** (Δ +0.005) | **0.515** | FAIL |
+
+Pure geometry is stable. Agreement-gated at 5×5 dropped 17% — likely D-182's Φ fix
+(which made `error_volatility` vary dynamically, affecting the blended-scorer path's
+MDIM goal selection). The drop strengthens the original finding that the agreement-gated
+path does not close the gap against pure geometry and does not change the default.
+See `docs/experiments/re-run_l4_and_d161_round14.md` for full reconciliation.
+
+**Viewport scenarios** (10×10, 200 cycles, 30 seeds, all three viewport levels):
+confirmed at the project's 30-seed standard — all PASS with <0.01 RBTA violation rate.
+See D-192 addendum below.
 
 **Finding 1 — neither mode wins universally.** At 5×5 L2, pure geometry itself fails the
 causal gate against `greedy_observed` (0.552 vs 0.598, 0/3 required metrics). The RBTA
@@ -2481,6 +2492,12 @@ of D-156's headline number were wrong.
 - **Conclusion:** D-160's RBTA bound scaling is correct and sufficient at 15-seed statistical power. No additional fix needed. The original 9–12% violation rate was dominated by ENTROPY floor violations from G' MC-dropout entropy dropping under partial observability. The viewport1/2/3 PASS results can be trusted without caveat at 15-seed power.
 - **v3.0 trace:** A1 (RBTA enforcement under partial observability), §1.3 (viewport benchmarks), NEW-14
 - **Tests/Validation:** Causal eval gate PASS for all 3 viewport levels. Existing 514+ core tests unchanged.
+
+**30-seed confirmation (2026-07-18):** Extended to 30 seeds per the project's D-151 standard.
+Command: `phca_causal_eval.py --levels viewport1,viewport2,viewport3 --cycles 200 --seeds 30 --use-mlp --gate`.
+All 3 viewport levels PASS. RBTA violations: viewport1=0.009 avg (1–2 INTERRUPT events across 30 runs),
+viewport2=0.000, viewport3=0.000. Goal rates: 0.355/0.664/0.722 — consistent with 15-seed numbers.
+NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 
 ---
 

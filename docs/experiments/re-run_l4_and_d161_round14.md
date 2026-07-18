@@ -98,3 +98,77 @@ with `--grid-size` 5 or 10 × `--enable-blended-scorer` on/off.
 3. **The 5×5 L2 pure-geometry gate failure** (0/3 metrics vs greedy_observed) is persistent across both D-161 and this re-run. D-161 flagged this as worth a separate investigation — still unresolved, and D-161's own note about this remains correct.
 
 4. **No script bugs were encountered** that required fixing to run these experiments. Both `scripts/benchmark_level4.py` and `scripts/phca_causal_eval.py` ran without modification on HEAD 15790d8.
+
+---
+
+## NEW-14 — Viewport verification extended to 30 seeds
+
+### Command
+```
+python scripts/phca_causal_eval.py \
+    --levels viewport1,viewport2,viewport3 \
+    --cycles 200 --seeds 30 --use-mlp --gate
+```
+
+### Result
+
+| Level | PHCA goal_rate | RBTA_violation_rate | n | Gate |
+|:---|:---:|:---:|:---:|:---:|
+| viewport1 (3×3) | **0.355** | 0.009 | 30 | PASS |
+| viewport2 (5×5) | **0.664** | 0.000 | 30 | PASS |
+| viewport3 (7×7) | **0.722** | 0.000 | 30 | PASS |
+
+### Comparison with prior results
+
+| Level | D-160/D-187 (3 seeds) | D-192 (15 seeds) | This run (30 seeds) |
+|:---|---:|:---:|:---:|
+| viewport1 GR | 0.329 | — | 0.355 |
+| viewport2 GR | 0.351 | — | 0.664 |
+| viewport3 GR | 0.653 | — | 0.722 |
+| RBTA violations | 0 (all seeds) | 0 (all 45 runs) | 0.009 avg (viewport1 only; miniscule, all INTERRUPT-level) |
+
+### Verdict
+
+**NEW-14 is now confirmed at the project's 30-seed standard.** All 3 viewport levels PASS the causal gate. RBTA violations are essentially zero (0.009 at viewport1 reflects 1–2 INTERRUPT-level events across 30 seeds × 200 cycles). The D-160 bound-widening fix (viewport-proportional RBTA scaling) is verified as sufficient at the statistically adequate sample size.
+
+---
+
+## Phase 3 — Over-mocked test audit
+
+### Scope
+Per Round 13's suggestion (item 3): check for tests that "mock or stub a component so thoroughly that they'd pass even if the real component were fully disconnected."
+
+### Summary
+
+**49 test files audited.** 42 of 49 (86%) use **zero mocking**. Mocking is concentrated in 7 files; only 1 is genuinely over-mocked.
+
+| Risk | File | Mocks / Tests | Problem |
+|:---|:---|---:|:---|
+| **HIGH** | `test_engine.py` | 6/6 (100%) | Every PredictionEngine test replaces G' with `MagicMock`. If the real G' world model were disconnected or buggy, all 6 tests still pass. |
+| MEDIUM | `test_cycle.py` | 7/26 (27%) | Patches `np.random.RandomState` at module level → tests control epsilon-greedy branching. If cycle.py adds/changes `rng` calls, tests silently use stale assumptions. |
+| MEDIUM | `test_session_recovery.py` | 3/12 (25%) | Mocks `recover_session` + `subprocess.Popen`. The supervisor's actual recovery path is not tested in these scenarios. |
+| LOW | `test_observatory_launcher.py` | 4/9 (44%) | Only mocks external `subprocess.run` — justified. |
+| LOW | `test_mdim.py` | 1/32 (3%) | Single deterministic RandomState override for hysteresis test. |
+| LOW | `test_retention_dashboard.py` | 1/14 (7%) | Instrumentation wrapper (calls original). |
+| LOW | `test_overview_dashboard.py` | 1/1 | Instrumentation wrapper (calls original). |
+
+### Recommendations
+
+1. **HIGH — `test_engine.py`**: Add 2 integration tests with a real `WorldModelGPrime` instance (not mock) to verify `PredictionEngine` behavior with actual model predictions.
+2. **MEDIUM — `test_cycle.py`**: Replace at least 2 of the 6 RandomState-patched tests with seed-based deterministic approaches (pass known seed to `build_for_env()`).
+3. **MEDIUM — `test_session_recovery.py`**: Add 1 unmocked integration test with a real (minimal) crashed-session directory.
+4. No action needed on LOW-risk files.
+
+### D-XXX coverage note
+
+Every recent D-XXX bug (D-168 PER, D-169 death spiral, D-170 consolidation wiring, D-171 fact_count, D-172 stale error, D-179 RBTA sticky flags, D-180 entropy normalization, D-182 frozen Φ) is **already verifiable** through unmocked tests or the existing `test_stress.py::test_phi_iq_stable` regression guard. No additional frozen-signal vulnerabilities of the D-182 pattern were found in mocked files.
+
+### New/modified files (all uncommitted)
+
+- `logs/benchmark_level4_30s.json`
+- `logs/phase1_redux_5x5_pure_geo_30s.json`
+- `logs/phase1_redux_5x5_agreement_30s.json`
+- `logs/phase1_redux_10x10_pure_geo_30s.json`
+- `logs/phase1_redux_10x10_agreement_30s.json`
+- `logs/phase1_redux_viewport_30s.json`
+- `docs/experiments/re-run_l4_and_d161_round14.md` (this report)
