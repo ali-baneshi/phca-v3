@@ -96,6 +96,17 @@ class HybridGraphMLP:
         self.graph.learn(state_t, action, state_t1, error)
         self.mlp.learn(state_t, action, state_t1, error)
 
+    def learn_m3_episodes(
+        self, episodes: list, lr_scale: float = 1.0,
+    ) -> Tuple[int, list[tuple[int, float]]]:
+        """Replay M3 episodes through the trainable MLP member.
+
+        The graph member does not expose episodic batch replay; keeping this
+        path on the MLP is still enough to feed fallback trajectories back into
+        the learned predictor used by the hybrid.
+        """
+        return self.mlp.learn_m3_episodes(episodes, lr_scale=lr_scale)
+
     def reset(self) -> None:
         self.graph.reset()
         self.mlp.reset()

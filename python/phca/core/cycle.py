@@ -54,6 +54,7 @@ from phca.world_model.mlp import (
     grid_scale,
     scaled_time_bound,
 )
+from phca.world_model.ensemble import WorldModelMLPEnsemble
 from phca.world_model.hybrid import HybridGraphMLP
 
 if TYPE_CHECKING:
@@ -248,6 +249,8 @@ class CognitiveCycle:
         self._last_m3_replay_steps: int = 0
         self._m3_replay_total: int = 0
         self._m3_replay_budget: int = 4
+        self._m3_her_budget: int = 8
+        self._m3_her_total: int = 0
         self._env_goal_relocated: bool = False
         self._per_beta: float = PER_BETA_INIT
 
@@ -891,7 +894,7 @@ class CognitiveCycle:
 
         # Step 7: TSPL P-Stream update
         mlp_accuracy = None
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             mlp_accuracy = self.gprime.get_prediction_accuracy(
                 self.current_state.values, action_vec, next_state.values
             )
@@ -926,7 +929,7 @@ class CognitiveCycle:
                 gradient=None,
                 accuracy_override=mlp_accuracy,
             )
-            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
                 bias = theta_new.get("gprime")
                 if bias is not None:
                     self.gprime.set_tspl_bias(bias)
@@ -935,7 +938,7 @@ class CognitiveCycle:
         # LEARN: update G' with observed transition, weighted by attention
         t_glearn = time.perf_counter()
         if self.interventions.enable_gprime_learn:
-            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
                 boost_still_valid = (
                     self.cycle_count - self._replay_boost_activated_cycle
                 ) < self._replay_boost_duration
@@ -952,7 +955,10 @@ class CognitiveCycle:
                     error=attn_weighted_error,
                 )
                 self._update_phi_from_gradient()
-                self._last_m3_replay_steps = self._replay_m3_prior_tasks()
+                self._last_m3_replay_steps = (
+                    self._replay_m3_prior_tasks()
+                    + self._replay_m3_planner_successes()
+                )
                 self._m3_replay_total += self._last_m3_replay_steps
         metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
@@ -1348,7 +1354,7 @@ class CognitiveCycle:
         """B4 recovery: replay boost + halve P-Stream learning rate."""
         self._forgetting_mitigation_active = True
         self._replay_boost_activated_cycle = self.cycle_count
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             self.gprime.replay_boost = True
         cfg = self.tspl.configs[StreamID.P_STREAM]
         cfg.alpha = max(0.01, cfg.alpha * 0.5)
@@ -1382,7 +1388,7 @@ class CognitiveCycle:
         """
         if not self._forgetting_mitigation_active:
             return 0
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             return 0
         prior_id = self._current_task_id
         if prior_id <= 0:
@@ -1422,6 +1428,26 @@ class CognitiveCycle:
                  has_m3=hasattr(m3, "batch_update_priorities"))
         return steps
 
+    def _replay_m3_planner_successes(self) -> int:
+        """HER-style replay from successful planner/fallback trajectories."""
+        if not self.interventions.enable_m3_write:
+            return 0
+        if self._m3_her_budget <= 0:
+            return 0
+        if not hasattr(self.gprime, "learn_m3_episodes"):
+            return 0
+        m3 = self.consolidation.m3
+        if not hasattr(m3, "sample_successful_trajectory_episodes"):
+            return 0
+        episodes = m3.sample_successful_trajectory_episodes(self._m3_her_budget)
+        if not episodes:
+            return 0
+        steps, priority_updates = self.gprime.learn_m3_episodes(episodes, lr_scale=0.5)
+        if priority_updates and hasattr(m3, "batch_update_priorities"):
+            m3.batch_update_priorities(priority_updates)
+        self._m3_her_total += int(steps)
+        return int(steps)
+
     def _current_task_goal_rate(self) -> Optional[float]:
         tid = self._current_task_id
         hist = self._task_eval_history.get(tid, [])
@@ -1432,7 +1458,7 @@ class CognitiveCycle:
 
     def _should_skip_gprime_learn(self, metrics: CycleMetrics) -> bool:
         """Throttle replay-only G' learning once the model is in steady state."""
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             return False
         if self._forgetting_mitigation_active:
             return False
@@ -2338,7 +2364,7 @@ class CognitiveCycle:
         The 1.1 safety margin ensures the threshold is slightly above measured
         accuracy, so G' must prove itself before being trusted.
         """
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             return
         cfg = self.interventions
         if len(self._probe_buffer) < cfg.calibration_probe_samples:
@@ -2463,7 +2489,7 @@ class CognitiveCycle:
         The arctan maps [0, ∞) → [0, 1) so PID setpoints and MDIM drive
         targets need no adjustment from the old error-volatility heuristic.
         """
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             _log(logger, "debug", "cycle.phi_update.skipped_non_mlp",
                  gprime_type=type(self.gprime).__name__)
             return
@@ -2634,7 +2660,7 @@ class CognitiveCycle:
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
         # Memory estimates from state dimensionality
         sd = self.state_dim
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP)):
+        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             g_mem = estimate_mlp_memory_bytes(
                 sd, self.gprime.action_dim, self.gprime.hidden_dim, self.gprime.replay_capacity,
             )
@@ -2724,6 +2750,7 @@ class CognitiveCycle:
         use_mlp: bool = False,
         use_continuous: bool = False,
         use_ensemble: bool = False,
+        use_deep_ensemble: bool = False,
         mlp_hidden_dim: int = 128,
         mlp_lr: float = 0.2,
         seed: int = 42,
@@ -2731,13 +2758,24 @@ class CognitiveCycle:
     ) -> Any:
         """Build the world-model (G') module, dispatching by mode.
 
-        Supports four modes:
+        Supports five modes:
+          - deep_ensemble: WorldModelMLPEnsemble (probabilistic MLP ensemble)
           - ensemble:  HybridGraphMLP (graph + MLP)
           - use_mlp:   WorldModelMLP (pure NumPy)
           - continuous: WorldModelGPrime (Gaussian CPDs)
           - discrete:  WorldModelGPrime (binary pgmpy, default)
         """
 
+        if use_deep_ensemble:
+            return WorldModelMLPEnsemble(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                n_members=3,
+                hidden_dim=mlp_hidden_dim,
+                seed=seed,
+                lr=mlp_lr,
+                position_dim=position_dim,
+            )
         if use_ensemble:
             from phca.world_model.graph import WorldModelGPrime
             from phca.world_model.hybrid import HybridGraphMLP
@@ -2835,13 +2873,16 @@ class CognitiveCycle:
         m1 = M1SensoryBuffer(sensor_dim=state_dim)
         m2 = M2WorkingMemory(capacity=7)
 
-        use_ensemble = getattr(interventions, "prediction_mode", "normal") == "ensemble"
+        prediction_mode = getattr(interventions, "prediction_mode", "normal")
+        use_ensemble = prediction_mode == "ensemble"
+        use_deep_ensemble = prediction_mode == "deep_ensemble"
         gprime = cls._build_gprime(
             state_dim=state_dim,
             action_dim=action_dim,
             use_mlp=use_mlp,
             use_continuous=use_continuous,
             use_ensemble=use_ensemble,
+            use_deep_ensemble=use_deep_ensemble,
             mlp_hidden_dim=mlp_hidden_dim,
             mlp_lr=mlp_lr,
             seed=seed,

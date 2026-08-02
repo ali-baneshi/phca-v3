@@ -76,7 +76,7 @@ class InterventionConfig:
     stage_order: Optional[List[str]] = None
     minimal_cycle: bool = False
     resource_policy: str = "time"  # time | energy | memory
-    prediction_mode: str = "normal"  # normal | zero | scramble | ensemble
+    prediction_mode: str = "normal"  # normal | zero | scramble | ensemble | deep_ensemble
     rbta_energy_scale: float = 1.0  # <1 tightens energy bounds for RBTA variants
 
     def apply_causal_fairness(self) -> "InterventionConfig":
@@ -140,7 +140,7 @@ class InterventionConfig:
             minimal_cycle=d.get("minimal_cycle", False),
             stage_order=d.get("stage_order"),
             resource_policy=d.get("resource_policy", "time"),
-            prediction_mode=d.get("prediction_mode", "normal"),  # normal | zero | scramble | ensemble
+            prediction_mode=d.get("prediction_mode", "normal"),  # normal | zero | scramble | ensemble | deep_ensemble
             rbta_energy_scale=float(d.get("rbta_energy_scale", 1.0)),
         )
         if causal_fair or not cfg.enable_prediction or cfg.minimal_cycle:

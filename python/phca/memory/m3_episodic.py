@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import json
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -530,6 +530,47 @@ class M3EpisodicMemory:
             ]
         except Exception as e:
             _log(logger, "warning", "m3.sample_prior_task_episodes_failed", error=str(e))
+            return []
+
+    def sample_successful_trajectory_episodes(
+        self,
+        n: int,
+        planner_mode: str | None = None,
+    ) -> List[EpisodeRecord]:
+        """Sample episodes belonging to trajectories that eventually succeeded.
+
+        This is the M3 side of HER-style replay: the final success marker makes
+        every preceding transition in that trajectory useful supervised data for
+        the world model, including BFS/RBTA-safe fallback paths.
+        """
+        n = max(0, int(n))
+        if n == 0:
+            return []
+        try:
+            params: list[Any] = []
+            mode_clause = ""
+            if planner_mode:
+                mode_clause = "AND planner_mode = ? "
+                params.append(str(planner_mode))
+            params.append(n)
+            cursor = self._connection.execute(
+                f"SELECT {EPISODE_SELECT_COLUMNS} FROM episodes "
+                "WHERE trajectory_id IS NOT NULL "
+                f"{mode_clause}"
+                "AND trajectory_id IN ("
+                "  SELECT DISTINCT trajectory_id FROM episodes "
+                "  WHERE trajectory_success = 1 AND trajectory_id IS NOT NULL"
+                ") "
+                "ORDER BY trajectory_id DESC, path_length ASC, episode_id ASC "
+                "LIMIT ?",
+                tuple(params),
+            )
+            return [
+                r for r in (self._row_to_episode(row) for row in cursor.fetchall())
+                if r is not None
+            ]
+        except Exception as e:
+            _log(logger, "warning", "m3.sample_successful_trajectory_failed", error=str(e))
             return []
 
     # ── PER (Prioritized Experience Replay) ─────────────────────

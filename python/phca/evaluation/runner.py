@@ -56,6 +56,8 @@ def build_cycle(
     action_slip: float = 0.0,
     environment: str = "gridworld",
     mujoco_env: str = "Pendulum-v1",
+    noise_profile: Optional[str] = None,
+    noise_intensity: float = 0.1,
     interventions: Optional[InterventionConfig] = None,
     trace_collector: Optional[TraceCollector] = None,
 ) -> CognitiveCycle:
@@ -64,6 +66,7 @@ def build_cycle(
         cycle = CognitiveCycle.build(
             env=env, seed=seed, use_mlp=use_mlp, use_continuous=use_continuous,
             interventions=interventions, trace_collector=trace_collector,
+            noise_profile=noise_profile, noise_intensity=noise_intensity,
         )
         _apply_intervention_rbta(cycle, interventions)
         return cycle
@@ -91,6 +94,8 @@ def build_cycle(
         use_continuous=use_continuous,
         interventions=interventions,
         trace_collector=trace_collector,
+        noise_profile=noise_profile,
+        noise_intensity=noise_intensity,
     )
     apply_grid_rbta_bounds(
         cycle,
@@ -118,6 +123,8 @@ def run_benchmark_level(
         action_slip=config.action_slip,
         environment=getattr(config, "environment", "gridworld"),
         mujoco_env=getattr(config, "mujoco_env", "Pendulum-v1"),
+        noise_profile=getattr(config, "noise_profile", None),
+        noise_intensity=float(getattr(config, "noise_intensity", 0.1)),
         interventions=interventions,
         trace_collector=trace,
     )

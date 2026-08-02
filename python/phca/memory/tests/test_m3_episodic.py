@@ -133,6 +133,39 @@ class TestM3EpisodicMemory:
         assert episode.priority == pytest.approx(1.0)
         assert episode.stored_error == pytest.approx(0.3)
 
+    def test_sample_successful_trajectory_returns_preceding_steps(self, m3, sample_episode_data):
+        """HER sampler should return all steps from trajectories with success markers."""
+        state_before, action, state_after = sample_episode_data
+        for step in range(3):
+            m3.store_episode(
+                state_before,
+                action,
+                state_after,
+                0.2,
+                timestamp=step,
+                trajectory_id=4,
+                planner_mode="bfs",
+                trajectory_success=(step == 2),
+                goal_pos=(1, 2),
+                path_length=step + 1,
+            )
+        m3.store_episode(
+            state_before,
+            action,
+            state_after,
+            0.2,
+            timestamp=99,
+            trajectory_id=5,
+            planner_mode="bfs",
+            trajectory_success=False,
+            path_length=1,
+        )
+
+        episodes = m3.sample_successful_trajectory_episodes(10, planner_mode="bfs")
+
+        assert [ep.path_length for ep in episodes] == [1, 2, 3]
+        assert {ep.trajectory_id for ep in episodes} == {4}
+
 
 # ── SQLite Hardening (G-010 / D-082) ──────────────────────────
 

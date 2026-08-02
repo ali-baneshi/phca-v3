@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from phca.world_model.ensemble import WorldModelMLPEnsemble
 from phca.world_model.mlp import WorldModelMLP
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ __all__ = [
     "StateNode",
     "TemporalEdge",
     "WorldModelMLP",
+    "WorldModelMLPEnsemble",
     "HybridGraphMLP",
 ]
 

@@ -39,6 +39,15 @@ class TestCognitiveCycleBuild:
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         assert cycle.cycle_count == 0
 
+    def test_build_deep_ensemble_prediction_mode(self):
+        """prediction_mode=deep_ensemble should build a probabilistic MLP ensemble."""
+        cfg = InterventionConfig(prediction_mode="deep_ensemble")
+        cycle = CognitiveCycle.build_for_env(
+            size=5, seed=42, use_mlp=True, interventions=cfg,
+        )
+        assert cycle.gprime.uncertainty_snapshot()["kind"] == "mlp_ensemble"
+        assert cycle.gprime.position_dim == 25
+
 
 class TestCognitiveCycleStep:
     """Tests for single cycle execution."""
@@ -371,6 +380,34 @@ class TestRBTAEnforcement:
         assert recent.goal_pos == tuple(cycle.env.goal_pos)
         assert recent.path_length >= 1
         assert recent.action_taken.shape == (cycle.env.action_space_size,)
+
+    def test_her_replay_uses_successful_planner_trajectory(self):
+        """Successful fallback/planner trajectories should replay into G'."""
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        state = StateVector(
+            values=np.zeros(cycle.state_dim, dtype=np.float32),
+            precision=np.ones(cycle.state_dim, dtype=np.float32),
+            timestamp=0.0,
+        )
+        action = np.zeros(cycle.env.action_space_size, dtype=np.float32)
+        action[cycle.env.stay_action] = 1.0
+        for step in range(2):
+            cycle.consolidation.m3.store_episode(
+                state,
+                action,
+                state,
+                0.1,
+                timestamp=step,
+                trajectory_id=3,
+                planner_mode="bfs",
+                trajectory_success=(step == 1),
+                path_length=step + 1,
+            )
+
+        steps = cycle._replay_m3_planner_successes()
+
+        assert steps > 0
+        assert cycle._m3_her_total >= steps
 
 
 class TestActionRationaleEnrichment:

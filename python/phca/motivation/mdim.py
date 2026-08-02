@@ -146,6 +146,11 @@ class MDIM:
         self._seen_goal_signatures: set = set()
         self._novel_goal_count: int = 0
         self._total_goals_generated: int = 0
+        # D4 habituation: repeated uncertainty signatures lose curiosity value.
+        self._novelty_habituation: Dict[tuple, float] = {}
+        self._novelty_decay: float = 0.97
+        self._novelty_learning_rate: float = 0.18
+        self._last_novelty_habituation: float = 0.0
 
         # History for debugging/monitoring
         self._drive_history: List[Dict[int, float]] = []
@@ -215,15 +220,20 @@ class MDIM:
             deficit=d3_deficit, target=d3_target,
         )
 
-        # D4: Epistemic Curiosity
-        # Drive = model_entropy. Moderate entropy → exploration sweet spot.
-        # Deficit = |entropy - target| — too much or too little drives curiosity
+        # D4: Epistemic Curiosity with habituation.
+        # Repeated uncertainty signatures decay in curiosity value, preventing
+        # a Noisy-TV loop where irreducible stochasticity remains permanently
+        # attractive just because entropy stays high.
         d4_value = model_entropy
-        d4_deficit = max(0.0, abs(d4_value - d4_target))
+        novelty_key = self._novelty_signature(context, d4_value)
+        habituation = float(np.clip(self._novelty_habituation.get(novelty_key, 0.0), 0.0, 0.95))
+        self._last_novelty_habituation = habituation
+        d4_deficit = max(0.0, abs(d4_value - d4_target) * (1.0 - habituation))
         self.drives[4] = DriveState(
             drive_id=4, value=d4_value,
             deficit=d4_deficit, target=d4_target,
         )
+        self._update_novelty_habituation(novelty_key)
 
         # D5: Energy Efficiency
         # Drive = energy_cost / budget. High cost → drive to optimize.
@@ -275,6 +285,35 @@ class MDIM:
             self._drive_history = self._drive_history[-500:]
 
         return dict(self.drives)
+
+    def _novelty_signature(self, context: Dict[str, Any], entropy: float) -> tuple:
+        """Coarse context key for D4 habituation."""
+        entropy_bin = round(float(np.nan_to_num(entropy, nan=0.5)), 1)
+        goal = context.get("env_goal_pos")
+        if goal is not None:
+            try:
+                goal = (int(goal[0]), int(goal[1]))
+            except Exception:
+                goal = None
+        size = int(context.get("size", 0) or 0)
+        return (entropy_bin, goal, size)
+
+    def _update_novelty_habituation(self, active_key: tuple) -> None:
+        """Decay old novelty traces and strengthen the active one."""
+        stale = []
+        for key, value in self._novelty_habituation.items():
+            decayed = float(value) * self._novelty_decay
+            if decayed < 1e-3:
+                stale.append(key)
+            else:
+                self._novelty_habituation[key] = decayed
+        for key in stale:
+            self._novelty_habituation.pop(key, None)
+        current = self._novelty_habituation.get(active_key, 0.0)
+        self._novelty_habituation[active_key] = min(
+            0.95,
+            current + self._novelty_learning_rate * (1.0 - current),
+        )
 
     # ── Pareto Front ──────────────────────────────────────────
 
