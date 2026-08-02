@@ -3,6 +3,24 @@
 This gate checks whether adding the PHCA cognitive cycle improves GridWorld
 agent behavior, not whether the runtime can execute without crashing.
 
+## Honesty (default discrete path)
+
+Under the current default (`InterventionConfig.disable_blended_scorer=True`),
+PHCA action selection is **geometry-dominated** (`pure_geometry_ablation`).
+Scenario PASS/FAIL therefore measures **planner competence vs baselines**, not
+prediction-primary control (D-156/D-161/D-195).
+
+Gate JSON dual-reports model fit without changing `gate.passed`:
+
+- `prediction_error_mean`
+- `secondary_prediction` (`gated: false`) — PHCA-only PE; do not treat scenario
+  PASS as proof that G′ chose actions
+
+Diagnostic ablations (learn-off ≡ geometry on L2 scenario metrics) are in
+[`docs/investigations/causal_diagnosis_g2inv05_2026-08-02.md`](investigations/causal_diagnosis_g2inv05_2026-08-02.md)
+and `logs/diagnosis_causal_g2inv05_*.json`. Continuous MPC is unchanged and
+remains prediction-primary.
+
 ## Benchmark Shape
 
 The core gate has three scenario levels plus three viewport (partial-observability) levels:

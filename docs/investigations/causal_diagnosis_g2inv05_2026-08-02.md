@@ -70,7 +70,7 @@ Exact A≡B on goal_rate, distance, reward, first_goal_cycle.
 
 | If | Then |
 |----|------|
-| H2 (confirmed) | Keep dual PE / secondary PE reporting; do not sell geometry PASS as prediction competence |
+| H2 (confirmed) | **Done (D-195 addendum):** causal gate dual-reports `secondary_prediction` / `prediction_error_mean` (not gated); do not sell geometry PASS as prediction competence |
 | H3 mixed | Optional **30-seed** blended opt-in experiment PR only if product wants that comparison; no default flip |
 | H1 partial | Gate-control / metric-weight docs revision only if product redefines “beat greedy” semantics |
 

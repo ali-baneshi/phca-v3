@@ -2596,6 +2596,34 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 
 ### Non-goals
 - No default action-selection change; no 30-seed re-gate as primary deliverable; no discrete G′ expansion / blueprint P3.
-- Follow-on backlog only: optional 30-seed blended opt-in experiment PR if product wants that comparison; secondary PE / metric-docs revisions if product redefines beat-greedy semantics.
+- Follow-on backlog only: optional 30-seed blended opt-in experiment PR if product wants that comparison; metric-docs revisions if product redefines beat-greedy semantics.
 
 - **Cross-ref:** D-156/D-158/D-161 (action), D-194 (honesty), G2-INV-05.
+
+### D-195 addendum — causal secondary PE dual-report (same day)
+
+- `phca_causal_eval.compare_agents` gate now includes `prediction_error_mean` and
+  `secondary_prediction` (`gated: false`, PHCA-only model-fit note). Scenario
+  `gate.passed` unchanged; CLI prints `prediction_error_mean=… (secondary; not gated)`.
+- Diagnosis driver exports `A_vs_B_prediction_error_mean` + per-condition secondary fields.
+- Mirrors L4 `mean_eval_prediction_error` honesty; does **not** flip blended default.
+
+---
+
+## Decision D-196: Investigation closeout docs sync
+
+- **Date:** 2026-08-02
+- **Author:** Investigation closeout session
+- **Category:** Tier 3 (docs honesty / claim integrity; no runtime change)
+- **Context:** After D-194/D-195, investigation sheets still listed mitigated gaps as “hottest” and claim_corrections still said demotion banners were unapplied.
+
+### What shipped (docs only)
+- Refreshed `docs/investigations/executive_summary_2026-08-02.md` (mitigated vs residual; D-195 subsection).
+- Synced `claim_corrections_2026-08-02.md` applied/residual status; updated `claim_inventory_2026-08-02.md` (C-CAUSAL, D-194/D-195/D-196 anchors, diagnosis artifacts).
+- Honesty pointer at top of `docs/phca_causal_evidence.md` for geometry-dominated PASS + `secondary_prediction`.
+- Gap register / hardening backlog closeout lines (H-19).
+
+### Non-goals
+- No Python/runtime or InterventionConfig default changes; no 30-seed re-gates; G2-INV-05 remains **Open** behaviorally.
+
+- **Cross-ref:** D-194, D-195, G2-INV-05, docs/investigations/.

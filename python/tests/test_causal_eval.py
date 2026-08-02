@@ -59,6 +59,34 @@ def test_causal_gate_fails_when_phca_loses_to_random():
     assert gate["controls"]["random"]["phca_better_count"] == 0
 
 
+def test_causal_secondary_prediction_dual_report_not_gated():
+    """PE is dual-reported on the gate; does not affect scenario PASS/FAIL."""
+    mod = _load_eval_module()
+    rows = [
+        {"agent": "phca", "seed": 0, "cycles": 10, "goal_rate": 0.8,
+         "first_goal_cycle": 2, "mean_distance_to_goal": 0.6,
+         "cumulative_reward": 5.0, "rbta_violation_rate": 0.0,
+         "prediction_error_mean": 0.42},
+        {"agent": "random", "seed": 0, "cycles": 10, "goal_rate": 0.1,
+         "first_goal_cycle": None, "mean_distance_to_goal": 4.0,
+         "cumulative_reward": -0.1, "rbta_violation_rate": 0.0},
+        {"agent": "greedy_observed", "seed": 0, "cycles": 10, "goal_rate": 0.6,
+         "first_goal_cycle": 4, "mean_distance_to_goal": 0.9,
+         "cumulative_reward": 4.0, "rbta_violation_rate": 0.0},
+    ]
+    summary = mod.aggregate_runs(rows)
+    assert summary["phca"]["prediction_error_mean"] == pytest.approx(0.42)
+    gate = mod.compare_agents(
+        summary, gate_controls=["random", "greedy_observed"],
+    )["gate"]
+    assert gate["passed"] is True
+    assert gate["prediction_error_mean"] == pytest.approx(0.42)
+    sec = gate["secondary_prediction"]
+    assert sec["gated"] is False
+    assert sec["prediction_error_mean"] == pytest.approx(0.42)
+    assert "secondary_prediction" in gate["interpretation_note"]
+
+
 def test_causal_eval_smoke_short_run_emits_required_sections():
     mod = _load_eval_module()
     report = mod.run_evaluation(
@@ -80,6 +108,9 @@ def test_causal_eval_smoke_short_run_emits_required_sections():
     assert "interpretation_note" in gate
     assert gate.get("geometry_dominated_frac", 0) >= 0.5
     assert "selector_mode_pct" in report["summary"]["phca"]
+    assert "prediction_error_mean" in report["summary"]["phca"]
+    assert gate.get("secondary_prediction", {}).get("gated") is False
+    assert gate.get("prediction_error_mean") is not None
 
 
 def test_level2_wrapper_exposes_constrained_observation_to_observed_greedy():

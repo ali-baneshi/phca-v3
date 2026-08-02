@@ -640,6 +640,27 @@ def compare_agents(
             gate_passed = gate_passed and passed
     phca_summary = summary.get("phca") or {}
     geo_dom = float(phca_summary.get("geometry_dominated_frac", 0.0))
+    pe_raw = phca_summary.get("prediction_error_mean")
+    pe_mean = float(pe_raw) if pe_raw is not None else None
+    secondary_prediction = {
+        "gated": False,
+        "prediction_error_mean": pe_mean,
+        "note": (
+            "PHCA-only model-fit dual-report (D-195 / L4 dual PE pattern). "
+            "Scenario PASS under geometry-dominated selection ≠ prediction competence; "
+            "PE does not affect gate.passed."
+        ),
+    }
+    base_note = (
+        "PASS/FAIL under geometry-dominated action selection measures planner "
+        "competence vs baselines, not prediction-primary control (D-156/D-161). "
+        "RBTA violation rate is reported but not gated."
+        if geo_dom >= 0.5
+        else (
+            "PASS/FAIL under non-geometry-dominated selection; still compare "
+            "selector_mode_pct and RBTA rates before claiming prediction-primary."
+        )
+    )
     comparisons["gate"] = {
         "passed": bool(gate_passed),
         "controls": gate_details,
@@ -648,15 +669,10 @@ def compare_agents(
         "rbta_violation_rate_mean": phca_summary.get("rbta_violation_rate_mean"),
         "geometry_dominated_frac": geo_dom,
         "selector_mode_pct": phca_summary.get("selector_mode_pct"),
+        "prediction_error_mean": pe_mean,
+        "secondary_prediction": secondary_prediction,
         "interpretation_note": (
-            "PASS/FAIL under geometry-dominated action selection measures planner "
-            "competence vs baselines, not prediction-primary control (D-156/D-161). "
-            "RBTA violation rate is reported but not gated."
-            if geo_dom >= 0.5
-            else (
-                "PASS/FAIL under non-geometry-dominated selection; still compare "
-                "selector_mode_pct and RBTA rates before claiming prediction-primary."
-            )
+            f"{base_note} See secondary_prediction for PE dual-report (not gated)."
         ),
     }
     return comparisons
@@ -812,6 +828,16 @@ def _print_gate_failures(comparisons: Dict[str, Any], *, level: str = "") -> Non
                 print(f"    {metric}: phca={phca_v} vs {control}={other_v}")
 
 
+def _print_secondary_prediction(gate: Dict[str, Any]) -> None:
+    """Print PE dual-report (not part of scenario PASS/FAIL)."""
+    pe = gate.get("prediction_error_mean")
+    if pe is None:
+        sec = gate.get("secondary_prediction") or {}
+        pe = sec.get("prediction_error_mean")
+    if pe is not None:
+        print(f"  prediction_error_mean={pe} (secondary; not gated)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PHCA causal evidence evaluation")
     parser.add_argument("--cycles", type=int, default=200)
@@ -865,6 +891,7 @@ def main() -> None:
                     f"  geometry_dominated_frac={gate.get('geometry_dominated_frac')} "
                     f"rbta_violation_rate_mean={gate.get('rbta_violation_rate_mean')}"
                 )
+            _print_secondary_prediction(gate)
             if gate.get("interpretation_note"):
                 print(f"  note: {gate['interpretation_note']}")
             if args.gate and not level_passed:
@@ -888,6 +915,7 @@ def main() -> None:
                 f"  geometry_dominated_frac={gate.get('geometry_dominated_frac')} "
                 f"rbta_violation_rate_mean={gate.get('rbta_violation_rate_mean')}"
             )
+        _print_secondary_prediction(gate)
         if gate.get("interpretation_note"):
             print(f"  note: {gate['interpretation_note']}")
         if args.gate and not overall_passed:

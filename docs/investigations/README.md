@@ -15,3 +15,5 @@ Executable investigation outputs (not architecture aspirational docs).
 Companion machine-readable probes under `logs/investigation_*.json` and `logs/diagnosis_causal_g2inv05_*.json`.
 
 Trust order: `logs/` / `results/` → `DECISIONS.md` → README / IMPLEMENTATION_STATUS / maturity_audit → these investigation notes → demoted subsidiary docs.
+
+Closeout sync: **D-196** (executive summary / claim sheets / causal honesty pointer). Residual open behavioral: G2-INV-05.

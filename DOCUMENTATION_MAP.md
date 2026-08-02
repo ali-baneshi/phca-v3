@@ -23,7 +23,7 @@ below.
 |---|---|
 | [README.md](README.md) | Project overview, quick start, latest benchmark summary |
 | [STATUS.md](STATUS.md) | **Frozen 2026-07-08 (through D-137)** — historical only; not gate SoT |
-| [DECISIONS.md](DECISIONS.md) | Design decision log (authoritative; through D-190+) |
+| [DECISIONS.md](DECISIONS.md) | Design decision log (authoritative; through D-196+) |
 | [docs/investigations/](docs/investigations/) | 2026-08 investigation gap register / hardening backlog |
 | [SETUP.md](SETUP.md) | Developer setup, Observatory commands |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | PR workflow, lint/test gates |

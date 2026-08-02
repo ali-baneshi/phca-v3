@@ -123,6 +123,8 @@ def run_condition(
         "summary_greedy_observed": summary.get("greedy_observed"),
         "summary_random": summary.get("random"),
         "gate": gate,
+        "prediction_error_mean": gate.get("prediction_error_mean"),
+        "secondary_prediction": gate.get("secondary_prediction"),
         "deltas_vs_greedy_observed": _phca_vs_greedy(summary, metrics),
         "metric_losers_vs_greedy": [
             m for m, d in _phca_vs_greedy(summary, metrics).items()
@@ -147,6 +149,26 @@ def build_cross_condition(conditions: List[Dict[str, Any]]) -> Dict[str, Any]:
             "approx_equal": abs(agr - bgr) < 0.02,
             "h2_supported": abs(agr - bgr) < 0.02,
         }
+        ape = a.get("prediction_error_mean")
+        if ape is None:
+            ape = (a.get("summary_phca") or {}).get("prediction_error_mean")
+        bpe = b.get("prediction_error_mean")
+        if bpe is None:
+            bpe = (b.get("summary_phca") or {}).get("prediction_error_mean")
+        if ape is not None and bpe is not None:
+            ape_f, bpe_f = float(ape), float(bpe)
+            cross["A_vs_B_prediction_error_mean"] = {
+                "A": ape_f,
+                "B": bpe_f,
+                "abs_delta": abs(ape_f - bpe_f),
+                "note": "Secondary PE dual-report; not scenario-gated (D-195).",
+            }
+    for cond in (a, b, c):
+        if not cond:
+            continue
+        cid = cond["id"]
+        cross[f"{cid}_secondary_prediction"] = cond.get("secondary_prediction")
+        cross[f"{cid}_prediction_error_mean"] = cond.get("prediction_error_mean")
     if a and c:
         agr = float((a.get("summary_phca") or {}).get("goal_rate_mean", 0.0))
         cgr = float((c.get("summary_phca") or {}).get("goal_rate_mean", 0.0))
@@ -225,6 +247,7 @@ def main() -> int:
             f"vs greedy={((row.get('summary_greedy_observed') or {}).get('goal_rate_mean'))} "
             f"losers={row['metric_losers_vs_greedy']} "
             f"geo_dom={gate.get('geometry_dominated_frac')} "
+            f"pe={row.get('prediction_error_mean')} "
             f"elapsed={row['elapsed_s']}s"
         )
 
