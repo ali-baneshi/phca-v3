@@ -241,8 +241,37 @@ def test_task_lock_planner_classification():
     action_m = report["action_metrics"]
     assert action_m["task_lock_planner_dominant"] is True
     assert action_m["selector_mode_pct"]["task_lock_planner"] == 100.0
+    assert action_m["geometry_dominated_action_selection"] is True
     cls = report["report_classification"]
     assert "discrete_task_lock_planner_dominant" in cls["expected_limitations"]
+    assert "geometry_dominated_action_selection" in cls["expected_limitations"]
+
+
+def test_pure_geometry_ablation_classification():
+    """Default GridWorld path (D-156) must be flagged as geometry-dominated."""
+    lines = []
+    for i in range(5):
+        lines.append(json.dumps({
+            "cycle_id": i,
+            "schema_version": 1,
+            "prediction_error": 1.0,
+            "module_timings": {},
+            "goal_reached": True,
+            "action_rationale": {
+                "best_score": 0.0,
+                "selector_mode": "pure_geometry_ablation",
+                "decision_reason": "ablation_pure_geometry",
+            },
+        }))
+    report = build_session_report({"env": "gridworld", "cycles": 5}, lines)
+    action_m = report["action_metrics"]
+    assert action_m["pure_geometry_ablation_dominant"] is True
+    assert action_m["geometry_dominated_action_selection"] is True
+    assert action_m["selector_mode_pct"]["pure_geometry_ablation"] == 100.0
+    cls = report["report_classification"]
+    assert "discrete_pure_geometry_ablation_dominant" in cls["expected_limitations"]
+    assert "geometry_dominated_action_selection" in cls["expected_limitations"]
+    assert "goal_success_can_mask_prediction_path_quality" in cls["observability_limitations"]
 
 
 def test_anchor_cycle_id_resolves_gaps():

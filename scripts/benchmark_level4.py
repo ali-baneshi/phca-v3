@@ -27,8 +27,9 @@ from phca.evaluation.metrics.forgetting import (
     forgetting_rate,
     forward_transfer,
     max_rolling_task_accuracy,
-    passes_forgetting_gate,
+    passes_forgetting_gate_with_coverage,
     task_accuracy,
+    valid_task_coverage,
 )
 from phca.world_model.mlp import apply_grid_rbta_bounds
 EnvTask = GridWorldTask | PendulumTask
@@ -327,6 +328,17 @@ def run_level4_benchmark(
             errs = [m.prediction_error for m in hist if m.prediction_error > 0]
             eval_pred_errors[tid] = float(np.mean(errs)) if errs else 0.0
 
+        passes, vacuous_blocked = passes_forgetting_gate_with_coverage(
+            delta,
+            n_tasks=n_tasks,
+            excluded_tasks=excluded,
+        )
+        coverage = valid_task_coverage(n_tasks, excluded)
+        mean_eval_pe = (
+            float(np.mean(list(eval_pred_errors.values())))
+            if eval_pred_errors
+            else 0.0
+        )
         seed_entry: Dict[str, Any] = {
             "seed": seed,
             "baselines": baselines,
@@ -334,9 +346,13 @@ def run_level4_benchmark(
             "delta_perf": delta,
             "excluded_tasks": excluded,
             "forgetting_rate": forgetting_rate(delta),
-            "passes_gate": passes_forgetting_gate(delta),
+            "forgetting_rate_metric": "goal_rate_retention_under_current_action_selection",
+            "passes_gate": passes,
+            "vacuous_pass_blocked": vacuous_blocked,
+            "valid_task_coverage": coverage,
             "per_task_accuracy": current,
             "eval_prediction_error": eval_pred_errors,
+            "mean_eval_prediction_error": mean_eval_pe,
             "forward_transfer": _forward_transfer,
             "m3_replay_total": cycle._m3_replay_total,
             "novel_goal_rate": cycle.mdim.snapshot().get("novel_goal_rate", 0.0) if hasattr(cycle, "mdim") and cycle.mdim is not None else 0.0,
@@ -363,6 +379,30 @@ def run_level4_benchmark(
         if any(tid in r["delta_perf"] for r in seed_results)
     }
     agg_forgetting = forgetting_rate(agg_delta)
+    # Aggregate exclusion = tasks never present in any seed's delta_perf
+    agg_excluded = [
+        tid for tid in range(n_tasks)
+        if not any(tid in r["delta_perf"] for r in seed_results)
+    ]
+    # Also block if mean per-seed valid coverage is too low
+    mean_coverage = float(np.mean([
+        r.get("valid_task_coverage", 1.0) for r in seed_results
+    ])) if seed_results else 0.0
+    agg_passes, agg_vacuous = passes_forgetting_gate_with_coverage(
+        agg_delta,
+        n_tasks=n_tasks,
+        excluded_tasks=agg_excluded,
+    )
+    if mean_coverage <= 0.5:
+        agg_passes = False
+        agg_vacuous = True
+    eval_pe_by_task = {
+        tid: float(np.mean([r["eval_prediction_error"].get(tid, 0.0) for r in seed_results]))
+        for tid in range(n_tasks)
+    }
+    mean_eval_pe = (
+        float(np.mean(list(eval_pe_by_task.values()))) if eval_pe_by_task else 0.0
+    )
     return {
         "config": {
             "tasks": n_tasks,
@@ -395,15 +435,16 @@ def run_level4_benchmark(
         "seed_results": seed_results,
         "delta_perf": agg_delta,
         "forgetting_rate": agg_forgetting,
-        "passes_gate": passes_forgetting_gate(agg_delta),
+        "forgetting_rate_metric": "goal_rate_retention_under_current_action_selection",
+        "passes_gate": agg_passes,
+        "vacuous_pass_blocked": agg_vacuous,
+        "valid_task_coverage": mean_coverage,
         "per_task_accuracy": {
             tid: float(np.mean([r["per_task_accuracy"].get(tid, 0.0) for r in seed_results]))
             for tid in range(n_tasks)
         },
-        "eval_prediction_error": {
-            tid: float(np.mean([r["eval_prediction_error"].get(tid, 0.0) for r in seed_results]))
-            for tid in range(n_tasks)
-        },
+        "eval_prediction_error": eval_pe_by_task,
+        "mean_eval_prediction_error": mean_eval_pe,
         "forward_transfer": {
             tid: float(np.mean([r["forward_transfer"].get(tid, 0.0) for r in seed_results]))
             for tid in range(n_tasks)
@@ -473,6 +514,10 @@ def main() -> int:
     out.write_text(json.dumps(report, indent=2, default=str))
 
     print(f"forgetting_rate={report['forgetting_rate']:.4f}")
+    print(f"forgetting_rate_metric={report.get('forgetting_rate_metric')}")
+    print(f"mean_eval_prediction_error={report.get('mean_eval_prediction_error', 0.0):.4f}")
+    print(f"valid_task_coverage={report.get('valid_task_coverage', 0.0):.4f}")
+    print(f"vacuous_pass_blocked={report.get('vacuous_pass_blocked')}")
     print(f"passes_gate={report['passes_gate']}")
     print(f"per_task_accuracy={report['per_task_accuracy']}")
     ft_agg = report.get("forward_transfer", {})

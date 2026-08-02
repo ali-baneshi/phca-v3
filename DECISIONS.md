@@ -2531,3 +2531,33 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 **Fix:** Removed unused function (failure_rate already computed inline in all four level functions).
 
 - **Tests/Validation:** 125+ core/motivation/memory/evaluation/causal tests pass. Pre-existing dashboard/ASI failures unchanged.
+
+---
+
+## Decision D-194: Senior-architect remediation Waves 1–3 (honesty + path integrity + runtime)
+
+- **Date:** 2026-08-02
+- **Author:** Remediation session (post investigation 2026-08-02)
+- **Category:** Tier 2 (eval honesty / silent no-op closure) / Tier 3 (docs + runtime hardening)
+- **Context:** Investigation gap register (`docs/investigations/`) confirmed geometry-default discrete control, L4 vacuous PASS, TSPL/M3 theater on discrete G′, synthetic RBTA entropy, async carry asymmetry, ASI stale-state continue.
+
+### Wave 1 — Claim integrity
+- L4: `passes_forgetting_gate_with_coverage` blocks vacuous PASS when >50% tasks excluded or <2 valid tasks; dual-report `mean_eval_prediction_error` + `valid_task_coverage`.
+- Doc demotion banners: STATUS, architecture, l4_root_cause, action_selection body, limitations, DOCUMENTATION_MAP, causal evidence recommendation, IMPLEMENTATION_STATUS D-159 caveat.
+- CI `benchmark-level-0` labeled L0 smoke / regression floor only.
+- Cycle docstring / `_select_action` comment honesty.
+
+### Wave 2 — Implemented-path integrity
+- Discrete G′ coverage metrics + warning (`gprime_coverage_ratio`); TSPL skipped when uncoupled; M3 replay guarded; honesty flags on rationale.
+- Async: RBTA carry applied in action loop; dead PerceptionFrame queue / inert age check removed.
+- RBTA: stop synthetic entropy 0.1; only G′/MDIM/ATTN feed ENTROPY floors.
+- `effective_stage_order` documented as metadata-only; M1 demoted to write-only trace.
+
+### Wave 3 — Runtime robustness
+- ASI SENSOR_FAILURE: anomaly + neutral action after 3 consecutive stale cycles.
+- M3: `fell_back_to_memory` flag on corrupt-DB fallback; surfaced via `m3_fallback_memory` failure event.
+- Recovery benchmark labeled injectable MVP (not full matrix A–F).
+
+- **Non-goals (unchanged):** blended default flip, discrete graph expansion, M5/M6/VSA/Φ-IQ L5, 30-seed re-runs.
+- **Tests:** forgetting coverage gate; action-selection defaults; ASI safe mode; M3 fallback; session_report geometry flags.
+- **Cross-ref:** D-156/D-158/D-161 (action), D-145/D-168 (L4), investigation gap register G1-INV-04 / G5-INV-08..15.

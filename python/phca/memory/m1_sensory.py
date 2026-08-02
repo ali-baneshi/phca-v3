@@ -1,8 +1,13 @@
 """
 M1 Sensory Buffer — v3.0 §3.1 Memory Hierarchy.
 
-A circular buffer that holds the last 10 × d_sensor time steps of sensory data.
-Overwritten on each cycle; no locking required (transient, single-writer).
+A circular **trace buffer** that holds the last 10 × d_sensor time steps of
+sensory data. Overwritten on each cycle; no locking required (transient,
+single-writer).
+
+**Hot-path status:** written every cycle by ``CognitiveCycle``; **not read**
+for action selection, prediction, or learning. Treat as an observability /
+debug trace, not a decision-hierarchy consumer.
 
 Cross-ref: v3.0 §3.1 Table, Blueprint §B
 """
@@ -17,10 +22,11 @@ from ..config import StateVector
 
 class M1SensoryBuffer:
     """
-    M1 Sensory Buffer — circular buffer.
+    M1 Sensory Buffer — circular trace buffer (write-only on the hot path).
 
     Capacity: 10 × sensor_dim samples (transient, ~100ms window).
     Concurrency: Overwrite — no locking (single-writer).
+    Decision path: none — consumers are offline/debug only.
     """
 
     def __init__(self, sensor_dim: int, capacity: int | None = None):

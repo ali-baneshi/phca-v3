@@ -154,7 +154,7 @@ Every push/PR to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.y
 | **lint** | T0 | `ruff check python/` |
 | **test-python** | T0 | ~792 tests (fast path; MuJoCo integration files excluded) |
 | **observatory-check** | T0 | `phca_replay.py --check` on session fixtures |
-| **benchmark-level-0** | T0 | Φ-IQ quick regression vs [`logs/benchmark_ci_baseline.json`](logs/benchmark_ci_baseline.json) |
+| **benchmark-level-0** | T0 | **L0 smoke / Φ-IQ regression floor only** (not L2–L4 cognitive competence); vs [`logs/benchmark_ci_baseline.json`](logs/benchmark_ci_baseline.json) |
 | **noise-injector** | T0 | ASI NoiseInjector unit tests in `python/phca/asi/tests/` |
 | **mujoco-gate** | T0 | Pendulum + Cartpole + Reacher smoke via `make mujoco-ci` |
 
@@ -772,15 +772,16 @@ sign-off reports.
 | Document | Description |
 | :--- | :--- |
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | Which docs are living vs. historical vs. aspirational. |
+| [docs/investigations/](docs/investigations/) | 2026-08 gap register, claim inventory, hardening backlog (measured remediation). |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria x code x gates matrix; the most current per-environment status, including the D-156 default change. |
-| [STATUS.md](STATUS.md) | Audit progress, issue registry, test/benchmark status. |
+| [STATUS.md](STATUS.md) | **Frozen through D-137** — historical audit registry; not authoritative for post-D-137 gates. |
 | [DECISIONS.md](DECISIONS.md) | Complete design decision log, including reverted attempts and negative results — the single most authoritative document in this repository. D-161 contains the post-RBTA-fix re-evaluation of the blended-scorer default. |
-| [docs/architecture.md](docs/architecture.md) | Architecture overview - 12-step cycle, module map, invariants. |
+| [docs/architecture.md](docs/architecture.md) | Architecture overview - 12-step cycle, module map, invariants (banner: pre-D-156 drift). |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Current Phi-IQ definition, levels, and interpretation caveats. |
-| [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors. Updated for D-156/Round-8 — carries a default-behavior warning at the top and links to the RBTA artifact caveat. |
+| [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors — geometry default first; blended opt-in. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot currently do; open backlog items. |
-| [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | Root-cause history of the Level-4 forgetting benchmark, including the evaluation-protocol confound found and fixed in D-145. |
-| [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; cross-check against D-151/D-153/D-155/D-156 for the current 30-seed results if this document has not yet been refreshed. |
+| [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | **Superseded** D-137-era L4 notes; current L4 is 37.83% FAIL @ 30 seeds. |
+| [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; 30-seed outcomes (D-151/D-161). |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL schema, replay/scrub, integrity checks. |
 | [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers (`make reproduce`). |
 | [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1-A5, RBTA, MDIM, failure modes) - the aspirational design target this README compares actual behavior against. |

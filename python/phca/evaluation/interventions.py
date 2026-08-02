@@ -86,6 +86,12 @@ class InterventionConfig:
         return self
 
     def effective_stage_order(self) -> List[str]:
+        """Ablation / experiment metadata only — not a runtime stage dispatcher.
+
+        ``CognitiveCycle`` does **not** call this method. The only stage-order
+        effect honored at runtime is the prediction↔regulation swap when
+        ``stage_order == DESYNC_STAGE_ORDER`` (see ``cycle.py``).
+        """
         if self.minimal_cycle:
             return list(MINIMAL_STAGE_ORDER)
         if self.stage_order is not None:

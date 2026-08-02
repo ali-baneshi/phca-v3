@@ -1,6 +1,14 @@
 # Level-4-lite Root-Cause Verdict — 2026-07-08
 
-## Verdict: **D — Eval start-position confound**
+> **⚠️ SUPERSEDED.** This D-137-era verdict (0% forgetting PASS via train-end eval
+> position) was reversed by **D-145** (random eval starts restored) and re-measured
+> at adequate power: **forgetting_rate=37.83% FAIL @ 30 seeds**
+> (`logs/benchmark_level4_30s.json`, 2026-07-18) with D-168 PER fix active.
+> See [README.md](../README.md) L4 section, [DECISIONS.md](../DECISIONS.md) D-145/D-168,
+> and [docs/experiments/re-run_l4_and_d161_round14.md](experiments/re-run_l4_and_d161_round14.md).
+> Keep this file only as historical root-cause notes for the D-137 confound.
+
+## Verdict: **D — Eval start-position confound** (historical)
 
 | Class | Finding |
 |-------|---------|

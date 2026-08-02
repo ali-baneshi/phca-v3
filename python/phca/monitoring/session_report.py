@@ -477,12 +477,33 @@ def _build_agent_report_from_frames(
         "observability_limitations": [],
         "expected_limitations": [],
     }
+    geometry_dominant_pct = (
+        float(selector_mode_pct.get("task_lock_planner", 0.0))
+        + float(selector_mode_pct.get("pure_geometry_ablation", 0.0))
+        + float(selector_mode_pct.get("adaptive_geometry_fallback", 0.0))
+    )
     if float(selector_mode_pct.get("task_lock_planner", 0.0)) >= 50.0:
         report_classification["expected_limitations"].append(
             "discrete_task_lock_planner_dominant"
         )
         report_classification["observability_limitations"].append(
             "goal_success_can_mask_prediction_path_quality"
+        )
+    # Default GridWorld path (D-156/D-161) uses pure_geometry_ablation; treat it
+    # like task_lock for honesty — goal success can mask prediction-path quality.
+    if float(selector_mode_pct.get("pure_geometry_ablation", 0.0)) >= 50.0:
+        report_classification["expected_limitations"].append(
+            "discrete_pure_geometry_ablation_dominant"
+        )
+        if "goal_success_can_mask_prediction_path_quality" not in report_classification[
+            "observability_limitations"
+        ]:
+            report_classification["observability_limitations"].append(
+                "goal_success_can_mask_prediction_path_quality"
+            )
+    if geometry_dominant_pct >= 50.0:
+        report_classification["expected_limitations"].append(
+            "geometry_dominated_action_selection"
         )
     if str(meta.get("status", "") or "").lower() == "incomplete":
         report_classification["observability_limitations"].append(
@@ -542,6 +563,15 @@ def _build_agent_report_from_frames(
             "selector_mode_pct": selector_mode_pct,
             "task_lock_planner_dominant": (
                 float(selector_mode_pct.get("task_lock_planner", 0.0)) >= 50.0
+            ),
+            "pure_geometry_ablation_dominant": (
+                float(selector_mode_pct.get("pure_geometry_ablation", 0.0)) >= 50.0
+            ),
+            "geometry_dominated_action_selection": (
+                float(selector_mode_pct.get("task_lock_planner", 0.0))
+                + float(selector_mode_pct.get("pure_geometry_ablation", 0.0))
+                + float(selector_mode_pct.get("adaptive_geometry_fallback", 0.0))
+                >= 50.0
             ),
             "anchor_action_status": anchor_action_status,
             "anchor_action_moments": anchor_moment_flags,

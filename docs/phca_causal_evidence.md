@@ -191,9 +191,13 @@ This is the deepest finding across all 4 review rounds. After removing the task_
 2. **G′ world model may not converge fast enough** — within 200 cycles the learned dynamics may not be accurate enough to improve action selection beyond greedy.
 3. **Action selection may still underuse prediction scores** — despite the Round-1 fix, the architecture might still effectively default to geometry-based selection in practice.
 
-### Recommendation
+### Recommendation (status)
 
-Run L2 at `--grid-size 10` to test hypothesis (1). If PHCA outperforms greedy_observed in a larger space, the architecture is sound but 5×5 is too simple a discriminator. If still FAIL at 10×10, investigation must focus on G′ prediction quality and the action selection integration path.
+**Done:** L2/L3 at 10×10 were run at 30 seeds (D-156/D-161). Outcome is **mixed**:
+10×10 L2 pure-geometry PASS vs `greedy_observed`; 5×5 L2 and many L3 configs still FAIL;
+viewport scenarios PASS. Neither pure geometry nor blended wins universally.
+Further work should focus on prediction-quality under opt-in blended scoring and
+uncoupling goal_rate from planner confounds — not repeating the "run 10×10" pilot.
 
 ## Prior Measurement (5 seeds, historical)
 

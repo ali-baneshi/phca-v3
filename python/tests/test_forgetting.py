@@ -14,7 +14,10 @@ from phca.evaluation.metrics.forgetting import (
     forgetting_rate,
     max_rolling_task_accuracy,
     passes_forgetting_gate,
+    passes_forgetting_gate_with_coverage,
     task_accuracy,
+    vacuous_pass_blocked,
+    valid_task_coverage,
 )
 
 
@@ -37,6 +40,38 @@ class TestForgettingMetrics:
     def test_passes_gate_threshold(self):
         assert passes_forgetting_gate({0: -0.04, 1: -0.03})
         assert not passes_forgetting_gate({0: -0.04, 1: -0.06})
+
+    def test_vacuous_pass_blocked_seed_1542_shape(self):
+        """8/10 tasks excluded must not yield a forgetting PASS."""
+        excluded = [0, 1, 2, 3, 4, 5, 6, 8]
+        assert vacuous_pass_blocked(10, excluded) is True
+        assert valid_task_coverage(10, excluded) == pytest.approx(0.2)
+        # Remaining tasks have zero drop — old gate would PASS
+        delta = {7: 0.0, 9: 0.0}
+        assert passes_forgetting_gate(delta) is True
+        passes, blocked = passes_forgetting_gate_with_coverage(
+            delta, n_tasks=10, excluded_tasks=excluded,
+        )
+        assert passes is False
+        assert blocked is True
+
+    def test_coverage_gate_allows_well_covered_seed(self):
+        excluded = [9]  # 1/10 excluded
+        delta = {tid: -0.02 for tid in range(9)}
+        passes, blocked = passes_forgetting_gate_with_coverage(
+            delta, n_tasks=10, excluded_tasks=excluded,
+        )
+        assert blocked is False
+        assert passes is True
+
+    def test_min_valid_tasks_blocks_single_survivor(self):
+        excluded = list(range(9))  # 1 valid of 10
+        delta = {9: 0.0}
+        passes, blocked = passes_forgetting_gate_with_coverage(
+            delta, n_tasks=10, excluded_tasks=excluded,
+        )
+        assert blocked is True
+        assert passes is False
 
     def test_max_rolling_beats_last_window(self):
         hist = {

@@ -187,8 +187,69 @@ def passes_forgetting_gate(
     delta: Dict[int, float],
     threshold: float = 0.05,
 ) -> bool:
-    """True when max relative drop is within ``threshold`` (default 5%)."""
+    """True when max relative drop is within ``threshold`` (default 5%).
+
+    Note: callers that exclude low-baseline tasks must also apply
+    :func:`vacuous_pass_blocked` so sparsely-valid seeds cannot PASS.
+    """
     if not delta:
         return True
     max_drop = max(-v for v in delta.values())
     return max_drop <= threshold
+
+
+def valid_task_coverage(
+    n_tasks: int,
+    excluded_tasks: List[int],
+) -> float:
+    """Fraction of tasks retained after baseline exclusion (0..1)."""
+    if n_tasks <= 0:
+        return 0.0
+    n_excl = len(excluded_tasks)
+    return max(0.0, min(1.0, (n_tasks - n_excl) / float(n_tasks)))
+
+
+def vacuous_pass_blocked(
+    n_tasks: int,
+    excluded_tasks: List[int],
+    *,
+    max_exclude_frac: float = 0.5,
+    min_valid_tasks: int = 2,
+) -> bool:
+    """True when a forgetting PASS would be vacuous (too few valid tasks).
+
+    Blocks the seed-1542 pattern: 8/10 tasks excluded → FR=0 on 2 leftovers.
+    """
+    if n_tasks <= 0:
+        return True
+    n_excl = len(excluded_tasks)
+    n_valid = n_tasks - n_excl
+    if n_valid < min_valid_tasks:
+        return True
+    if n_excl > max_exclude_frac * n_tasks:
+        return True
+    return False
+
+
+def passes_forgetting_gate_with_coverage(
+    delta: Dict[int, float],
+    *,
+    n_tasks: int,
+    excluded_tasks: List[int],
+    threshold: float = 0.05,
+    max_exclude_frac: float = 0.5,
+    min_valid_tasks: int = 2,
+) -> tuple[bool, bool]:
+    """Gate result plus whether a vacuous PASS was blocked.
+
+    Returns ``(passes_gate, vacuous_pass_blocked)``.
+    """
+    blocked = vacuous_pass_blocked(
+        n_tasks,
+        excluded_tasks,
+        max_exclude_frac=max_exclude_frac,
+        min_valid_tasks=min_valid_tasks,
+    )
+    if blocked:
+        return False, True
+    return passes_forgetting_gate(delta, threshold=threshold), False

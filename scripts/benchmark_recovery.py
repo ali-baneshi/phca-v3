@@ -178,6 +178,11 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, default=str))
 
+    print(
+        "recovery_benchmark=injectable_MVP "
+        "(not whitepaper full failure matrix A–F)"
+    )
+    report["scope"] = "injectable_MVP_not_full_matrix"
     print(f"recovery_rate={report['recovery_rate']:.2f}")
     for sid, detail in report["scenarios"].items():
         print(f"  {sid}: recovered={detail.get('recovered')}")

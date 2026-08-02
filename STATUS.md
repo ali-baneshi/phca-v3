@@ -1,8 +1,15 @@
 # PHCA v3.0 — Project Status
 
+> **⚠️ FROZEN / NOT AUTHORITATIVE after D-137.** Last updated **2026-07-08**.
+> This file stops at D-137 and does **not** reflect D-145–D-168+ (L4 37.83% FAIL,
+> geometry-default action selection, causal 30-seed mixed results, RBTA artifact).
+> For current truth use: [DECISIONS.md](DECISIONS.md), [README.md](README.md),
+> [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), and
+> [docs/investigations/](docs/investigations/).
+
 **Last updated:** 2026-07-08  
 **Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07); L4b gate fixed (D-137)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-137)
+**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-137) — incomplete vs current repo
 
 ---
 

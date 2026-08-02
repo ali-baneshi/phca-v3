@@ -27,7 +27,6 @@ from phca.config import (
     ASIStatus,
     ActionResult,
     GoalVector,
-    PerceptionFrame,
     ResourceBounds,
     StateVector,
     StreamID,
@@ -90,6 +89,11 @@ ENERGY_NORM_FLOPS = 60_000_000.0
 
 STEADY_STATE_GPRIME_ERROR_THRESHOLD = 1.5
 STEADY_STATE_GPRIME_SKIP_MOD = 2
+# Discrete pgmpy G' only models the first N state dims (capacity/perf tradeoff).
+DISCRETE_GRAPH_MAX_DIMS = 10
+GPRIME_COVERAGE_WARN_THRESHOLD = 0.25
+# Consecutive ASI SENSOR_FAILURE cycles before forcing neutral action.
+ASI_STALE_SAFE_THRESHOLD = 3
 
 
 @dataclass
@@ -122,12 +126,14 @@ class CycleMetrics:
 
 
 class CognitiveCycle:
-    """Phase 3.1 cognitive cycle orchestrator.
+    """Cognitive cycle orchestrator (12-step active subset of blueprint xa77.B).
 
-    Runs 15-step cycles (Phase 3.1 subset of blueprint xa77.B) connecting
-    all modules: ASI -> M2 -> G' -> PE -> PEU -> TSPL -> action -> RBTA.
+    Sub-step labels 0–19: ASI(0), memory(1), prediction(2–4), PEU/TSPL/learn(5–7)
+    after action, MDIM/APC/ATTN/HPM(8–13) before action, action(9), RBTA(14),
+    logging(15), consolidation(16–18), increment(19).
 
-    Phase 3.2 adds Steps 8 (Attention), 10-13 (MDIM + CR), 16-18 (HPM).
+    Discrete GridWorld default action selection is pure geometry
+    (``disable_blended_scorer=True``); continuous MPC remains prediction-scored.
     """
 
     def __init__(
@@ -198,6 +204,8 @@ class CognitiveCycle:
         self.last_empowerment: float = 0.0
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
+        self._asi_stale_safe_mode: bool = False
+        self._asi_stale_anomaly_emitted: bool = False
 
         # Phase 6 / A2: action-space branch. Resolve once; GridWorld and any
         # env without get_action_space() fall back to DiscreteSpace(n).
@@ -274,15 +282,21 @@ class CognitiveCycle:
         self._rbta_action_candidate_limit: Optional[int] = None
         self._last_step_reward: float = 0.0
 
-        # Async cycle (Feature 1) — off by default
+        # Async cycle (Feature 1) — off by default; experimental (carry applied in
+        # action loop; PerceptionFrame queue scaffolding removed — incomplete).
         self._async_mode: bool = False
-        self._perception_queue: queue.Queue[PerceptionFrame] = queue.Queue(maxsize=1)
         self._action_result_queue: queue.Queue[ActionResult] = queue.Queue(maxsize=1)
         self._action_thread: threading.Thread | None = None
         self._learning_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._async_reward: float = 0.0
-        self._async_terminal: bool = False
+
+        # World-model integrity / learning effectiveness (honesty flags)
+        self.gprime_modeled_dims: int = state_dim
+        self.gprime_coverage_ratio: float = 1.0
+        self._gprime_coverage_warned: bool = False
+        self.tspl_world_model_coupled: bool = hasattr(gprime, "set_tspl_bias")
+        self.m3_gprime_replay_effective: bool = hasattr(gprime, "learn_m3_episodes")
+        self._refresh_gprime_coverage()
 
         # Learning efficiency counters (Scenario 1)
         self._cache_hit: int = 0
@@ -372,12 +386,23 @@ class CognitiveCycle:
             # Phase A: Perception + Prediction + Regulation
             hpm_spec = self._run_perception_cycle(metrics)
 
+            # Surface M3 DB fallback for gates / Observatory
+            m3 = getattr(self.consolidation, "m3", None)
+            if m3 is not None and getattr(m3, "fell_back_to_memory", False):
+                if "m3_fallback_memory" not in metrics.failure_events:
+                    metrics.failure_events.append("m3_fallback_memory")
+
             # Phase B: Action selection + environment step
             t_action = time.perf_counter()
-            if self._rbta_skip_feedback:
+            force_safe = self._rbta_skip_feedback or self._asi_stale_safe_mode
+            if force_safe:
                 action = self._neutral_action()
                 self.last_candidate_scores = []
                 self.last_candidate_rollouts = []
+                safe_reason = (
+                    "asi_stale_safe" if self._asi_stale_safe_mode and not self._rbta_skip_feedback
+                    else "rbta_safe"
+                )
                 self.last_action_rationale = self._finalize_action_rationale({
                     "explored": False,
                     "eps": 0.0,
@@ -389,12 +414,13 @@ class CognitiveCycle:
                         None if self._is_continuous else int(action)
                     ),
                     "task_lock": bool(self._task_lock),
-                    "rbta_safe_mode": True,
+                    "rbta_safe_mode": bool(self._rbta_skip_feedback),
+                    "asi_stale_safe_mode": bool(self._asi_stale_safe_mode),
                     "selector_mode": (
                         "continuous_safe_mode" if self._is_continuous else "discrete_safe_mode"
                     ),
                     "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-                }, decision_reason="rbta_safe")
+                }, decision_reason=safe_reason)
             else:
                 action = self._select_action()
             metrics.module_timings["action_selection"] = (
@@ -466,7 +492,8 @@ class CognitiveCycle:
                     self._fallback_controller.notify_failure(
                         e.mode_id, e.severity, self.cycle_count,
                     )
-            metrics.failure_events = [e.mode_id for e in events]
+            prior_events = list(metrics.failure_events)
+            metrics.failure_events = prior_events + [e.mode_id for e in events]
             metrics.recovery_active = self._resilience_recovery.any_active()
             metrics.emergency_active = self._fallback_controller.active()
             metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
@@ -592,9 +619,24 @@ class CognitiveCycle:
 
         if status == ASIStatus.SENSOR_FAILURE:
             self.sensor_failure_count += 1
+            # Keep stale current_state; after threshold force neutral action.
+            self._asi_stale_safe_mode = (
+                self.sensor_failure_count >= ASI_STALE_SAFE_THRESHOLD
+            )
+            metrics.failure_events.append("asi_sensor_failure_stale_state")
+            if not self._asi_stale_anomaly_emitted:
+                self._asi_stale_anomaly_emitted = True
+                _log(
+                    logger, "warning", "asi.sensor_failure_stale_state",
+                    sensor_failure_count=self.sensor_failure_count,
+                    safe_mode=self._asi_stale_safe_mode,
+                    threshold=ASI_STALE_SAFE_THRESHOLD,
+                )
         else:
             self.current_state = clean_state
             self.sensor_failure_count = 0
+            self._asi_stale_safe_mode = False
+            self._asi_stale_anomaly_emitted = False
 
         # Update adaptive grounding level after prediction (confidence available)
         # Grounding level flows through StateVector.grounding_level downstream
@@ -920,7 +962,7 @@ class CognitiveCycle:
             if len(self._probe_buffer) > max_samples:
                 self._probe_buffer.pop(0)
         t4 = time.perf_counter()
-        if self.interventions.enable_tspl:
+        if self.interventions.enable_tspl and self.tspl_world_model_coupled:
             theta_new, _ = self.tspl.update(
                 StreamID.P_STREAM,
                 metrics.prediction_error,
@@ -929,11 +971,23 @@ class CognitiveCycle:
                 gradient=None,
                 accuracy_override=mlp_accuracy,
             )
-            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
-                bias = theta_new.get("gprime")
-                if bias is not None:
-                    self.gprime.set_tspl_bias(bias)
+            bias = theta_new.get("gprime")
+            if bias is not None and hasattr(self.gprime, "set_tspl_bias"):
+                self.gprime.set_tspl_bias(bias)
+        elif self.interventions.enable_tspl and not self.tspl_world_model_coupled:
+            # Discrete/graph G' cannot consume TSPL bias — skip theater update.
+            metrics.module_timings.setdefault("tspl_skipped_uncoupled", 0.0)
         metrics.module_timings["tspl"] = (time.perf_counter() - t4) * 1000
+        # Honesty flags for Observatory / diagnostics
+        self.last_action_rationale.setdefault(
+            "tspl_world_model_coupled", self.tspl_world_model_coupled,
+        )
+        self.last_action_rationale.setdefault(
+            "m3_gprime_replay_effective", self.m3_gprime_replay_effective,
+        )
+        self.last_action_rationale.setdefault(
+            "gprime_coverage_ratio", self.gprime_coverage_ratio,
+        )
 
         # LEARN: update G' with observed transition, weighted by attention
         t_glearn = time.perf_counter()
@@ -1048,38 +1102,34 @@ class CognitiveCycle:
         self._async_mode = False
         _log(logger, "info", "cycle.async.stop")
 
-    def _build_async_perception_frame(self) -> PerceptionFrame:
-        """Build a fresh PerceptionFrame from the current environment state."""
-        raw_obs = self.env.get_observation()
-        return PerceptionFrame(
-            observation=raw_obs,
-            action=None,
-            timestamp=time.time(),
-            age=0,
-        )
-
     def _action_loop(self) -> None:
-        """Thread A: continuous perception-action loop.
+        """Thread A: continuous perception-action loop (experimental).
 
         Each iteration:
-          1. Snapshot environment observation into a PerceptionFrame
+          1. Apply RBTA carry from prior learning-thread cycle (parity with sync)
           2. Run perception cycle (ASI → M2 → prediction → regulation)
           3. Select and execute action
           4. Push ActionResult to ``_action_result_queue``
           5. If terminal, reset environment
+
+        Note: async mode remains experimental; calibration probes are sync-only.
         """
         while not self._stop_event.is_set():
             try:
-                # Reset RBTA enforcement flags each cycle (D-168 style carry-forward)
+                # Reset RBTA flags then apply carry (same as sync step())
                 self._rbta_skip_feedback = False
                 self._rbta_skip_consolidation = False
                 self._rbta_action_candidate_limit = None
+                if self._rbta_carry_action == EnforcerAction.TERMINATE:
+                    self._rbta_skip_feedback = True
+                elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
+                    self._rbta_action_candidate_limit = 1
 
                 # Phase A: Perception + Prediction + Regulation
                 self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
 
                 # Phase B: Action selection + env step
-                if self._rbta_skip_feedback:
+                if self._rbta_skip_feedback or self._asi_stale_safe_mode:
                     action = self._neutral_action()
                 else:
                     action = self._select_action()
@@ -1092,7 +1142,7 @@ class CognitiveCycle:
                     obs, step_reward, terminal, info = self.env.step(action)
                 self._last_step_reward = float(step_reward)
 
-                # Push result to learning thread
+                # Push result to learning thread (age unused — queue emptiness is the miss signal)
                 result = ActionResult(
                     reward=step_reward,
                     terminal=terminal,
@@ -1121,7 +1171,7 @@ class CognitiveCycle:
 
         Each iteration:
           1. Pull an ActionResult from the queue (blocking with timeout)
-          2. If stale (age > STALE_THRESHOLD_MS), skip learning
+          2. If queue miss (None), skip learning (inert age-staleness removed)
           3. Run the learning phase (PEU + TSPL + G'.learn + M3)
           4. RBTA enforcement + resilience + logging + consolidation
         """
@@ -1138,15 +1188,6 @@ class CognitiveCycle:
 
                 t_start = time.perf_counter()
                 metrics = CycleMetrics(cycle_id=self.cycle_count)
-
-                # Reset RBTA flags each learning cycle
-                self._rbta_skip_feedback = False
-                self._rbta_skip_consolidation = False
-                self._rbta_action_candidate_limit = None
-                if self._rbta_carry_action == EnforcerAction.TERMINATE:
-                    self._rbta_skip_feedback = True
-                elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
-                    self._rbta_action_candidate_limit = 1
 
                 # ── Learning efficiency tracking (Scenario 1) ─────────
                 if result is None:
@@ -1175,10 +1216,8 @@ class CognitiveCycle:
                             "learning_starvation", severity=0.7, cycle=self.cycle_count,
                         )
 
-                # ── Staleness detection (Scenario 2) ──────────────────
-                if result is None or result.age > STALE_THRESHOLD_MS:
-                    if result is not None:
-                        self._staleness_trigger_count += 1
+                # Queue miss → skip learning (age field is unused / always 0)
+                if result is None:
                     metrics.latency_ms = (time.perf_counter() - t_start) * 1000
                     metrics.staleness_ratio = self._staleness_trigger_count / max(self.cycle_count, 1)
                     self._finalize_learning_cycle(metrics, None)
@@ -1255,7 +1294,8 @@ class CognitiveCycle:
                 self._fallback_controller.notify_failure(
                     e.mode_id, e.severity, self.cycle_count,
                 )
-        metrics.failure_events = [e.mode_id for e in events]
+        prior_events = list(metrics.failure_events)
+        metrics.failure_events = prior_events + [e.mode_id for e in events]
         metrics.recovery_active = self._resilience_recovery.any_active()
         metrics.emergency_active = self._fallback_controller.active()
         metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
@@ -1399,8 +1439,12 @@ class CognitiveCycle:
             _log(logger, "debug", "cycle.m3_replay.skipped_write_disabled",
                  cycle=self.cycle_count)
             return 0
+        if not self.m3_gprime_replay_effective:
+            _log(logger, "debug", "cycle.m3_replay.skipped_gprime_uncoupled",
+                 cycle=self.cycle_count, gprime_type=type(self.gprime).__name__)
+            return 0
         m3 = self.consolidation.m3
-        boost_mult = 2 if self.gprime.replay_boost else 1
+        boost_mult = 2 if getattr(self.gprime, "replay_boost", False) else 1
         n_budget = self._m3_replay_budget * boost_mult
 
         if hasattr(m3, "sample_episodes_per"):
@@ -1532,6 +1576,7 @@ class CognitiveCycle:
     def _mechanism_for_reason(self, decision_reason: str) -> str:
         return {
             "rbta_safe": "rbta_safe",
+            "asi_stale_safe": "asi_stale_safe",
             "explore": "explore",
             "continuous_explore": "explore",
             "d5_stay": "stay",
@@ -1711,7 +1756,8 @@ class CognitiveCycle:
             self.last_candidate_rollouts = []
             return self.env.stay_action
 
-        # Task-lock modulates goal context; prediction-scored path always runs.
+        # Task-lock modulates goal context. Prediction-scored (blended) path runs
+        # only when disable_blended_scorer=False; default returns geometry early.
         # Geometry suggestion (BFS/Manhattan) is blended as an uncertainty-weighted
         # prior — strongest when G' is uncertain, fading as confidence grows.
         geo_action: Optional[int] = None
@@ -2623,7 +2669,7 @@ class CognitiveCycle:
         if not self._warned_estimated_bounds:
             self._warned_estimated_bounds = True
             _log(logger, "warning", "rbta.estimated_bounds",
-                 detail="energy=runtime×50 memory=formulaic entropy=hardcoded_0.1_for_9_of_12_modules")
+                 detail="energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na")
         # Map metric keys → RBTA module IDs
         # Map metric keys → RBTA module IDs.
         # NOTE: action_selection uses "ACTION" (not "WM") to avoid overwriting
@@ -2709,23 +2755,61 @@ class CognitiveCycle:
             aw_norm = aw_abs / aw_abs.sum()
             attn_ent = float(-np.sum(aw_norm * np.log(aw_norm))) / np.log(len(aw_norm))
             self.belief_entropies["ATTN"] = attn_ent
-        # Nominal entropy for remaining modules (above default floor 0.01)
-        for mod in ("ASI", "WM", "PE", "PEU", "TSPL-P", "CR", "HPM", "CONSOL", "ACTION"):
-            if mod not in self.belief_entropies:
-                self.belief_entropies[mod] = 0.1
+        # A3 entropy scope: only modules with real epistemic signals (G'/MDIM/ATTN).
+        # Other modules omit entropy → RBTA skips ENTROPY floor (entropy_na).
+        self._entropy_na_modules = (
+            "ASI", "WM", "PE", "PEU", "TSPL-P", "CR", "HPM", "CONSOL", "ACTION",
+        )
+        if not getattr(self, "_entropy_scope_logged", False):
+            self._entropy_scope_logged = True
+            _log(
+                logger, "info", "rbta.entropy_scope",
+                real_modules=["G'", "MDIM", "ATTN"],
+                entropy_na_modules=list(self._entropy_na_modules),
+                detail="A3 floors enforced only where epistemic entropy is measured",
+            )
 
     # ── G' Factory Helpers ────────────────────────────────────
+
+    def _refresh_gprime_coverage(self) -> None:
+        """Record discrete G' dim coverage; warn once if below threshold."""
+        gp = self.gprime
+        if isinstance(gp, (WorldModelMLP, WorldModelMLPEnsemble, HybridGraphMLP)):
+            modeled = int(self.state_dim)
+        elif hasattr(gp, "has_gaussian_nodes") and gp.has_gaussian_nodes():
+            modeled = int(self.state_dim)
+        else:
+            modeled = int(min(DISCRETE_GRAPH_MAX_DIMS, self.state_dim))
+        self.gprime_modeled_dims = modeled
+        self.gprime_coverage_ratio = (
+            float(modeled) / float(self.state_dim) if self.state_dim > 0 else 1.0
+        )
+        self.tspl_world_model_coupled = hasattr(gp, "set_tspl_bias")
+        self.m3_gprime_replay_effective = hasattr(gp, "learn_m3_episodes")
+        if (
+            self.gprime_coverage_ratio < GPRIME_COVERAGE_WARN_THRESHOLD
+            and not self._gprime_coverage_warned
+        ):
+            self._gprime_coverage_warned = True
+            _log(
+                logger, "warning", "gprime.coverage_low",
+                modeled_dims=self.gprime_modeled_dims,
+                state_dim=self.state_dim,
+                coverage_ratio=round(self.gprime_coverage_ratio, 4),
+                cap=DISCRETE_GRAPH_MAX_DIMS,
+            )
 
     @staticmethod
     def _build_discrete_graph_nodes(graph: Any, state_dim: int) -> None:
         """Populate a discrete G' with binary state-nodes and temporal edges.
 
         Shared by the discrete-only and hybrid (ensemble) branches to
-        eliminate a ~15-line duplication.
+        eliminate a ~15-line duplication. Only the first
+        ``DISCRETE_GRAPH_MAX_DIMS`` state dimensions are modeled.
         """
         from phca.world_model.graph import StateNode, TemporalEdge
 
-        for i in range(min(state_dim, 10)):
+        for i in range(min(state_dim, DISCRETE_GRAPH_MAX_DIMS)):
             name_t = f"s{i}_t"
             name_t1 = f"s{i}_t1"
             graph.add_node(StateNode(
@@ -2946,6 +3030,7 @@ class CognitiveCycle:
         )
         if noise_injector is not None:
             cycle._noise_injector = noise_injector
+        cycle._refresh_gprime_coverage()
         return cycle
 
     # ── Backward-Compatible Builders ───────────────────────

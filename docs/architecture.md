@@ -1,12 +1,20 @@
 # PHCA v3.0 — Architecture
 
+> **⚠️ PRE-D-156 / partially drifted.** Action-selection and A4 wording below still
+> describe prediction-scored discrete selection as primary. **Current default**
+> (`InterventionConfig.disable_blended_scorer=True`, D-156/D-161): discrete GridWorld
+> uses pure BFS/Manhattan geometry; A4 is environment-scoped (D-158). Continuous MPC
+> remains prediction-primary. Prefer [README.md](../README.md) A4 row,
+> [docs/action_selection.md](action_selection.md), and [DECISIONS.md](../DECISIONS.md).
+> Historical Φ-IQ **0.7323** was measured with the learned-model-scored path active
+> and has **not** been re-run under the geometry default.
+
 ## Overview
 
 PHCA (Predictive Hierarchical Cognitive Architecture) implements a **12-step cognitive cycle**
 that transforms raw sensor input into goal-directed action through a pipeline of specialized
 modules. The cycle runs at ~60–95 Hz on consumer hardware (~10–17 ms mean latency, MLP path,
-this machine). **743 tests** pass (`make test-python` 707 + `make test-mujoco` 36);
-Overall Φ-IQ **0.7323** (re-measured 2026-07-05). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
+this machine). Pendulum-v1 (dim 1) and Reacher-v5 (dim 2)
 emit true continuous actions via a prediction-driven MPC selector (Phase 6/7).
 
 Formal specification: v3.0 (PHCA-3.1-011). Resource-bounded via the **Resource Bounded
@@ -32,7 +40,7 @@ flowchart TD
       PEU["Steps 5-6: PEU Error<br/>peu.compute(next, prediction) -> error"]
       TSPL["Step 7: TSPL P-Stream<br/>tspl.update(error, state, prediction)"]
       LEARN["LEARN: gprime.learn(transition)<br/>(batched replay mini-batch, Phase 5)"]
-      ACT["Step 9: Action Selection<br/>branch on ActionSpace<br/>discrete: argmax(goal_align+conf)<br/>continuous: MPC sample K, pick best ŝ'→ref"]
+      ACT["Step 9: Action Selection<br/>branch on ActionSpace<br/>discrete default: BFS/Manhattan geometry<br/>discrete opt-in: G' blended scorer<br/>continuous: MPC sample K, pick best ŝ'→ref"]
       REG["Steps 10-13: MDIM + APC + ATTN + HPM<br/>generate_goal, regulate, attend, bounds"]
       RBTA["Step 14: RBTA Enforcement<br/>check_cycle(time, mem, energy, entropy)"]
       LOG["Step 15: Logging<br/>append metrics"]
@@ -75,7 +83,7 @@ with no Φ-IQ regression.
 | Module | File | Function |
 | :--- | :--- | :--- |
 | **ASI** | `phca/asi/sanitizer.py` | Input sanitization, NaN/Inf detection, finite checks |
-| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term sensory buffer (`capacity = 10 × sensor_dim` samples) |
+| **M1 (Sensory)** | `phca/memory/m1_sensory.py` | Short-term **trace** buffer (`capacity = 10 × sensor_dim`); written each cycle, **not read** on the hot path |
 | **M2 (Working)** | `phca/memory/m2_working.py` | Ring-buffer working memory with salience tracking |
 | **G' (Engine)** | `phca/prediction/engine.py` | Prediction engine wrapping Gaussian / discrete / MLP G' |
 | **G' (MLP)** | `phca/world_model/mlp.py` | Pure-NumPy MLP world model (38,868 params, hidden_dim=128; batched replay backward, Phase 5) |

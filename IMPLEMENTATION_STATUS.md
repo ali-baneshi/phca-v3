@@ -81,7 +81,7 @@ evidence separate from invariant tests.
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
 | Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7317) |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
-| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 PASS** at 15 seeds (MLP, 200 cyc) with pure-geometry default (D-156). L3 gate PASS at 5×5 (goal 28.8% vs greedy 27.9%). L2 FAIL is inherent ceiling (greedy_observed 55.5% vs PHCA 50.3% at 5×5). 10×10: L2 PASS (26.8% vs 24.0%), L3 marginal FAIL (13.57% vs 13.73% — tied within noise). Blended scorer caused catastrophic collapse at 10×10 (0.03% goal rate). See D-156. |
+| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 mixed** at 30 seeds with pure-geometry default (D-151/D-161). 10×10 L2 PASS; L3 often FAIL vs greedy_observed. **D-159 caveat:** the D-156 "0.03% blended collapse" was an **RBTA bound-scaling artifact** (ungated blended later ~77.8%); pure geometry remains default for reliability, not because the scorer is proven useless. |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
@@ -114,7 +114,7 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 
 | Environment | Mode | A4 "prediction-primary"? |
 |---|---|---|---|
-| GridWorld discrete | Pure BFS/Manhattan geometry (default since D-156; G' prediction blend available via `--enable-blended-scorer`) | **No** (prediction-primary suspended — blended scorer caused catastrophic 0.03% goal rate at 10×10; pure geometry 26.8%) |
+| GridWorld discrete | Pure BFS/Manhattan geometry (default since D-156; G' blend via `--enable-blended-scorer`) | **No** under default (D-158 inductive bias). D-156's 0.03% figure was RBTA artifact (D-159); geometry still preferred post D-161 30-seed re-eval |
 | Cartpole | 3-bin discrete (unified path) | **Yes** |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |

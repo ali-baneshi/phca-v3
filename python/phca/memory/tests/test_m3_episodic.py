@@ -237,3 +237,14 @@ class TestM3Hardening:
         # Should be a no-op (no exception) for in-memory DBs.
         m3.close()
         assert m3._conn is None
+
+    def test_corrupt_file_sets_fell_back_to_memory(self, tmp_path):
+        """Non-SQLite file path must fall back to :memory: with flag set."""
+        bad = tmp_path / "not_a_db.sqlite"
+        bad.write_bytes(b"this is not a sqlite database at all")
+        m3 = M3EpisodicMemory(
+            db_path=str(bad), max_episodes=50, state_dim=4, action_dim=2,
+        )
+        assert m3.fell_back_to_memory is True
+        assert m3.db_path == ":memory:"
+        m3.close()

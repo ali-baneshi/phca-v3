@@ -1,0 +1,80 @@
+{
+  "probes": {
+    "S1_default_5x5": {
+      "label": "default_geometry",
+      "size": 5,
+      "cycles": 40,
+      "use_mlp": false,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 40
+      },
+      "goal_reached_cycles": 39,
+      "engine_predict_total": 40,
+      "engine_predict_during_select": 0,
+      "state_dim": 84,
+      "gprime_type": "WorldModelGPrime",
+      "has_set_tspl_bias": false,
+      "has_learn_m3_episodes": false
+    },
+    "S1_blended_5x5": {
+      "label": "blended",
+      "size": 5,
+      "cycles": 40,
+      "use_mlp": false,
+      "selector_mode_counts": {
+        "prediction_scored": 40
+      },
+      "goal_reached_cycles": 39,
+      "engine_predict_total": 240,
+      "engine_predict_during_select": 200,
+      "state_dim": 84,
+      "gprime_type": "WorldModelGPrime",
+      "has_set_tspl_bias": false,
+      "has_learn_m3_episodes": false
+    },
+    "S1_default_10x10": {
+      "label": "default_geometry_10",
+      "size": 10,
+      "cycles": 30,
+      "use_mlp": false,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 30
+      },
+      "goal_reached_cycles": 26,
+      "engine_predict_total": 30,
+      "engine_predict_during_select": 0,
+      "state_dim": 309,
+      "gprime_type": "WorldModelGPrime",
+      "has_set_tspl_bias": false,
+      "has_learn_m3_episodes": false
+    },
+    "T3_learn_off_ablation": {
+      "geometry_learn_on": 0.0,
+      "geometry_learn_off": 0.0
+    },
+    "T3_discrete_graph_coverage": {
+      "state_dim_10x10": 309,
+      "gprime_type": "WorldModelGPrime",
+      "modeled_nodes_estimate": 20,
+      "cap": 10,
+      "coverage_ratio": 0.06472491909385113
+    },
+    "S4_pendulum_mpc": {
+      "selector_mode_counts": {
+        "continuous_mpc": 13,
+        "continuous_explore": 2
+      },
+      "predict_during_select": 104,
+      "predict_total": 119,
+      "predict_per_select_approx": 6.933333333333334
+    },
+    "T6_asi_stale_on_sensor_failure": {
+      "sensor_failure_count": 1,
+      "state_unchanged": true
+    },
+    "T5_async_age_in_source": {
+      "age_equals_zero_literal": true,
+      "perception_queue_used_in_action_loop": false
+    }
+  }
+}

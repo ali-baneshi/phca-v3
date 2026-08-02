@@ -166,12 +166,19 @@ class M3EpisodicMemory:
         self._episodes_since_vacuum: int = 0
         self._vacuum_interval: int = 1000  # VACUUM every 1000 evictions/purges (D-056)
         self.rng = np.random.RandomState(seed=seed)
+        # Set True when a file-backed DB fails and we fall back to :memory:
+        self.fell_back_to_memory: bool = False
 
         # Initialize database
         self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
 
-        _log(logger, "info", "m3.init", db_path=db_path, max_episodes=max_episodes)
+        _log(
+            logger, "info", "m3.init",
+            db_path=self.db_path,
+            max_episodes=max_episodes,
+            fell_back_to_memory=self.fell_back_to_memory,
+        )
 
     def _init_db(self) -> None:
         """Initialize the SQLite database and create schema.
@@ -206,6 +213,7 @@ class M3EpisodicMemory:
             self._conn.commit()
             self._migrate_schema()
             self.db_path = ":memory:"
+            self.fell_back_to_memory = True
             return
 
         # Run integrity check on persistent databases (G-010). On failure,
@@ -226,6 +234,7 @@ class M3EpisodicMemory:
                     self._conn.executescript(M3_SCHEMA_SQL)
                     self._conn.commit()
                     self.db_path = ":memory:"  # record the fallback
+                    self.fell_back_to_memory = True
                 else:
                     _log(logger, "info", "m3.integrity_check", result="ok")
             except Exception as e:

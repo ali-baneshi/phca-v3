@@ -1,0 +1,316 @@
+{
+  "l4_top_keys": [
+    "config",
+    "tasks",
+    "seed_results",
+    "delta_perf",
+    "forgetting_rate",
+    "passes_gate",
+    "per_task_accuracy",
+    "eval_prediction_error",
+    "forward_transfer",
+    "novel_goal_rate",
+    "duration_s"
+  ],
+  "l4_forgetting_rate_type": "float",
+  "l4_passes_gate_type": "bool",
+  "l4_forgetting_rate": 0.3783333333333333,
+  "l4_passes_gate": false,
+  "l4_n_seed_rows": 30,
+  "l4_pass_seeds": [
+    1542
+  ],
+  "l4_fr_list_sample": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.15000000000000002,
+    1.0,
+    1.0
+  ],
+  "l4_excl_stats_sample": [],
+  "l4_eval_pe_n": 0,
+  "l4_eval_pe_mean": null,
+  "l4_forgetting_paths": [
+    [
+      "$",
+      0.3783333333333333
+    ],
+    [
+      "$.seed_results[0]",
+      1.0
+    ]
+  ],
+  "l4_passes_paths": [
+    [
+      "$",
+      false
+    ],
+    [
+      "$.seed_results[0]",
+      false
+    ]
+  ],
+  "l4_excluded_paths": [],
+  "l4_baseline_paths": [],
+  "causal_summaries": {
+    "results/validation/baselines/causal_eval_round4.json": {
+      "passed_hits": [
+        [
+          "$.levels.level1.comparisons.gate",
+          true
+        ],
+        [
+          "$.levels.level1.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.levels.level2.comparisons.gate",
+          false
+        ],
+        [
+          "$.levels.level2.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.levels.level2.comparisons.gate.controls.greedy_observed",
+          false
+        ],
+        [
+          "$.levels.level3.comparisons.gate",
+          false
+        ],
+        [
+          "$.levels.level3.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.levels.level3.comparisons.gate.controls.greedy_observed",
+          false
+        ]
+      ],
+      "goal_rate_hits": [
+        [
+          "$.levels.level1.summary.greedy_full_info",
+          0.7925
+        ],
+        [
+          "$.levels.level1.summary.greedy_observed",
+          0.7925
+        ],
+        [
+          "$.levels.level1.summary.phca",
+          0.8545
+        ],
+        [
+          "$.levels.level1.summary.random",
+          0.0425
+        ],
+        [
+          "$.levels.level2.summary.greedy_full_info",
+          0.7925
+        ],
+        [
+          "$.levels.level2.summary.greedy_observed",
+          0.5978333333333333
+        ]
+      ],
+      "top_keys": [
+        "config",
+        "levels",
+        "gate"
+      ]
+    },
+    "logs/phase1_redux_5x5_pure_geo_30s.json": {
+      "passed_hits": [
+        [
+          "$.comparisons.gate",
+          false
+        ],
+        [
+          "$.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.comparisons.gate.controls.greedy_observed",
+          false
+        ]
+      ],
+      "goal_rate_hits": [
+        [
+          "$.summary.greedy_full_info",
+          0.7925
+        ],
+        [
+          "$.summary.greedy_observed",
+          0.5978333333333333
+        ],
+        [
+          "$.summary.phca",
+          0.5516666666666666
+        ],
+        [
+          "$.summary.random",
+          0.0525
+        ]
+      ],
+      "top_keys": [
+        "config",
+        "runs",
+        "summary",
+        "comparisons"
+      ]
+    },
+    "logs/phase1_redux_10x10_pure_geo_30s.json": {
+      "passed_hits": [
+        [
+          "$.comparisons.gate",
+          true
+        ],
+        [
+          "$.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.comparisons.gate.controls.greedy_observed",
+          true
+        ]
+      ],
+      "goal_rate_hits": [
+        [
+          "$.summary.greedy_full_info",
+          0.749
+        ],
+        [
+          "$.summary.greedy_observed",
+          0.18666666666666668
+        ],
+        [
+          "$.summary.phca",
+          0.19933333333333333
+        ],
+        [
+          "$.summary.random",
+          0.014666666666666666
+        ]
+      ],
+      "top_keys": [
+        "config",
+        "runs",
+        "summary",
+        "comparisons"
+      ]
+    },
+    "logs/causal_eval_10x10_l3_30seeds.json": {
+      "passed_hits": [
+        [
+          "$.comparisons.gate",
+          false
+        ],
+        [
+          "$.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.comparisons.gate.controls.greedy_observed",
+          false
+        ]
+      ],
+      "goal_rate_hits": [
+        [
+          "$.summary.greedy_full_info",
+          0.6121666666666666
+        ],
+        [
+          "$.summary.greedy_observed",
+          0.1365
+        ],
+        [
+          "$.summary.phca",
+          0.1305
+        ],
+        [
+          "$.summary.random",
+          0.008333333333333333
+        ]
+      ],
+      "top_keys": [
+        "config",
+        "runs",
+        "summary",
+        "comparisons"
+      ]
+    },
+    "logs/causal_frontier_full.json": {
+      "passed_hits": [
+        [
+          "$.levels.viewport1.comparisons.gate",
+          true
+        ],
+        [
+          "$.levels.viewport1.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.levels.viewport1.comparisons.gate.controls.greedy_observed",
+          true
+        ],
+        [
+          "$.levels.viewport2.comparisons.gate",
+          true
+        ],
+        [
+          "$.levels.viewport2.comparisons.gate.controls.random",
+          true
+        ],
+        [
+          "$.levels.viewport2.comparisons.gate.controls.greedy_observed",
+          true
+        ],
+        [
+          "$.levels.viewport3.comparisons.gate",
+          true
+        ],
+        [
+          "$.levels.viewport3.comparisons.gate.controls.random",
+          true
+        ]
+      ],
+      "goal_rate_hits": [
+        [
+          "$.levels.viewport1.summary.greedy_full_info",
+          0.788
+        ],
+        [
+          "$.levels.viewport1.summary.greedy_observed",
+          0.13333333333333333
+        ],
+        [
+          "$.levels.viewport1.summary.phca",
+          0.3293333333333333
+        ],
+        [
+          "$.levels.viewport1.summary.random",
+          0.005333333333333333
+        ],
+        [
+          "$.levels.viewport2.summary.greedy_full_info",
+          0.788
+        ],
+        [
+          "$.levels.viewport2.summary.greedy_observed",
+          0.19866666666666666
+        ]
+      ],
+      "top_keys": [
+        "config",
+        "levels",
+        "gate"
+      ]
+    }
+  }
+}

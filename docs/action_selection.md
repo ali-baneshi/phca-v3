@@ -54,58 +54,56 @@ shorthand for the module pipeline above.
 
 ## Mode Comparison
 
-| Aspect | Discrete (GridWorld, Cartpole) | Continuous (Pendulum, Reacher) |
-|---|---|---|
-| ActionSpace | `DiscreteSpace(n)` | `ContinuousSpace(low, high, dim)` |
-| Selector | Prediction-scored argmax with uncertainty-weighted geometry prior | MPC: sample K, predict each, pick best ŝ′ |
-| Primary signal | G′ prediction score + geometry prior (confidence-weighted blend) | Predicted next state vs goal reference |
-| A4 measured? | **Prediction-primary** (unified scorer, no task-lock bypass) | **Prediction-primary** (D-101, assumption validation) |
-| Reward used? | No (GridWorld); env reward logged | No for selection |
+| Aspect | Discrete **default** (GridWorld) | Discrete **opt-in** blended | Continuous (Pendulum, Reacher) |
+|---|---|---|---|
+| ActionSpace | `DiscreteSpace(n)` | same | `ContinuousSpace(low, high, dim)` |
+| Selector | Pure BFS/Manhattan (`pure_geometry_ablation`) | G′-scored loop + agreement/confidence gating | MPC: sample K, predict each, pick best ŝ′ |
+| Primary signal | Geometry / observed_grid / frontier | G′ prediction score + geometry prior | Predicted next state vs goal reference |
+| A4 status (D-158) | Geometry as inductive bias (not prediction-primary) | Experimental path toward prediction-guided control | **Prediction-primary** (D-101) |
+| How to enable | default (`disable_blended_scorer=True`) | `--enable-blended-scorer` / `disable_blended_scorer=False` | always |
 
 ---
 
-## Unified Architecture (both discrete and continuous)
+## Default Discrete Path (geometry — current production default)
 
-All action selection goes through the same prediction-scored path:
+Under `InterventionConfig.disable_blended_scorer=True` (D-156/D-161),
+`_select_action()` computes `_select_greedy_grid_action()` and **returns it
+immediately** with `selector_mode=pure_geometry_ablation`. G′ still predicts
+once per cycle for PEU/MDIM/regulation, but **does not choose the discrete action**.
+
+- size ≥ 10: BFS first step (`bfs_action`)
+- smaller grids: one-step Manhattan on `observed_grid`
+- Partial-obs (D-160): planning uses `observed_grid` / frontier when goal unseen
+- Task lock (goal visible): ε=0 exploration
+- D5 energy-stay only when `hasattr(env, 'grid')` (D-135)
+
+Goal-rate / L2 Φ-IQ under this default measure **planner competence**, not G′-control.
+
+---
+
+## Opt-in Blended Discrete Path
+
+When `disable_blended_scorer=False` (after optional warmup cycles):
 
 1. **G′ predicts** next state ŝ′ for each candidate action
-2. **Prediction confidence** computed from G′ entropy (MC-dropout for MLP, mutual info for discrete)
-3. **Action score** = `confidence * prediction_score + (1 - confidence) * geometry_prior`
-   - Geometry prior is Manhattan/BFS gain to goal (discrete) or MPC sampling (continuous)
-   - At low confidence, action leans on geometry heuristic; at high confidence, prediction dominates
-4. **MDIM all 6 drives compete** via softmax (no `task_lock` override; D7 curiosity, D6 empowerment affect scoring)
-5. **Attention weights** modulate MLP gradients during learning
-6. **RBTA** checks time/memory/energy/entropy bounds on every cycle
+2. **Action score** blends prediction score with geometry prior (drive-dependent weights)
+3. **Adaptive confidence gating** and **agreement gating** (D-157/D-159) may override
+   back to geometry when G′ disagrees persistently with the geometry suggestion
+4. `selector_mode` is `prediction_scored` or `adaptive_geometry_fallback`
 
-This eliminates the old `task_lock` geometry-bypass path. The cognitive model (G′
-prediction + MDIM drives + attention) is always engaged.
+D-159/D-161: post-RBTA-fix, ungated blended can reach high goal rates at 10×10,
+but pure geometry remains the more reliable default; neither mode wins all causal gates.
 
 ---
 
-## Discrete Path (GridWorld)
+## Shared cycle context (both modes)
 
-Implemented via the unified scorer in `CognitiveCycle._select_action()`:
+Regardless of selector mode:
 
-- **G′ prediction score** for each action
-- **Confidence-weighted blend** with Manhattan/BFS heuristic
-- **PGA** (predicted-goal-alignment) ramps cycles 50–150 (D-087)
-- **MDIM** goal alignment (drive competition)
-- **Partial-observability planning (D-160):** `_select_greedy_grid_action()`,
-  `_build_planning_wall_grid()`, and `_compute_distance_gain()` read
-  `getattr(env, "observed_grid", env.grid)` rather than `env.grid` directly.
-  This ensures BFS/Manhattan routes only through walls that the agent has
-  seen within its viewport (`partial_obs_radius`). When the goal has never
-  been seen, `env.get_goal_position()` returns `None` and `_compute_distance_gain()`
-  falls back to **frontier-based exploration**: `_find_frontier_cell()` finds the
-  nearest cell with `_observed_cells == False` (a bool matrix in GridWorld tracking
-  all cells ever within the viewport) and uses it as a proxy goal for distance-gain
-  computation. This encourages the agent to move toward unexplored areas when the
-  goal location is unknown, rather than returning 0.5 (neutral) for all actions.
-
-**D5 energy-stay guard:** In cycle.py, the D5 energy-efficiency action (STAY when
-energy is low) fires only when `hasattr(self.env, 'grid')` is true (GridWorld
-environments). For non-grid environments (BanditEnv, MuJoCo), the guard falls
-through to normal action selection so the stay_action is never returned (D-135).
+- MDIM/APC/Attention/HPM run **before** action
+- PEU, TSPL, G′.learn run **after** `env.step()`
+- RBTA can force STAY (TERMINATE) or limit candidates (INTERRUPT)
+- Attention weights modulate MLP gradients during learning (MLP path)
 
 ---
 
@@ -130,10 +128,11 @@ calls per candidate — PASS when ≥1 call per candidate.
 
 | Claim | Cite |
 |---|---|
-| "Prediction-primary control" | All envs: unified scorer, task_lock bypass removed |
-| "Hybrid cognitive map navigation" | GridWorld: G′ prediction + geometry uncertainty-weighted blend |
-| "Goal-directed navigation" | GridWorld L2 Φ-IQ + causal gate |
-| "Memory-driven policy" | **Not supported** on current discrete path |
+| "Prediction-primary control" | Continuous MPC only (default); or discrete **with** `--enable-blended-scorer` and evidence |
+| "Geometry-primary GridWorld" | Default discrete path (`pure_geometry_ablation`, D-156/D-161) |
+| "Hybrid / blended navigation" | Opt-in discrete blended path only |
+| "Goal-directed navigation under default" | Geometry planner + causal gate (not G′-control) |
+| "Memory-driven policy" | **Not supported** on current discrete default |
 
 ---
 

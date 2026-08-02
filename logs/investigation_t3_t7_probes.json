@@ -1,0 +1,100 @@
+{
+  "learn_off_seed42": {
+    "on": {
+      "goal_frac": 0.9875,
+      "modes": {
+        "pure_geometry_ablation": 80
+      },
+      "final_peu": 11.0
+    },
+    "off": {
+      "goal_frac": 0.9875,
+      "modes": {
+        "pure_geometry_ablation": 80
+      },
+      "final_peu": 11.0
+    }
+  },
+  "learn_off_seed7": {
+    "on": {
+      "goal_frac": 0.0,
+      "modes": {
+        "pure_geometry_ablation": 80
+      },
+      "final_peu": 8.0
+    },
+    "off": {
+      "goal_frac": 0.0,
+      "modes": {
+        "pure_geometry_ablation": 80
+      },
+      "final_peu": 8.0
+    }
+  },
+  "mlp_learn_on": {
+    "goal_frac": 0.98,
+    "pe_early": 15.451985049247742,
+    "pe_late": 2.089742624759674,
+    "has_tspl_bias": true,
+    "has_m3_replay": true
+  },
+  "mlp_learn_off": {
+    "goal_frac": 0.98,
+    "pe_early": 38.679360961914064,
+    "pe_late": 39.33825340270996,
+    "has_tspl_bias": true,
+    "has_m3_replay": true
+  },
+  "T4_entropy": {
+    "real_modules": {
+      "G'": 0.017308097332715988,
+      "MDIM": 0.6155942639236769,
+      "ATTN": 0.986832499364944
+    },
+    "synthetic_modules": {
+      "ASI": 0.1,
+      "WM": 0.1,
+      "PE": 0.1,
+      "PEU": 0.1,
+      "TSPL-P": 0.1,
+      "CR": 0.1,
+      "HPM": 0.1,
+      "CONSOL": 0.1,
+      "ACTION": 0.1
+    },
+    "all": {
+      "G'": 0.017308097332715988,
+      "MDIM": 0.6155942639236769,
+      "ATTN": 0.986832499364944,
+      "ASI": 0.1,
+      "WM": 0.1,
+      "PE": 0.1,
+      "PEU": 0.1,
+      "TSPL-P": 0.1,
+      "CR": 0.1,
+      "HPM": 0.1,
+      "CONSOL": 0.1,
+      "ACTION": 0.1
+    }
+  },
+  "T5_rbta_carry": {
+    "sync_step_applies_carry_before_action": true,
+    "async_action_loop_mentions_carry": false,
+    "async_learning_loop_mentions_carry": true,
+    "perception_queue_methods": [
+      "_build_async_perception_frame",
+      "_perception_queue",
+      "_run_perception_cycle"
+    ]
+  },
+  "T7_observatory": {
+    "flags_task_lock_planner": true,
+    "flags_pure_geometry_ablation": false,
+    "flags_prediction_scored": false
+  },
+  "T3_effective_stage_order_used": false,
+  "T3_m1_read_in_cycle": true,
+  "T3_m1_usages": [
+    "self.m1.write"
+  ]
+}
