@@ -11,6 +11,7 @@ Prioritized surgical fixes. Separate **cognitive-cycle** from **Observatory** an
 | H-03 | Docs | Demote banners on STATUS / architecture / l4 / action_selection / … | claim_corrections | **DONE** D-194 |
 | H-04 | Observatory | Flag `pure_geometry_ablation` dominant sessions | G3-INV-07 | **DONE** 2026-08-02 |
 | H-05 | CI | Document L0 smoke / regression floor only | G3-INV-06 | **DONE** D-194 |
+| H-17 | Eval | Causal A/B/C ablation diagnosis (geometry / learn-off / blended) | G2-INV-05 | **DONE** D-195 (behavioral gap still open; no default flip) |
 
 ## P1 — Implemented-path integrity
 

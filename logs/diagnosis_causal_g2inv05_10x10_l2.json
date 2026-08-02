@@ -1,0 +1,483 @@
+{
+  "diagnosis": "G2-INV-05",
+  "protocol": {
+    "level": "level2",
+    "cycles": 100,
+    "seeds": 5,
+    "grid_size": 10,
+    "base_seed": 42,
+    "use_mlp": true,
+    "note": "Diagnostic budget (not 30-seed gate). Shared base_seed sequence across conditions via phca_causal_eval.seed_sequence."
+  },
+  "conditions": [
+    {
+      "id": "A_geometry_default",
+      "label": "default geometry (disable_blended_scorer=True)",
+      "hypothesis": "H2 baseline",
+      "elapsed_s": 18.53,
+      "intervention": {
+        "disable_blended_scorer": true,
+        "enable_gprime_learn": true,
+        "enable_tspl": true,
+        "before_blended_warmup_cycles": 50
+      },
+      "config": {
+        "level": "level2",
+        "description": "Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+        "cycles": 100,
+        "seeds": 5,
+        "base_seed": 42,
+        "grid_size": 10,
+        "action_slip": 0.0,
+        "agents": [
+          "phca",
+          "random",
+          "greedy_observed",
+          "greedy_full_info"
+        ],
+        "metrics": [
+          "goal_rate",
+          "first_goal_cycle",
+          "mean_distance_to_goal",
+          "cumulative_reward"
+        ],
+        "gate_controls": [
+          "random",
+          "greedy_observed"
+        ],
+        "phca_model": "MLP",
+        "action_selection_mode": "pure_geometry_default",
+        "disable_blended_scorer": true,
+        "interpretation_caveat": "L2 goal_complexity / \u03a6-IQ under default discrete GridWorld largely reflects BFS/Manhattan planner competence, not G\u2032-scored control (D-156/D-161). Use --enable-blended-scorer for prediction-scored path."
+      },
+      "summary_phca": {
+        "n": 5,
+        "goal_rate_mean": 0.288,
+        "goal_rate_median": 0.16,
+        "first_goal_cycle_mean": 8.8,
+        "first_goal_cycle_median": 4.0,
+        "mean_distance_to_goal_mean": 1.5,
+        "mean_distance_to_goal_median": 1.38,
+        "cumulative_reward_mean": 28.088,
+        "cumulative_reward_median": 15.16,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.732,
+        "prediction_error_mean": 4.708094381332398,
+        "episode_count_mean": 100.0,
+        "fact_count_mean": 20.6,
+        "selector_mode_counts": {
+          "pure_geometry_ablation": 500
+        },
+        "selector_mode_pct": {
+          "pure_geometry_ablation": 100.0
+        },
+        "geometry_dominated_frac": 1.0
+      },
+      "summary_greedy_observed": {
+        "n": 5,
+        "goal_rate_mean": 0.288,
+        "goal_rate_median": 0.16,
+        "first_goal_cycle_mean": 8.8,
+        "first_goal_cycle_median": 4.0,
+        "mean_distance_to_goal_mean": 1.5,
+        "mean_distance_to_goal_median": 1.38,
+        "cumulative_reward_mean": 28.088,
+        "cumulative_reward_median": 15.16,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "summary_random": {
+        "n": 5,
+        "goal_rate_mean": 0.008,
+        "goal_rate_median": 0.0,
+        "first_goal_cycle_mean": 87.0,
+        "first_goal_cycle_median": 101.0,
+        "mean_distance_to_goal_mean": 5.918,
+        "mean_distance_to_goal_median": 5.89,
+        "cumulative_reward_mean": -0.192,
+        "cumulative_reward_median": -1.0,
+        "success_rate": 0.2,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "gate": {
+        "passed": false,
+        "controls": {
+          "random": {
+            "passed": true,
+            "phca_better_count": 4,
+            "required": 3
+          },
+          "greedy_observed": {
+            "passed": false,
+            "phca_better_count": 0,
+            "required": 3
+          }
+        },
+        "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+        "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+        "rbta_violation_rate_mean": 0.732,
+        "geometry_dominated_frac": 1.0,
+        "selector_mode_pct": {
+          "pure_geometry_ablation": 100.0
+        },
+        "interpretation_note": "PASS/FAIL under geometry-dominated action selection measures planner competence vs baselines, not prediction-primary control (D-156/D-161). RBTA violation rate is reported but not gated."
+      },
+      "deltas_vs_greedy_observed": {
+        "goal_rate": {
+          "phca": 0.288,
+          "greedy_observed": 0.288,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "first_goal_cycle": {
+          "phca": 8.8,
+          "greedy_observed": 8.8,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "mean_distance_to_goal": {
+          "phca": 1.5,
+          "greedy_observed": 1.5,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "cumulative_reward": {
+          "phca": 28.088,
+          "greedy_observed": 28.088,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        }
+      },
+      "metric_losers_vs_greedy": [
+        "goal_rate",
+        "first_goal_cycle",
+        "mean_distance_to_goal",
+        "cumulative_reward"
+      ]
+    },
+    {
+      "id": "B_geometry_learn_off",
+      "label": "geometry + G'/TSPL learn off",
+      "hypothesis": "H2: if \u2248 A then G\u2032 irrelevant under default",
+      "elapsed_s": 2.26,
+      "intervention": {
+        "disable_blended_scorer": true,
+        "enable_gprime_learn": false,
+        "enable_tspl": false,
+        "before_blended_warmup_cycles": 50
+      },
+      "config": {
+        "level": "level2",
+        "description": "Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+        "cycles": 100,
+        "seeds": 5,
+        "base_seed": 42,
+        "grid_size": 10,
+        "action_slip": 0.0,
+        "agents": [
+          "phca",
+          "random",
+          "greedy_observed",
+          "greedy_full_info"
+        ],
+        "metrics": [
+          "goal_rate",
+          "first_goal_cycle",
+          "mean_distance_to_goal",
+          "cumulative_reward"
+        ],
+        "gate_controls": [
+          "random",
+          "greedy_observed"
+        ],
+        "phca_model": "MLP",
+        "action_selection_mode": "pure_geometry_default",
+        "disable_blended_scorer": true,
+        "interpretation_caveat": "L2 goal_complexity / \u03a6-IQ under default discrete GridWorld largely reflects BFS/Manhattan planner competence, not G\u2032-scored control (D-156/D-161). Use --enable-blended-scorer for prediction-scored path."
+      },
+      "summary_phca": {
+        "n": 5,
+        "goal_rate_mean": 0.288,
+        "goal_rate_median": 0.16,
+        "first_goal_cycle_mean": 8.8,
+        "first_goal_cycle_median": 4.0,
+        "mean_distance_to_goal_mean": 1.5,
+        "mean_distance_to_goal_median": 1.38,
+        "cumulative_reward_mean": 28.088,
+        "cumulative_reward_median": 15.16,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.002,
+        "prediction_error_mean": 16.52506249523163,
+        "episode_count_mean": 100.0,
+        "fact_count_mean": 46.2,
+        "selector_mode_counts": {
+          "pure_geometry_ablation": 500
+        },
+        "selector_mode_pct": {
+          "pure_geometry_ablation": 100.0
+        },
+        "geometry_dominated_frac": 1.0
+      },
+      "summary_greedy_observed": {
+        "n": 5,
+        "goal_rate_mean": 0.288,
+        "goal_rate_median": 0.16,
+        "first_goal_cycle_mean": 8.8,
+        "first_goal_cycle_median": 4.0,
+        "mean_distance_to_goal_mean": 1.5,
+        "mean_distance_to_goal_median": 1.38,
+        "cumulative_reward_mean": 28.088,
+        "cumulative_reward_median": 15.16,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "summary_random": {
+        "n": 5,
+        "goal_rate_mean": 0.008,
+        "goal_rate_median": 0.0,
+        "first_goal_cycle_mean": 87.0,
+        "first_goal_cycle_median": 101.0,
+        "mean_distance_to_goal_mean": 5.918,
+        "mean_distance_to_goal_median": 5.89,
+        "cumulative_reward_mean": -0.192,
+        "cumulative_reward_median": -1.0,
+        "success_rate": 0.2,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "gate": {
+        "passed": false,
+        "controls": {
+          "random": {
+            "passed": true,
+            "phca_better_count": 4,
+            "required": 3
+          },
+          "greedy_observed": {
+            "passed": false,
+            "phca_better_count": 0,
+            "required": 3
+          }
+        },
+        "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+        "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+        "rbta_violation_rate_mean": 0.002,
+        "geometry_dominated_frac": 1.0,
+        "selector_mode_pct": {
+          "pure_geometry_ablation": 100.0
+        },
+        "interpretation_note": "PASS/FAIL under geometry-dominated action selection measures planner competence vs baselines, not prediction-primary control (D-156/D-161). RBTA violation rate is reported but not gated."
+      },
+      "deltas_vs_greedy_observed": {
+        "goal_rate": {
+          "phca": 0.288,
+          "greedy_observed": 0.288,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "first_goal_cycle": {
+          "phca": 8.8,
+          "greedy_observed": 8.8,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "mean_distance_to_goal": {
+          "phca": 1.5,
+          "greedy_observed": 1.5,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        },
+        "cumulative_reward": {
+          "phca": 28.088,
+          "greedy_observed": 28.088,
+          "delta_phca_minus_greedy": 0.0,
+          "phca_better": false
+        }
+      },
+      "metric_losers_vs_greedy": [
+        "goal_rate",
+        "first_goal_cycle",
+        "mean_distance_to_goal",
+        "cumulative_reward"
+      ]
+    },
+    {
+      "id": "C_blended_opt_in",
+      "label": "blended scorer opt-in",
+      "hypothesis": "H3: if gate/metrics move vs A then prediction path matters",
+      "elapsed_s": 20.76,
+      "intervention": {
+        "disable_blended_scorer": false,
+        "enable_gprime_learn": true,
+        "enable_tspl": true,
+        "before_blended_warmup_cycles": 0
+      },
+      "config": {
+        "level": "level2",
+        "description": "Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+        "cycles": 100,
+        "seeds": 5,
+        "base_seed": 42,
+        "grid_size": 10,
+        "action_slip": 0.0,
+        "agents": [
+          "phca",
+          "random",
+          "greedy_observed",
+          "greedy_full_info"
+        ],
+        "metrics": [
+          "goal_rate",
+          "first_goal_cycle",
+          "mean_distance_to_goal",
+          "cumulative_reward"
+        ],
+        "gate_controls": [
+          "random",
+          "greedy_observed"
+        ],
+        "phca_model": "MLP",
+        "action_selection_mode": "blended_opt_in",
+        "disable_blended_scorer": false,
+        "interpretation_caveat": "Blended G\u2032-scored discrete selection active (opt-in); still subject to agreement/confidence gating fallbacks."
+      },
+      "summary_phca": {
+        "n": 5,
+        "goal_rate_mean": 0.374,
+        "goal_rate_median": 0.09,
+        "first_goal_cycle_mean": 14.8,
+        "first_goal_cycle_median": 2.0,
+        "mean_distance_to_goal_mean": 2.338,
+        "mean_distance_to_goal_median": 3.07,
+        "cumulative_reward_mean": 36.774,
+        "cumulative_reward_median": 8.09,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.632,
+        "prediction_error_mean": 5.226952654838562,
+        "episode_count_mean": 100.0,
+        "fact_count_mean": 17.6,
+        "selector_mode_counts": {
+          "prediction_scored": 207,
+          "adaptive_geometry_fallback": 293
+        },
+        "selector_mode_pct": {
+          "prediction_scored": 41.4,
+          "adaptive_geometry_fallback": 58.6
+        },
+        "geometry_dominated_frac": 0.8
+      },
+      "summary_greedy_observed": {
+        "n": 5,
+        "goal_rate_mean": 0.288,
+        "goal_rate_median": 0.16,
+        "first_goal_cycle_mean": 8.8,
+        "first_goal_cycle_median": 4.0,
+        "mean_distance_to_goal_mean": 1.5,
+        "mean_distance_to_goal_median": 1.38,
+        "cumulative_reward_mean": 28.088,
+        "cumulative_reward_median": 15.16,
+        "success_rate": 1.0,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "summary_random": {
+        "n": 5,
+        "goal_rate_mean": 0.008,
+        "goal_rate_median": 0.0,
+        "first_goal_cycle_mean": 87.0,
+        "first_goal_cycle_median": 101.0,
+        "mean_distance_to_goal_mean": 5.918,
+        "mean_distance_to_goal_median": 5.89,
+        "cumulative_reward_mean": -0.192,
+        "cumulative_reward_median": -1.0,
+        "success_rate": 0.2,
+        "rbta_violation_rate_mean": 0.0
+      },
+      "gate": {
+        "passed": false,
+        "controls": {
+          "random": {
+            "passed": true,
+            "phca_better_count": 4,
+            "required": 3
+          },
+          "greedy_observed": {
+            "passed": false,
+            "phca_better_count": 2,
+            "required": 3
+          }
+        },
+        "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+        "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+        "rbta_violation_rate_mean": 0.632,
+        "geometry_dominated_frac": 0.8,
+        "selector_mode_pct": {
+          "prediction_scored": 41.4,
+          "adaptive_geometry_fallback": 58.6
+        },
+        "interpretation_note": "PASS/FAIL under geometry-dominated action selection measures planner competence vs baselines, not prediction-primary control (D-156/D-161). RBTA violation rate is reported but not gated."
+      },
+      "deltas_vs_greedy_observed": {
+        "goal_rate": {
+          "phca": 0.374,
+          "greedy_observed": 0.288,
+          "delta_phca_minus_greedy": 0.08600000000000002,
+          "phca_better": true
+        },
+        "first_goal_cycle": {
+          "phca": 14.8,
+          "greedy_observed": 8.8,
+          "delta_phca_minus_greedy": 6.0,
+          "phca_better": false
+        },
+        "mean_distance_to_goal": {
+          "phca": 2.338,
+          "greedy_observed": 1.5,
+          "delta_phca_minus_greedy": 0.8380000000000001,
+          "phca_better": false
+        },
+        "cumulative_reward": {
+          "phca": 36.774,
+          "greedy_observed": 28.088,
+          "delta_phca_minus_greedy": 8.686,
+          "phca_better": true
+        }
+      },
+      "metric_losers_vs_greedy": [
+        "first_goal_cycle",
+        "mean_distance_to_goal"
+      ]
+    }
+  ],
+  "cross_condition": {
+    "A_vs_B_goal_rate": {
+      "A": 0.288,
+      "B": 0.288,
+      "abs_delta": 0.0,
+      "approx_equal": true,
+      "h2_supported": true
+    },
+    "A_vs_C_goal_rate": {
+      "A": 0.288,
+      "C": 0.374,
+      "delta_C_minus_A": 0.08600000000000002,
+      "A_gate": false,
+      "C_gate": false,
+      "h3_gate_changed": false,
+      "h3_goal_rate_moved": true
+    },
+    "H1_metric_design": {
+      "losers": [
+        "goal_rate",
+        "first_goal_cycle",
+        "mean_distance_to_goal",
+        "cumulative_reward"
+      ],
+      "loses_goal_rate": true,
+      "loses_non_goal_only": false
+    }
+  },
+  "hypotheses": {
+    "H1": "losses on distance/reward not goal_rate \u2192 metric design",
+    "H2": "learn-off \u2248 learn-on goal_rate \u2192 G\u2032 irrelevant under geometry",
+    "H3": "blended changes gate or goal_rate vs geometry \u2192 prediction path matters"
+  }
+}

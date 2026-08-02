@@ -2,7 +2,7 @@
 
 Gap classes (maturity audit): **G0** no measurement | **G1** weak protocol | **G2** behavior fail | **G3** false confidence | **G4** metric conflation | **G5** silent no-op.
 
-Updated **2026-08-02** after remediation Waves 1–3 (D-194).
+Updated **2026-08-02** after remediation Waves 1–3 (D-194) and causal diagnosis (D-195).
 
 | ID | Class | Type | Sev | Finding | Status |
 |----|-------|------|-----|---------|--------|
@@ -10,7 +10,7 @@ Updated **2026-08-02** after remediation Waves 1–3 (D-194).
 | G3-INV-02 | G3 | EVAL | P0 | Φ-IQ L2 planner-dominated under default | **Mitigated** (`action_selection_interpretation` on Φ-IQ reports; metric formula unchanged) |
 | G4-INV-03 | G4 | EVAL | P0 | L4 FR confounded by geometry | **Mitigated** (dual PE + labeling; confound remains) |
 | G1-INV-04 | G1 | EVAL | P0 | L4 vacuous PASS (seed 1542) | **Closed** (coverage gate) |
-| G2-INV-05 | G2 | EVAL | P0 | Causal mixed L2/L3 | **Open** (behavioral). Honesty mitigated: causal reports `selector_mode_*`, `geometry_dominated_frac`, interpretation_note |
+| G2-INV-05 | G2 | EVAL | P0 | Causal mixed L2/L3 | **Open** (behavioral). Honesty mitigated. **Diagnosed (D-195):** H2 accepted (learn-off ≡ geometry); H3 accepted (blended moves metrics; hurts 5×5, mixed 10×10); H1 partial/budget-dependent. No default flip. See `causal_diagnosis_g2inv05_2026-08-02.md` |
 | G3-INV-06 | G3 | EVAL | P0 | CI L0-only Φ-IQ | **Mitigated** (labeled smoke) |
 | G3-INV-07 | G3 | DOC | P0 | Observatory vs cognition / geometry flags | **Closed** (session_report + docs) |
 | G5-INV-08 | G5 | BUG | P1 | Discrete G′ 10-dim cap silent | **Mitigated** (metrics + warn; cap unchanged) |

@@ -2574,3 +2574,28 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
   aggregates into summary + gate (`geometry_dominated_frac`, `selector_mode_pct`,
   `rbta_violation_rate_mean`), and prints an interpretation note that geometry-dominated
   PASS ≠ prediction-primary (G2-INV-05 honesty layer; behavioral FAIL/PASS unchanged).
+
+---
+
+## Decision D-195: Causal diagnosis track for G2-INV-05 (ablations only)
+
+- **Date:** 2026-08-02
+- **Author:** Causal diagnosis session
+- **Category:** Tier 2 (eval diagnosis / investigation; no capability claim)
+- **Context:** After D-194 honesty labeling, G2-INV-05 remained open behaviorally. Stance: diagnose with ablations; do **not** flip `disable_blended_scorer` default.
+
+### What shipped
+- Driver: `scripts/diagnose_causal_ablation.py` (conditions A geometry / B learn-off / C blended; combined JSON + H1–H3 helpers).
+- Artifacts: `logs/diagnosis_causal_g2inv05_5x5_l2.json`, `logs/diagnosis_causal_g2inv05_10x10_l2.json` (5 seeds × 100 cycles, diagnostic budget).
+- Note: `docs/investigations/causal_diagnosis_g2inv05_2026-08-02.md`; gap register G2-INV-05 updated.
+
+### Diagnosis (not a gate re-certification)
+- **H2 accepted:** learn-off ≡ learn-on under default geometry → G′ off the action path / planner-dominated on this protocol.
+- **H3 accepted:** blended moves metrics; **hurts** 5×5 L2 at this budget; **mixed** on 10×10 (better goal_rate/reward, worse distance/first_goal). No default flip.
+- **H1 partial:** 5×5 non-goal-only loser pattern is underpowered vs 30-seed history; 10×10 geometry ≡ greedy_observed.
+
+### Non-goals
+- No default action-selection change; no 30-seed re-gate as primary deliverable; no discrete G′ expansion / blueprint P3.
+- Follow-on backlog only: optional 30-seed blended opt-in experiment PR if product wants that comparison; secondary PE / metric-docs revisions if product redefines beat-greedy semantics.
+
+- **Cross-ref:** D-156/D-158/D-161 (action), D-194 (honesty), G2-INV-05.
