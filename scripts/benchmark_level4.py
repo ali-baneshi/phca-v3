@@ -403,6 +403,9 @@ def run_level4_benchmark(
     mean_eval_pe = (
         float(np.mean(list(eval_pe_by_task.values()))) if eval_pe_by_task else 0.0
     )
+    per_seed_fr = [float(r["forgetting_rate"]) for r in seed_results]
+    mean_per_seed_fr = float(np.mean(per_seed_fr)) if per_seed_fr else 0.0
+    median_per_seed_fr = float(np.median(per_seed_fr)) if per_seed_fr else 0.0
     return {
         "config": {
             "tasks": n_tasks,
@@ -436,6 +439,12 @@ def run_level4_benchmark(
         "delta_perf": agg_delta,
         "forgetting_rate": agg_forgetting,
         "forgetting_rate_metric": "goal_rate_retention_under_current_action_selection",
+        "forgetting_rate_aggregation": (
+            "max_drop_over_mean_per_task_delta "
+            "(not equal to mean of per-seed forgetting_rate)"
+        ),
+        "mean_per_seed_forgetting_rate": mean_per_seed_fr,
+        "median_per_seed_forgetting_rate": median_per_seed_fr,
         "passes_gate": agg_passes,
         "vacuous_pass_blocked": agg_vacuous,
         "valid_task_coverage": mean_coverage,
@@ -515,6 +524,11 @@ def main() -> int:
 
     print(f"forgetting_rate={report['forgetting_rate']:.4f}")
     print(f"forgetting_rate_metric={report.get('forgetting_rate_metric')}")
+    print(
+        f"mean_per_seed_forgetting_rate="
+        f"{report.get('mean_per_seed_forgetting_rate', 0.0):.4f} "
+        f"(median={report.get('median_per_seed_forgetting_rate', 0.0):.4f})"
+    )
     print(f"mean_eval_prediction_error={report.get('mean_eval_prediction_error', 0.0):.4f}")
     print(f"valid_task_coverage={report.get('valid_task_coverage', 0.0):.4f}")
     print(f"vacuous_pass_blocked={report.get('vacuous_pass_blocked')}")

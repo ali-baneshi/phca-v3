@@ -159,8 +159,16 @@ def experiment_a4_prediction_primary() -> dict:
     # MPC samples K=8 candidates (A1-capped K·dim ≤ 16 → K=8 for dim=1) and
     # calls predict per candidate. Allow ≥ 2 (robust to ε-greedy early return).
     passed = during >= 2
-    return {"invariant": "A4", "name": "prediction consumed by MPC action selector",
-            "predict_calls_during_selection": during, "passed": bool(passed)}
+    return {
+        "invariant": "A4",
+        "name": "prediction consumed by MPC action selector",
+        "predict_calls_during_selection": during,
+        "passed": bool(passed),
+        # D-158/D-194: this check is continuous/MPC-scoped only. GridWorld
+        # discrete default uses pure geometry and is NOT validated here.
+        "scope": "continuous_mpc_pendulum_only",
+        "does_not_validate": "gridworld_discrete_default_geometry",
+    }
 
 
 # ── A5: feedback (PEU error → gprime.learn) drives world-model updates ──
@@ -235,19 +243,27 @@ def main() -> None:
     results = []
     print("=" * 60)
     print("  PHCA v3.0 — Assumption Validation (A1–A5)")
+    print("  Note: A4 is continuous/MPC-scoped (Pendulum); not GridWorld geometry default.")
     print("=" * 60)
     for exp_fn in experiments:
         r = exp_fn()
         results.append(r)
         status = "PASS" if r["passed"] else "FAIL"
         measured = {k: v for k, v in r.items()
-                    if k not in ("passed", "name", "invariant")}
+                    if k not in ("passed", "name", "invariant", "does_not_validate")}
         meas_str = "  ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"
                              for k, v in measured.items())
         print(f"  [{status}] {r['invariant']} {r['name']}: {meas_str}")
 
     all_pass = all(r["passed"] for r in results)
-    summary = {"experiments": results, "all_pass": bool(all_pass)}
+    summary = {
+        "experiments": results,
+        "all_pass": bool(all_pass),
+        "a4_scope_note": (
+            "A4 experiment validates continuous MPC predict-call structure only; "
+            "GridWorld discrete default (pure geometry, D-156/D-161) is out of scope."
+        ),
+    }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(summary, indent=2))
     print("=" * 60)

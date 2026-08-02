@@ -72,6 +72,14 @@ def test_causal_eval_smoke_short_run_emits_required_sections():
     assert len(report["runs"]) == 4
     assert {"phca", "random", "greedy_observed", "greedy_full_info"} <= set(report["summary"])
     assert "gate" in report["comparisons"]
+    assert report["config"]["action_selection_mode"] == "pure_geometry_default"
+    phca_run = next(r for r in report["runs"] if r["agent"] == "phca")
+    assert "selector_mode_counts" in phca_run
+    assert phca_run.get("geometry_dominated") is True
+    gate = report["comparisons"]["gate"]
+    assert "interpretation_note" in gate
+    assert gate.get("geometry_dominated_frac", 0) >= 0.5
+    assert "selector_mode_pct" in report["summary"]["phca"]
 
 
 def test_level2_wrapper_exposes_constrained_observation_to_observed_greedy():

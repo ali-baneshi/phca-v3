@@ -73,6 +73,18 @@ class TestForgettingMetrics:
         assert blocked is True
         assert passes is False
 
+
+def test_action_selection_interpretation_geometry_default():
+    from phca.evaluation.interventions import (
+        InterventionConfig,
+        action_selection_interpretation,
+    )
+
+    interp = action_selection_interpretation(InterventionConfig())
+    assert interp["action_selection_mode"] == "pure_geometry_default"
+    caveat = interp["interpretation_caveat"].lower()
+    assert "planner" in caveat or "geometry" in caveat or "manhattan" in caveat
+
     def test_max_rolling_beats_last_window(self):
         hist = {
             0: [

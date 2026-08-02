@@ -2561,3 +2561,16 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - **Non-goals (unchanged):** blended default flip, discrete graph expansion, M5/M6/VSA/Φ-IQ L5, 30-seed re-runs.
 - **Tests:** forgetting coverage gate; action-selection defaults; ASI safe mode; M3 fallback; session_report geometry flags.
 - **Cross-ref:** D-156/D-158/D-161 (action), D-145/D-168 (L4), investigation gap register G1-INV-04 / G5-INV-08..15.
+
+### D-194 addendum — eval honesty follow-up (same day)
+
+- L4 report now includes `mean_per_seed_forgetting_rate` / `median_per_seed_forgetting_rate` and an aggregation note so aggregate FR is not confused with mean-of-seeds (G4-INV-12).
+- Φ-IQ benchmark print/JSON includes `action_selection_mode` + `interpretation_caveat` via `action_selection_interpretation()` (G3-INV-02).
+- A4 assumption validation JSON/print explicitly scopes to continuous MPC Pendulum only (G3-INV-20).
+
+### D-194 addendum 2 — causal gate honesty (same day)
+
+- `phca_causal_eval.py` now records per-run `selector_mode_counts` / `geometry_dominated`,
+  aggregates into summary + gate (`geometry_dominated_frac`, `selector_mode_pct`,
+  `rbta_violation_rate_mean`), and prints an interpretation note that geometry-dominated
+  PASS ≠ prediction-primary (G2-INV-05 honesty layer; behavioral FAIL/PASS unchanged).

@@ -172,3 +172,42 @@ class InterventionConfig:
         if self.resource_policy != "time":
             parts.append(f"rbta_{self.resource_policy}")
         return "_".join(parts) if parts else "full"
+
+
+def action_selection_interpretation(
+    interventions: Optional[InterventionConfig] = None,
+    *,
+    environment: str = "gridworld",
+) -> dict:
+    """Honesty labels for Φ-IQ / goal metrics under current selector defaults.
+
+    Under ``disable_blended_scorer=True`` (default), GridWorld L2 goal metrics
+    largely reflect planner competence, not G′-scored control (D-156/D-161).
+    """
+    iv = interventions or InterventionConfig()
+    if environment != "gridworld":
+        return {
+            "action_selection_mode": "environment_specific",
+            "disable_blended_scorer": bool(iv.disable_blended_scorer),
+            "interpretation_caveat": (
+                "Non-GridWorld Φ-IQ path; continuous MPC is prediction-primary when applicable."
+            ),
+        }
+    if iv.disable_blended_scorer:
+        return {
+            "action_selection_mode": "pure_geometry_default",
+            "disable_blended_scorer": True,
+            "interpretation_caveat": (
+                "L2 goal_complexity / Φ-IQ under default discrete GridWorld largely "
+                "reflects BFS/Manhattan planner competence, not G′-scored control "
+                "(D-156/D-161). Use --enable-blended-scorer for prediction-scored path."
+            ),
+        }
+    return {
+        "action_selection_mode": "blended_opt_in",
+        "disable_blended_scorer": False,
+        "interpretation_caveat": (
+            "Blended G′-scored discrete selection active (opt-in); still subject to "
+            "agreement/confidence gating fallbacks."
+        ),
+    }

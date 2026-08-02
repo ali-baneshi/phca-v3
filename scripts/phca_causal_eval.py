@@ -25,7 +25,10 @@ from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld
 from phca.evaluation.baselines.greedy import greedy_action
 from phca.evaluation.baselines.random_agent import random_action
 from phca.evaluation.baselines.search import bfs_action
-from phca.evaluation.interventions import InterventionConfig
+from phca.evaluation.interventions import (
+    InterventionConfig,
+    action_selection_interpretation,
+)
 from phca.evaluation.metrics.statistics import seed_sequence
 from phca.config import ResourceBounds
 from phca.world_model.mlp import gprime_stress_bounds
@@ -488,6 +491,7 @@ def run_phca_agent(
     goals: List[bool] = []
     violations = 0
     violations_by_type: Dict[str, int] = {}
+    selector_mode_counts: Dict[str, int] = {}
     for _ in range(cycles):
         metrics = cycle.step()
         distances.append(float(distance_to_goal(env)))
@@ -496,6 +500,8 @@ def run_phca_agent(
         violations += int(metrics.violations_count)
         for bt, cnt in metrics.violations_by_type.items():
             violations_by_type[bt] = violations_by_type.get(bt, 0) + cnt
+        mode = str(cycle.last_action_rationale.get("selector_mode") or "unknown")
+        selector_mode_counts[mode] = selector_mode_counts.get(mode, 0) + 1
     row = summarize_trace(
         agent="phca", seed=seed, cycles=cycles, env=env,
         distances=distances, rewards=rewards, goals=goals,
@@ -510,6 +516,17 @@ def run_phca_agent(
         cycle.consolidation.m3.count() if hasattr(cycle, "consolidation") else 0
     )
     row["fact_count"] = int(cycle.consolidation.get_stats().get("total_facts_stored", 0))
+    row["selector_mode_counts"] = selector_mode_counts
+    total_modes = sum(selector_mode_counts.values()) or 1
+    row["selector_mode_pct"] = {
+        k: round(100.0 * v / total_modes, 2) for k, v in selector_mode_counts.items()
+    }
+    geo_pct = (
+        float(row["selector_mode_pct"].get("pure_geometry_ablation", 0.0))
+        + float(row["selector_mode_pct"].get("adaptive_geometry_fallback", 0.0))
+        + float(row["selector_mode_pct"].get("task_lock_planner", 0.0))
+    )
+    row["geometry_dominated"] = geo_pct >= 50.0
     return row
 
 
@@ -553,6 +570,19 @@ def aggregate_runs(
             ]))
             data["fact_count_mean"] = float(mean([
                 float(row.get("fact_count", 0.0)) for row in rows
+            ]))
+        if agent == "phca" and any("selector_mode_counts" in row for row in rows):
+            merged: Dict[str, int] = {}
+            for row in rows:
+                for mode, cnt in (row.get("selector_mode_counts") or {}).items():
+                    merged[str(mode)] = merged.get(str(mode), 0) + int(cnt)
+            total = sum(merged.values()) or 1
+            data["selector_mode_counts"] = merged
+            data["selector_mode_pct"] = {
+                k: round(100.0 * v / total, 2) for k, v in merged.items()
+            }
+            data["geometry_dominated_frac"] = float(mean([
+                1.0 if row.get("geometry_dominated") else 0.0 for row in rows
             ]))
         summary[agent] = data
     return summary
@@ -608,11 +638,26 @@ def compare_agents(
                 "required": int(needed),
             }
             gate_passed = gate_passed and passed
+    phca_summary = summary.get("phca") or {}
+    geo_dom = float(phca_summary.get("geometry_dominated_frac", 0.0))
     comparisons["gate"] = {
         "passed": bool(gate_passed),
         "controls": gate_details,
         "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
         "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+        "rbta_violation_rate_mean": phca_summary.get("rbta_violation_rate_mean"),
+        "geometry_dominated_frac": geo_dom,
+        "selector_mode_pct": phca_summary.get("selector_mode_pct"),
+        "interpretation_note": (
+            "PASS/FAIL under geometry-dominated action selection measures planner "
+            "competence vs baselines, not prediction-primary control (D-156/D-161). "
+            "RBTA violation rate is reported but not gated."
+            if geo_dom >= 0.5
+            else (
+                "PASS/FAIL under non-geometry-dominated selection; still compare "
+                "selector_mode_pct and RBTA rates before claiming prediction-primary."
+            )
+        ),
     }
     return comparisons
 
@@ -644,6 +689,8 @@ def run_level(
                     agent, seed, cycles, size, spec, action_slip=action_slip,
                 ))
     summary = aggregate_runs(runs, spec.metrics)
+    iv = interventions or InterventionConfig()
+    interp = action_selection_interpretation(iv, environment="gridworld")
     return {
         "config": {
             "level": level,
@@ -657,6 +704,9 @@ def run_level(
             "metrics": list(spec.metrics),
             "gate_controls": list(spec.gate_controls),
             "phca_model": "MLP" if use_mlp else "Gaussian",
+            "action_selection_mode": interp["action_selection_mode"],
+            "disable_blended_scorer": bool(iv.disable_blended_scorer),
+            "interpretation_caveat": interp["interpretation_caveat"],
         },
         "runs": runs,
         "summary": summary,
@@ -801,11 +851,22 @@ def main() -> None:
     out.write_text(json.dumps(report, indent=2))
     if "levels" in report:
         print(f"Wrote {out}")
+        print(
+            f"Action selection: "
+            f"{'blended' if args.enable_blended_scorer else 'pure_geometry_default'}"
+        )
         critical_failure = False
         for level, level_report in report["levels"].items():
             gate = level_report["comparisons"].get("gate", {})
             level_passed = bool(gate.get("passed", False))
             print(f"{level}: {'PASS' if level_passed else 'FAIL'} — {gate.get('rule')}")
+            if gate.get("geometry_dominated_frac") is not None:
+                print(
+                    f"  geometry_dominated_frac={gate.get('geometry_dominated_frac')} "
+                    f"rbta_violation_rate_mean={gate.get('rbta_violation_rate_mean')}"
+                )
+            if gate.get("interpretation_note"):
+                print(f"  note: {gate['interpretation_note']}")
             if args.gate and not level_passed:
                 _print_gate_failures(level_report["comparisons"], level=level)
                 # L2 failure is expected per D-161; only L3 is critical
@@ -817,7 +878,18 @@ def main() -> None:
         gate = report["comparisons"].get("gate", {})
         overall_passed = bool(gate.get("passed", False))
         print(f"Wrote {out}")
+        print(
+            f"Action selection: "
+            f"{report.get('config', {}).get('action_selection_mode', 'unknown')}"
+        )
         print(f"Gate: {'PASS' if overall_passed else 'FAIL'} — {gate.get('rule')}")
+        if gate.get("geometry_dominated_frac") is not None:
+            print(
+                f"  geometry_dominated_frac={gate.get('geometry_dominated_frac')} "
+                f"rbta_violation_rate_mean={gate.get('rbta_violation_rate_mean')}"
+            )
+        if gate.get("interpretation_note"):
+            print(f"  note: {gate['interpretation_note']}")
         if args.gate and not overall_passed:
             _print_gate_failures(report["comparisons"])
             sys.exit(1)

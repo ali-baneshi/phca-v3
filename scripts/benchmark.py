@@ -23,7 +23,10 @@ import numpy as np
 import _bootstrap  # noqa: F401
 
 from phca.core.cycle import CognitiveCycle, CycleMetrics
-from phca.evaluation.interventions import InterventionConfig
+from phca.evaluation.interventions import (
+    InterventionConfig,
+    action_selection_interpretation,
+)
 from phca.world_model.mlp import apply_grid_rbta_bounds
 from phca.evaluation.metrics.phi_iq import (
     check_pass_criteria,
@@ -145,14 +148,21 @@ class BenchmarkRunner:
         print(f"  [diagnose] per-step history dumped to {path} ({len(history)} rows)")
 
 
-def print_report(report: BenchmarkReport) -> None:
+def print_report(
+    report: BenchmarkReport,
+    interventions: Optional[InterventionConfig] = None,
+) -> None:
     print(f"\n{'='*60}")
     print(f"  PHCA v3.0 — Φ-IQ Benchmark Report")
     print(f"{'='*60}")
     model = "MLP" if report.config.use_mlp else ("Gaussian G'" if report.config.use_continuous else "Discrete G'")
+    interp = action_selection_interpretation(
+        interventions, environment=report.config.environment,
+    )
     print(f"  Config: {report.config.n_cycles} cycles/level, "
           f"grid={report.config.grid_size}x{report.config.grid_size}, "
           f"{model}")
+    print(f"  Action selection: {interp['action_selection_mode']}")
     print(f"  Duration: {report.duration_s:.1f}s")
     print(f"\n  {'Level':<8} {'Φ-IQ':<8} {'Pred':<8} {'Adapt':<8} {'Goals':<8} {'Transfer':<8} {'Resource':<8} {'Fail':<8}")
     print(f"  {'-'*64}")
@@ -172,6 +182,7 @@ def print_report(report: BenchmarkReport) -> None:
 
     all_pass = all(report.pass_criteria.values())
     print(f"\n  Overall: {'✓ PASS' if all_pass else '✗ FAIL'}")
+    print(f"  Interpretation: {interp['interpretation_caveat']}")
     if report.config.grid_size != 5 or not report.config.use_mlp:
         print(
             "  Note: failure_rate_under_10pct is calibrated for canonical "
@@ -180,7 +191,15 @@ def print_report(report: BenchmarkReport) -> None:
     print(f"{'='*60}\n")
 
 
-def save_report(report: BenchmarkReport, path: str, multi_seed: Optional[Dict[str, Any]] = None) -> None:
+def save_report(
+    report: BenchmarkReport,
+    path: str,
+    multi_seed: Optional[Dict[str, Any]] = None,
+    interventions: Optional[InterventionConfig] = None,
+) -> None:
+    interp = action_selection_interpretation(
+        interventions, environment=report.config.environment,
+    )
     data = {
         "config": asdict(report.config),
         "results": [asdict(r) for r in report.results],
@@ -188,6 +207,8 @@ def save_report(report: BenchmarkReport, path: str, multi_seed: Optional[Dict[st
         "total_cycles": report.total_cycles,
         "duration_s": report.duration_s,
         "pass_criteria": report.pass_criteria,
+        "action_selection_mode": interp["action_selection_mode"],
+        "interpretation_caveat": interp["interpretation_caveat"],
     }
     if multi_seed is not None:
         data["multi_seed"] = multi_seed
@@ -337,21 +358,23 @@ def main() -> None:
         grid_size=args.grid_size,
         action_slip=args.action_slip,
     )
-    interventions = None
+    interventions = InterventionConfig()
     if args.disable_task_lock:
         interventions = InterventionConfig(disable_task_lock=True)
     multi_seed_data: Optional[Dict[str, Any]] = None
     if args.seeds > 1:
         report, multi_seed_data = run_multiseed(levels, config, args.seeds)
-        print_report(report)
+        print_report(report, interventions=interventions)
     else:
         runner = BenchmarkRunner(config, interventions=interventions)
         report = runner.run_all(levels)
-        print_report(report)
+        print_report(report, interventions=interventions)
 
     output = args.output or ("logs/benchmark_multiseed.json" if args.seeds > 1
                              else "logs/benchmark_report.json")
-    save_report(report, output, multi_seed=multi_seed_data)
+    save_report(
+        report, output, multi_seed=multi_seed_data, interventions=interventions,
+    )
 
     if not all(report.pass_criteria.values()) and not args.allow_fail:
         sys.exit(1)
