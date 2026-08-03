@@ -1,0 +1,14 @@
+overnight_diagnosis_harness
+stamp=20260803_044713
+seeds=30 cycles=200 base_seed=42
+host=alihpmanj nproc=16
+git=75b295f
+started=2026-08-03T04:47:13+03:30
+[2026-08-03T04:51:03+03:30] END causal_5x5_l2l3_geometry rc=1 elapsed=230s
+  WARN: causal_5x5_l2l3_geometry failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_5x5_l2l3_geometry.log
+[2026-08-03T05:01:00+03:30] END causal_10x10_l2l3_geometry rc=1 elapsed=597s
+  WARN: causal_10x10_l2l3_geometry failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_10x10_l2l3_geometry.log
+[2026-08-03T05:03:03+03:30] END causal_5x5_l2_blended rc=1 elapsed=123s
+  WARN: causal_5x5_l2_blended failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_5x5_l2_blended.log
+[2026-08-03T05:08:15+03:30] END causal_10x10_l2_blended rc=1 elapsed=312s
+  WARN: causal_10x10_l2_blended failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_10x10_l2_blended.log

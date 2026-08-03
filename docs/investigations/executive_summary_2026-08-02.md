@@ -34,16 +34,18 @@ See [hardening_backlog_2026-08-02.md](hardening_backlog_2026-08-02.md).
 3. **G0-INV-18** — Blueprint backlog (M5/M6/VSA/L5) catalog only.
 4. **G2-INV-19** — Historical Φ-IQ not re-run at full power (documented).
 
-## Causal diagnosis (D-195)
+## Causal diagnosis (D-195) + overnight confirm (D-197)
 
-Diagnostic ablations (5 seeds × 100 cycles; not a 30-seed re-cert):
+Short diagnostic (5×100) then **30×200 overnight** (`logs/overnight_20260802_103502/`):
 
-- **H2 accepted:** learn-off ≡ geometry on scenario metrics → G′ off the action path under default.
-- **H3 accepted:** blended moves metrics (hurts 5×5; mixed 10×10); not a safe default.
-- **H1 partial:** metric-only narrative is budget-dependent.
+- **H2 hard:** learn-off ≡ geometry on L2 scenario metrics; PE diverges sharply (~3.4 → ~23).
+- **H3 at power:** blended **hurts** L2 on 5×5 and 10×10; no default flip.
+- **H1:** rejected at power on 5×5 (loses goal_rate); partial only on 10×10 geometry.
+- Pattern: 5×5 L2 FAIL / 10×10 L2 PASS / L3 FAIL under geometry.
 - Gate exposes `secondary_prediction` / `prediction_error_mean` (report-only).
 
-Artifacts: `logs/diagnosis_causal_g2inv05_*.json`. Note: [causal_diagnosis_g2inv05_2026-08-02.md](causal_diagnosis_g2inv05_2026-08-02.md).
+Notes: [causal_diagnosis_g2inv05_2026-08-02.md](causal_diagnosis_g2inv05_2026-08-02.md),
+[overnight_analysis_2026-08-02.md](overnight_analysis_2026-08-02.md). Docs honesty sync: **D-198**.
 
 ## Deliverables
 

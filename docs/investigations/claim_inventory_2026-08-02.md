@@ -26,7 +26,7 @@ Trust order used: measured `logs/` / `results/` → `DECISIONS.md` (D-145+) → 
 | `docs/action_selection.md` (pre-rewrite body) | Once described blended as primary; now geometry-first + opt-in | interventions.py + D-161 + D-194 |
 | `docs/limitations.md` hybrid≥0.6 section | Obsolete confidence hybrid | D-156/D-194 geometry default section |
 | `docs/phca_causal_evidence.md` (without honesty pointer) | Easy to over-read PASS as prediction-primary | D-161 + D-195 + D-196 pointer |
-| `DOCUMENTATION_MAP.md` older “cite STATUS for gates” | Residual wording debt | README, DECISIONS, IMPLEMENTATION_STATUS |
+| `DOCUMENTATION_MAP.md` (pre-D-198 cite-STATUS lines) | Fixed in D-198 — STATUS is Historical; trust logs→DECISIONS | DOCUMENTATION_MAP D-198 |
 
 ## Decision anchors (D-145 onward, investigation-relevant)
 
@@ -47,6 +47,7 @@ Trust order used: measured `logs/` / `results/` → `DECISIONS.md` (D-145+) → 
 | D-195 | Causal diagnosis G2-INV-05 (H1–H3); secondary PE dual-report on gate; no default flip |
 | D-196 | Investigation closeout docs sync (executive summary / claim sheets / causal honesty pointer) |
 | D-197 | Overnight 30-seed harness confirms H2/H3; no blended default flip; harness Φ-IQ levels CLI fix |
+| D-198 | Docs honesty sweep — living SoT + demoted bodies aligned to overnight / trust order |
 
 ## Probe artifact index
 

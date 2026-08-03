@@ -47,8 +47,8 @@ This document states what PHCA cannot do, so you can decide if it is the right t
 | `gprime_learn` mean | ~5–9 ms (env-dependent) | Dominant per-module cost |
 | Decisions per second | ~60–95 | N/A |
 | Prediction error (steady state) | 0.05–0.15 | Decreasing over time |
-| L2 Goal Pursuit Φ-IQ (static, 200 cyc) | **0.777** | ≥ 0.5 (met) |
-| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.740** | ≥ 0.5486 gate floor (met) |
+| L2 Goal Pursuit Φ-IQ (static, 200 cyc) | **0.777** (historical / geometry-confounded under default) | ≥ 0.5 |
+| Overall Φ-IQ (4-level MLP, 200 cyc) | **0.740** (historical; not default-geometry re-cert) | ≥ 0.5486 gate floor |
 
 ### Hardware
 
@@ -90,7 +90,9 @@ The `partial_obs_radius` feature (D-160) only masks walls and goal outside the a
 ### RBTA partial-obs violations reduced but not eliminated
 
 The RBTA entropy-floor fix (dividing `entropy_floor` by the partial-obs scale factor) dropped
-violation rates from ~60% to 9–12% across viewports. However, individual seeds still reach
+early short-run rates from ~60% toward single-digit means. **Authoritative 30-seed × 200-cycle
+viewport rates (README / NEW-14):** ≈0.009 / 0.000 / 0.000 — the older 9–12% figures are
+pre-fix / short-cycle. However, individual short-run seeds historically still reached
 48–56% violation rates at small radii (viewport1/2). The remaining violations are primarily
 G' ENTROPY on cycles where MC-dropout uncertainty is lowest. A non-linear scaling (e.g.,
 dividing floor by `scale²`) could eliminate residual violations but risks hiding genuine
@@ -155,7 +157,7 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 | Full MuJoCo suite (5+ envs) | Planned |
 | Multi-agent coordination | Deferred |
 
-**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce — **386 monitoring tests** (743 total with MuJoCo — [STATUS.md](../STATUS.md)).
+**Phases 7–20 complete:** Cognitive Observatory — frame schema, JSONL, 7-tab dashboard, session reports, seek/scrub replay, schema governance, report parity, scrub perf, multi-session compare, anomalies, explainability, API, supervisor, multi-agent, query, reproduce. Observatory maturity ≠ cognitive maturity. Test totals: run `make test-all` (do not cite frozen STATUS.md counts).
 
 ---
 
@@ -165,4 +167,5 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 - [architecture.md](architecture.md) — 12-step cycle and module map
 - [observability.md](observability.md) — Cognitive Observatory contracts (Phases 7–20)
 - [PHCA_Cognitive_Observatory_Architecture.md](PHCA_Cognitive_Observatory_Architecture.md) — full Observatory roadmap
-- [STATUS.md](../STATUS.md) — live issue registry and test status
+- [docs/investigations/](investigations/) — open gap register (G2-INV-05 etc.); [DECISIONS.md](../DECISIONS.md) through D-198+
+- [STATUS.md](../STATUS.md) — frozen through D-137 (historical only)

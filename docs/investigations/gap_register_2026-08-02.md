@@ -2,7 +2,7 @@
 
 Gap classes (maturity audit): **G0** no measurement | **G1** weak protocol | **G2** behavior fail | **G3** false confidence | **G4** metric conflation | **G5** silent no-op.
 
-Updated **2026-08-03** after overnight 30-seed harness analysis (D-197); prior D-194/D-195/D-196 still apply.
+Updated **2026-08-03** after overnight analysis (D-197) and docs honesty sweep (D-198); prior D-194–D-196 still apply.
 
 | ID | Class | Type | Sev | Finding | Status |
 |----|-------|------|-----|---------|--------|

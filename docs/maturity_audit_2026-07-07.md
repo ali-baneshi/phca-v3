@@ -1,9 +1,15 @@
 # PHCA Maturity Audit — 2026-07-07 (expanded)
 
-Authoritative **Claim → Evidence → Gap** matrix for maturation Track A.
+> **⚠️ DATED / PARTIALLY SUPERSEDED.** Snapshot of 2026-07-07. Prefer
+> [`docs/investigations/`](investigations/) (2026-08 gap register, D-194–D-198),
+> overnight artifacts (`logs/overnight_20260802_103502/`), and
+> [`IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md) for current gates.
+> A4 is environment-scoped; default discrete Φ-IQ L2 is planner-contaminated.
+
+Authoritative **Claim → Evidence → Gap** matrix for maturation Track A (as of date).
 Companions: [`static_audit_2026-07-07.md`](static_audit_2026-07-07.md), [`maturation_signoff.md`](maturation_signoff.md).
 
-**Trust order:** measured artifacts in `logs/` → this audit → `IMPLEMENTATION_STATUS.md` → README.
+**Trust order:** measured artifacts in `logs/` → DECISIONS → investigations → this audit → README.
 
 **Gate tiers:** T0 CI (<5 min) | T1 CI extended (<15 min) | T2 Nightly | T3 Weekly local | T4 Release
 

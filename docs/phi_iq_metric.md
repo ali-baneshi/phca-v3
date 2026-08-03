@@ -4,6 +4,12 @@
 **PHCA v3.0** on scripted GridWorld benchmarks. It combines five independent
 sub-metrics into a single score between 0.0 and 1.0.
 
+> **⚠️ Default discrete honesty (D-194 / D-198):** Under
+> `disable_blended_scorer=True`, L2 **GoalComplexity** / overall Φ-IQ largely reflect
+> BFS/Manhattan **planner competence**, not G′-scored control. Benchmark reports include
+> `action_selection_interpretation()` (`action_selection_mode` + caveat). Do not treat
+> L2 PASS as prediction-primary evidence.
+>
 > **What Φ-IQ is not:** It is not psychometric IQ, general intelligence, or a
 > cross-domain capability score. It measures performance on four fixed GridWorld
 > scenarios under specific world-model and seed settings.
@@ -86,7 +92,9 @@ Sequential GridWorld layouts (`build_task_sequence`) trained one after another.
 
 Anti-forgetting: P-Stream `protect_parameters`, M3→G′ replay (`sample_prior_task_episodes`), G′ `replay_boost` on B4. No EWC/GEM (D-020).
 
-Verdict doc: [`docs/l4_root_cause_verdict.md`](l4_root_cause_verdict.md).
+**Current L4 SoT:** `logs/benchmark_level4_30s.json` / overnight `level4_30s.json` —
+`forgetting_rate≈0.3783` FAIL @ 30 seeds (dual PE reported). Historical D-137 notes:
+[`docs/l4_root_cause_verdict.md`](l4_root_cause_verdict.md) (superseded banner).
 
 ### Emergence trace metrics
 
@@ -151,10 +159,11 @@ if RBTA violations exceed 10% of total cycles.
 | Cycle latency | < 500 ms mean | ~17 ms mean, ~31 ms p95 ✅ |
 | Failure rate | < 10% violations | **0 violations** ✅ |
 | Goal autonomy (L3) | ≥1 novel goal / 100 cycles (novel_goal_rate > 0.01) | Achieved ✅ |
-| Overall Φ-IQ | > 0.5 | **0.7718** ✅ |
-| Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ |
+| Overall Φ-IQ | > 0.5 | **0.7718** ✅ (historical artifact) |
+| Level 2 Φ-IQ | ≥ 0.5 | **0.7924** ✅ (planner-contaminated under default geometry) |
 
-Source: [STATUS.md](../STATUS.md), canonical `logs/benchmark_report.json`.
+Source: named artifact `logs/benchmark_report.json` (treat as historical vs current
+geometry default); see README / IMPLEMENTATION_STATUS — not STATUS.md.
 
 ### Scaling grids (10×10, 20×20)
 

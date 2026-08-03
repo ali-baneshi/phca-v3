@@ -56,7 +56,7 @@ TMPDIR=.tmp QT_QPA_PLATFORM=offscreen PYTHONPATH=python \
   python -m pytest python/phca/monitoring/tests/ -q
 ```
 
-Test counts: see [STATUS.md](STATUS.md) (**743 total** = 707 core + 36 MuJoCo).
+Test counts: run `make test-all` / `pytest` for current totals (do not hardcode from frozen STATUS.md).
 
 Scrub/rebuild behavior is guarded by `test_playback_store.py` (including 500-frame JSON
 immutability). Replay banner changes need coverage in the relevant `test_*_dashboard.py` module.
@@ -68,7 +68,7 @@ For changes touching cognition, benchmarks, or long-run stability:
 ```bash
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200
 MUJOCO_GL=disabled PYTHONPATH=python python scripts/assumption_validation.py --ci
-make nightly NIGHTLY_CYCLES=1000   # full hardening suite (may fail on retention gate — see STATUS.md)
+make nightly NIGHTLY_CYCLES=1000   # full hardening suite (causal L3 FAIL expected — see DECISIONS D-161/D-197)
 ```
 
 ## Getting Help

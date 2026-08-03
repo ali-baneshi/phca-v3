@@ -8,7 +8,7 @@ agent behavior, not whether the runtime can execute without crashing.
 Under the current default (`InterventionConfig.disable_blended_scorer=True`),
 PHCA action selection is **geometry-dominated** (`pure_geometry_ablation`).
 Scenario PASS/FAIL therefore measures **planner competence vs baselines**, not
-prediction-primary control (D-156/D-161/D-195).
+prediction-primary control (D-156/D-161/D-195/D-197).
 
 Gate JSON dual-reports model fit without changing `gate.passed`:
 
@@ -16,10 +16,15 @@ Gate JSON dual-reports model fit without changing `gate.passed`:
 - `secondary_prediction` (`gated: false`) — PHCA-only PE; do not treat scenario
   PASS as proof that G′ chose actions
 
-Diagnostic ablations (learn-off ≡ geometry on L2 scenario metrics) are in
-[`docs/investigations/causal_diagnosis_g2inv05_2026-08-02.md`](investigations/causal_diagnosis_g2inv05_2026-08-02.md)
-and `logs/diagnosis_causal_g2inv05_*.json`. Continuous MPC is unchanged and
-remains prediction-primary.
+**30-seed overnight SoT (D-197):** `logs/overnight_20260802_103502/` —
+5×5 L2 **FAIL**, 10×10 L2 **PASS**, L3 **FAIL** (both grids) under geometry;
+blended opt-in **hurts** L2 at power; H2 hard (learn-off ≡ geometry on scenario
+metrics; PE diverges). See
+[`investigations/overnight_analysis_2026-08-02.md`](investigations/overnight_analysis_2026-08-02.md).
+
+Shorter diagnostic ablations:
+[`investigations/causal_diagnosis_g2inv05_2026-08-02.md`](investigations/causal_diagnosis_g2inv05_2026-08-02.md)
+and `logs/diagnosis_causal_g2inv05_*.json`. Continuous MPC remains prediction-primary.
 
 ## Benchmark Shape
 
@@ -91,9 +96,17 @@ Default gated controls:
 
 This rule is deliberately not tuned to force a pass.
 
-## Current Measurement (2026-07-12)
+## Current Measurement — overnight SoT (D-197)
 
-Re-run after all 4 rounds of fixes (MLP, 200 cycles × 30 seeds, D-151):
+Prefer `logs/overnight_20260802_103502/causal_*_l2l3_geometry.json` (geometry default)
+and blended counterparts. Summary: 5×5 L2 FAIL, 10×10 L2 PASS, L3 FAIL both grids;
+blended hurts L2. Full tables:
+[`investigations/overnight_analysis_2026-08-02.md`](investigations/overnight_analysis_2026-08-02.md).
+
+## Historical Measurement (2026-07-12; geometry era; keep for archive)
+
+Re-run after all 4 rounds of fixes (MLP, 200 cycles × 30 seeds, D-151). Treat as
+historical if overnight numbers differ; L3 FAIL here already matches overnight pattern:
 
 ```bash
 PYTHONPATH=python python scripts/phca_causal_eval.py --levels all --cycles 200 --seeds 30 --use-mlp --gate \
@@ -141,7 +154,9 @@ All three viewport levels confirmed PASS at the project's 30-seed statistical st
 (D-151). RBTA violations are negligible (< 0.01) — the D-160 bound-widening fix
 (viewport-proportional RBTA scaling) is sufficient. NEW-14 is resolved.
 
-Selected means (MLP, 200 cycles × 30 seeds):
+> **Exploratory 15-seed means (historical; not the 30-seed PASS table above).**
+> Do not mix with the 30-seed gate rows. Prefer the PASS table’s goal_rate / RBTA
+> (0.355 / 0.664 / 0.722; RBTA ≈ 0.009 / 0 / 0).
 
 | Level | Agent | Goal rate | First goal (med) | Succeeded | RBTA rate |
 |-------|-------|-----------|-------------------|-----------|-----------|
@@ -201,13 +216,16 @@ Unsupported claims:
 - **PHCA does NOT currently beat `greedy_observed` (a simple one-step Manhattan heuristic) at adequate statistical power in L2 (obstacle navigation) or L3 (self-motivated exploration).**
 - PHCA does not beat a full-information greedy controller.
 
-### Why this matters (D-151)
+### Why this matters (D-151 / D-197)
 
-This is the deepest finding across all 4 review rounds. After removing the task_lock bypass (Round 1) and fixing all other identified issues, PHCA still cannot outperform a simple `if-else` greedy heuristic in the two hardest benchmark levels. Likely root causes:
+After removing the task_lock bypass and at adequate seed power, PHCA under **default
+geometry** still fails the fair gate on 5×5 L2 and on L3 (both grids); 10×10 L2 PASS
+is planner-vs-greedy, not prediction-primary. Overnight H2: learn-off ≡ geometry on
+scenario metrics — G′ is off the action path under default. Root causes to keep in mind:
 
-1. **Grid 5×5 may be too small** — prediction and planning offer no advantage over immediate feedback in a tiny state space. A larger grid (10×10 or 20×20) should be tested.
-2. **G′ world model may not converge fast enough** — within 200 cycles the learned dynamics may not be accurate enough to improve action selection beyond greedy.
-3. **Action selection may still underuse prediction scores** — despite the Round-1 fix, the architecture might still effectively default to geometry-based selection in practice.
+1. **Default action path is geometry** — scenario metrics largely measure planner competence (D-197).
+2. **10×10 is already tested** — L2 PASS / L3 FAIL at 30×200; do not re-pilot “run 10×10” as if undone.
+3. **Blended opt-in is not a free win** — at 30×200 it hurts L2 vs geometry (D-197); no default flip.
 
 ### Recommendation (status)
 

@@ -1,8 +1,8 @@
 # PHCA v3.0 — Implementation Status Matrix
 
 Maps **whitepaper success criteria** and **blueprint components** to current
-code, gate scripts, and measured outcomes. Last aligned with STATUS.md:
-2026-07-11.
+code, gate scripts, and measured outcomes. **Aligned to DECISIONS D-197/D-198 and
+`logs/overnight_20260802_103502/`** (STATUS.md is frozen historical — not gate SoT).
 
 **Maturation audits (2026-07-07):** [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md),
 [docs/static_audit_2026-07-07.md](docs/static_audit_2026-07-07.md).
@@ -79,9 +79,9 @@ evidence separate from invariant tests.
 | Gate | Script | CI? | Current status (2026-07-06) |
 |---|---|---|---|
 | Φ-IQ regression (L0 quick) | `check_benchmark_gate.py` | **Yes** | PASS |
-| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | PASS (0.7317) |
+| Φ-IQ full (MLP L0–L3) | `scripts/benchmark.py --use-mlp` | No (nightly) | **Historical** PASS (~0.73) — not re-certified as default-geometry SoT; L2 GC planner-contaminated under `pure_geometry_ablation` |
 | MuJoCo smoke | `check_benchmark_gate.py --mujoco` | No (nightly) | PASS |
-| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **L1 PASS, L2 FAIL, L3 mixed** at 30 seeds with pure-geometry default (D-151/D-161). 10×10 L2 PASS; L3 often FAIL vs greedy_observed. **D-159 caveat:** the D-156 "0.03% blended collapse" was an **RBTA bound-scaling artifact** (ungated blended later ~77.8%); pure geometry remains default for reliability, not because the scorer is proven useless. |
+| Causal behavior L1–L3 | `phca_causal_eval.py --gate` | Smoke only | **D-197 overnight 30×200:** 5×5 L2 **FAIL**, 10×10 L2 **PASS**, L3 **FAIL** (5×5 and 10×10) under geometry. Blended opt-in **hurts** L2 at power. Secondary PE dual-report on gate (not gated). Artifacts: `logs/overnight_20260802_103502/`. **D-159 caveat:** D-156 "0.03%" was RBTA artifact (ungated blended ~77.8% ≠ causal competence). |
 | Assumption validation | `assumption_validation.py --ci` | No (nightly) | **5/5 PASS** (A1–A5 incl. A2) |
 | OOD calibration | `ood_calibration.py` | No (nightly) | Monotonic PASS |
 | Nightly stress | `nightly_stress.py` | Scheduled workflow | Fill-phase PASS @ 1k; post-cap @ 10k |
@@ -115,7 +115,7 @@ See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 | Environment | Mode | A4 "prediction-primary"? |
 |---|---|---|---|
 | GridWorld discrete | Pure BFS/Manhattan geometry (default since D-156; G' blend via `--enable-blended-scorer`) | **No** under default (D-158 inductive bias). D-156's 0.03% figure was RBTA artifact (D-159); geometry still preferred post D-161 30-seed re-eval |
-| Cartpole | 3-bin discrete (unified path) | **Yes** |
+| Cartpole | 3-bin discrete fallthrough (no GridWorld BFS/Manhattan) | **No** — not continuous MPC; not `pure_geometry_ablation` |
 | Pendulum continuous | MPC: sample K actions, predict, pick best ŝ′ | **Yes** (A4 measured) |
 | Reacher continuous | Same MPC path, dim 2 | **Yes** |
 
@@ -165,7 +165,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 
 | Feature | Code | Status | Evidence |
 |---|---|---|---|
-| Confidence-gated discrete action selection (autonomous goal-setting / conditional action branch) | `python/phca/core/cycle.py` — `TASK_LOCK_CONFIDENCE_THRESHOLD=0.6` | ✅ **Done** | Low confidence → blended G′ per-candidate scorer; high confidence → Manhattan greedy (D-112 preserved) |
+| Discrete action selection default (geometry) | `InterventionConfig.disable_blended_scorer=True` → `pure_geometry_ablation` | ✅ **Done** (D-156/D-161) | Default is **not** confidence≥0.6 hybrid. Blended + agreement gating is **opt-in** (`--enable-blended-scorer`); D-197: blended hurts causal L2 at 30×200 — no default flip. Legacy `TASK_LOCK_CONFIDENCE_THRESHOLD=0.6` is not the hot-path default. |
 | MDIM deficit/target drive normalization | `python/phca/motivation/mdim.py` — `generate_goal()` | ✅ **Done** | `deficits_norm = deficits / targets` before softmax; `goal_switch_boost` capped at 2.0 |
 | Unified epistemic entropy for A3 + D4 (MC-Dropout) | `python/phca/core/cycle.py` — `_epistemic_entropy()` | ✅ **Done** | `0.01 + gprime._last_mutual_info` (MC-dropout); wired to D4 `model_entropy` and `belief_entropies["G'"]`; A3 CI PASS (min_entropy=0.0408) |
 

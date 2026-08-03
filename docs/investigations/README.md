@@ -17,4 +17,4 @@ Companion machine-readable probes under `logs/investigation_*.json`, `logs/diagn
 
 Trust order: `logs/` / `results/` → `DECISIONS.md` → README / IMPLEMENTATION_STATUS / maturity_audit → these investigation notes → demoted subsidiary docs.
 
-Closeout sync: **D-196**. Overnight confirm: **D-197**. Residual open behavioral: G2-INV-05.
+Closeout sync: **D-196**. Overnight confirm: **D-197**. Docs honesty sweep: **D-198**. Residual open behavioral: G2-INV-05.

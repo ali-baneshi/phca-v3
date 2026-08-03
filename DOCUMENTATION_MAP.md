@@ -4,6 +4,11 @@ This map tells you **which documents to trust** for what purpose, and which
 are historical or aspirational. When documents disagree, prefer the tier order
 below.
 
+**Trust order (D-198):** named `logs/` artifacts → [`DECISIONS.md`](DECISIONS.md)
+(through D-198+) → [`README.md`](README.md) / [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)
+→ [`docs/investigations/`](docs/investigations/) → demoted subsidiary docs.
+Never cite [`STATUS.md`](STATUS.md) for post-D-137 gates.
+
 ---
 
 ## Document Tiers
@@ -22,35 +27,38 @@ below.
 | Document | Purpose |
 |---|---|
 | [README.md](README.md) | Project overview, quick start, latest benchmark summary |
-| [STATUS.md](STATUS.md) | **Frozen 2026-07-08 (through D-137)** — historical only; not gate SoT |
-| [DECISIONS.md](DECISIONS.md) | Design decision log (authoritative; through D-197+) |
-| [docs/investigations/](docs/investigations/) | 2026-08 investigation gap register / hardening backlog |
+| [DECISIONS.md](DECISIONS.md) | Design decision log (authoritative; through D-198+) |
+| [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix |
+| [docs/investigations/](docs/investigations/) | 2026-08 gap register, overnight analysis, hardening backlog |
 | [SETUP.md](SETUP.md) | Developer setup, Observatory commands |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | PR workflow, lint/test gates |
-| [docs/architecture.md](docs/architecture.md) | 12-step cycle, module map, invariants |
 | [docs/limitations.md](docs/limitations.md) | Honest capability boundaries |
-| [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation |
+| [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Φ-IQ definition, levels, interpretation caveats |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior gate |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL, replay, integrity |
-| [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/) | Historical phase prompts (Observatory Phases 13–20; archived) |
-| [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria × code × gates matrix |
 | [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers |
-| [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md) | Canonical log files index |
+| [docs/benchmark_artifacts.md](docs/benchmark_artifacts.md) | Canonical log files index (incl. overnight) |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs continuous action paths |
 | [docs/quickstart.md](docs/quickstart.md) | 5-minute getting started (links to SETUP) |
+
+Architecture notes live under Historical/demoted with a drift banner:
+[docs/architecture.md](docs/architecture.md) — prefer README A4 row + DECISIONS D-156/D-158/D-197.
 
 ---
 
 ## Historical Documents (phase snapshots)
 
-Located in [docs/archive/](docs/archive/). See [docs/archive/README.md](docs/archive/README.md)
-for the index. Examples:
+| Document | Purpose |
+|---|---|
+| [STATUS.md](STATUS.md) | **Frozen 2026-07-08 (through D-137)** — historical only; not gate SoT |
+| [docs/archive/](docs/archive/) | Phase completion / gap-closure reports (see archive README) |
+| [docs/observatory_phase_prompts/](docs/observatory_phase_prompts/) | Observatory Phases 13–20 prompts (archived) |
+| [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | Superseded D-137-era L4 notes (bannered) |
+| [docs/maturity_audit_2026-07-07.md](docs/maturity_audit_2026-07-07.md) | Dated maturity audit (bannered) |
 
-- Phase 3.3 completion reports
-- Phase 4–6 sign-off reports
-- Gap closure and audit reports from earlier passes
-
-**Do not cite benchmark numbers from these without cross-checking STATUS.md.**
+**Do not cite benchmark numbers from historical docs without cross-checking named
+`logs/` files and DECISIONS (through D-198+).** Never use STATUS.md to validate
+overnight / causal / L4 gates.
 
 ---
 
@@ -84,28 +92,29 @@ not describe the running system verbatim.
 
 ### First-time visitor (15 min)
 
-1. README.md → limitations.md → IMPLEMENTATION_STATUS.md
+1. README.md → limitations.md → IMPLEMENTATION_STATUS.md → docs/investigations/executive_summary
 
 ### Contributor (30 min)
 
-1. SETUP.md → CONTRIBUTING.md → architecture.md → STATUS.md
+1. SETUP.md → CONTRIBUTING.md → DECISIONS.md (recent D-194+) → docs/investigations/ → IMPLEMENTATION_STATUS.md
 
 ### Researcher evaluating claims (1 hr)
 
-1. phi_iq_metric.md → phca_causal_evidence.md → reproducibility.md → DECISIONS.md (D-101, D-112)
+1. phca_causal_evidence.md → overnight_analysis (investigations) → phi_iq_metric.md → reproducibility.md → DECISIONS.md (D-151, D-156/D-159, D-197)
 
 ### Systems reviewer
 
-1. architecture.md → observability.md → benchmark_artifacts.md → assumption_validation scripts
+1. action_selection.md → observability.md → benchmark_artifacts.md → assumption_validation scripts
 
 ---
 
 ## Canonical Numbers
 
-Always cite from [STATUS.md](STATUS.md) and named log files in
-[docs/benchmark_artifacts.md](docs/benchmark_artifacts.md):
+Cite **named log files** first ([docs/benchmark_artifacts.md](docs/benchmark_artifacts.md)),
+then DECISIONS / IMPLEMENTATION_STATUS. Prefer current overnight SoT when present:
 
-- **766 tests** in `python/` (+ 36 MuJoCo optional)
-- **386 monitoring tests** (`pytest python/phca/monitoring/tests/`)
-- **Overall Φ-IQ 0.7323** (MLP, 200 cyc/level, seed 42)
-- Drift audit: [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md)
+- Causal / diagnosis / L4 overnight: `logs/overnight_20260802_103502/` (D-197)
+- L4 30-seed: `logs/benchmark_level4_30s.json` — `forgetting_rate≈0.3783`, FAIL
+- Diagnosis ablations: `logs/diagnosis_causal_g2inv05_*.json`
+- Φ-IQ MLP historical (pre-/not re-certified under geometry default): overall ~0.73 in older `logs/benchmark_report.json` — treat as historical; L2 GC is planner-contaminated under default
+- Test counts: run `make test-all` / `pytest` for current totals (do not hardcode from STATUS)

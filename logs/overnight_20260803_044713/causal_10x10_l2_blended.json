@@ -1,0 +1,2305 @@
+{
+  "config": {
+    "level": "level2",
+    "description": "Constrained GridWorld: noisy/delayed observation, partial map, dynamic obstacles.",
+    "cycles": 200,
+    "seeds": 30,
+    "base_seed": 42,
+    "grid_size": 10,
+    "action_slip": 0.0,
+    "agents": [
+      "phca",
+      "random",
+      "greedy_observed",
+      "greedy_full_info"
+    ],
+    "metrics": [
+      "goal_rate",
+      "first_goal_cycle",
+      "mean_distance_to_goal",
+      "cumulative_reward"
+    ],
+    "gate_controls": [
+      "random",
+      "greedy_observed"
+    ],
+    "phca_model": "MLP",
+    "action_selection_mode": "blended_opt_in",
+    "disable_blended_scorer": false,
+    "interpretation_caveat": "Blended G\u2032-scored discrete selection active (opt-in); still subject to agreement/confidence gating fallbacks."
+  },
+  "runs": [
+    {
+      "agent": "phca",
+      "seed": 42,
+      "cycles": 200,
+      "goal_rate": 0.085,
+      "first_goal_cycle": 24,
+      "mean_distance_to_goal": 1.885,
+      "cumulative_reward": 15.17,
+      "coverage_rate": 0.23,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.13,
+      "rbta_violations_by_type": {
+        "ENTROPY": 26
+      },
+      "model": "MLP",
+      "prediction_error_mean": 5.002845534682274,
+      "episode_count": 200,
+      "fact_count": 84,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 93,
+        "adaptive_geometry_fallback": 57
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 46.5,
+        "adaptive_geometry_fallback": 28.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 42,
+      "cycles": 200,
+      "goal_rate": 0.02,
+      "first_goal_cycle": 146,
+      "mean_distance_to_goal": 4.14,
+      "cumulative_reward": 2.04,
+      "coverage_rate": 0.38,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 42,
+      "cycles": 200,
+      "goal_rate": 0.135,
+      "first_goal_cycle": 24,
+      "mean_distance_to_goal": 1.745,
+      "cumulative_reward": 25.27,
+      "coverage_rate": 0.23,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 42,
+      "cycles": 200,
+      "goal_rate": 0.99,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 0.015,
+      "cumulative_reward": 197.98,
+      "coverage_rate": 0.03,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 43,
+      "cycles": 200,
+      "goal_rate": 0.125,
+      "first_goal_cycle": 4,
+      "mean_distance_to_goal": 2.535,
+      "cumulative_reward": 23.25,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.75,
+      "rbta_violations_by_type": {
+        "ENTROPY": 150
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.682578023076058,
+      "episode_count": 200,
+      "fact_count": 70,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 47,
+        "adaptive_geometry_fallback": 103
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 23.5,
+        "adaptive_geometry_fallback": 51.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 43,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 7.47,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.29,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 43,
+      "cycles": 200,
+      "goal_rate": 0.165,
+      "first_goal_cycle": 4,
+      "mean_distance_to_goal": 1.345,
+      "cumulative_reward": 31.33,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 43,
+      "cycles": 200,
+      "goal_rate": 0.98,
+      "first_goal_cycle": 4,
+      "mean_distance_to_goal": 0.05,
+      "cumulative_reward": 195.96,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 44,
+      "cycles": 200,
+      "goal_rate": 0.1,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 2.955,
+      "cumulative_reward": 18.2,
+      "coverage_rate": 0.1,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.94,
+      "rbta_violations_by_type": {
+        "ENTROPY": 188
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.693794437646866,
+      "episode_count": 200,
+      "fact_count": 7,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 72,
+        "adaptive_geometry_fallback": 78
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 36.0,
+        "adaptive_geometry_fallback": 39.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 44,
+      "cycles": 200,
+      "goal_rate": 0.045,
+      "first_goal_cycle": 31,
+      "mean_distance_to_goal": 2.59,
+      "cumulative_reward": 7.09,
+      "coverage_rate": 0.36,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 44,
+      "cycles": 200,
+      "goal_rate": 0.145,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 1.71,
+      "cumulative_reward": 27.29,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 44,
+      "cycles": 200,
+      "goal_rate": 1.0,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 0.0,
+      "cumulative_reward": 200.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 45,
+      "cycles": 200,
+      "goal_rate": 0.15,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 1.27,
+      "cumulative_reward": 28.3,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.935,
+      "rbta_violations_by_type": {
+        "ENTROPY": 187
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.0711411887407305,
+      "episode_count": 200,
+      "fact_count": 15,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 45,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 7.87,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.39,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 45,
+      "cycles": 200,
+      "goal_rate": 0.17,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 1.315,
+      "cumulative_reward": 32.34,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 45,
+      "cycles": 200,
+      "goal_rate": 1.0,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 0.0,
+      "cumulative_reward": 200.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 46,
+      "cycles": 200,
+      "goal_rate": 0.92,
+      "first_goal_cycle": 16,
+      "mean_distance_to_goal": 0.59,
+      "cumulative_reward": 183.84,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.86,
+      "rbta_violations_by_type": {
+        "ENTROPY": 172
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.5271829718351366,
+      "episode_count": 200,
+      "fact_count": 16,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 46,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 9.95,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.4,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 46,
+      "cycles": 200,
+      "goal_rate": 0.92,
+      "first_goal_cycle": 16,
+      "mean_distance_to_goal": 0.59,
+      "cumulative_reward": 183.84,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 46,
+      "cycles": 200,
+      "goal_rate": 0.935,
+      "first_goal_cycle": 13,
+      "mean_distance_to_goal": 0.455,
+      "cumulative_reward": 186.87,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 47,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 8.43,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.1,
+      "rbta_violations_by_type": {
+        "ENTROPY": 20
+      },
+      "model": "MLP",
+      "prediction_error_mean": 6.691873981952667,
+      "episode_count": 200,
+      "fact_count": 26,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 86,
+        "adaptive_geometry_fallback": 64
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 43.0,
+        "adaptive_geometry_fallback": 32.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 47,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 9.12,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.26,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 47,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 7.71,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 47,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 6.0,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 48,
+      "cycles": 200,
+      "goal_rate": 0.615,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 1.205,
+      "cumulative_reward": 122.23,
+      "coverage_rate": 0.23,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.03,
+      "rbta_violations_by_type": {
+        "ENTROPY": 6
+      },
+      "model": "MLP",
+      "prediction_error_mean": 5.449029962420464,
+      "episode_count": 200,
+      "fact_count": 39,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 48,
+      "cycles": 200,
+      "goal_rate": 0.05,
+      "first_goal_cycle": 58,
+      "mean_distance_to_goal": 3.795,
+      "cumulative_reward": 8.1,
+      "coverage_rate": 0.37,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 48,
+      "cycles": 200,
+      "goal_rate": 0.235,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 1.595,
+      "cumulative_reward": 45.47,
+      "coverage_rate": 0.21,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 48,
+      "cycles": 200,
+      "goal_rate": 0.975,
+      "first_goal_cycle": 5,
+      "mean_distance_to_goal": 0.075,
+      "cumulative_reward": 194.95,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 49,
+      "cycles": 200,
+      "goal_rate": 0.1,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 2.945,
+      "cumulative_reward": 18.2,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.925,
+      "rbta_violations_by_type": {
+        "ENTROPY": 185
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.7941786289215087,
+      "episode_count": 200,
+      "fact_count": 20,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 72,
+        "adaptive_geometry_fallback": 78
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 36.0,
+        "adaptive_geometry_fallback": 39.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 49,
+      "cycles": 200,
+      "goal_rate": 0.035,
+      "first_goal_cycle": 44,
+      "mean_distance_to_goal": 4.235,
+      "cumulative_reward": 5.07,
+      "coverage_rate": 0.42,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 49,
+      "cycles": 200,
+      "goal_rate": 0.13,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 1.62,
+      "cumulative_reward": 24.26,
+      "coverage_rate": 0.11,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 49,
+      "cycles": 200,
+      "goal_rate": 0.99,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 0.015,
+      "cumulative_reward": 197.98,
+      "coverage_rate": 0.03,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 50,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 4.085,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.01,
+      "rbta_violations_by_type": {
+        "ENTROPY": 2
+      },
+      "model": "MLP",
+      "prediction_error_mean": 6.6559636700153355,
+      "episode_count": 200,
+      "fact_count": 38,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 89,
+        "adaptive_geometry_fallback": 61
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 44.5,
+        "adaptive_geometry_fallback": 30.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 50,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.425,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.28,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 50,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.7,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 50,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 2.005,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.02,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 51,
+      "cycles": 200,
+      "goal_rate": 0.09,
+      "first_goal_cycle": 25,
+      "mean_distance_to_goal": 1.915,
+      "cumulative_reward": 16.18,
+      "coverage_rate": 0.25,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.875,
+      "rbta_violations_by_type": {
+        "ENTROPY": 175
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.253719936013222,
+      "episode_count": 200,
+      "fact_count": 18,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 93,
+        "adaptive_geometry_fallback": 57
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 46.5,
+        "adaptive_geometry_fallback": 28.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 51,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.035,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.38,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 51,
+      "cycles": 200,
+      "goal_rate": 0.135,
+      "first_goal_cycle": 25,
+      "mean_distance_to_goal": 1.78,
+      "cumulative_reward": 25.27,
+      "coverage_rate": 0.25,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 51,
+      "cycles": 200,
+      "goal_rate": 0.98,
+      "first_goal_cycle": 4,
+      "mean_distance_to_goal": 0.05,
+      "cumulative_reward": 195.96,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 52,
+      "cycles": 200,
+      "goal_rate": 0.4,
+      "first_goal_cycle": 38,
+      "mean_distance_to_goal": 2.66,
+      "cumulative_reward": 78.8,
+      "coverage_rate": 0.43,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.205,
+      "rbta_violations_by_type": {
+        "ENTROPY": 41
+      },
+      "model": "MLP",
+      "prediction_error_mean": 6.739697034955025,
+      "episode_count": 200,
+      "fact_count": 47,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 44,
+        "adaptive_geometry_fallback": 106
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 22.0,
+        "adaptive_geometry_fallback": 53.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 52,
+      "cycles": 200,
+      "goal_rate": 0.02,
+      "first_goal_cycle": 141,
+      "mean_distance_to_goal": 4.425,
+      "cumulative_reward": 2.04,
+      "coverage_rate": 0.52,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 52,
+      "cycles": 200,
+      "goal_rate": 0.125,
+      "first_goal_cycle": 38,
+      "mean_distance_to_goal": 2.17,
+      "cumulative_reward": 23.25,
+      "coverage_rate": 0.39,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 52,
+      "cycles": 200,
+      "goal_rate": 0.945,
+      "first_goal_cycle": 11,
+      "mean_distance_to_goal": 0.33,
+      "cumulative_reward": 188.89,
+      "coverage_rate": 0.12,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 53,
+      "cycles": 200,
+      "goal_rate": 0.11,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 2.89,
+      "cumulative_reward": 20.22,
+      "coverage_rate": 0.22,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.89,
+      "rbta_violations_by_type": {
+        "ENTROPY": 178
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.027831487655639,
+      "episode_count": 200,
+      "fact_count": 45,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 47,
+        "adaptive_geometry_fallback": 103
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 23.5,
+        "adaptive_geometry_fallback": 51.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 53,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.755,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.45,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 53,
+      "cycles": 200,
+      "goal_rate": 0.155,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 1.48,
+      "cumulative_reward": 29.31,
+      "coverage_rate": 0.17,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 53,
+      "cycles": 200,
+      "goal_rate": 0.965,
+      "first_goal_cycle": 7,
+      "mean_distance_to_goal": 0.14,
+      "cumulative_reward": 192.93,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 54,
+      "cycles": 200,
+      "goal_rate": 0.11,
+      "first_goal_cycle": 11,
+      "mean_distance_to_goal": 2.9,
+      "cumulative_reward": 20.22,
+      "coverage_rate": 0.2,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.895,
+      "rbta_violations_by_type": {
+        "ENTROPY": 179
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.389247097373008,
+      "episode_count": 200,
+      "fact_count": 18,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 54,
+      "cycles": 200,
+      "goal_rate": 0.015,
+      "first_goal_cycle": 194,
+      "mean_distance_to_goal": 6.11,
+      "cumulative_reward": 1.03,
+      "coverage_rate": 0.54,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 54,
+      "cycles": 200,
+      "goal_rate": 0.135,
+      "first_goal_cycle": 11,
+      "mean_distance_to_goal": 1.815,
+      "cumulative_reward": 25.27,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 54,
+      "cycles": 200,
+      "goal_rate": 0.96,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 0.18,
+      "cumulative_reward": 191.92,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 55,
+      "cycles": 200,
+      "goal_rate": 0.105,
+      "first_goal_cycle": 7,
+      "mean_distance_to_goal": 2.875,
+      "cumulative_reward": 19.21,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.93,
+      "rbta_violations_by_type": {
+        "ENTROPY": 186
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.0330786317586895,
+      "episode_count": 200,
+      "fact_count": 20,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 47,
+        "adaptive_geometry_fallback": 103
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 23.5,
+        "adaptive_geometry_fallback": 51.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 55,
+      "cycles": 200,
+      "goal_rate": 0.005,
+      "first_goal_cycle": 1,
+      "mean_distance_to_goal": 6.055,
+      "cumulative_reward": -0.99,
+      "coverage_rate": 0.5,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 55,
+      "cycles": 200,
+      "goal_rate": 0.165,
+      "first_goal_cycle": 7,
+      "mean_distance_to_goal": 1.36,
+      "cumulative_reward": 31.33,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 55,
+      "cycles": 200,
+      "goal_rate": 0.995,
+      "first_goal_cycle": 1,
+      "mean_distance_to_goal": 0.005,
+      "cumulative_reward": 198.99,
+      "coverage_rate": 0.02,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 56,
+      "cycles": 200,
+      "goal_rate": 0.3,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 1.705,
+      "cumulative_reward": 58.6,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.94,
+      "rbta_violations_by_type": {
+        "ENTROPY": 188
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.9492648488283155,
+      "episode_count": 200,
+      "fact_count": 7,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 90,
+        "adaptive_geometry_fallback": 60
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 45.0,
+        "adaptive_geometry_fallback": 30.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 56,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.11,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.44,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 56,
+      "cycles": 200,
+      "goal_rate": 0.99,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 0.015,
+      "cumulative_reward": 197.98,
+      "coverage_rate": 0.03,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 56,
+      "cycles": 200,
+      "goal_rate": 0.99,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 0.015,
+      "cumulative_reward": 197.98,
+      "coverage_rate": 0.03,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 57,
+      "cycles": 200,
+      "goal_rate": 0.06,
+      "first_goal_cycle": 83,
+      "mean_distance_to_goal": 3.24,
+      "cumulative_reward": 10.12,
+      "coverage_rate": 0.35,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.015,
+      "rbta_violations_by_type": {
+        "ENTROPY": 3
+      },
+      "model": "MLP",
+      "prediction_error_mean": 7.619801986217499,
+      "episode_count": 200,
+      "fact_count": 75,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 75,
+        "adaptive_geometry_fallback": 75
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 37.5,
+        "adaptive_geometry_fallback": 37.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 57,
+      "cycles": 200,
+      "goal_rate": 0.025,
+      "first_goal_cycle": 92,
+      "mean_distance_to_goal": 3.8,
+      "cumulative_reward": 3.05,
+      "coverage_rate": 0.43,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 57,
+      "cycles": 200,
+      "goal_rate": 0.12,
+      "first_goal_cycle": 35,
+      "mean_distance_to_goal": 2.075,
+      "cumulative_reward": 22.24,
+      "coverage_rate": 0.33,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 57,
+      "cycles": 200,
+      "goal_rate": 0.98,
+      "first_goal_cycle": 4,
+      "mean_distance_to_goal": 0.05,
+      "cumulative_reward": 195.96,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 58,
+      "cycles": 200,
+      "goal_rate": 0.115,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 2.75,
+      "cumulative_reward": 21.23,
+      "coverage_rate": 0.22,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.855,
+      "rbta_violations_by_type": {
+        "ENTROPY": 171
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.806201338171959,
+      "episode_count": 200,
+      "fact_count": 28,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 47,
+        "adaptive_geometry_fallback": 103
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 23.5,
+        "adaptive_geometry_fallback": 51.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 58,
+      "cycles": 200,
+      "goal_rate": 0.01,
+      "first_goal_cycle": 13,
+      "mean_distance_to_goal": 2.71,
+      "cumulative_reward": 0.01999999999999996,
+      "coverage_rate": 0.19,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 58,
+      "cycles": 200,
+      "goal_rate": 0.155,
+      "first_goal_cycle": 17,
+      "mean_distance_to_goal": 1.46,
+      "cumulative_reward": 29.31,
+      "coverage_rate": 0.17,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 58,
+      "cycles": 200,
+      "goal_rate": 0.985,
+      "first_goal_cycle": 3,
+      "mean_distance_to_goal": 0.03,
+      "cumulative_reward": 196.97,
+      "coverage_rate": 0.04,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 59,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 4.955,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.33,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.19,
+      "rbta_violations_by_type": {
+        "ENTROPY": 38
+      },
+      "model": "MLP",
+      "prediction_error_mean": 8.143064073324204,
+      "episode_count": 200,
+      "fact_count": 76,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 93,
+        "adaptive_geometry_fallback": 57
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 46.5,
+        "adaptive_geometry_fallback": 28.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 59,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 10.31,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.49,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 59,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.62,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.26,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 59,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.075,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 60,
+      "cycles": 200,
+      "goal_rate": 0.285,
+      "first_goal_cycle": 6,
+      "mean_distance_to_goal": 1.4,
+      "cumulative_reward": 55.57,
+      "coverage_rate": 0.12,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.85,
+      "rbta_violations_by_type": {
+        "ENTROPY": 170
+      },
+      "model": "MLP",
+      "prediction_error_mean": 4.217938050031662,
+      "episode_count": 200,
+      "fact_count": 14,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 93,
+        "adaptive_geometry_fallback": 57
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 46.5,
+        "adaptive_geometry_fallback": 28.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 60,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 8.975,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.34,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 60,
+      "cycles": 200,
+      "goal_rate": 0.97,
+      "first_goal_cycle": 6,
+      "mean_distance_to_goal": 0.105,
+      "cumulative_reward": 193.94,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 60,
+      "cycles": 200,
+      "goal_rate": 0.97,
+      "first_goal_cycle": 6,
+      "mean_distance_to_goal": 0.105,
+      "cumulative_reward": 193.94,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 61,
+      "cycles": 200,
+      "goal_rate": 0.065,
+      "first_goal_cycle": 37,
+      "mean_distance_to_goal": 2.82,
+      "cumulative_reward": 11.13,
+      "coverage_rate": 0.42,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.925,
+      "rbta_violations_by_type": {
+        "ENTROPY": 185
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.2914003139734267,
+      "episode_count": 200,
+      "fact_count": 23,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 79,
+        "adaptive_geometry_fallback": 71
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 39.5,
+        "adaptive_geometry_fallback": 35.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 61,
+      "cycles": 200,
+      "goal_rate": 0.055,
+      "first_goal_cycle": 141,
+      "mean_distance_to_goal": 4.045,
+      "cumulative_reward": 9.11,
+      "coverage_rate": 0.37,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 61,
+      "cycles": 200,
+      "goal_rate": 0.12,
+      "first_goal_cycle": 37,
+      "mean_distance_to_goal": 2.2,
+      "cumulative_reward": 22.24,
+      "coverage_rate": 0.41,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 61,
+      "cycles": 200,
+      "goal_rate": 0.965,
+      "first_goal_cycle": 7,
+      "mean_distance_to_goal": 0.14,
+      "cumulative_reward": 192.93,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 62,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 2.9,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.22,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.245,
+      "rbta_violations_by_type": {
+        "ENTROPY": 49
+      },
+      "model": "MLP",
+      "prediction_error_mean": 6.189594362974167,
+      "episode_count": 200,
+      "fact_count": 43,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 62,
+      "cycles": 200,
+      "goal_rate": 0.005,
+      "first_goal_cycle": 150,
+      "mean_distance_to_goal": 3.235,
+      "cumulative_reward": -0.99,
+      "coverage_rate": 0.35,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 62,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 2.175,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.18,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 62,
+      "cycles": 200,
+      "goal_rate": 0.965,
+      "first_goal_cycle": 7,
+      "mean_distance_to_goal": 0.14,
+      "cumulative_reward": 192.93,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 63,
+      "cycles": 200,
+      "goal_rate": 0.09,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 2.7,
+      "cumulative_reward": 16.18,
+      "coverage_rate": 0.14,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.035,
+      "rbta_violations_by_type": {
+        "ENTROPY": 6,
+        "TIME": 1
+      },
+      "model": "MLP",
+      "prediction_error_mean": 5.5202787321805955,
+      "episode_count": 200,
+      "fact_count": 64,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 64,
+        "adaptive_geometry_fallback": 86
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 32.0,
+        "adaptive_geometry_fallback": 43.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 63,
+      "cycles": 200,
+      "goal_rate": 0.04,
+      "first_goal_cycle": 13,
+      "mean_distance_to_goal": 5.84,
+      "cumulative_reward": 6.08,
+      "coverage_rate": 0.52,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 63,
+      "cycles": 200,
+      "goal_rate": 0.14,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 1.725,
+      "cumulative_reward": 26.28,
+      "coverage_rate": 0.12,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 63,
+      "cycles": 200,
+      "goal_rate": 0.99,
+      "first_goal_cycle": 2,
+      "mean_distance_to_goal": 0.015,
+      "cumulative_reward": 197.98,
+      "coverage_rate": 0.03,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 64,
+      "cycles": 200,
+      "goal_rate": 0.09,
+      "first_goal_cycle": 35,
+      "mean_distance_to_goal": 2.06,
+      "cumulative_reward": 16.18,
+      "coverage_rate": 0.35,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.3,
+      "rbta_violations_by_type": {
+        "ENTROPY": 60
+      },
+      "model": "MLP",
+      "prediction_error_mean": 5.212736005783081,
+      "episode_count": 200,
+      "fact_count": 79,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 84,
+        "adaptive_geometry_fallback": 66
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 42.0,
+        "adaptive_geometry_fallback": 33.0
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 64,
+      "cycles": 200,
+      "goal_rate": 0.03,
+      "first_goal_cycle": 85,
+      "mean_distance_to_goal": 3.84,
+      "cumulative_reward": 4.06,
+      "coverage_rate": 0.39,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 64,
+      "cycles": 200,
+      "goal_rate": 0.14,
+      "first_goal_cycle": 35,
+      "mean_distance_to_goal": 1.86,
+      "cumulative_reward": 26.28,
+      "coverage_rate": 0.35,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 64,
+      "cycles": 200,
+      "goal_rate": 0.96,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 0.18,
+      "cumulative_reward": 191.92,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 65,
+      "cycles": 200,
+      "goal_rate": 0.115,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 1.16,
+      "cumulative_reward": 21.23,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.675,
+      "rbta_violations_by_type": {
+        "ENTROPY": 135
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.9661202788352967,
+      "episode_count": 200,
+      "fact_count": 34,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 89,
+        "adaptive_geometry_fallback": 61
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 44.5,
+        "adaptive_geometry_fallback": 30.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 65,
+      "cycles": 200,
+      "goal_rate": 0.005,
+      "first_goal_cycle": 194,
+      "mean_distance_to_goal": 5.47,
+      "cumulative_reward": -0.99,
+      "coverage_rate": 0.4,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 65,
+      "cycles": 200,
+      "goal_rate": 0.18,
+      "first_goal_cycle": 8,
+      "mean_distance_to_goal": 1.155,
+      "cumulative_reward": 34.36,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 65,
+      "cycles": 200,
+      "goal_rate": 0.975,
+      "first_goal_cycle": 5,
+      "mean_distance_to_goal": 0.075,
+      "cumulative_reward": 194.95,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 66,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 6.18,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.12,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {},
+      "model": "MLP",
+      "prediction_error_mean": 8.850670175552368,
+      "episode_count": 200,
+      "fact_count": 43,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 69,
+        "adaptive_geometry_fallback": 81
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 34.5,
+        "adaptive_geometry_fallback": 40.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 66,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 9.875,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.43,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 66,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 4.53,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.08,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 66,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.03,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.04,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 67,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.02,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.22,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.065,
+      "rbta_violations_by_type": {
+        "ENTROPY": 13
+      },
+      "model": "MLP",
+      "prediction_error_mean": 7.927732744216919,
+      "episode_count": 200,
+      "fact_count": 52,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 63,
+        "adaptive_geometry_fallback": 87
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 31.5,
+        "adaptive_geometry_fallback": 43.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 67,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 6.165,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.4,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 67,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.785,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.19,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 67,
+      "cycles": 200,
+      "goal_rate": 0.975,
+      "first_goal_cycle": 5,
+      "mean_distance_to_goal": 0.075,
+      "cumulative_reward": 194.95,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 68,
+      "cycles": 200,
+      "goal_rate": 0.135,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 2.04,
+      "cumulative_reward": 25.27,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.94,
+      "rbta_violations_by_type": {
+        "ENTROPY": 188
+      },
+      "model": "MLP",
+      "prediction_error_mean": 3.6326168781518935,
+      "episode_count": 200,
+      "fact_count": 5,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 51,
+        "adaptive_geometry_fallback": 99
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 25.5,
+        "adaptive_geometry_fallback": 49.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 68,
+      "cycles": 200,
+      "goal_rate": 0.055,
+      "first_goal_cycle": 61,
+      "mean_distance_to_goal": 4.065,
+      "cumulative_reward": 9.11,
+      "coverage_rate": 0.39,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 68,
+      "cycles": 200,
+      "goal_rate": 0.17,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 1.34,
+      "cumulative_reward": 32.34,
+      "coverage_rate": 0.05,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 68,
+      "cycles": 200,
+      "goal_rate": 1.0,
+      "first_goal_cycle": 0,
+      "mean_distance_to_goal": 0.0,
+      "cumulative_reward": 200.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 69,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 4.665,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.09,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.02,
+      "rbta_violations_by_type": {
+        "ENTROPY": 4
+      },
+      "model": "MLP",
+      "prediction_error_mean": 7.397704708576202,
+      "episode_count": 200,
+      "fact_count": 40,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 75,
+        "adaptive_geometry_fallback": 75
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 37.5,
+        "adaptive_geometry_fallback": 37.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 69,
+      "cycles": 200,
+      "goal_rate": 0.025,
+      "first_goal_cycle": 80,
+      "mean_distance_to_goal": 3.875,
+      "cumulative_reward": 3.05,
+      "coverage_rate": 0.29,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 69,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 3.71,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 69,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 2.03,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.04,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 70,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 9.41,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.1,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.015,
+      "rbta_violations_by_type": {
+        "ENTROPY": 3
+      },
+      "model": "MLP",
+      "prediction_error_mean": 8.632956372499466,
+      "episode_count": 200,
+      "fact_count": 28,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 29,
+        "adaptive_geometry_fallback": 121
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 14.5,
+        "adaptive_geometry_fallback": 60.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 70,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 16.625,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 70,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 8.105,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 70,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 8.105,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.07,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "phca",
+      "seed": 71,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 6.295,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.06,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.055,
+      "rbta_violations_by_type": {
+        "ENTROPY": 11
+      },
+      "model": "MLP",
+      "prediction_error_mean": 8.461368780136109,
+      "episode_count": 200,
+      "fact_count": 47,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 50,
+        "prediction_scored": 93,
+        "adaptive_geometry_fallback": 57
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 46.5,
+        "adaptive_geometry_fallback": 28.5
+      },
+      "geometry_dominated": true
+    },
+    {
+      "agent": "random",
+      "seed": 71,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 7.54,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.16,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_observed",
+      "seed": 71,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.0,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    },
+    {
+      "agent": "greedy_full_info",
+      "seed": 71,
+      "cycles": 200,
+      "goal_rate": 0.0,
+      "first_goal_cycle": null,
+      "mean_distance_to_goal": 5.0,
+      "cumulative_reward": -2.0,
+      "coverage_rate": 0.01,
+      "switch_recovery_cycle": null,
+      "rbta_violation_rate": 0.0,
+      "rbta_violations_by_type": {}
+    }
+  ],
+  "summary": {
+    "greedy_full_info": {
+      "n": 30,
+      "goal_rate_mean": 0.749,
+      "goal_rate_median": 0.9724999999999999,
+      "first_goal_cycle_mean": 50.43333333333333,
+      "first_goal_cycle_median": 5.5,
+      "mean_distance_to_goal_mean": 1.0461666666666667,
+      "mean_distance_to_goal_median": 0.09,
+      "cumulative_reward_mean": 149.298,
+      "cumulative_reward_median": 194.445,
+      "success_rate": 0.7666666666666667,
+      "rbta_violation_rate_mean": 0.0
+    },
+    "greedy_observed": {
+      "n": 30,
+      "goal_rate_mean": 0.18666666666666668,
+      "goal_rate_median": 0.135,
+      "first_goal_cycle_mean": 70.8,
+      "first_goal_cycle_median": 20.5,
+      "mean_distance_to_goal_mean": 2.4265,
+      "mean_distance_to_goal_median": 1.7625000000000002,
+      "cumulative_reward_mean": 35.70666666666666,
+      "cumulative_reward_median": 25.27,
+      "success_rate": 0.7,
+      "rbta_violation_rate_mean": 0.0
+    },
+    "phca": {
+      "n": 30,
+      "goal_rate_mean": 0.13883333333333334,
+      "goal_rate_median": 0.095,
+      "first_goal_cycle_mean": 72.4,
+      "first_goal_cycle_median": 20.5,
+      "mean_distance_to_goal_mean": 3.2813333333333334,
+      "mean_distance_to_goal_median": 2.8475,
+      "cumulative_reward_mean": 26.044333333333334,
+      "cumulative_reward_median": 17.189999999999998,
+      "success_rate": 0.7,
+      "rbta_violation_rate_mean": 0.4866666666666667,
+      "prediction_error_mean": 5.427720407883326,
+      "episode_count_mean": 200.0,
+      "fact_count_mean": 37.36666666666667,
+      "selector_mode_counts": {
+        "pure_geometry_ablation": 1500,
+        "prediction_scored": 1929,
+        "adaptive_geometry_fallback": 2571
+      },
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 32.15,
+        "adaptive_geometry_fallback": 42.85
+      },
+      "geometry_dominated_frac": 1.0
+    },
+    "random": {
+      "n": 30,
+      "goal_rate_mean": 0.014666666666666666,
+      "goal_rate_median": 0.005,
+      "first_goal_cycle_mean": 141.93333333333334,
+      "first_goal_cycle_median": 194.0,
+      "mean_distance_to_goal_mean": 6.115166666666666,
+      "mean_distance_to_goal_median": 5.4475,
+      "cumulative_reward_mean": 0.9626666666666666,
+      "cumulative_reward_median": -0.99,
+      "success_rate": 0.5333333333333333,
+      "rbta_violation_rate_mean": 0.0
+    }
+  },
+  "comparisons": {
+    "random": {
+      "metrics": {
+        "goal_rate": {
+          "phca": 0.13883333333333334,
+          "random": 0.014666666666666666,
+          "delta_phca_minus_other": 0.12416666666666668,
+          "phca_better": true,
+          "phca_worse": false
+        },
+        "first_goal_cycle": {
+          "phca": 72.4,
+          "random": 141.93333333333334,
+          "delta_phca_minus_other": -69.53333333333333,
+          "phca_better": true,
+          "phca_worse": false
+        },
+        "mean_distance_to_goal": {
+          "phca": 3.2813333333333334,
+          "random": 6.115166666666666,
+          "delta_phca_minus_other": -2.8338333333333328,
+          "phca_better": true,
+          "phca_worse": false
+        },
+        "cumulative_reward": {
+          "phca": 26.044333333333334,
+          "random": 0.9626666666666666,
+          "delta_phca_minus_other": 25.081666666666667,
+          "phca_better": true,
+          "phca_worse": false
+        }
+      },
+      "phca_better_count": 4,
+      "phca_worse_count": 0
+    },
+    "greedy_observed": {
+      "metrics": {
+        "goal_rate": {
+          "phca": 0.13883333333333334,
+          "greedy_observed": 0.18666666666666668,
+          "delta_phca_minus_other": -0.04783333333333334,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "first_goal_cycle": {
+          "phca": 72.4,
+          "greedy_observed": 70.8,
+          "delta_phca_minus_other": 1.6000000000000085,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "mean_distance_to_goal": {
+          "phca": 3.2813333333333334,
+          "greedy_observed": 2.4265,
+          "delta_phca_minus_other": 0.8548333333333336,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "cumulative_reward": {
+          "phca": 26.044333333333334,
+          "greedy_observed": 35.70666666666666,
+          "delta_phca_minus_other": -9.66233333333333,
+          "phca_better": false,
+          "phca_worse": true
+        }
+      },
+      "phca_better_count": 0,
+      "phca_worse_count": 4
+    },
+    "greedy_full_info": {
+      "metrics": {
+        "goal_rate": {
+          "phca": 0.13883333333333334,
+          "greedy_full_info": 0.749,
+          "delta_phca_minus_other": -0.6101666666666666,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "first_goal_cycle": {
+          "phca": 72.4,
+          "greedy_full_info": 50.43333333333333,
+          "delta_phca_minus_other": 21.966666666666676,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "mean_distance_to_goal": {
+          "phca": 3.2813333333333334,
+          "greedy_full_info": 1.0461666666666667,
+          "delta_phca_minus_other": 2.2351666666666667,
+          "phca_better": false,
+          "phca_worse": true
+        },
+        "cumulative_reward": {
+          "phca": 26.044333333333334,
+          "greedy_full_info": 149.298,
+          "delta_phca_minus_other": -123.25366666666667,
+          "phca_better": false,
+          "phca_worse": true
+        }
+      },
+      "phca_better_count": 0,
+      "phca_worse_count": 4
+    },
+    "gate": {
+      "passed": false,
+      "controls": {
+        "random": {
+          "passed": true,
+          "phca_better_count": 4,
+          "required": 3
+        },
+        "greedy_observed": {
+          "passed": false,
+          "phca_better_count": 0,
+          "required": 3
+        }
+      },
+      "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
+      "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+      "rbta_violation_rate_mean": 0.4866666666666667,
+      "geometry_dominated_frac": 1.0,
+      "selector_mode_pct": {
+        "pure_geometry_ablation": 25.0,
+        "prediction_scored": 32.15,
+        "adaptive_geometry_fallback": 42.85
+      },
+      "prediction_error_mean": 5.427720407883326,
+      "secondary_prediction": {
+        "gated": false,
+        "prediction_error_mean": 5.427720407883326,
+        "note": "PHCA-only model-fit dual-report (D-195 / L4 dual PE pattern). Scenario PASS under geometry-dominated selection \u2260 prediction competence; PE does not affect gate.passed."
+      },
+      "interpretation_note": "PASS/FAIL under geometry-dominated action selection measures planner competence vs baselines, not prediction-primary control (D-156/D-161). RBTA violation rate is reported but not gated. See secondary_prediction for PE dual-report (not gated)."
+    }
+  }
+}

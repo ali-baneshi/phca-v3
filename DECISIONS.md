@@ -2654,3 +2654,23 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - No InterventionConfig default change; no claim that L2/L3 causal is solved; G2-INV-05 remains **Open** behaviorally.
 
 - **Cross-ref:** D-151/D-161, D-195, G2-INV-05, `logs/overnight_20260802_103502/`.
+
+---
+
+## Decision D-198: Docs honesty sweep (living SoT + demoted bodies)
+
+- **Date:** 2026-08-03
+- **Author:** Docs honesty sweep session
+- **Category:** Tier 3 (documentation / claim integrity; no runtime change)
+- **Context:** README still showed L3 PASS; DOCUMENTATION_MAP told readers to cite STATUS; IMPLEMENTATION_STATUS still listed confidence≥0.6 hybrid as Done; several eval docs lagged D-197 overnight SoT.
+
+### What shipped (docs only)
+- **Wave A:** `DOCUMENTATION_MAP.md` (STATUS→Historical; trust order logs→DECISIONS); `README.md` causal tables / A4 / Cartpole / trust order; `IMPLEMENTATION_STATUS.md` geometry default + D-197 causal + historical Φ-IQ.
+- **Wave B:** `phca_causal_evidence.md`, `limitations.md`, `phi_iq_metric.md`, `action_selection.md`.
+- **Wave C:** architecture / STATUS / l4 verdict / maturity_audit softenings; CONTRIBUTING / SETUP / reproducibility / benchmark_artifacts.
+- Investigations: executive summary D-197 subsection; claim_corrections statuses; backlog H-21.
+
+### Non-goals
+- No InterventionConfig / blended default flip; no 30-seed re-runs; in-flight overnight harness left alone.
+
+- **Cross-ref:** D-194–D-197, G2-INV-05, DOCUMENTATION_MAP trust order.

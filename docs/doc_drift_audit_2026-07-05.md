@@ -80,7 +80,7 @@ Documented in `reproducibility.md` after this audit.
 | **768** tests | `PYTHONPATH=python pytest python/` | Core + evaluation alignment tests |
 | Causal gate L1–L3 | `phca_causal_eval.py` | **FAIL** (L2/L3 at 30 seeds, D-151) |
 
-**Do not cite** benchmark numbers from `docs/archive/*` without cross-checking STATUS.
+**Do not cite** benchmark numbers from `docs/archive/*` without cross-checking named `logs/` and DECISIONS (STATUS.md is frozen historical).
 
 ---
 

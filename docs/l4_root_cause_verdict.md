@@ -30,9 +30,12 @@ Root cause chain:
 
 This ensures eval measures MLP retention, not pathfinding luck. The end-of-training position is at or near the goal (tasks with baseline=1.0 finished training at the goal). From this position, the greedy controller stays at the goal → goal_reached=True every eval cycle → current=1.0 → forgetting_rate=0.0.
 
-## Result
+## Result (historical / vacated by D-145)
 
-| Metric | Before | After |
+> The 0.0000 PASS below is the **D-137 train-end-position confound**, not current truth.
+> Current measurement: **37.83% FAIL** @ 30 seeds (`logs/benchmark_level4_30s.json`).
+
+| Metric | Before | After (D-137 only — vacated) |
 |--------|--------|-------|
 | forgetting_rate | 1.0000 | 0.0000 |
 | passes_gate | False | True |

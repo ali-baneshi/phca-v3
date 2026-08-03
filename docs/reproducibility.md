@@ -64,7 +64,7 @@ MUJOCO_GL=disabled make test-all
 MUJOCO_GL=disabled make test-mujoco
 ```
 
-Expected: **766** in `python/` + **36** MuJoCo optional ([STATUS.md](../STATUS.md)).
+Expected: run `pytest` / `make test-all` for current totals (+ optional MuJoCo suite). Do not cite frozen STATUS.md counts.
 
 ### Two benchmark execution paths
 
@@ -146,7 +146,7 @@ MUJOCO_GL=disabled PYTHONPATH=python python scripts/aggregate_validation.py \
 
 | Artifact | Key metric | Expected |
 |---|---|---|
-| `logs/benchmark_report.json` | overall_phi_iq | ~0.74 (±0.01 run variance) |
+| `logs/benchmark_report.json` | overall_phi_iq | ~0.74 (±0.01) — **historical**; L2 planner-contaminated under geometry default |
 | `logs/benchmark_ci_baseline.json` | L0 quick floor | gate ≥ 0.5486 (5% tolerance) |
 | `results/validation/baselines/causal_eval_round4.json` | L1–L3 gate (30 seeds MLP) | **L1 PASS, L2 FAIL, L3 FAIL** — see D-151 |
 | `logs/nightly_stress.json` | fill-phase slope @ 1k | ≤ 5000 B/cyc |
@@ -171,7 +171,7 @@ GitHub Actions runs lint, full pytest, and L0 Φ-IQ gate on every push/PR.
 
 A **scheduled nightly workflow** (`.github/workflows/nightly.yml`) runs
 `make nightly NIGHTLY_CYCLES=10000` daily. Failures do not block PR merges but
-should be triaged via STATUS.md.
+should be triaged via DECISIONS.md and [`docs/investigations/`](investigations/) (not STATUS.md).
 
 ---
 
@@ -185,6 +185,20 @@ should be triaged via STATUS.md.
 | Retention gate fails @ 10k | Expected during M3 fill; see D-112 phase-aware thresholds |
 
 ---
+
+## Overnight / diagnosis harness (30-seed power)
+
+```bash
+# Multi-hour collection (geometry + blended + A/B/C + L4 + Φ-IQ)
+SEEDS=30 CYCLES=200 ./scripts/overnight_diagnosis_harness.sh
+
+# Ablation-only
+PYTHONPATH=python python scripts/diagnose_causal_ablation.py \
+  --level level2 --cycles 200 --seeds 30 --grid-size 5 --use-mlp
+```
+
+Artifacts: `logs/overnight_*/`, `logs/diagnosis_causal_g2inv05_*.json`.  
+Analysis: [`investigations/overnight_analysis_2026-08-02.md`](investigations/overnight_analysis_2026-08-02.md).
 
 ## Related
 

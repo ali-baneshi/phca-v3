@@ -64,7 +64,7 @@ flowchart TD
 | 1  | M1/M2 | `m2.write(state)` + `m1.write(state)` (working + sensory memory) |
 | 2-4 | G'   | `engine.predict(state)` → `predicted, confidence` (Gaussian / discrete / MLP) |
 | 8-13 | MDIM+APC+ATTN+HPM | query facts, generate goal, regulate, attend ( **before action** — P0-1) |
-| 9  | Cycle | discrete: **task_lock observed-greedy** + sparse L3 coverage probe (D-112) when extrinsic goal present; else blended scorer; continuous: MPC (A4 primary) |
+| 9  | Cycle | discrete **default:** pure BFS/Manhattan (`pure_geometry_ablation`, D-156); **opt-in:** blended G′ scorer (`--enable-blended-scorer`); continuous: MPC (prediction-primary) |
 | 5-7 | PEU+TSPL+G' | post-step: `peu.compute`, `tspl.update`, `gprime.learn` |
 | 14 | RBTA  | `check_cycle(runtime, mem, energy, entropy)`; TERMINATE→STAY, INTERRUPT→limit rollouts (D-113) |
 | 15 | Cycle | Logging — append `metrics_history` |
@@ -113,7 +113,7 @@ with no Φ-IQ regression.
 | **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle (composition tree reads energy from `energy_log`). **Measured (Phase 6/B2):** inject over-budget → ≥1 violation. |
 | **A2** Temporal Causality | Pipeline ordering in the 12-step cycle; RBTA preflight/post enforcement (P1-01). **Measured (P1-02):** 10-step monitor — zero future-state timestamps at action selection. |
 | **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured (Phase 6/B2):** 100-cyc min entropy ≥ 0.01. |
-| **A4** Prediction as Primary | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128 (38,868 params). **Measured (Phase 6/B2):** continuous MPC selector calls predict per candidate. **OOD measured (Phase 6/B1):** blended confidence 0.97→0.26 as σ 0→1.0. |
+| **A4** Environment-scoped (D-158) | Every cycle computes sₜ→ŝₜ₊₁; MLP hidden_dim=128. **Continuous MPC:** prediction-primary (predict per candidate). **Discrete GridWorld default:** geometry inductive bias — G′ does not select actions. **OOD (historical):** blended confidence 0.97→0.26 as σ 0→1.0. |
 | **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured (Phase 6/B2):** no-op learn → frozen weights (Δ 0.0000); active learn → weights update (Δ 0.043). |
 
 Formal definitions and proofs in [research/outputs/07-rigorous-whitepaper.md](../research/outputs/07-rigorous-whitepaper.md).
@@ -124,7 +124,8 @@ Formal definitions and proofs in [research/outputs/07-rigorous-whitepaper.md](..
 
 ```
 Φ-IQ = 0.20·PredictionAccuracy + 0.20·AdaptationSpeed + 0.15·GoalComplexity
-     + 0.15·TransferEfficiency + 0.20·ResourceEfficiency - 0.10·FailureRate
+     + 0.20·ResourceEfficiency - 0.10·FailureRate
+     (TransferEfficiency removed D-147; weights redistributed — see phi_iq_metric.md)
 ```
 
 | Level | Name | What it measures | Result (this machine, 2026-07-03) |
@@ -133,7 +134,7 @@ Formal definitions and proofs in [research/outputs/07-rigorous-whitepaper.md](..
 | L1 | Reactive Control | Prediction under active control + action diversity | 0.7125 |
 | L2 | Goal Pursuit | Goal-reaching rate in maze with walls/obstacles | 0.7773 |
 | L3 | Self-Motivated Exploration | MDIM drive diversity + autonomy | 0.7683 |
-| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7323** (gate PASS) |
+| **Overall** | (MLP, 200 cyc/level) | weighted composite | **0.7323** (historical gate PASS; learned-path era — not default-geometry re-cert) |
 
 Gate floor: Overall ≥ 0.5486. Cycle latency < 500 ms (mean ~17 ms, p95 ~31 ms, this machine). Failure rate < 10% (0 violations).
 

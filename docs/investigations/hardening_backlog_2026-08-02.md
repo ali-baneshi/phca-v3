@@ -15,6 +15,7 @@ Prioritized surgical fixes. Separate **cognitive-cycle** from **Observatory** an
 | H-18 | Eval | Causal secondary PE dual-report on gate (`secondary_prediction`, not gated) | G2-INV-05 | **DONE** D-195 addendum |
 | H-19 | Docs | Investigation closeout sync (exec summary, claim sheets, causal honesty pointer) | claim integrity | **DONE** D-196 |
 | H-20 | Eval | Overnight 30-seed harness analysis + Φ-IQ levels CLI fix (`0,1,2`) | G2-INV-05 | **DONE** D-197 |
+| H-21 | Docs | Docs honesty sweep (README/map/status matrix/causal/Φ-IQ/indexes) | claim integrity | **DONE** D-198 |
 
 ## P1 — Implemented-path integrity
 

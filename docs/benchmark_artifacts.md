@@ -14,7 +14,11 @@ experiments — do not cite without checking dates and config blocks.
 | `logs/reproduce_report.json` | Reproduce driver audit trail (per-step PASS/FAIL) | `make reproduce` / `make reproduce-quick` |
 | `logs/benchmark_report.json` | **Primary Φ-IQ report** (MLP, 200 cyc, L0–L3) | Manual canonical run |
 | `logs/benchmark_ci_baseline.json` | CI regression floor (L0 quick, Gaussian) | Intentionally pinned; bump via DECISIONS |
-| `results/validation/baselines/causal_eval_round4.json` | Causal gate L1–L3 (200 cyc × 30 seeds, MLP) | D-151 — authoritative 30-seed measurement |
+| `results/validation/baselines/causal_eval_round4.json` | Causal gate L1–L3 (200 cyc × 30 seeds, MLP) | D-151 — historical 30-seed measurement |
+| `logs/overnight_20260802_103502/` | **Current causal/diagnosis/L4 overnight SoT** (30×200) | D-197 |
+| `logs/diagnosis_causal_g2inv05_*.json` | G2-INV-05 A/B/C ablation matrices | D-195 |
+| `logs/benchmark_level4_30s.json` | L4 forgetting 30-seed FAIL (37.83%) | D-168 era |
+| `scripts/overnight_diagnosis_harness.sh` | Multi-hour data collection driver | D-197/D-198 |
 | `logs/nightly_static.json` | Nightly MLP Φ-IQ snapshot | `make nightly` step 1 |
 | `logs/nightly_stress.json` | Long-run RSS/latency/Φ proxy | `make nightly` step 5 |
 | `logs/nightly_ood.json` | OOD σ-sweep confidence | `make nightly` step 4 |
@@ -74,4 +78,5 @@ PYTHONPATH=python python scripts/benchmark.py --use-mlp --cycles=200 \
 
 - [reproducibility.md](reproducibility.md)
 - [phi_iq_metric.md](phi_iq_metric.md)
-- [STATUS.md](../STATUS.md)
+- [investigations/overnight_analysis_2026-08-02.md](investigations/overnight_analysis_2026-08-02.md)
+- [DECISIONS.md](../DECISIONS.md) (D-197+)

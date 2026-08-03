@@ -43,13 +43,13 @@ code .
 ## Running Tests
 
 ```bash
-make test-all         # Core + monitoring (707 tests); MuJoCo files ignored
+make test-all         # Core + monitoring (current count via pytest); MuJoCo files ignored
 make test-mujoco      # MuJoCo integration only (36 tests); needs gymnasium[mujoco]
 make lint             # Linters (ruff)
 make profile-cycle    # Profile cognitive cycle latency
 ```
 
-**Headless Observatory tests** (PyQt offscreen, **386 tests** — see [STATUS.md](STATUS.md)):
+**Headless Observatory tests** (PyQt offscreen — run `pytest python/phca/monitoring/tests/` for count):
 
 ```bash
 mkdir -p .tmp

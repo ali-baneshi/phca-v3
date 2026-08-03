@@ -8,8 +8,8 @@
 > [docs/investigations/](docs/investigations/).
 
 **Last updated:** 2026-07-08  
-**Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07); L4b gate fixed (D-137)  
-**Decision log:** [DECISIONS.md](DECISIONS.md) (D-001 through D-137) — incomplete vs current repo
+**Phase:** 20 COMPLETE — Maturation v2 evidence pass (2026-07-07); L4b *appeared* fixed under D-137 eval-position confound — **superseded:** L4 `forgetting_rate≈37.83%` FAIL @ 30 seeds (D-145/D-168)  
+**Decision log:** [DECISIONS.md](DECISIONS.md) (this file only through D-137) — incomplete vs current repo
 
 ---
 

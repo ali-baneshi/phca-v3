@@ -107,41 +107,30 @@ the current default configuration specifically confirming it — no such re-run 
 done as of this writing, and this document says so rather than presenting the structural
 argument as if it were measured evidence.
 
-### Current default performance (pure geometric action selection, post D-156)
+### Current default performance (pure geometric action selection, post D-156 / D-197)
 
 The historical Φ-IQ numbers quoted later in this document were produced with the
-learned-model-scored path active and have not been re-run end-to-end under the current
-default. However, the causal-evaluation experiments that motivated the D-156 default
-change do provide real, measured numbers for pure geometric action selection specifically,
-across both grid sizes tested, and they are reported here in full rather than only citing
-the single number that motivated the change:
+learned-model-scored path active and have not been re-certified end-to-end as the
+authoritative default picture. **Current SoT for causal geometry** is the 30-seed × 200-cycle
+overnight harness (D-197), artifact dir `logs/overnight_20260802_103502/`:
 
 | Level | Grid | PHCA (pure geometry) goal_rate | `greedy_observed` goal_rate | Gate |
 | :--- | :--- | :--- | :--- | :--- |
-| L2 | 5×5 | 0.503 | 0.555 | **FAIL** (0/3 required metrics) |
-| L2 | 10×10 | 0.268 | 0.240 | PASS (3/3) |
-| L3 | 5×5 | 0.288 | 0.279 | PASS (5/5) |
-| L3 | 10×10 (15 seeds) | 0.136 | 0.137 | FAIL (2/5) |
-| L3 | 10×10 (30 seeds) | 0.131 | 0.137 | FAIL (3/5) |
+| L2 | 5×5 | 0.552 | 0.598 | **FAIL** |
+| L2 | 10×10 | 0.199 | 0.187 | **PASS** |
+| L3 | 5×5 | 0.308 | 0.291 | **FAIL** |
+| L3 | 10×10 | 0.131 | 0.137 | **FAIL** |
 
-This is a more mixed picture than "pure geometry fixed the problem," and it is reported
-here precisely because the more one-sided framing in `DECISIONS.md` D-156 (about the
-10×10 L2 result specifically, which is accurate) could otherwise be read as implying pure
-geometry passes generally. It does not: **the current default configuration still fails
-the fair-comparison causal gate outright in two of the five level/grid combinations
-measured**, including the original 5×5 L2 scenario that most of this document's other
-benchmark numbers are drawn from. No Φ-IQ number (the composite score used elsewhere in
-this document) has yet been computed under the current default at any grid size; the
-table above is the most complete honest picture available today, from the causal-gate
-logs already in this repository (`logs/causal_eval_5x5_pure_geo.json`,
-`logs/causal_eval_10x10_l2_pure_geo.json`, `logs/causal_eval_10x10_l3_pure_geo.json`,
-`logs/causal_eval_10x10_l3_30seeds.json`), rather than a fresh Φ-IQ run.
+Older D-155 “L3 PASS at 5×5” / underpowered ablation claims are **superseded**. Scenario
+PASS under geometry measures **planner competence vs baselines**, not prediction-primary
+control (gate also dual-reports `secondary_prediction` PE, not gated). Blended opt-in at
+the same 30×200 budget **hurts L2** on both 5×5 and 10×10 vs geometry (D-197) — do not
+treat the post-RBTA-fix 77.8% blended figure as causal-gate competence.
 
 **The honest summary is: neither action-selection mode currently passes this gate
-reliably across levels and scales.** The learned-model-scored path fails worse and less
-predictably (including the 10×10 L2 collapse); pure geometry fails less catastrophically
-but is not a general solution either. Closing this gap — not simply picking the
-less-broken of the two current options — remains the project's central open problem.
+reliably across levels and scales.** Pure geometry is the less-broken default; closing
+the gap remains the project's central open problem (G2-INV-05). See
+[`docs/investigations/overnight_analysis_2026-08-02.md`](docs/investigations/overnight_analysis_2026-08-02.md).
 
 ---
 
@@ -417,7 +406,7 @@ D-156) rather than the originally-intended unconditional prediction-scored desig
 | **A1** Resource Boundedness | RBTA time/memory/energy/entropy checks every cycle; TERMINATE→STAY and INTERRUPT→limited rollouts **alter cycle behavior** (D-113), not log-only. **Measured**: inject over-budget → ≥1 violation. |
 | **A2** Temporal Causality | Pipeline ordering in the 12-step cycle. **Measured** (D-113): `experiment_a2_temporal_order()` in `--ci`. |
 | **A3** Incomplete Knowledge | Belief entropy floor ≥ ε; semantic facts from consolidation wired into MDIM context. **Measured**: 100-cyc min entropy ≥ 0.01. |
-| **A4** Prediction + Spatial Heuristics as Hybrid Cognitive Map | Every cycle computes sₜ→ŝₜ₊₁. A4 is **environment-scoped (D-158)**: **Continuous MPC (Pendulum, Reacher): prediction-primary** — predict per candidate (D-101). **Discrete GridWorld: pure BFS/Manhattan geometry (default since D-156)**, treated as a reliable **inductive bias** for GridWorld's fully-observable known-goal setting, not a violation of A4. The learned model's role in GridWorld is to augment confidence, entropy, and MDIM, with a confidence-gated override (D-157, opt-in via `--enable-blended-scorer`) as the path to restoring prediction-guided action. **Caveat (Round 7, NEW-10):** the original confidence-gating mechanism (one-step prediction accuracy) does not work — G′ confidence is saturated near 0.99 because one-step transitions are trivially predictable in GridWorld. Fix: agreement-based gating (Round 7) — when the blended scorer persistently disagrees with the geometry suggestion over a window of cycles, the gate triggers and falls back to pure geometry, directly measuring whether G′ predictions are useful for action selection. |
+| **A4** Prediction + Spatial Heuristics (environment-scoped, D-158) | Every cycle computes sₜ→ŝₜ₊₁. **Continuous MPC (Pendulum, Reacher): prediction-primary** — predict per candidate (D-101). **Discrete GridWorld default: pure BFS/Manhattan geometry** (`pure_geometry_ablation`) — G′ still predicts/learns for PE/MDIM/RBTA but **does not choose actions**. This is an honesty gap vs a uniform “prediction-primary” claim, not a claim that geometry equals prediction competence. Opt-in blended (`--enable-blended-scorer`) uses agreement/confidence gating (D-157/D-159); at 30×200 (D-197) blended **hurts** causal L2 vs geometry — not a safe default. |
 | **A5** Feedback-Driven Adaptation | PEU error drives TSPL updates; error-modulated learning rate with per-dimension attention weights. **Measured**: no-op learn → frozen weights (rel Δ 0.0000); active learn → weights update (rel Δ 0.043). |
 ---
 
@@ -506,13 +495,13 @@ further:
   goal-reaching to 0.03%[^rbta-artifact] (below random), while pure geometric action
   selection on the same grid reached 26.8%, beating the `greedy_observed` control.
 
-**Current honest status of the causal gate, at 30 seeds x 200 cycles, per level:**
+**Current honest status of the causal gate, at 30 seeds × 200 cycles (D-197 overnight SoT):**
 
-| Level | Result (pure geometry, current default) | Result (learned-model-scored path) |
+| Level | Result (pure geometry, current default) | Result (learned-model-scored / blended opt-in) |
 | :--- | :--- | :--- |
-| L1 | PASS | Underperforms pure geometry as grid size grows |
-| L2 | FAIL against `greedy_observed` at 5x5 (see D-151); PASSES with pure geometry at 10x10 (D-156) | FAIL, and collapses at 10x10 |
-| L3 | PASS with pure geometry (D-155 ablation) | FAIL at 5x5; not re-tested at 10x10 |
+| L1 | PASS (historical / not re-litigated in overnight) | Underperforms pure geometry as grid size grows |
+| L2 | **FAIL** at 5×5; **PASS** at 10×10 | **FAIL** at 5×5 and 10×10; goal_rate worse than geometry at power (D-197) |
+| L3 | **FAIL** at 5×5 and 10×10 under geometry (D-155 PASS superseded) | FAIL / not a default path |
 
 **Viewport partial-observability scenarios (30 seeds x 200 cycles x 10x10, MLP, current HEAD):**
 
@@ -540,9 +529,9 @@ pure geometric action selection is the more reliable choice today, and is the de
 The learned-model-scored path remains available and under active development toward a
 future confidence-gated hybrid.
 
-See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md), which should be
-cross-checked against `DECISIONS.md` D-151/D-153/D-155/D-156 if it has not yet been
-updated to reflect the 30-seed results at the time of reading.
+See [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) and
+`DECISIONS.md` D-151/D-161/D-197; overnight artifacts under
+`logs/overnight_20260802_103502/`.
 
 ### Performance
 
@@ -570,10 +559,11 @@ and Reacher-v5 (`ContinuousSpace([-1,1]^2, dim=2)`) use an MPC-style sampler tha
 scores candidates by the learned model's predictions (no reward, no policy gradient).
 This continuous-control path is unaffected by the discrete-environment finding described
 above: it was prediction-primary by construction from the start and was not part of the
-environments where the collapse in the discrete case was observed. Cartpole is discrete
-and follows the same default (pure geometry-equivalent / prediction-scored flag) as
-GridWorld. MuJoCo is opt-in (`requirements-mujoco.txt`); run headless with
-`MUJOCO_GL=disabled`.
+environments where the collapse in the discrete case was observed. **Cartpole is discrete
+but is not GridWorld BFS/Manhattan** — it uses the discrete action path / fallthrough
+(no `pure_geometry_ablation` planner); do not equate it with GridWorld geometry default.
+Pendulum/Reacher remain prediction-primary MPC. MuJoCo is opt-in
+(`requirements-mujoco.txt`); run headless with `MUJOCO_GL=disabled`.
 
 | Env | ID | Action space | State dim | 100-cycle result |
 | :--- | :--- | :--- | :--- | :--- |
@@ -648,10 +638,10 @@ Actions `schedule:`, systemd timer, or cron).
 ## Maturation History (selected, see DECISIONS.md for the complete log)
 
 This project maintains an unusually thorough decision log (`DECISIONS.md`, D-001 through
-the current entry), including reverted attempts and negative results. That log is the
-authoritative source for anything summarized in this README; where the two disagree,
-trust `DECISIONS.md` and the dated entry, since it is updated more frequently than this
-file.
+the current entry), including reverted attempts and negative results. **Trust order:**
+named `logs/` artifacts first → `DECISIONS.md` → this README /
+`IMPLEMENTATION_STATUS.md` → `docs/investigations/`. Where prose and measured JSON
+disagree, trust the logs.
 
 Selected decisions most relevant to interpreting the benchmark numbers above:
 
@@ -664,7 +654,10 @@ Selected decisions most relevant to interpreting the benchmark numbers above:
 | D-150 | Tightened the `goal_autonomy_achieved` pass threshold to match the whitepaper's stated target (2.5x stricter than the prior implementation). |
 | D-151 | Documented that the causal-evaluation gate, previously reported as passing at 5 seeds, fails at an adequate 30-seed sample for two of three levels. |
 | D-152 / D-154 | Recalibrated RBTA resource bounds against measured (not estimated) timings, and added an independent variance-based regression test so future latency-variance regressions are caught even as absolute bounds are tuned. |
-| D-153 / D-155 / D-156 | Diagnosed an apparent collapse of the learned-model-scored action-selection path at 10x10 (0.03% goal rate); default reverted to pure geometry. **Subsequent correction (D-159 addendum):** the 0.03% number was an RBTA bound-scaling artifact, not a scorer failure — after fixing `gprime_stress_bounds()`, the same ungated blended scorer reached 77.8%. Pure geometry (97.1%) remains the more reliable default, but the causal story was wrong; see [^rbta-artifact]. |
+| D-153 / D-155 / D-156 | Diagnosed an apparent collapse of the learned-model-scored action-selection path at 10x10 (0.03% goal rate); default reverted to pure geometry. **Subsequent correction (D-159 addendum):** the 0.03% number was an RBTA bound-scaling artifact, not a scorer failure — after fixing `gprime_stress_bounds()`, the same ungated blended scorer reached 77.8%. Pure geometry remains the more reliable default; see [^rbta-artifact]. |
+| D-194 – D-196 | Investigation remediation + honesty layers (L4 vacuous guard, secondary PE, docs closeout). |
+| D-197 | Overnight 30×200 confirms H2 (learn-off ≡ geometry on scenario metrics) and H3 (blended hurts L2 at power); L3 FAIL under geometry. |
+| D-198 | Docs honesty sweep (this README / map / status matrix aligned to overnight SoT). |
 
 ---
 
@@ -761,9 +754,10 @@ logged as a `D-XXX` entry in [DECISIONS.md](DECISIONS.md), including reverted at
 and negative results, validated by the benchmark suite plus the gate script plus relevant
 unit tests, and is expected to respect a surgical-change discipline (small, reviewable
 diffs) and the A1-A5 invariants described above - understanding that A4 in particular is
-currently an open problem rather than a settled invariant for discrete environments. See
-`STATUS.md` for the open issue registry and [docs/archive/](docs/archive/) for phase
-sign-off reports.
+environment-scoped and an open honesty problem for discrete GridWorld. See
+[`docs/investigations/`](docs/investigations/) for the open gap register and
+[docs/archive/](docs/archive/) for phase sign-off reports. `STATUS.md` is frozen through
+D-137 (historical only).
 
 ---
 
@@ -775,13 +769,14 @@ sign-off reports.
 | [docs/investigations/](docs/investigations/) | 2026-08 gap register, claim inventory, hardening backlog (measured remediation). |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Whitepaper criteria x code x gates matrix; the most current per-environment status, including the D-156 default change. |
 | [STATUS.md](STATUS.md) | **Frozen through D-137** — historical audit registry; not authoritative for post-D-137 gates. |
-| [DECISIONS.md](DECISIONS.md) | Complete design decision log, including reverted attempts and negative results — the single most authoritative document in this repository. D-161 contains the post-RBTA-fix re-evaluation of the blended-scorer default. |
-| [docs/architecture.md](docs/architecture.md) | Architecture overview - 12-step cycle, module map, invariants (banner: pre-D-156 drift). |
-| [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Current Phi-IQ definition, levels, and interpretation caveats. |
+| [DECISIONS.md](DECISIONS.md) | Complete design decision log (including negative results). Prefer **named `logs/` first**, then DECISIONS. D-197/D-198 are current for causal/docs honesty. |
+| [docs/architecture.md](docs/architecture.md) | Architecture overview — bannered pre-D-156 drift; prefer README A4 + DECISIONS. |
+| [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Phi-IQ definition; default discrete L2 is planner-contaminated. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors — geometry default first; blended opt-in. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot currently do; open backlog items. |
 | [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | **Superseded** D-137-era L4 notes; current L4 is 37.83% FAIL @ 30 seeds. |
-| [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; 30-seed outcomes (D-151/D-161). |
+| [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; overnight SoT D-197. |
+| [docs/investigations/overnight_analysis_2026-08-02.md](docs/investigations/overnight_analysis_2026-08-02.md) | 30×200 overnight harness analysis. |
 | [docs/observability.md](docs/observability.md) | Cognitive Observatory JSONL schema, replay/scrub, integrity checks. |
 | [docs/reproducibility.md](docs/reproducibility.md) | How to reproduce benchmark numbers (`make reproduce`). |
 | [research/outputs/07-rigorous-whitepaper.md](research/outputs/07-rigorous-whitepaper.md) | Formal scientific whitepaper (A1-A5, RBTA, MDIM, failure modes) - the aspirational design target this README compares actual behavior against. |
@@ -814,13 +809,16 @@ scripts/
   benchmark.py             Phi-IQ benchmark suite
   benchmark_level4.py       Level-4-lite forgetting gate
   phca_causal_eval.py       Causal behavior gate vs. simple baselines
+  diagnose_causal_ablation.py  G2-INV-05 A/B/C ablation driver
+  overnight_diagnosis_harness.sh  Multi-hour causal/L4/Φ-IQ data collection
   assumption_validation.py  A1-A5 falsifiable experiments
   ood_calibration.py         OOD sigma-sweep confidence curve
   nightly_stress.py          RSS-leak + latency + Phi-IQ stress
   ... (see repository for the complete list)
-docs/                      Architecture, decisions, completion reports
-DECISIONS.md               The authoritative decision and negative-results log
-STATUS.md                  Audit progress and issue registry
+docs/                      Architecture, investigations, limitations
+docs/investigations/       Gap register / overnight analysis (living)
+DECISIONS.md               Decision and negative-results log (after logs/)
+STATUS.md                  Frozen through D-137 — historical only
 ```
 
 ---
