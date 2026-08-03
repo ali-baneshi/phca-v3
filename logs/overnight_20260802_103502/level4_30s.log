@@ -1,0 +1,101 @@
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=0.9999999999999999
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8504593395194934
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.848181497452702
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8541347449434307
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8625891646416531
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8521363867534117
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8527628456157285
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8583219958327484
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.867663702774461
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8558786765294445
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8517662192076221
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8442140429032337
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8322342750171475
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8372425665611212
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8704488123109714
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8338024390293396
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8644064913460485
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8411497166949823
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=0.9999999999999999
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8484860699944461
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8534284230158257
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8766918174206667
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8574987052732707
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8468725228910672
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8454330104835522
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8587546618788906
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8518123134280461
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=0.9999999999999999
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8527264864195158
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8121000626682764
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.859994866442593
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8510095948231706
+rbta.estimated_bounds detail=energy=runtime×50 memory=formulaic entropy=G'_MDIM_ATTN_only_others_entropy_na
+cr.orthogonality.freeze frozen=alpha unfrozen=eta correlation=1.0
+cr.orthogonality.freeze frozen=T unfrozen=eta correlation=0.8546049561260924
+forgetting_rate=0.3783
+forgetting_rate_metric=goal_rate_retention_under_current_action_selection
+mean_per_seed_forgetting_rate=0.9383 (median=1.0000)
+mean_eval_prediction_error=4.7719
+valid_task_coverage=0.5700
+vacuous_pass_blocked=False
+passes_gate=False
+per_task_accuracy={0: 0.44499999999999995, 1: 0.5999999999999999, 2: 0.4, 3: 0.4933333333333333, 4: 0.7749999999999999, 5: 0.5399999999999999, 6: 0.5866666666666667, 7: 0.31666666666666665, 8: 0.39333333333333337, 9: 0.5383333333333333}
+forward_transfer={0: 1.0, 1: 1.0075, 2: 1.0425, 3: 1.145, 4: 1.2800000000000002, 5: 1.04, 6: 1.0725000000000002, 7: 1.0775000000000001, 8: 1.0125, 9: 1.1925000000000001}
+m3_replay_total=29403
+Report saved to logs/overnight_20260802_103502/level4_30s.json

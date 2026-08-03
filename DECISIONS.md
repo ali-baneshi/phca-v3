@@ -2627,3 +2627,30 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - No Python/runtime or InterventionConfig default changes; no 30-seed re-gates; G2-INV-05 remains **Open** behaviorally.
 
 - **Cross-ref:** D-194, D-195, G2-INV-05, docs/investigations/.
+
+---
+
+## Decision D-197: Overnight 30-seed harness confirms G2-INV-05 diagnosis
+
+- **Date:** 2026-08-03 (artifacts collected 2026-08-02)
+- **Author:** Overnight analysis session
+- **Category:** Tier 2 (eval evidence / investigation; no capability claim)
+- **Context:** `scripts/overnight_diagnosis_harness.sh` ran `SEEDS=30 CYCLES=200` into `logs/overnight_20260802_103502/` (git `0cf292f`). Causal `rc=1` = gate FAIL exit, not truncation.
+
+### Confirmed at power
+- **H2 (hard):** geometry learn-off ≡ learn-on on L2 scenario metrics (5×5 and 10×10); secondary PE diverges sharply (e.g. ~3.4 → ~23.4 on 5×5) — planner-dominated action path, learning still affects model fit.
+- **H3:** blended opt-in **hurts** L2 goal_rate vs geometry at 30×200 on both 5×5 and 10×10; 10×10 geometry PASS → blended FAIL. **No default flip.**
+- **H1:** rejected at power on 5×5 (loses goal_rate); partial only on 10×10 geometry (first_goal only).
+- Causal pattern matches D-151/D-161: 5×5 L2 FAIL, 10×10 L2 PASS, L3 FAIL under geometry.
+- L4: `forgetting_rate=0.3783`, `passes_gate=false`; dual PE present (`mean_eval_prediction_error≈4.77`).
+
+### Tooling
+- Harness Φ-IQ stage failed on `--levels=0-2` (`benchmark.py` needs comma list). Fixed to `--levels=0,1,2`. Short verify re-run wrote `phi_iq_l0l2.json`.
+
+### Docs
+- `docs/investigations/overnight_analysis_2026-08-02.md`; gap register G2-INV-05 updated.
+
+### Non-goals
+- No InterventionConfig default change; no claim that L2/L3 causal is solved; G2-INV-05 remains **Open** behaviorally.
+
+- **Cross-ref:** D-151/D-161, D-195, G2-INV-05, `logs/overnight_20260802_103502/`.

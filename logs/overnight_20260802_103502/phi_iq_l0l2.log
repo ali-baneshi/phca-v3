@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/manjaruhp/Pictures/Autonomous-AI-june2026/new-ai/scripts/benchmark.py", line 384, in <module>
+    main()
+    ~~~~^^
+  File "/home/manjaruhp/Pictures/Autonomous-AI-june2026/new-ai/scripts/benchmark.py", line 341, in main
+    levels = [int(l.strip()) for l in args.levels.split(",")]
+              ~~~^^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: '0-2'

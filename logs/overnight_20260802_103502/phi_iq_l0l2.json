@@ -1,0 +1,165 @@
+{
+  "config": {
+    "n_cycles": 50,
+    "warmup": 10,
+    "seed": 46,
+    "grid_size": 5,
+    "use_continuous": true,
+    "use_mlp": true,
+    "diagnose_level": -1,
+    "dynamic_goals": false,
+    "dynamic_goals_every": 100,
+    "action_slip": 0.0,
+    "noise_profile": null,
+    "noise_intensity": 0.1,
+    "environment": "gridworld",
+    "mujoco_env": "Pendulum-v1",
+    "weights": {
+      "prediction_accuracy": 0.25,
+      "adaptation_speed": 0.25,
+      "goal_complexity": 0.2,
+      "resource_efficiency": 0.2,
+      "failure_rate": 0.1
+    }
+  },
+  "results": [
+    {
+      "level": 0,
+      "level_name": "Stationary Prediction",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.8058860469460487,
+      "adaptation_speed": 0.8027307838201523,
+      "goal_complexity": 0.8,
+      "transfer_efficiency": 0.6469095381347257,
+      "resource_efficiency": 0.9519078966995584,
+      "failure_rate": 0.0,
+      "phi_iq": 0.752535787031462,
+      "raw_metrics": {
+        "mean_error": 1.9411395305395127,
+        "mean_confidence": 0.986535044289194,
+        "mean_latency_ms": 24.04605165022076,
+        "p95_latency_ms": 68.9295825373847,
+        "violations": 0,
+        "skill_accuracy": 0.9897439256200545,
+        "skill_compiled": true,
+        "active_drives": 4
+      },
+      "emergence": {}
+    },
+    {
+      "level": 1,
+      "level_name": "Reactive Control",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.8242458852827549,
+      "adaptation_speed": 0.8223177852630615,
+      "goal_complexity": 0.4,
+      "transfer_efficiency": 0.6777920508979065,
+      "resource_efficiency": 0.9548773787892424,
+      "failure_rate": 0.0,
+      "phi_iq": 0.6826163933943026,
+      "raw_metrics": {
+        "mean_error": 1.757541147172451,
+        "mean_latency_ms": 22.56131060537882,
+        "p95_latency_ms": 27.048291625396665,
+        "violations": 0,
+        "unique_actions": 2,
+        "skill_accuracy": 0.9920149443785269,
+        "skill_compiled": true
+      },
+      "emergence": {}
+    },
+    {
+      "level": 2,
+      "level_name": "Goal Pursuit",
+      "n_cycles": 200,
+      "prediction_accuracy": 0.8112146486341953,
+      "adaptation_speed": 0.93,
+      "goal_complexity": 0.93,
+      "transfer_efficiency": 0.7544296232298017,
+      "resource_efficiency": 0.9615793610090623,
+      "failure_rate": 0.0,
+      "phi_iq": 0.8136195343603614,
+      "raw_metrics": {
+        "mean_error": 1.8878535136580468,
+        "mean_latency_ms": 19.210319495468866,
+        "p95_latency_ms": 23.47557515167864,
+        "violations": 0,
+        "goals_reached": 186,
+        "goal_rate": 0.93,
+        "skill_accuracy": 0.9902330366586098
+      },
+      "emergence": {}
+    }
+  ],
+  "overall_phi_iq": 0.7495905715953753,
+  "total_cycles": 600,
+  "duration_s": 14.152454306022264,
+  "pass_criteria": {
+    "latency_under_500ms": true,
+    "failure_rate_under_10pct": true,
+    "phi_iq_above_0_5": true
+  },
+  "action_selection_mode": "pure_geometry_default",
+  "interpretation_caveat": "L2 goal_complexity / \u03a6-IQ under default discrete GridWorld largely reflects BFS/Manhattan planner competence, not G\u2032-scored control (D-156/D-161). Use --enable-blended-scorer for prediction-scored path.",
+  "multi_seed": {
+    "n_seeds": 5,
+    "base_seed": 42,
+    "overall_phi_iq": {
+      "mean": 0.7579610076612135,
+      "std": 0.005196690520307974,
+      "min": 0.7495905715953753,
+      "max": 0.765446060325737,
+      "values": [
+        0.7568987066533301,
+        0.7606542287923513,
+        0.7572154709392732,
+        0.765446060325737,
+        0.7495905715953753
+      ]
+    },
+    "per_level_phi_iq": {
+      "0": {
+        "mean": 0.7439563499870129,
+        "std": 0.006171797188295554,
+        "min": 0.7340248887289782,
+        "max": 0.752535787031462,
+        "n": 5,
+        "values": [
+          0.7440538054854844,
+          0.7475347587949364,
+          0.7340248887289782,
+          0.7416325098942034,
+          0.752535787031462
+        ]
+      },
+      "1": {
+        "mean": 0.6977387315472239,
+        "std": 0.009516340627913884,
+        "min": 0.6826163933943026,
+        "max": 0.7107535461082589,
+        "n": 5,
+        "values": [
+          0.7025607735358063,
+          0.6926534171279637,
+          0.7001095275697881,
+          0.7107535461082589,
+          0.6826163933943026
+        ]
+      },
+      "2": {
+        "mean": 0.8321879414494033,
+        "std": 0.011568434230697193,
+        "min": 0.8136195343603614,
+        "max": 0.8439521249747487,
+        "n": 5,
+        "values": [
+          0.8240815409386997,
+          0.8417745104541536,
+          0.8375119965190534,
+          0.8439521249747487,
+          0.8136195343603614
+        ]
+      }
+    }
+  }
+}

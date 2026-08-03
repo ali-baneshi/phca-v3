@@ -70,9 +70,9 @@ Exact A≡B on goal_rate, distance, reward, first_goal_cycle.
 
 | If | Then |
 |----|------|
-| H2 (confirmed) | **Done (D-195 addendum):** causal gate dual-reports `secondary_prediction` / `prediction_error_mean` (not gated); do not sell geometry PASS as prediction competence |
-| H3 mixed | Optional **30-seed** blended opt-in experiment PR only if product wants that comparison; no default flip |
-| H1 partial | Gate-control / metric-weight docs revision only if product redefines “beat greedy” semantics |
+| H2 (confirmed) | **Done:** secondary PE dual-report; **30-seed overnight (D-197)** hard-confirms A≡B scenario + PE divergence |
+| H3 mixed | **Superseded at power (D-197):** blended hurts L2 on 5×5 and 10×10 at 30×200 — **no default flip**; further blended PR not justified by overnight |
+| H1 partial | **At power (D-197):** rejected on 5×5 (loses goal_rate); partial only on 10×10 geometry |
 
 ## Non-claims
 

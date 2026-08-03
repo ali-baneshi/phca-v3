@@ -11,7 +11,7 @@ Trust order used: measured `logs/` / `results/` → `DECISIONS.md` (D-145+) → 
 | C-BLEND | Blended scorer is opt-in; does not universally beat geometry post-RBTA fix | D-159, D-161 | LIVE | D-161 30-seed re-eval; README mixed table |
 | C-RBTA-ART | D-156 0.03% “collapse” was RBTA bound-scaling artifact | D-159 addendum, README footnote | LIVE | Ungated blended ~77.8% after fix |
 | C-L4 | L4-lite forgetting FAIL 37.83% @ 30 seeds; metric confounded | D-168, round-14, `logs/benchmark_level4_30s.json` | LIVE | `forgetting_rate=0.3783`, `passes_gate=false` |
-| C-CAUSAL | Causal gate mixed; small-seed PASS overstated; default PASS ≠ prediction-primary | D-151, D-161, D-195 | LIVE | 30-seed L2/L3 mixed; diagnosis H2 (learn-off≡geometry); gate `secondary_prediction` dual-report (not gated); `logs/diagnosis_causal_g2inv05_*.json` |
+| C-CAUSAL | Causal gate mixed; small-seed PASS overstated; default PASS ≠ prediction-primary | D-151, D-161, D-195, D-197 | LIVE | 30-seed overnight confirms H2/H3; blended hurts L2 at power; `logs/overnight_20260802_103502/`; gate `secondary_prediction` not gated |
 | C-A1A3A5 | A1–A3/A5 measured PASS with A3 scope limit (~3/12 modules real entropy) | assumption_validation, F-03, D-159 | LIVE | Probe T4: 9 modules hardcoded entropy 0.1; post-D-194 entropy_na for non-G′/MDIM/ATTN |
 | C-OBS | Observatory Phases 7–20 complete ≠ cognitive maturity | IMPLEMENTATION_STATUS, maturation_signoff | LIVE | CI replay check is integrity-only; geometry flags on session_report |
 | C-L4-VAC | L4 vacuous PASS blocked when coverage insufficient | D-194 | LIVE | `passes_forgetting_gate_with_coverage` |
@@ -46,6 +46,7 @@ Trust order used: measured `logs/` / `results/` → `DECISIONS.md` (D-145+) → 
 | D-194 | Remediation Waves 1–3: L4 vacuous guard, dual PE, doc demotions, discrete G′/TSPL honesty, async/RBTA/ASI/M3 |
 | D-195 | Causal diagnosis G2-INV-05 (H1–H3); secondary PE dual-report on gate; no default flip |
 | D-196 | Investigation closeout docs sync (executive summary / claim sheets / causal honesty pointer) |
+| D-197 | Overnight 30-seed harness confirms H2/H3; no blended default flip; harness Φ-IQ levels CLI fix |
 
 ## Probe artifact index
 
@@ -54,3 +55,4 @@ Trust order used: measured `logs/` / `results/` → `DECISIONS.md` (D-145+) → 
 - `logs/investigation_t3_t7_probes.json` — learn-off, entropy, Observatory flags
 - `logs/diagnosis_causal_g2inv05_5x5_l2.json` — G2-INV-05 ablation matrix (diagnostic budget)
 - `logs/diagnosis_causal_g2inv05_10x10_l2.json` — G2-INV-05 10×10 L2 smoke
+- `logs/overnight_20260802_103502/` — 30×200 overnight causal/diagnosis/L4 (+ short Φ-IQ re-run)
