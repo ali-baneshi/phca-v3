@@ -25,11 +25,8 @@ from phca.monitoring.qt_base import (
 )
 
 class MemoryBeliefView(_BaseCanvas):
-    """v7: focal 'belief geography map' (per-dim belief_entropies heat-strip +
-    gprime_uncertainty band + dim_names) — the actual 'what the agent believes'.
-    M3/M4 become ranked bars (swatch+bar+caption) frozen via content hash; the
-    |sanitized−raw| diff is demoted to a small EMA-smoothed inset with a
-    retention-cap engagement gauge."""
+    """Belief geography: module entropy chips + G′ σ band (honest; not fake
+    per-dim entropy broadcast). M3/M4 ranked cards; |sanitized−raw| inset live."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -92,9 +89,10 @@ class MemoryBeliefView(_BaseCanvas):
             p, w, replay=self._replay, review=self._review,
             panel_key="memory", multi_agent=self._multi_agent,
             incomplete=_window_session_incomplete(self))
-        # ---- v7 focal: belief geography map (full width, top) ----
-        self._title(p, "Belief geography — per-dim entropy heat-strip + G′ uncertainty band", x=10, y=14 + y0)
-        self._caption(p, "heat = belief entropy per dim (dim_names) · blue band = G′ posterior σ · the agent's current belief shape", x=10, y=26 + y0)
+        # ---- focal: module entropy chips + G′ σ band (no fake per-dim heat) ----
+        self._title(p, "Belief geography — module entropies + G′ σ band", x=10, y=14 + y0)
+        self._caption(p, "chips = module belief_entropies · strip = G′ posterior σ per dim (dim_names)",
+                      x=10, y=26 + y0)
         self._belief_geography(p, f, 10, 32 + y0, w - 20, h // 3)
         # ---- left: M3 ranked bars (frozen via content hash) ----
         col_w = w // 2 - 8
@@ -126,7 +124,7 @@ class MemoryBeliefView(_BaseCanvas):
             self._m4_cache = m4; self._m4_sig = sig4
         if self._replay and not m4:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(rx, my + 24, "(M4 fact lists not recorded in JSONL replay)")
+            p.drawText(rx, my + 24, "(M4 top not in this JSONL · newer sessions record m4_top)")
         else:
             self._ranked_decay_cards(p, self._m4_cache, f,
                                      label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
@@ -160,75 +158,97 @@ class MemoryBeliefView(_BaseCanvas):
         p.drawText(x + w - 60, y + h - 1, f"now c{cyc}")
 
     def _belief_geography(self, p, f, x, y, w, h) -> None:
-        """v7 focal: per-dim belief entropy heat-strip + gprime_uncertainty band."""
+        """Module entropy chips + G′ σ strip — no fake per-dim entropy broadcast."""
         dim_names = list(getattr(f, "dim_names", []) or [])
-        be = getattr(f, "belief_entropies", {}) or {}
-        # extract per-dim entropy values (keys like d0/i0/0 or dim_names)
-        ent = self._per_dim_entropy(be, dim_names, f)
-        unc = np.asarray(f.gprime_uncertainty, dtype=np.float32).reshape(-1) if f.gprime_uncertainty is not None else None
-        n = len(ent)
-        if n == 0:
+        be = dict(getattr(f, "belief_entropies", {}) or {})
+        unc = (np.asarray(f.gprime_uncertainty, dtype=np.float32).reshape(-1)
+               if f.gprime_uncertainty is not None else None)
+        # Module chips (non-numeric keys like G'/MDIM/ATTN)
+        chips = []
+        for k, v in be.items():
+            if self._is_per_dim_entropy_key(k, dim_names):
+                continue
+            try:
+                chips.append((str(k), float(v)))
+            except (TypeError, ValueError):
+                continue
+        chip_h = 16
+        cx = x
+        for name, val in chips[:6]:
+            label = f"{name}={val:.2f}"
+            tw = max(48, len(label) * 6 + 10)
+            p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
+            p.drawRoundedRect(cx, y, tw, chip_h, 3, 3)
+            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.drawText(cx + 4, y + 12, label)
+            cx += tw + 6
+        if not chips and (unc is None or unc.size == 0):
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 14, "(no per-dim belief entropy collected yet)")
+            p.drawText(x, y + 14, "(no module entropies / G′ σ yet)")
             return
-        emx = max(ent) or 1.0
-        umx = float(unc.max()) if (unc is not None and unc.size) else 1.0
+        strip_y = y + chip_h + 6
+        strip_h = max(12, h - chip_h - 22)
+        if unc is None or unc.size == 0:
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, strip_y + 12, "(G′ σ unavailable)")
+            return
+        n = int(unc.size)
+        umx = float(unc.max()) if unc.size else 1.0
         umx = umx if umx > 1e-6 else 1.0
-        bw = w / n
-        strip_y = y + 8; strip_h = h - 28
+        bw = w / max(n, 1)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
         p.drawRect(x, strip_y, w, strip_h)
         for i in range(n):
             bx = int(x + i * bw)
-            e = float(np.clip(ent[i] / emx, 0, 1)) if emx > 0 else 0.0
-            # heat colour: low entropy=blue (certain), high=red (uncertain belief)
-            col = QtGui.QColor(int(52 + 179 * e), int(152 - 92 * e), int(219 - 159 * e), 210)
-            p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
-            p.fillRect(bx + 1, strip_y, max(int(bw) - 2, 1), strip_h, col)
-            # gprime_uncertainty band overlay (translucent blue, height = σ)
-            if unc is not None and i < unc.size:
-                uh = int(float(np.clip(unc[i] / umx, 0, 1)) * strip_h)
-                p.fillRect(bx + 1, strip_y + strip_h - uh, max(int(bw) - 2, 1), uh,
-                           QtGui.QColor(46, 204, 113, 70))
-        # dim labels (every k-th)
+            uh = int(float(np.clip(unc[i] / umx, 0, 1)) * strip_h)
+            p.fillRect(bx + 1, strip_y + strip_h - uh, max(int(bw) - 2, 1), uh,
+                       QtGui.QColor(46, 204, 113, 180))
         step = max(1, n // 16)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         for i in range(0, n, step):
             lbl = dim_names[i] if i < len(dim_names) else f"d{i}"
             p.drawText(int(x + i * bw), strip_y + strip_h + 12, lbl[:6])
-        self._legend(p, [("█ belief entropy", QtGui.QColor(231, 76, 60)),
-                         ("▒ G′ σ band", QtGui.QColor(46, 204, 113))],
+        self._legend(p, [("▒ G′ σ", QtGui.QColor(46, 204, 113))],
                      y=y + h - 2, x=x)
 
+    @staticmethod
+    def _is_per_dim_entropy_key(k, dim_names: list) -> bool:
+        if k in dim_names:
+            return True
+        if isinstance(k, (int, float)):
+            return True
+        if isinstance(k, str) and k.lower().startswith("d") and k[1:].replace(".", "", 1).isdigit():
+            return True
+        try:
+            float(k)
+            return True
+        except (TypeError, ValueError):
+            return False
+
     def _per_dim_entropy(self, be: dict, dim_names: list, f) -> List[float]:
-        """Pull per-dim entropy values out of the belief_entropies dict (keys may
-        be 'd0'/'0'/dim_names; falls back to broadcasting 'total' or to gprime
-        uncertainty length)."""
+        """Legacy helper kept for tests: only true per-dim keys, else empty.
+
+        Does NOT broadcast module scalars across dims (that lied in the UI).
+        """
         if not be:
             return []
-        # try integer/d-prefixed keys
         per = {}
         for k, v in be.items():
+            if not self._is_per_dim_entropy_key(k, dim_names):
+                continue
             try:
-                per[float(k)] = float(v)
-            except (TypeError, ValueError):
-                if isinstance(k, str) and k.lower().startswith("d") and k[1:].replace(".", "", 1).isdigit():
-                    per[float(k[1:])] = float(v)
-                elif k in dim_names:
+                if k in dim_names:
                     per[float(dim_names.index(k))] = float(v)
-        if per:
-            n = int(max(per.keys())) + 1
-            return [per.get(float(i), 0.0) for i in range(n)]
-        # fallback: gprime_uncertainty length broadcast of total
-        tot = be.get("total")
-        if tot is None and be:
-            tot = float(list(be.values())[0])
-        if tot is None:
+                elif isinstance(k, str) and k.lower().startswith("d"):
+                    per[float(k[1:])] = float(v)
+                else:
+                    per[float(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+        if not per:
             return []
-        unc = f.gprime_uncertainty
-        unc_a = np.asarray(unc, dtype=np.float32).reshape(-1) if unc is not None else None
-        n = int(unc_a.size) if (unc_a is not None and unc_a.size) else 0
-        return [float(tot)] * n if n else [float(tot)]
+        n = int(max(per.keys())) + 1
+        return [per.get(float(i), 0.0) for i in range(n)]
 
     def _ranked_decay_cards(self, p, items: list, f: ObservabilityFrame,
                             label_fn, score_fn, x, y, w, h, col) -> None:

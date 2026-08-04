@@ -918,8 +918,10 @@ def main() -> None:
                 if args.agents > 1:
                     from phca.monitoring.multi_agent import interleave_frames_for_record
                     new_frames = interleave_frames_for_record(new_frames)
+                from phca.monitoring.observability import slim_frame_for_ui_history
                 for f in new_frames:
-                    recorder.record(f)
+                    recorder.record(f)  # JSONL gets full precision first
+                    slim_frame_for_ui_history(f)  # then shrink live rings
                 if args.agents > 1:
                     win.append_observability_frames(new_frames)
                     projected = win.project_frames_for_agent(win._all_frames)
@@ -1025,8 +1027,10 @@ def main() -> None:
                 new_frames.extend(snap_new)
                 last_recorded_by_agent[aid] = snap_new[-1].cycle_id
         if new_frames:
+            from phca.monitoring.observability import slim_frame_for_ui_history
             for f in new_frames:
                 recorder.record(f)
+                slim_frame_for_ui_history(f)
             if args.agents > 1:
                 win.append_observability_frames(new_frames)
                 projected = win.project_frames_for_agent(win._all_frames)

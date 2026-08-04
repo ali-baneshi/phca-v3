@@ -50,13 +50,16 @@ def test_m3_top_error_serialized_but_bulk_memory_lists_dropped():
         m3_recent=[{"drive_id": 1, "confidence": 0.5, "timestamp": 0}],
         m3_top_error=[{"drive_id": 3, "confidence": 0.7, "timestamp": 2}],
         m4_relevant=[{"fact_type": "x", "confidence": 0.4, "timestamp": 1}],
-        m4_top=[{"fact_type": "y", "confidence": 0.6, "timestamp": 2}],
+        m4_top=[{"fact_type": "y", "confidence": 0.6, "timestamp": 2,
+                 "summary": "fact-y", "frequency": 2}],
     )
     payload = f.to_json()
     assert payload["m3_top_error"][0]["drive_id"] == 3
     assert "m3_recent" not in payload
     assert "m4_relevant" not in payload
-    assert "m4_top" not in payload
+    # Compact m4_top is recorded for Memory scrub; bulk m4_relevant stays live-only.
+    assert payload["m4_top"][0]["fact_type"] == "y"
+    assert payload["m4_top"][0]["summary"] == "fact-y"
 
 
 def test_memory_m3_includes_top_error(qt_app):
@@ -78,7 +81,8 @@ def test_memory_replay_empty_banner(qt_app):
     assert view._memory_live_empty(f)
 
 
-def test_memory_replay_jsonl_uncertainty_list_broadcasts_entropy(qt_app):
+def test_memory_module_entropy_not_broadcast_as_per_dim(qt_app):
+    """Module keys like G' must not fake a flat per-dim entropy strip."""
     from phca.monitoring.render import frame_from_json
 
     f = frame_from_json({
@@ -90,7 +94,10 @@ def test_memory_replay_jsonl_uncertainty_list_broadcasts_entropy(qt_app):
     view = MemoryBeliefView()
     ent = view._per_dim_entropy(f.belief_entropies, f.dim_names, f)
     assert isinstance(f.gprime_uncertainty, np.ndarray)
-    assert ent == [pytest.approx(0.5)] * 3
+    assert ent == []  # honest: no per-dim keys
+    # True per-dim keys still work
+    ent2 = view._per_dim_entropy({"d0": 0.1, "d1": 0.2}, ["a", "b"], f)
+    assert ent2 == [pytest.approx(0.1), pytest.approx(0.2)]
 
 
 def test_m4_retention_score_not_support(qt_app):

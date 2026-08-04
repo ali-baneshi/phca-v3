@@ -115,6 +115,7 @@ def _fact_to_dict(f: Any) -> Dict[str, Any]:
         "confidence": float(getattr(f, "confidence", 0.0)),
         "frequency": int(getattr(f, "frequency", getattr(f, "support", 0)) or 0),
         "summary": str(getattr(f, "summary", getattr(f, "description", "")))[:80],
+        "timestamp": int(getattr(f, "timestamp", getattr(f, "created_at", 0)) or 0),
     }
 
 
@@ -255,6 +256,7 @@ class ObservabilityFrame:
     active_drive_id: int = 1
     attention_saliences: List[float] = field(default_factory=list)
     attention_indices: List[int] = field(default_factory=list)
+    attention_selected_saliences: List[float] = field(default_factory=list)
     rbta_violations: List[Dict[str, Any]] = field(default_factory=list)  # module/bound_type/measured/allowed
     action_rationale: Dict[str, Any] = field(default_factory=dict)  # explored/eps/goal_id/best_score/k_candidates
     candidate_scores: List[float] = field(default_factory=list)  # per-action / per-candidate scores
@@ -305,6 +307,7 @@ class ObservabilityFrame:
     gprime_mutual_info: Optional[float] = None
     drive_deficits: List[float] = field(default_factory=list)
     drive_goals: List[Optional[np.ndarray]] = field(default_factory=list)
+    drive_goal_norms: List[float] = field(default_factory=list)  # compact ‖drive_goals[i]‖
     goal_stack: List[Dict[str, Any]] = field(default_factory=list)
     pareto_front: List[int] = field(default_factory=list)
     meta_stable: Dict[str, Any] = field(default_factory=dict)
@@ -403,7 +406,20 @@ class ObservabilityFrame:
                               or 1)
         att = cycle.attention
         attention_saliences = list(getattr(att, "_last_saliences", []))
-        attention_indices = list(getattr(att, "_last_selected_indices", []))
+        attention_indices = [int(x) for x in (getattr(att, "_last_selected_indices", []) or [])]
+        # Aligned 1:1 with indices for honest Overview bars / replay.
+        attention_selected_saliences: List[float] = []
+        if attention_indices and attention_saliences:
+            max_i = max(attention_indices)
+            if len(attention_saliences) > max_i:
+                attention_selected_saliences = [
+                    float(attention_saliences[i]) for i in attention_indices
+                ]
+            else:
+                attention_selected_saliences = [
+                    float(attention_saliences[i]) if i < len(attention_saliences) else 0.0
+                    for i in range(len(attention_indices))
+                ]
         # RBTA violation details (Observability v2)
         rbta_violations = []
         for v in getattr(cycle, "last_violations", []) or []:
@@ -534,6 +550,10 @@ class ObservabilityFrame:
         drive_goals = [np.asarray(t, dtype=np.float32).copy()
                        if t is not None else None
                        for t in mdim_snap.get("goals", [])]
+        drive_goal_norms = [
+            float(np.linalg.norm(g)) if g is not None else 0.0
+            for g in drive_goals
+        ]
         goal_stack = list(mdim_snap.get("goal_stack", []))
         pareto_front = [int(x) for x in mdim_snap.get("pareto_front", [])]
         meta_stable = dict(mdim_snap.get("meta_stable", {}))
@@ -657,6 +677,7 @@ class ObservabilityFrame:
             active_drive_id=active_drive_id,
             attention_saliences=attention_saliences,
             attention_indices=attention_indices,
+            attention_selected_saliences=attention_selected_saliences,
             rbta_violations=rbta_violations,
             action_rationale=action_rationale,
             candidate_scores=candidate_scores,
@@ -707,6 +728,7 @@ class ObservabilityFrame:
             gprime_mutual_info=gprime_mutual_info,
             drive_deficits=drive_deficits,
             drive_goals=drive_goals,
+            drive_goal_norms=drive_goal_norms,
             goal_stack=goal_stack,
             pareto_front=pareto_front,
             meta_stable=meta_stable,
@@ -739,13 +761,10 @@ class ObservabilityFrame:
     def to_json(self) -> Dict[str, Any]:
         """Single-pass JSON-friendly serialisation.
 
-        Live-only fields (RGB camera frame, sanitized state, per-drive goal
-        vectors, candidate rollouts, bulk M3/M4 memory samples) are EXCLUDED
-        to keep the JSONL lean.  The compact ``m3_top_error`` sample remains
-        serialized for replay/report anchoring.  Camera frames reach the
-        recorded mp4 via the dashboard's own QPixmap.grab during
-        ``--record-video`` and are reconstructed live from the cycle on the
-        dashboard side.
+        Live-only fields (RGB camera frame, sanitized state, full drive_goals
+        vectors, candidate rollouts, bulk M3/M4 lists) are EXCLUDED. Compact
+        samples remain: ``m3_top_error``, ``m4_top``, ``drive_goal_norms``,
+        ``per_dim_peu_top``, ``attention_selected_saliences``.
         """
         d: Dict[str, Any] = {}
         # ── Scalar integers ──
@@ -780,7 +799,8 @@ class ObservabilityFrame:
                 d[arr_field] = np.asarray(v).tolist()
         # ── Float-list fields ──
         for lst in ("drive_levels", "drive_targets", "attention_saliences",
-                    "candidate_scores", "drive_deficits", "attention_precisions"):
+                    "attention_selected_saliences", "candidate_scores",
+                    "drive_deficits", "drive_goal_norms", "attention_precisions"):
             d[lst] = [float(v) for v in getattr(self, lst, [])]
         # Compact PEU top-K for Flow/Phase replay (full per_dim_peu stays live-only)
         d["per_dim_peu_top"] = [
@@ -827,6 +847,20 @@ class ObservabilityFrame:
             d["action_rationale"] = _recursive_json(self.action_rationale)
         if self.m3_top_error:
             d["m3_top_error"] = _recursive_json(self.m3_top_error)
+        # Compact M4 top-8 for Memory tab scrub (full m4_relevant stays live-only)
+        m4 = getattr(self, "m4_top", None) or []
+        if m4:
+            d["m4_top"] = [
+                {
+                    "fact_type": str(x.get("fact_type", "?")),
+                    "summary": str(x.get("summary", ""))[:80],
+                    "confidence": float(x.get("confidence", 0.0) or 0.0),
+                    "timestamp": int(x.get("timestamp", 0) or 0),
+                    "frequency": int(x.get("frequency", 0) or 0),
+                }
+                for x in m4[:8]
+                if isinstance(x, dict)
+            ]
         # ── Skill IDs ──
         d["tspl_compiled_skill_ids"] = [str(x) for x in self.tspl_compiled_skill_ids]
         # ── Agent ──
@@ -834,7 +868,7 @@ class ObservabilityFrame:
         d["timeline_step"] = int(self.timeline_step)
         # ── Live-only: never serialised ──
         for drop in ("env_frame", "drive_goals", "candidate_rollouts",
-                     "m3_recent", "m4_relevant", "m4_top",
+                     "m3_recent", "m4_relevant",
                      "sanitized_state", "state_precision", "goal_target",
                      "prediction_precision", "per_dim_peu",
                      "attention_weights", "attention_precisions",
@@ -887,6 +921,33 @@ def normalize_observability_json(obj: Dict[str, Any]) -> Dict[str, Any]:
     else:
         out["goal_reached"] = bool(out["goal_reached"])
     return out
+
+
+def slim_frame_for_ui_history(frame: ObservabilityFrame) -> ObservabilityFrame:
+    """Shrink heavy arrays on a frame already serialized to JSONL.
+
+    Mutates in place. Keeps compact fields (peu_top, uncertainty as float16,
+    obs/predicted as float16) so scrub UI still works with less RSS.
+    """
+    for name in ("predicted_state", "obs_vector", "gprime_uncertainty", "goal_ref"):
+        v = getattr(frame, name, None)
+        if v is not None:
+            try:
+                setattr(frame, name, np.asarray(v, dtype=np.float16))
+            except Exception:
+                pass
+    frame.candidate_rollouts = []
+    frame.sanitized_state = None
+    frame.state_precision = None
+    frame.env_frame = None
+    frame.drive_goals = []
+    frame.per_dim_peu = None
+    frame.attention_weights = None
+    frame.prediction_precision = None
+    frame.last_action_vector = None
+    frame.m3_recent = []
+    frame.m4_relevant = []
+    return frame
 
 
 class ObservabilityStore:

@@ -1338,33 +1338,33 @@ class AttentionCanvas(_BaseCanvas):
         self.frame = f; self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
+        from phca.monitoring.cognitive_panels import frame_attention_pairs
         f = self.frame
-        if f is None or not f.attention_indices:
+        pairs = frame_attention_pairs(f) if f is not None else []
+        if f is None or not pairs:
             self._empty(p, "no salient chunks"); return
         self._title(p, "Attention focus (attended chunk ids, by salience)")
-        self._caption(p, "attended state chunks ranked by precision/salience · gumbel-τ shown")
+        self._caption(p, "attended chunks · bar height = salience[chunk_id] · gumbel-τ applied upstream")
         w, h = self.width(), self.height()
-        n = len(f.attention_indices)
+        n = len(pairs)
         top, bot = 34, h - 24
         bw = (w - 40) / n
-        sal_max = max((float(s) for s in f.attention_saliences), default=1.0) or 1.0
+        sal_max = max((s for _, s in pairs), default=1.0) or 1.0
         p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
         for tv in (0.0, 0.5, 1.0):
             y = int(bot - tv * (bot - top))
             p.setPen(QtGui.QPen(QtGui.QColor(40, 40, 50), 1)); p.drawLine(20, y, w - 20, y)
-        for i in range(n):
+        for i, (idx, raw) in enumerate(pairs):
             x = 20 + i * bw
-            raw = float(f.attention_saliences[i]) if i < len(f.attention_saliences) else 0.0
             sal = float(np.clip(raw / sal_max, 0, 1))
             bh = int(sal * (bot - top))
             p.setBrush(QtGui.QColor(155, 89, 182, 210))
             p.setPen(QtGui.QPen(QtGui.QColor(155, 89, 182), 1))
             p.drawRect(int(x), int(bot - bh), int(bw - 8), bh)
-            # v8: raw salience beside the compressed bar (unitless weight)
             p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
             p.drawText(int(x), int(bot - bh) - 2, f"{raw:.2g}")
             p.setPen(TEXT_COL); p.setFont(QtGui.QFont("Sans", 8))
-            p.drawText(int(x), h - 8, f"#{int(f.attention_indices[i])}")
+            p.drawText(int(x), h - 8, f"#{int(idx)}")
         p.setPen(DIM_COL); p.setFont(QtGui.QFont("Sans", 7))
         p.drawText(w - 90, 16, f"sal max={sal_max:.2g}")
 

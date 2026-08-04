@@ -282,13 +282,12 @@ class CognitiveFlowView(_BaseCanvas):
             err = float(getattr(f, "prediction_error", 0.0) or 0.0)
             return f"err={err:.2f}" if err > 0 else ""
         if mod == "peu":
-            peu = getattr(f, "per_dim_peu", None)
-            if peu is not None:
-                arr = np.asarray(peu, dtype=np.float32).reshape(-1)
-                if arr.size:
-                    return f"PEŪ={float(np.mean(arr)):.2f}"
+            from phca.monitoring.cognitive_panels import frame_peu_mean
+            mean = frame_peu_mean(f)
+            if mean is not None:
+                return f"PEŪ={mean:.2f}"
             if self._replay:
-                return "PEU replay"
+                return "PEU —"
             return ""
         if mod in ("tspl", "mdim"):
             acc = float(getattr(f, "tspl_skill_accuracy", 0.0) or 0.0)
@@ -380,16 +379,15 @@ class CognitiveFlowView(_BaseCanvas):
     def _peu_gauge_thumb(self, p: QtGui.QPainter, f: ObservabilityFrame,
                          x: int, y: int, w: int, h: int) -> None:
         """PEU mean gauge on the PEU node (high = warmer)."""
-        peu = getattr(f, "per_dim_peu", None)
-        if peu is None:
+        from phca.monitoring.cognitive_panels import frame_peu_mean
+        mean = frame_peu_mean(f)
+        if mean is None:
             self._status_badge(p, "peu", float(f.module_timings.get("peu", 0.0)),
                                x, y + 6, w)
             return
-        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
-        if not arr.size:
-            return
-        v = float(np.mean(arr))
-        vc = max(0.0, min(1.0, v))
+        v = float(mean)
+        # Scale display: typical PEU mean on grid ≈0–few; clamp for bar fill.
+        vc = max(0.0, min(1.0, v / 5.0))
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(x, y, w, h, 4, 4)
         col = (QtGui.QColor(46, 204, 113) if vc < 0.33 else

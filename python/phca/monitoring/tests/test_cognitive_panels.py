@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
+import pytest
 
 from phca.monitoring.cognitive_panels import (
     LEARN_MS_MIN,
@@ -20,6 +21,10 @@ from phca.monitoring.cognitive_panels import (
     classify_action_mechanism,
     data_contract_text,
     format_session_results_lines,
+    frame_attention_pairs,
+    frame_drive_goal_norms,
+    frame_per_dim_peu,
+    frame_peu_mean,
     mechanism_histogram,
     moment_tab_badge,
     flow_near_bound_modules,
@@ -191,7 +196,35 @@ def test_action_status_extras_chosen_and_peu():
 def test_action_status_extras_replay_rollouts():
     f = _frame(action_rationale={})
     extras = action_status_extras(f, [0.3], 0, replay=True)
-    assert "rollouts=replay" in extras
+    assert "rollouts=live-only" in extras
+
+
+def test_frame_per_dim_peu_from_top():
+    f = ObservabilityFrame()
+    f.state_dim = 5
+    f.per_dim_peu_top = [{"idx": 1, "value": 2.0}, {"idx": 4, "value": 3.0}]
+    f.per_dim_peu_sum = 5.0
+    arr = frame_per_dim_peu(f)
+    assert arr is not None
+    assert arr.shape == (5,)
+    assert float(arr[1]) == 2.0 and float(arr[4]) == 3.0
+    assert frame_peu_mean(f) == pytest.approx(1.0)
+
+
+def test_frame_attention_pairs_lookup_by_chunk_id():
+    f = ObservabilityFrame()
+    f.attention_indices = [2, 0]
+    f.attention_saliences = [0.1, 0.2, 0.9, 0.05]
+    pairs = frame_attention_pairs(f)
+    assert pairs == [(2, 0.9), (0, 0.1)]
+    f.attention_selected_saliences = [0.9, 0.1]
+    assert frame_attention_pairs(f) == [(2, 0.9), (0, 0.1)]
+
+
+def test_frame_drive_goal_norms():
+    f = ObservabilityFrame()
+    f.drive_goal_norms = [1.0, 0.5, 0.0]
+    assert frame_drive_goal_norms(f) == [1.0, 0.5, 0.0]
 
 
 def test_classify_action_mechanism_parity():

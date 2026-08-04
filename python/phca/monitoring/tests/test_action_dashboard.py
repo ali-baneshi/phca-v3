@@ -321,7 +321,7 @@ def test_action_replay_status_rollouts_caveat():
     f = _action_frame()
     scores = [float(x) for x in f.candidate_scores]
     line = _action_status_line(f, scores, 2, replay=True)
-    assert "rollouts=replay" in line
+    assert "rollouts=live-only" in line
 
 
 def test_action_pred_err_hist_on_rebuild(qt_app):

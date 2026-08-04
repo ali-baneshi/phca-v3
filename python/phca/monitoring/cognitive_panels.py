@@ -37,6 +37,97 @@ def frame_is_geometry_control(f: Any) -> bool:
     )
 
 
+def frame_per_dim_peu(f: Any) -> Optional[np.ndarray]:
+    """Full per-dim PEU when live; reconstruct from compact top-K on replay."""
+    peu = getattr(f, "per_dim_peu", None)
+    if peu is not None:
+        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
+        if arr.size:
+            return arr
+    top = getattr(f, "per_dim_peu_top", None) or []
+    if not top:
+        return None
+    n = int(getattr(f, "state_dim", 0) or 0)
+    if n <= 0:
+        obs = getattr(f, "obs_vector", None)
+        if obs is not None:
+            n = int(np.asarray(obs).reshape(-1).size)
+        pred = getattr(f, "predicted_state", None)
+        if n <= 0 and pred is not None:
+            n = int(np.asarray(pred).reshape(-1).size)
+    if n <= 0:
+        idxs = [int(x.get("idx", 0)) for x in top if isinstance(x, dict)]
+        n = (max(idxs) + 1) if idxs else 0
+    if n <= 0:
+        return None
+    out = np.zeros(n, dtype=np.float32)
+    for item in top:
+        if not isinstance(item, dict):
+            continue
+        i = int(item.get("idx", -1))
+        if 0 <= i < n:
+            out[i] = float(item.get("value", 0.0) or 0.0)
+    return out
+
+
+def frame_peu_mean(f: Any) -> Optional[float]:
+    """Mean PEU for gauges: prefer sum/n, else mean of reconstructed vector."""
+    arr = frame_per_dim_peu(f)
+    if arr is not None and arr.size:
+        psum = getattr(f, "per_dim_peu_sum", None)
+        if isinstance(psum, (int, float)) and float(psum) > 0 and arr.size:
+            # When only top-K is present, sum is the honest total; mean uses n dims.
+            return float(psum) / float(arr.size)
+        return float(np.mean(arr))
+    psum = getattr(f, "per_dim_peu_sum", None)
+    n = int(getattr(f, "state_dim", 0) or 0)
+    if isinstance(psum, (int, float)) and float(psum) > 0 and n > 0:
+        return float(psum) / float(n)
+    return None
+
+
+def frame_attention_pairs(f: Any) -> List[Tuple[int, float]]:
+    """(chunk_id, salience) pairs with correct index→salience mapping.
+
+    ``attention_saliences`` is the full per-chunk vector; ``attention_indices``
+    is the selected top-k. Prefer explicit ``attention_selected_saliences`` when
+    recorded (aligned 1:1 with indices).
+    """
+    indices = [int(x) for x in (getattr(f, "attention_indices", None) or [])]
+    if not indices:
+        return []
+    selected = getattr(f, "attention_selected_saliences", None) or []
+    if selected and len(selected) >= len(indices):
+        return [(indices[i], float(selected[i])) for i in range(len(indices))]
+    sal = list(getattr(f, "attention_saliences", None) or [])
+    if not sal:
+        return [(idx, 0.0) for idx in indices]
+    max_idx = max(indices)
+    # Full vector: look up by chunk id; else assume already aligned to indices.
+    if len(sal) > max_idx:
+        return [(idx, float(sal[idx]) if idx < len(sal) else 0.0) for idx in indices]
+    return [
+        (indices[i], float(sal[i]) if i < len(sal) else 0.0)
+        for i in range(len(indices))
+    ]
+
+
+def frame_drive_goal_norms(f: Any) -> List[float]:
+    """Spoke lengths for Goals/Phase inset: recorded norms or ||drive_goals||."""
+    norms = getattr(f, "drive_goal_norms", None)
+    if norms:
+        return [float(x) for x in norms]
+    dgs = getattr(f, "drive_goals", None) or []
+    out: List[float] = []
+    for g in dgs:
+        if g is None:
+            out.append(0.0)
+            continue
+        arr = np.asarray(g, dtype=np.float32).reshape(-1)
+        out.append(float(np.linalg.norm(arr)) if arr.size else 0.0)
+    return out
+
+
 MOMENT_COLORS = {
     "spike": "#e74c3c",
     "learn_burst": "#9b59b6",
@@ -186,12 +277,7 @@ def cognitive_moment(
     decision_shift = apply_decision_shift(prev_best_score, cur_score)
     if not decision_shift:
         decision_shift = bool(r.get("decision_shift", False))
-    peu = getattr(f, "per_dim_peu", None)
-    peu_mean = None
-    if peu is not None:
-        arr = np.asarray(peu, dtype=np.float32).reshape(-1)
-        if arr.size:
-            peu_mean = float(np.mean(arr))
+    peu_mean = frame_peu_mean(f)
     gid = _goal_id(f)
     drive_change = None
     if gid and prev_drive_id is not None and gid != prev_drive_id:
@@ -414,15 +500,13 @@ def action_status_extras(
     if err > 0:
         parts.append(f"err={err:.2f}")
     peu_mean = (moment or {}).get("peu_mean")
-    if peu_mean is None and getattr(f, "per_dim_peu", None) is not None:
-        arr = np.asarray(f.per_dim_peu, dtype=np.float32).reshape(-1)
-        if arr.size:
-            peu_mean = float(np.mean(arr))
+    if peu_mean is None:
+        peu_mean = frame_peu_mean(f)
     if peu_mean is not None:
         parts.append(f"PEŪ={peu_mean:.2f}")
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
     if replay and scores and not rollouts:
-        parts.append("rollouts=replay")
+        parts.append("rollouts=live-only")
     return " · ".join(parts)
 
 
@@ -487,39 +571,39 @@ def count_moments(series: List[Dict[str, Any]]) -> Dict[str, int]:
 # ----- data-contract banners (live + replay, shared across tabs) ------------
 
 DATA_CONTRACT_REPLAY: Dict[str, str] = {
-    "overview": "grid/state/metrics from JSONL; camera and bulk memory are live-only",
-    "flow": "module_timings + rbta_bounds recorded; PEU details are live-only",
-    "action": "scores/rationale recorded · rollouts live-only (candidate_rollouts)",
-    "phase": "state/prediction/goal_ref recorded; rollouts/live goal vectors unavailable",
-    "retention": "counts/caps/RSS/latency recorded; bulk M3/M4 lists live-only",
+    "overview": "grid/obs/metrics from JSONL; camera live-only · attention uses selected saliences",
+    "flow": "module_timings + rbta_bounds + per_dim_peu_top/sum recorded",
+    "action": "scores/rationale recorded · rollouts live-only",
+    "phase": "obs/prediction/gprime_uncertainty + peu_top recorded · full rollouts live-only",
+    "retention": "m3_count/fact_count/RSS/latency recorded; bulk M3 lists live-only",
     "rbta": "rbta_bounds + module_timings recorded in JSONL",
-    "memory": "G′ uncertainty + M3 top-error recorded; bulk memory/diff live-only",
-    "goals": "drive_goals radial inset is live-only in JSONL",
+    "memory": "G′ σ + m3_top_error + m4_top recorded; sanitized-diff live-only",
+    "goals": "drive_levels + drive_goal_norms recorded (env cell ≠ MDIM drive)",
 }
 
 DATA_CONTRACT_LIVE: Dict[str, str] = {
-    "overview": "camera frame live-only; JSONL has obs_vector + continuous_action",
-    "flow": "module_timings + rbta recorded each cycle",
+    "overview": "camera live-only; JSONL has obs_vector (continuous_action when continuous)",
+    "flow": "module_timings + rbta + PEU top-K recorded each cycle",
     "action": (
         "candidate_scores recorded; rollouts live-only · "
         "default GridWorld control is geometry (MLP predicts/learns only)"
     ),
-    "phase": "obs_vector/goal_ref recorded; bulk rollouts N/A",
-    "retention": "RSS/latency/m3_count/episode_count recorded",
+    "phase": "obs_vector + gprime_uncertainty recorded; bulk rollouts N/A",
+    "retention": "RSS/latency/m3_count/fact_count recorded",
     "rbta": "rbta_bounds + module_timings recorded each cycle",
-    "memory": "fact_count + top-error recorded; bulk M3/M4 lists live-only",
-    "goals": "drive_levels + active_drive recorded (env goal may differ under geometry)",
+    "memory": "m3_top_error + m4_top + G′ σ recorded; bulk M3/M4 lists live-only",
+    "goals": "drive_levels + drive_goal_norms recorded (env goal may differ under geometry)",
 }
 
 DATA_CONTRACT_REVIEW: Dict[str, str] = {
     "overview": "session complete · scrub prefix 0..cursor · results panel active",
-    "flow": "full-session prefix rebuild on scrub · module_timings from JSONL",
+    "flow": "full-session prefix rebuild on scrub · timings + PEU top from JSONL",
     "action": "mechanism mix · prefix 0..cursor · scores window ≤200",
     "phase": "belief projection rebuilt from prefix 0..cursor · radar/perdim aligned to scrub cursor · traj window ≤256",
     "retention": "M3/M4/RSS/latency series aligned to scrub cursor",
     "rbta": "bound envelope sparklines aligned to scrub cursor",
-    "memory": "belief geography at cursor · M3/M4 lists from recorded frame",
-    "goals": "tanks at cursor · deficit heatmap from prefix 0..cursor · heatmap window ≤200",
+    "memory": "G′ σ + m3_top_error + m4_top at cursor · bulk lists live-only",
+    "goals": "tanks + drive_goal_norms at cursor · deficit heatmap ≤200",
 }
 
 DATA_CONTRACT_REVIEW_INCOMPLETE: Dict[str, str] = {

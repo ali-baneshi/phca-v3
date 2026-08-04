@@ -252,26 +252,26 @@ class GoalsMotivationView(_BaseCanvas):
         p.drawText(x, y + h + 10, f"{n} cycles · colour = drive id")
 
     def _drive_goals_inset(self, p, f, x, y, w, h) -> None:
-        """v7: radial 'where each drive pulls' — spoke length = ||drive_goals[i]||
-        (magnitude of each drive's pull on the goal vector)."""
+        """Radial 'where each drive pulls' — spoke length from drive_goal_norms
+        (or ||drive_goals[i]|| live)."""
         import math
-        dgs = getattr(f, "drive_goals", None) or []
-        if not dgs and self._replay:
+        from phca.monitoring.cognitive_panels import frame_drive_goal_norms
+        mags = frame_drive_goal_norms(f)
+        if not mags or all(m <= 0 for m in mags):
             p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x + 3, y + 11, "drive_goals unavailable (replay)")
+            msg = ("drive_goal_norms unavailable"
+                   if self._replay else "drive pull (collecting…)")
+            p.drawText(x + 3, y + 11, msg)
             return
-        nd = max(len(dgs), _n_drives(f))
+        nd = max(len(mags), _n_drives(f))
+        while len(mags) < nd:
+            mags.append(0.0)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x + 3, y + 11, "drive pull ‖·‖")
         cx, cy = x + w // 2, y + h // 2 + 6
         R = min(w, h) // 2 - 16
-        mags = []
-        for i in range(nd):
-            dg = dgs[i] if i < len(dgs) else None
-            m = float(np.linalg.norm(np.asarray(dg, dtype=np.float32))) if dg is not None else 0.0
-            mags.append(m)
         mx = max(mags) if mags else 1.0
         mx = mx if mx > 1e-6 else 1.0
         for i in range(nd):

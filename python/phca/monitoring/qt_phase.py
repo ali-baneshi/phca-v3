@@ -150,25 +150,22 @@ class TrajectoryView(_BaseCanvas):
     def _draw_phase_drive_goals_inset(self, p: QtGui.QPainter, f: ObservabilityFrame,
                                       x: int, y: int, w: int, h: int) -> None:
         import math
-        dgs = getattr(f, "drive_goals", None) or []
-        if not dgs and self._replay:
-            p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(x, y + 10, "drive_goals unavailable (replay)")
+        from phca.monitoring.cognitive_panels import frame_drive_goal_norms
+        mags = frame_drive_goal_norms(f)
+        if not mags or all(m <= 0 for m in mags):
+            if self._replay:
+                p.setPen(DIM_COL); p.setFont(_F_AXIS)
+                p.drawText(x, y + 10, "drive_goal_norms unavailable")
             return
-        if not dgs:
-            return
-        nd = max(len(dgs), _n_drives(f))
+        nd = max(len(mags), _n_drives(f))
+        while len(mags) < nd:
+            mags.append(0.0)
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
         p.drawText(x + 3, y + 10, "drive pull")
         cx, cy = x + w // 2, y + h // 2 + 4
         R = min(w, h) // 2 - 8
-        mags = []
-        for i in range(nd):
-            dg = dgs[i] if i < len(dgs) else None
-            m = float(np.linalg.norm(np.asarray(dg, dtype=np.float32))) if dg is not None else 0.0
-            mags.append(m)
         mx = max(mags) if mags else 1.0
         mx = mx if mx > 1e-6 else 1.0
         for i in range(nd):
@@ -527,7 +524,7 @@ class DriveRadarView(_BaseCanvas):
         self._title(p, f"{n}-drive radar (solid=level · dashed=target · red tick=deficit)")
         cap = "radial drive levels 0..1 · faded = recent history · active spoke bold · numbers = raw level"
         if self._replay:
-            cap += " · replay — drive_goals inset is live-only in JSONL"
+            cap += " · replay — drive pull from drive_goal_norms"
         self._caption(p, cap)
 
 
@@ -679,7 +676,8 @@ class _PhasePortraitView(_BaseCanvas):
         d = int(min(len(pred), len(ref)))
         if d == 0:
             self._empty(p, "Phase portrait (empty)"); return
-        peu = getattr(f, "per_dim_peu", None)
+        from phca.monitoring.cognitive_panels import frame_per_dim_peu
+        peu = frame_per_dim_peu(f)
         peu_a = None
         if peu is not None:
             pa = np.asarray(peu, dtype=np.float32).reshape(-1)

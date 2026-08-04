@@ -499,10 +499,9 @@ def _draw_action_decision_card(
         lvl_s = f"{lvls[int(gid) - 1]:.2f}"
     emp = float(getattr(f, "empowerment", 0.0) or 0.0)
     peu = (moment or {}).get("peu_mean")
-    if peu is None and getattr(f, "per_dim_peu", None) is not None:
-        arr = np.asarray(f.per_dim_peu, dtype=np.float32).reshape(-1)
-        if arr.size:
-            peu = float(np.mean(arr))
+    if peu is None:
+        from phca.monitoring.cognitive_panels import frame_peu_mean
+        peu = frame_peu_mean(f)
     eps = r.get("eps")
     eps_s = f"{float(eps):.3f}" if isinstance(eps, (int, float)) else "—"
     k = r.get("k_candidates")
@@ -2036,11 +2035,10 @@ def _draw_vitals_ribbon(p: QtGui.QPainter, f: ObservabilityFrame, rect: QtCore.Q
     p.setPen(TEXT_COL); p.setFont(_F_LABEL_B)
     p.drawText(cx3 + 6, y + 14, "attention")
     p.setFont(_F_AXIS); p.setPen(DIM_COL)
-    if f.attention_indices:
-        parts = []
-        for i in range(min(4, len(f.attention_indices))):
-            sal = float(f.attention_saliences[i]) if i < len(f.attention_saliences) else 0.0
-            parts.append(f"#{int(f.attention_indices[i])} {sal:.2g}")
+    from phca.monitoring.cognitive_panels import frame_attention_pairs
+    pairs = frame_attention_pairs(f)
+    if pairs:
+        parts = [f"#{idx} {sal:.2g}" for idx, sal in pairs[:4]]
         p.setPen(TEXT_COL)
         p.drawText(cx3 + 6, y + 30, "  ".join(parts))
     else:

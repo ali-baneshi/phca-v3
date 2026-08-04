@@ -256,21 +256,18 @@ class CandidateScoreView(_BaseCanvas):
             finally:
                 p.restore()
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            p.drawText(px0 + 4, py0 + 12, "score proxy cloud (rollouts pending)")
+            p.drawText(px0 + 4, py0 + 12, "score proxy cloud · rollouts live-only")
         elif not rollouts:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             r = f.action_rationale or {}
-            if bool(r.get("explored")):
+            if has_scores:
                 p.drawText(px0 + 4, py0 + 14,
-                           "ε-greedy — sampling τ · rollouts not computed")
-            elif has_scores and self._replay:
-                p.drawText(px0 + 4, py0 + 14,
-                           "scores=OK · rollouts=replay-only")
+                           "rollouts live-only · scores recorded")
                 self._draw_score_bars_fallback(
                     p, f, scores, chosen_idx, px0, py0, px1, py1, is_continuous)
-            elif has_scores:
+            elif bool(r.get("explored")):
                 p.drawText(px0 + 4, py0 + 14,
-                           "scores=OK · awaiting projection basis")
+                           "ε-greedy — sampling τ · rollouts not computed")
             else:
                 p.drawText(px0 + 4, py0 + 14,
                            "scores=MISSING · (explore/D5 branch)")

@@ -256,7 +256,7 @@ def test_flow_replay_banner_text(qt_app):
     view.set_frame(_flow_frame(), replay=True)
     contract = data_contract_text("flow", replay=True)
     assert "module_timings" in contract
-    assert "PEU" in contract
+    assert "per_dim_peu_top" in contract
     pm = QtGui.QPixmap(640, 480)
     pm.fill(PANEL_BG)
     p = QtGui.QPainter(pm)

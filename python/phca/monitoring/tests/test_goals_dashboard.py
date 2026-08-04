@@ -79,8 +79,8 @@ def test_goals_replay_data_contract_text():
     from phca.monitoring.cognitive_panels import data_contract_text
 
     text = data_contract_text("goals", replay=True)
-    assert "drive_goals" in text
-    assert "live-only" in text
+    assert "drive_goal_norms" in text
+    assert "drive_levels" in text
 
 
 def test_goals_radar_replay_flag(qt_app):
