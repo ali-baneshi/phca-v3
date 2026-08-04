@@ -164,15 +164,19 @@ def _post_run_pipeline(
         )
         if verify_rc != 0:
             print("[verify] session check FAILED", file=sys.stderr)
-    try:
-        from phca.monitoring.session_report import write_session_report
-        write_session_report(session_dir)
-        report_path = session_dir / "session_report.json"
-    except Exception as exc:
-        print(f"[report] session_report.json failed: {exc}", file=sys.stderr)
-        if verify_rc == 0:
-            verify_rc = 1
-            verify_status = "FAIL (report write)"
+    if n_lines <= 0:
+        print("[report] session_report.json skipped: no frames recorded",
+              file=sys.stderr)
+    else:
+        try:
+            from phca.monitoring.session_report import write_session_report
+            write_session_report(session_dir)
+            report_path = session_dir / "session_report.json"
+        except Exception as exc:
+            print(f"[report] session_report.json failed: {exc}", file=sys.stderr)
+            if verify_rc == 0:
+                verify_rc = 1
+                verify_status = "FAIL (report write)"
     exit_code = verify_rc if (verify or recorder_error) else 0
     _print_post_run_summary(
         session_dir,
@@ -443,7 +447,8 @@ def main() -> None:
                         choices=["gridworld", "pendulum", "reacher", "cartpole"],
                         help="gridworld (default) | pendulum | reacher | cartpole")
     parser.add_argument("--cycles", type=int, default=1500)
-    parser.add_argument("--grid-size", type=int, default=5)
+    parser.add_argument("--grid-size", type=int, choices=[5, 10, 20], default=5,
+                        help="GridWorld size (supported: 5, 10, 20)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--mlp", action="store_true", help="use MLP world model")
     parser.add_argument("--poll-ms", type=int, default=30, help="Qt poll interval (ms)")
@@ -1117,9 +1122,14 @@ def main() -> None:
                         win.refresh_session_strip(jsonl_count=recorder.count)
             if verify_status:
                 win.set_verify_status(verify_status)
-            print("Review mode: window stays open — scrub tabs and close when done.",
-                  file=sys.stderr)
-            if args.close_at_end:
+            fatal_startup = bool(cycle_err) and recorder.count == 0
+            if fatal_startup:
+                print("Startup failed before any cycle; closing review window.",
+                      file=sys.stderr)
+            else:
+                print("Review mode: window stays open — scrub tabs and close when done.",
+                      file=sys.stderr)
+            if args.close_at_end or fatal_startup:
                 win.close()
 
         QtCore.QTimer.singleShot(0, _deferred_post_run)

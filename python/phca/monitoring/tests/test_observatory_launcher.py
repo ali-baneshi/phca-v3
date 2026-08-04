@@ -137,6 +137,37 @@ def test_post_run_pipeline_recorder_error_fails_without_verify(tmp_path):
     assert "recorder error" in status
 
 
+def test_post_run_pipeline_empty_session_skips_report(tmp_path, monkeypatch, capsys):
+    mod = _load_observatory()
+    session = tmp_path / "empty"
+    session.mkdir()
+    (session / "meta.json").write_text(
+        json.dumps({"env": "gridworld", "cycles": 10, "recorded_cycles": 0})
+    )
+    (session / "timeseries.jsonl").write_text("")
+
+    def fail_if_called(_session):
+        raise AssertionError("empty sessions must not build reports")
+
+    monkeypatch.setattr(
+        "phca.monitoring.session_report.write_session_report",
+        fail_if_called,
+    )
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda cmd, env=None: type("R", (), {"returncode": 1})(),
+    )
+    rc, status, report_path = mod._post_run_pipeline(
+        session, n_lines=0, expected=10, verify=True, warnings=[]
+    )
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert status == "FAIL"
+    assert report_path is None
+    assert "no frames recorded" in captured.err
+
+
 def test_session_summary_recorder_error(tmp_path, capsys):
     mod = _load_observatory()
     session = _minimal_session(tmp_path)
