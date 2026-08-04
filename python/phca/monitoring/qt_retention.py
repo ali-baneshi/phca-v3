@@ -77,7 +77,7 @@ class RetentionView(_BaseCanvas):
         for f in frames:
             if not self.m3:
                 self.cycle_base = int(f.cycle_id)
-            ep_count = int(f.episode_count)
+            ep_count = int(getattr(f, "m3_count", 0) or 0) or int(f.episode_count)
             fact_count = int(f.fact_count)
             self.m3.append(ep_count)
             self.m4.append(fact_count)
@@ -115,11 +115,12 @@ class RetentionView(_BaseCanvas):
             self.cycle_base = int(f.cycle_id)
         prev_m3 = self.m3[-1] if self.m3 else None
         prev_m4 = self.m4[-1] if self.m4 else None
-        self.m3.append(int(f.episode_count)); self.m4.append(int(f.fact_count))
+        m3_n = int(getattr(f, "m3_count", 0) or 0) or int(f.episode_count)
+        self.m3.append(m3_n); self.m4.append(int(f.fact_count))
         self.rss.append(float(f.rss_bytes)); self.lat.append(float(f.latency_ms))
         self.m3_cap = int(f.m3_cap); self.m4_cap = int(f.m4_cap)
         reason = self._prune_reason(f)
-        if prev_m3 is not None and int(f.episode_count) < prev_m3:
+        if prev_m3 is not None and m3_n < prev_m3:
             self.m3_events.append(len(self.m3) - 1)
             self.m3_reasons[len(self.m3) - 1] = reason
         if prev_m4 is not None and int(f.fact_count) < prev_m4:

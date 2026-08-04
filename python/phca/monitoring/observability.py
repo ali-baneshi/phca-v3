@@ -268,7 +268,8 @@ class ObservabilityFrame:
     goal_reached: bool = False
     action_name: str = ""
     drive_id: int = 1
-    episode_count: int = 0
+    episode_count: int = 0  # env episode index
+    m3_count: int = 0  # M3 store size
     fact_count: int = 0
     # Continual learning + cognitive resilience (Level-4-lite / observability)
     task_id: int = -1
@@ -641,6 +642,7 @@ class ObservabilityFrame:
             action_name=getattr(m, "action_name", ""),
             drive_id=getattr(m, "drive_id", 1),
             episode_count=getattr(m, "episode_count", 0),
+            m3_count=getattr(m, "m3_count", 0),
             fact_count=getattr(m, "fact_count", 0),
             task_id=getattr(m, "task_id", -1),
             failure_events=list(getattr(m, "failure_events", []) or []),
@@ -709,7 +711,7 @@ class ObservabilityFrame:
         """
         d: Dict[str, Any] = {}
         # ── Scalar integers ──
-        for k in ("cycle_id", "episode_count", "fact_count", "task_id",
+        for k in ("cycle_id", "episode_count", "m3_count", "fact_count", "task_id",
                    "violations_count", "drive_id", "active_drive_id",
                    "rss_bytes", "m3_cap", "m4_cap", "m4_prune_target",
                    "state_dim", "action_dim", "action_count",
@@ -744,7 +746,8 @@ class ObservabilityFrame:
         # ── String-list fields ──
         for lst in ("failure_events",):
             d[lst] = list(getattr(self, lst, []))
-        # ── Bool fields ──
+        # ── Bool fields (always emit goal_reached so replay/report stay honest) ──
+        d["goal_reached"] = bool(getattr(self, "goal_reached", False))
         for k in ("recovery_active",):
             v = getattr(self, k, None)
             if v is not None:
@@ -830,6 +833,11 @@ def normalize_observability_json(obj: Dict[str, Any]) -> Dict[str, Any]:
         out["agent_label"] = ""
     if "timeline_step" not in out:
         out["timeline_step"] = -1
+    # Legacy JSONL omitted goal_reached; default False so replay stays explicit.
+    if "goal_reached" not in out:
+        out["goal_reached"] = False
+    else:
+        out["goal_reached"] = bool(out["goal_reached"])
     return out
 
 

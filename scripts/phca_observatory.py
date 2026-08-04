@@ -296,6 +296,51 @@ def _read_latest_camera_packet(cycle_holder: dict) -> Any:
         }
 
 
+def _place_start_goal_across_barrier(env, rng: np.random.RandomState) -> None:
+    """Put start and goal on opposite sides of the mid-column barrier when possible."""
+    if not hasattr(env, "grid") or not hasattr(env, "size"):
+        return
+    mid = max(1, int(env.size) // 2)
+    env.grid[env.goal_pos] = env.EMPTY
+    empty = env._get_empty_cells() if hasattr(env, "_get_empty_cells") else []
+    left = [c for c in empty if c[1] < mid]
+    right = [c for c in empty if c[1] > mid]
+    if not left or not right:
+        # Restore a goal if sides are empty (degenerate maze).
+        if empty:
+            env.goal_pos = tuple(empty[int(rng.randint(len(empty)))])
+            env.grid[env.goal_pos] = env.GOAL
+        return
+    if bool(rng.randint(0, 2)):
+        start_cells, goal_cells = left, right
+    else:
+        start_cells, goal_cells = right, left
+    env.start_pos = tuple(start_cells[int(rng.randint(len(start_cells)))])
+    env.goal_pos = tuple(goal_cells[int(rng.randint(len(goal_cells)))])
+    env.grid[env.goal_pos] = env.GOAL
+    env.agent_pos = env.start_pos
+
+
+def _maybe_relocate_goal(cycle: CognitiveCycle, every: int) -> None:
+    """Relocate extrinsic goal after sustained dwell on it (Observatory curriculum)."""
+    if every <= 0 or not hasattr(cycle.env, "relocate_goal"):
+        return
+    goal_pos = cycle.env.get_goal_position() if hasattr(cycle.env, "get_goal_position") else None
+    agent_pos = getattr(cycle.env, "agent_pos", None)
+    if goal_pos is None or agent_pos is None:
+        cycle._at_goal_dwell = 0
+        return
+    if tuple(agent_pos) == tuple(goal_pos):
+        cycle._at_goal_dwell = int(getattr(cycle, "_at_goal_dwell", 0)) + 1
+    else:
+        cycle._at_goal_dwell = 0
+        return
+    if cycle._at_goal_dwell >= every:
+        cycle.env.relocate_goal()
+        cycle._env_goal_relocated = True
+        cycle._at_goal_dwell = 0
+
+
 def _build_cycle(
     args,
     store: ObservabilityStore,
@@ -311,11 +356,14 @@ def _build_cycle(
         for r in range(args.grid_size):
             if r != gap_row and args.grid_size >= 5:
                 obstacles.append((r, max(1, args.grid_size // 2)))
-        return CognitiveCycle.build_for_env(
+        cycle = CognitiveCycle.build_for_env(
             size=args.grid_size, seed=base_seed, use_mlp=args.mlp,
             use_continuous=True, obstacles=obstacles,
             observability_store=store,
         )
+        if args.grid_size >= 10:
+            _place_start_goal_across_barrier(cycle.env, rng)
+        return cycle
     return CognitiveCycle.build_for_mujoco(
         args.env, seed=base_seed, use_mlp=args.mlp,
         observability_store=store,
@@ -453,9 +501,25 @@ def main() -> None:
         default=os.environ.get("PHCA_OBSERVATORY_AGENT_LABELS", ""),
         help="comma-separated labels for each agent (optional)",
     )
+    parser.add_argument(
+        "--dynamic-goals-every",
+        type=int,
+        default=-1,
+        help="relocate GridWorld goal after N consecutive at-goal cycles "
+             "(-1=auto: 25 when grid_size>=10 and cycles>=500; 0=off)",
+    )
     args = parser.parse_args()
     args.agents = max(1, int(args.agents))
     args.agent_labels_list = _parse_agent_labels(args.agent_labels, args.agents)
+    if int(args.dynamic_goals_every) < 0:
+        if (
+            args.env == "gridworld"
+            and int(args.grid_size) >= 10
+            and int(args.cycles) >= 500
+        ):
+            args.dynamic_goals_every = 25
+        else:
+            args.dynamic_goals_every = 0
 
     if args.env == "cartpole":
         args.env = "InvertedPendulum-v5"
@@ -493,6 +557,7 @@ def main() -> None:
         "heartbeat_hz": args.heartbeat_hz,
         "render_hz": args.render_hz,
         "camera_hz": args.camera_hz,
+        "dynamic_goals_every": int(args.dynamic_goals_every),
     }
     if args.agents > 1:
         start_meta["agent_count"] = args.agents
@@ -606,6 +671,8 @@ def main() -> None:
                     cycle_id_for_step = cycle.cycle_count
                     pacer.wait()
                     cycle.step()
+                    if args.env == "gridworld":
+                        _maybe_relocate_goal(cycle, int(args.dynamic_goals_every))
                     if want_live_camera and aid == 0 and cycle_holder.get("camera_ok"):
                         now_t = time.monotonic()
                         if not _can_capture_live_camera(

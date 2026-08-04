@@ -8,7 +8,7 @@ import numpy as np
 
 from phca.monitoring.observability import ObservabilityFrame
 
-LEARN_MS_MIN = 5.0
+LEARN_MS_MIN = 25.0  # absolute floor; also requires ≥40% of cycle latency
 
 MOMENT_COLORS = {
     "spike": "#e74c3c",
@@ -152,7 +152,8 @@ def cognitive_moment(
     env_kind = (getattr(f, "env_kind", "") or "").lower()
     timings = _frame_timings(f)
     learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
-    learn_burst = learn_ms >= LEARN_MS_MIN
+    latency_ms = float(getattr(f, "latency_ms", 0.0) or 0.0)
+    learn_burst = learn_ms >= max(LEARN_MS_MIN, 0.4 * latency_ms)
     r = _frame_rationale(f)
     cur_score = _best_score(f)
     decision_shift = apply_decision_shift(prev_best_score, cur_score)
@@ -472,12 +473,15 @@ DATA_CONTRACT_REPLAY: Dict[str, str] = {
 DATA_CONTRACT_LIVE: Dict[str, str] = {
     "overview": "camera frame live-only; JSONL has obs_vector + continuous_action",
     "flow": "module_timings + rbta recorded each cycle",
-    "action": "candidate_scores recorded; rollouts live-only",
+    "action": (
+        "candidate_scores recorded; rollouts live-only · "
+        "default GridWorld control is geometry (MLP predicts/learns only)"
+    ),
     "phase": "obs_vector/goal_ref recorded; bulk rollouts N/A",
-    "retention": "RSS/latency/episode_count recorded",
+    "retention": "RSS/latency/m3_count/episode_count recorded",
     "rbta": "rbta_bounds + module_timings recorded each cycle",
     "memory": "fact_count + top-error recorded; bulk M3/M4 lists live-only",
-    "goals": "drive_levels + active_drive recorded",
+    "goals": "drive_levels + active_drive recorded (env goal may differ under geometry)",
 }
 
 DATA_CONTRACT_REVIEW: Dict[str, str] = {
@@ -537,17 +541,25 @@ def classify_action_mechanism(rationale: Dict[str, Any]) -> str:
     """Classify one cycle's action mechanism (mirrors session_report)."""
     if rationale.get("rbta_safe_mode"):
         return "rbta_safe"
-    mech = rationale.get("mechanism")
-    if isinstance(mech, str) and mech:
-        return mech
-    if rationale.get("explored"):
+    if rationale.get("at_goal_explore") or rationale.get("explored"):
         return "explore"
-    if rationale.get("greedy_fallback"):
+    selector = str(rationale.get("selector_mode") or "")
+    reason = str(rationale.get("decision_reason") or "")
+    if (
+        rationale.get("greedy_fallback")
+        or "geometry" in selector
+        or reason.startswith("ablation_pure_geometry")
+    ):
         return "greedy_fallback"
+    mech = rationale.get("mechanism")
+    if isinstance(mech, str) and mech and mech != "other":
+        return mech
     if rationale.get("continuous"):
         return "continuous"
     if rationale.get("goal_id") == 5 or rationale.get("note") == "D5 energy: STAY":
         return "stay"
+    if isinstance(mech, str) and mech:
+        return mech
     if rationale.get("best_score") is not None or rationale.get("k_candidates"):
         return "prediction"
     return "other"

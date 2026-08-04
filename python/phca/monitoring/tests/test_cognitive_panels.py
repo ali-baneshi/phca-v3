@@ -35,8 +35,9 @@ def _frame(**kwargs) -> ObservabilityFrame:
     f.env_kind = kwargs.get("env_kind", "mujoco_rgb")
     f.prediction_error = kwargs.get("prediction_error", 0.1)
     f.module_timings = kwargs.get("module_timings", {
-        "prediction": 1.0, "action_selection": 2.0, "gprime_learn": 6.0,
+        "prediction": 1.0, "action_selection": 2.0, "gprime_learn": 40.0,
     })
+    f.latency_ms = kwargs.get("latency_ms", 80.0)
     f.obs_vector = kwargs.get("obs_vector", np.zeros(4, dtype=np.float32))
     f.goal_ref = kwargs.get("goal_ref")
     f.sanitized_state = kwargs.get("sanitized_state")

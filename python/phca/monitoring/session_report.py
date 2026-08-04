@@ -225,6 +225,13 @@ def _build_agent_report_from_frames(
         if kin is not None:
             dist_hist.append(float(kin["dist"]))
             all_dists.append(float(kin["dist"]))
+        else:
+            ap = getattr(f, "agent_pos", None)
+            gp = getattr(f, "goal_pos", None)
+            if ap is not None and gp is not None and len(ap) >= 2 and len(gp) >= 2:
+                manhattan = float(abs(int(ap[0]) - int(gp[0])) + abs(int(ap[1]) - int(gp[1])))
+                dist_hist.append(manhattan)
+                all_dists.append(manhattan)
 
         r = dict(getattr(f, "action_rationale", {}) or {})
         mechanism_counts[classify_action_mechanism(r)] += 1
@@ -265,17 +272,21 @@ def _build_agent_report_from_frames(
         if getattr(f, "goal_reached", False):
             goal_reached_count += 1
 
+        # Prefer explicit m3_count; legacy JSONL stuffed M3 size into episode_count.
+        m3_count = int(getattr(f, "m3_count", 0) or 0)
         ep_count = int(getattr(f, "episode_count", 0) or 0)
+        if m3_count <= 0 and ep_count > 0:
+            m3_count = ep_count
         fact_count = int(getattr(f, "fact_count", 0) or 0)
-        if prev_m3_count is not None and ep_count < prev_m3_count:
+        if prev_m3_count is not None and m3_count < prev_m3_count:
             m3_prune_count += 1
         if prev_m4_count is not None and fact_count < prev_m4_count:
             m4_prune_count += 1
-        prev_m3_count = ep_count
+        prev_m3_count = m3_count
         prev_m4_count = fact_count
         m3_cap = int(getattr(f, "m3_cap", 0) or 0)
         m4_cap = int(getattr(f, "m4_cap", 0) or 0)
-        if (m3_cap and ep_count > m3_cap) or (m4_cap and fact_count > m4_cap):
+        if (m3_cap and m3_count > m3_cap) or (m4_cap and fact_count > m4_cap):
             envelope_over_count += 1
         if getattr(f, "m3_recent", None) or getattr(f, "m3_top_error", None):
             cycles_with_m3 += 1

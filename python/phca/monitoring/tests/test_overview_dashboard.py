@@ -873,6 +873,7 @@ def test_plain_story_spike_and_learn():
     f = _reacher_frame()
     f.prediction_error = 40.0
     f.module_timings = {"gprime_learn": _OVERVIEW_LEARN_MS_MIN + 1.0}
+    f.latency_ms = 60.0
     flags = _overview_moment_flags(f, deque([2.0, 10.0]))
     story = _overview_plain_story(f, flags, deque([2.0, 10.0, 40.0]))
     assert "spiked" in story

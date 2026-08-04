@@ -206,10 +206,12 @@ def test_flow_learn_burst_row_border_pixel(qt_app):
     view = CognitiveFlowView()
     view.resize(640, 480)
     for i in range(10):
-        view.set_frame(_flow_frame(cycle_id=i, module_timings={
+        f = _flow_frame(cycle_id=i, module_timings={
             "sanitize": 0.5, "prediction": 1.0, "action_selection": 2.0,
-            "gprime_learn": 8.0, "rbta": 0.3,
-        }))
+            "gprime_learn": 40.0, "rbta": 0.3,
+        })
+        f.latency_ms = 80.0
+        view.set_frame(f)
     assert any(m.get("learn_burst") for m in view._moment_series)
     lay = _flow_layout(640, 480, 13)
     pm = QtGui.QPixmap(640, 480)

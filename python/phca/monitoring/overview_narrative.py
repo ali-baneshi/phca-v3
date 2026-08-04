@@ -245,7 +245,15 @@ def _overview_goal_intent_line(f: ObservabilityFrame, flags: Dict[str, Any]) -> 
     gid = _overview_goal_id(f)
     goal_s = _drive_short(gid) if gid else "—"
     score_s = f"{flags['score']:.2f}" if flags["score"] is not None else "—"
-    why = "sampling alternatives" if flags.get("explored") else "best-score selection"
+    selector = str(r.get("selector_mode") or "")
+    if flags.get("explored") or r.get("at_goal_explore"):
+        why = "sampling alternatives"
+    elif "geometry" in selector or r.get("greedy_fallback") or str(
+        r.get("decision_reason") or ""
+    ).startswith("ablation_pure_geometry"):
+        why = "geometry planner"
+    else:
+        why = "best-score selection"
     if r.get("note"):
         why = str(r.get("note"))
     extras: List[str] = []

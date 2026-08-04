@@ -91,6 +91,19 @@ class FailureDetector:
         return []
 
     def _detect_b5(self, snap: CycleSnapshot) -> List[FailureEvent]:
+        # Parking on an extrinsic goal under geometry is not mode collapse —
+        # action diversity is intentionally 1 (STAY). Suppress the false positive.
+        extra = getattr(snap, "extra", None) or {}
+        selector = str(extra.get("selector_mode") or "")
+        if bool(extra.get("goal_reached")) and (
+            "geometry" in selector
+            or selector in (
+                "pure_geometry_ablation",
+                "adaptive_geometry_fallback",
+                "task_lock_planner",
+            )
+        ):
+            return []
         confs = snap.recent_confidences[-self.b5_window:]
         actions = snap.recent_actions[-self.b5_window:]
         if len(confs) < self.b5_window or len(actions) < self.b5_window:

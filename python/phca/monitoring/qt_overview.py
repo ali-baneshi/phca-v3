@@ -270,6 +270,12 @@ class OverviewAgentView(_BaseCanvas):
                 if not self._reacher_trail or self._reacher_trail[-1] != pt:
                     self._reacher_trail.append(pt)
                 self._dist_hist.append(float(kin["dist"]))
+        elif f.agent_pos is not None and f.goal_pos is not None:
+            ap, gp = f.agent_pos, f.goal_pos
+            if len(ap) >= 2 and len(gp) >= 2:
+                self._dist_hist.append(
+                    float(abs(int(ap[0]) - int(gp[0])) + abs(int(ap[1]) - int(gp[1])))
+                )
         levels = list(getattr(f, "drive_levels", []) or [])
         active = int(_overview_goal_id(f) or 0)
         sig = freeze_sig((f.cycle_id, tuple(round(x, 3) for x in levels), active))
@@ -1409,9 +1415,10 @@ class StatusPanel(_BaseCanvas):
                               f"{v.get('measured','?'):.4g} > {v.get('allowed','?'):.4g}")
             y += 14
         # Retention caps with engagement
-        m3e = f.episode_count / f.m3_cap if f.m3_cap else 0.0
+        m3_n = int(getattr(f, "m3_count", 0) or 0) or int(getattr(f, "episode_count", 0) or 0)
+        m3e = m3_n / f.m3_cap if f.m3_cap else 0.0
         m4e = f.fact_count / f.m4_cap if f.m4_cap else 0.0
-        p.drawText(10, y, f"M3 {f.episode_count}/{f.m3_cap} ({m3e*100:.0f}%)   "
+        p.drawText(10, y, f"M3 {m3_n}/{f.m3_cap} ({m3e*100:.0f}%)   "
                           f"M4 {f.fact_count}/{f.m4_cap} ({m4e*100:.0f}%)  prune→{f.m4_prune_target}")
         y += 16
         # v7: proportional-width gauges (fit the panel)

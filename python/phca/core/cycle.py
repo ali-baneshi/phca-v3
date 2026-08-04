@@ -114,7 +114,8 @@ class CycleMetrics:
     skill_accuracy: float = 0.0
     skill_compiled: bool = False
     fact_count: int = 0
-    episode_count: int = 0
+    episode_count: int = 0  # env episode index (increments on terminal reset)
+    m3_count: int = 0  # M3 episodic store size (was historically stuffed into episode_count)
     task_id: int = -1
     failure_events: List[str] = field(default_factory=list)
     recovery_active: bool = False
@@ -255,6 +256,8 @@ class CognitiveCycle:
         self._m3_her_budget: int = 8
         self._m3_her_total: int = 0
         self._env_goal_relocated: bool = False
+        self._episode_index: int = 0
+        self._at_goal_dwell: int = 0
         self._per_beta: float = PER_BETA_INIT
 
         # Cognitive resilience (distinct from Observatory session recovery)
@@ -449,6 +452,8 @@ class CognitiveCycle:
                 self._grounding_adapter.reset()
                 self._last_goal_pos = None
                 self._goal_switch_cooldown = 0
+                self._episode_index += 1
+                self._at_goal_dwell = 0
 
             # Step 14: RBTA enforcement
             t6 = time.perf_counter()
@@ -505,7 +510,10 @@ class CognitiveCycle:
             metrics.skill_accuracy = self.tspl.skill_accuracy
             metrics.skill_compiled = self.tspl.skill_compiled
             metrics.fact_count = consol_stats.get("total_facts_stored", 0)
-            metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
+            metrics.m3_count = (
+                self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
+            )
+            metrics.episode_count = int(self._episode_index)
             metrics.task_id = self._current_task_id
             if metrics.fact_count == self._last_fact_count:
                 self._fact_stagnant_cycles += 1
@@ -1243,6 +1251,8 @@ class CognitiveCycle:
                         self._grounding_adapter.reset()
                         self._last_goal_pos = None
                         self._goal_switch_cooldown = 0
+                    self._episode_index += 1
+                    self._at_goal_dwell = 0
 
             except Exception as e:
                 _log(logger, "error", "cycle.action_loop.error", error=str(e))
@@ -1406,7 +1416,10 @@ class CognitiveCycle:
         metrics.skill_accuracy = self.tspl.skill_accuracy
         metrics.skill_compiled = self.tspl.skill_compiled
         metrics.fact_count = consol_stats.get("total_facts_stored", 0)
-        metrics.episode_count = self.consolidation.m3.count() if hasattr(self, 'consolidation') else 0
+        metrics.m3_count = (
+            self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
+        )
+        metrics.episode_count = int(self._episode_index)
         metrics.task_id = self._current_task_id
         if metrics.fact_count == self._last_fact_count:
             self._fact_stagnant_cycles += 1
@@ -1627,7 +1640,12 @@ class CognitiveCycle:
         actions = [h.action_taken for h in recent if h.action_taken >= 0]
         errors = [h.prediction_error for h in recent]
         confs = [h.prediction_confidence for h in recent]
-        episode_count = m.episode_count
+        m3_count = int(getattr(m, "m3_count", 0) or 0)
+        if m3_count <= 0 and hasattr(self, "consolidation"):
+            try:
+                m3_count = int(self.consolidation.m3.count())
+            except Exception:
+                m3_count = 0
         m3_cap = getattr(self.consolidation.m3, "_max_episodes", 10_000)
         deficits = {}
         if hasattr(self.mdim, "drives"):
@@ -1638,6 +1656,9 @@ class CognitiveCycle:
         fact_delta = 0
         if len(self.metrics_history) >= 2:
             fact_delta = m.fact_count - self.metrics_history[-2].fact_count
+        selector_mode = str(
+            (getattr(self, "last_action_rationale", {}) or {}).get("selector_mode") or ""
+        )
         return CycleSnapshot(
             cycle_id=self.cycle_count,
             prediction_error=m.prediction_error,
@@ -1648,7 +1669,7 @@ class CognitiveCycle:
             ),
             mdim_deficits=deficits,
             rbta_action_history=rbta_hist,
-            m3_fill_ratio=episode_count / max(m3_cap, 1),
+            m3_fill_ratio=m3_count / max(m3_cap, 1),
             m4_fact_count=m.fact_count,
             m4_fact_count_delta=fact_delta,
             module_timings=dict(m.module_timings),
@@ -1659,6 +1680,10 @@ class CognitiveCycle:
             recent_actions=actions,
             recent_confidences=confs,
             fact_count_stagnant_cycles=self._fact_stagnant_cycles,
+            extra={
+                "goal_reached": bool(getattr(m, "goal_reached", False)),
+                "selector_mode": selector_mode,
+            },
         )
 
     def _facts_ids(self) -> list:
@@ -1681,6 +1706,9 @@ class CognitiveCycle:
             "continuous_explore": "explore",
             "d5_stay": "stay",
             "greedy_fallback": "greedy_fallback",
+            # Default discrete path (D-156): geometry ablation must not land in "other"
+            "ablation_pure_geometry": "greedy_fallback",
+            "at_goal_explore": "explore",
             "prediction": "prediction",
             "continuous_mpc": "continuous",
         }.get(decision_reason, "other")
@@ -1894,17 +1922,40 @@ class CognitiveCycle:
             and self.cycle_count < self.interventions.before_blended_warmup_cycles
         )
         if should_skip_blended and geo_action is not None:
+            # D-112/D-133 escape for plain GridWorld (no env.visited): when parked
+            # on the extrinsic goal, periodically step to a legal neighbor so long
+            # Observatory/static-goal runs do not STAY forever.
+            probe = self._select_at_goal_neighbor_action()
+            if probe is not None:
+                scores = self._geometry_candidate_scores()
+                self.last_action_rationale = self._finalize_action_rationale({
+                    "explored": True, "eps": float(eps),
+                    "goal_id": int(goal_id), "continuous": False,
+                    "best_score": float(scores[probe]) if scores else None,
+                    "k_candidates": int(self.env.action_space_size),
+                    "chosen_idx": int(probe),
+                    "task_lock": bool(self._task_lock),
+                    "selector_mode": "pure_geometry_ablation",
+                    "at_goal_explore": True,
+                    "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+                }, decision_reason="at_goal_explore")
+                self.last_candidate_scores = scores
+                self.last_candidate_rollouts = []
+                return int(probe)
+            scores = self._geometry_candidate_scores()
+            best = float(scores[int(geo_action)]) if scores else None
             self.last_action_rationale = self._finalize_action_rationale({
                 "explored": False, "eps": float(eps),
                 "goal_id": int(goal_id), "continuous": False,
-                "best_score": None,
+                "best_score": best,
                 "k_candidates": int(self.env.action_space_size),
                 "chosen_idx": int(geo_action),
                 "task_lock": bool(self._task_lock),
                 "selector_mode": "pure_geometry_ablation",
+                "greedy_fallback": True,
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="ablation_pure_geometry")
-            self.last_candidate_scores = []
+            self.last_candidate_scores = scores
             self.last_candidate_rollouts = []
             return geo_action
 
@@ -2301,6 +2352,76 @@ class CognitiveCycle:
                 fact_walls = pat[2 * n:3 * n].reshape(env.size, env.size)
                 grid = np.where(fact_walls > 0.5, env.WALL, grid)
         return grid
+
+    def _geometry_candidate_scores(self) -> list:
+        """Per-action inverse-Manhattan scores for Observatory Action tab (geometry path)."""
+        env = self.env
+        if not (hasattr(env, "agent_pos") and hasattr(env, "grid")):
+            return []
+        goal_pos = env.get_goal_position()
+        if goal_pos is None:
+            return []
+        names = env.get_action_names() if hasattr(env, "get_action_names") else []
+        deltas_fn = getattr(env, "get_action_deltas", None)
+        deltas = deltas_fn() if callable(deltas_fn) else {}
+        grid = getattr(env, "observed_grid", env.grid)
+        agent_pos = env.agent_pos
+        scores: list = []
+        for action_idx, name in enumerate(names):
+            dr, dc = deltas.get(name, (0, 0))
+            row = agent_pos[0] + dr
+            col = agent_pos[1] + dc
+            if not (0 <= row < env.size and 0 <= col < env.size):
+                scores.append(0.0)
+                continue
+            if grid[row, col] == env.WALL:
+                scores.append(0.0)
+                continue
+            dist = abs(row - goal_pos[0]) + abs(col - goal_pos[1])
+            scores.append(1.0 / max(dist, 1))
+        return scores
+
+    def _select_at_goal_neighbor_action(self) -> Optional[int]:
+        """Legal non-STAY step when parked on extrinsic goal (no env.visited required).
+
+        Fires every 50 cycles or during post-goal-switch cooldown, restoring the
+        intent of D-112/D-133 for plain GridWorld used by Observatory.
+        """
+        env = self.env
+        if not (hasattr(env, "agent_pos") and hasattr(env, "grid")):
+            return None
+        goal_pos = env.get_goal_position()
+        if goal_pos is None:
+            return None
+        agent_pos = env.agent_pos
+        if tuple(agent_pos) != tuple(goal_pos):
+            return None
+        should_probe = (
+            self.cycle_count > 0
+            and (self.cycle_count % 50 == 0 or self._goal_switch_cooldown > 0)
+        )
+        if not should_probe:
+            return None
+        names = env.get_action_names() if hasattr(env, "get_action_names") else []
+        deltas_fn = getattr(env, "get_action_deltas", None)
+        deltas = deltas_fn() if callable(deltas_fn) else {}
+        grid = getattr(env, "observed_grid", env.grid)
+        candidates: list = []
+        for action_idx, name in enumerate(names):
+            if name == "STAY":
+                continue
+            dr, dc = deltas.get(name, (0, 0))
+            row = agent_pos[0] + dr
+            col = agent_pos[1] + dc
+            if not (0 <= row < env.size and 0 <= col < env.size):
+                continue
+            if grid[row, col] == env.WALL:
+                continue
+            candidates.append(int(action_idx))
+        if not candidates:
+            return None
+        rng = np.random.RandomState(int(self.cycle_count) + 17)
+        return int(candidates[int(rng.randint(0, len(candidates)))])
 
     def _select_greedy_grid_action(
         self,
