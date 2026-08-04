@@ -18,6 +18,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
+from phca.config import CRITICALITY_SETPOINT
 from phca.logging import logger, _log
 
 
@@ -46,7 +47,7 @@ class AdaptiveParameterController:
 
     def __init__(
         self,
-        setpoint: float = 0.5,
+        setpoint: float = CRITICALITY_SETPOINT,
         k_p: float = 1.0,
         k_i: float = 0.1,
         k_d: float = 0.05,
@@ -262,5 +263,4 @@ class AdaptiveParameterController:
             self._frozen_params.discard(other_name)
             _log(logger, "warning", "cr.orthogonality.freeze",
                  frozen=freeze_name, unfrozen=other_name, correlation=float(max_corr))
-
 

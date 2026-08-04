@@ -2674,3 +2674,38 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - No InterventionConfig / blended default flip; no 30-seed re-runs; in-flight overnight harness left alone.
 
 - **Cross-ref:** D-194–D-197, G2-INV-05, DOCUMENTATION_MAP trust order.
+
+---
+
+## Decision D-199: Reliability baseline — packaging, contracts, and async snapshots
+
+- **Date:** 2026-08-04
+- **Author:** Reliability hardening session
+- **Category:** Tier 1 (runtime/tooling correctness; no cognitive capability claim)
+- **Context:** The repository was not installable as a package, local and CI lint commands
+  disagreed, environment capabilities were only implicit, `build_for_env(state_dim=...)`
+  silently failed to override wired dimensions, criticality constants mixed raw and mapped
+  units, and async learning read mutable action-thread state.
+
+### What shipped
+- Added setuptools package metadata with explicit `python/` discovery and supported Python
+  range 3.11–3.12; CI package smoke and core-test matrix cover both versions.
+- Added runtime environment validation plus explicit optional capability protocols; bundled
+  GridWorld/Bandit/wrapper environments now expose consistent action/safe-action methods.
+- Deprecated `build_for_env(state_dim=...)`; mismatches now raise instead of silently
+  producing inconsistently dimensioned modules.
+- Split the criticality proxy into a mapped setpoint (`0.5`) and raw input-sensitivity
+  defaults/bounds; retained old constant names as compatibility aliases.
+- Classified `GroundingAdapter` as adaptive metadata rather than semantic grounding and
+  added deterministic transition tests.
+- `ActionResult` now carries action-time state, prediction, attention, rationale, and
+  timing snapshots. Async prediction/learning model access is serialized; queue misses no
+  longer append synthetic completed cycles.
+- New raw logs are ignored by default; canonical summaries/baselines remain explicitly
+  tracked.
+
+### Non-goals
+- No discrete action-selection default change; no G2-INV-05 or L4 capability claim.
+- No repository-wide formatting rewrite and no removal of historical tracked artifacts.
+
+- **Cross-ref:** D-139/D-140, D-194–D-198, G2-INV-05.

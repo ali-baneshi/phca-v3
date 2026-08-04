@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+*.egg-info/
 
 # Virtual environments
 .venv/
@@ -27,6 +28,16 @@ target/
 logs/phca.log
 logs/phca.log.*
 logs/*.log
+logs/**/*.log
+logs/*.json
+logs/*.txt
+logs/*.pid
+logs/**/*.json
+logs/**/*.txt
+logs/**/*.pid
+!logs/benchmark_ci_baseline.json
+!logs/golden/
+!logs/golden/**
 logs/diagnose_level2.csv
 logs/sessions/
 logs/reproduce_report.json

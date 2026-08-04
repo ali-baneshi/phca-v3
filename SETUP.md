@@ -4,7 +4,7 @@
 
 | Tool | Version | Check |
 | :--- | :--- | :--- |
-| Python | 3.11 or 3.12 (recommended) | `python --version` |
+| Python | 3.11 or 3.12 (supported) | `python --version` |
 | Git | 2.40+ | `git --version` |
 | Make | — | `make --version` |
 
@@ -12,9 +12,9 @@
 > D-084 (empty crates; Python is not a bottleneck at ~10–17 ms mean MLP cycle
 > latency). Re-introduce Rust only if profiling shows Python as a bottleneck.
 
-> **Python 3.14+:** may work locally but is not CI-pinned. Use a venv with
-> `requirements.txt` (see below) to avoid drift (e.g. unpinned `pgmpy` 1.1.x
-> requiring numpy 2.x while PHCA pins numpy 1.26.4 — see D-114).
+> **Python 3.13+:** is not currently supported. Package metadata rejects these
+> versions because the pinned scientific stack and timing gates are certified
+> only on Python 3.11 and 3.12.
 
 ## Quick Setup (5 minutes)
 
@@ -23,14 +23,12 @@
 git clone https://github.com/ali-baneshi/phca-v3.git
 cd phca-v3
 
-# 2. Create a venv (Python 3.11 or 3.12 recommended)
-python3.11 -m venv .venv   # or python3.12
+# 2. Create the supported venv and install the package/dependencies
+PYTHON=python3.11 make setup   # or ensure python3 resolves to Python 3.12
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
 
 # 3. Optional: MuJoCo (Cartpole, Pendulum, Reacher)
-pip install -r requirements-mujoco.txt
+make install-mujoco-deps
 
 # 4. Verify everything works
 make test-all

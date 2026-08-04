@@ -12,3 +12,28 @@ started=2026-08-03T04:47:13+03:30
   WARN: causal_5x5_l2_blended failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_5x5_l2_blended.log
 [2026-08-03T05:08:15+03:30] END causal_10x10_l2_blended rc=1 elapsed=312s
   WARN: causal_10x10_l2_blended failed (rc=1); continuing. See logs/overnight_20260803_044713/causal_10x10_l2_blended.log
+[2026-08-03T05:13:14+03:30] END diagnosis_5x5_l2_abc rc=0 elapsed=299s
+[2026-08-03T05:23:35+03:30] END diagnosis_10x10_l2_abc rc=0 elapsed=621s
+[2026-08-03T05:46:43+03:30] END level4_30s rc=0 elapsed=1388s
+[2026-08-03T05:53:19+03:30] END phi_iq_l0l2 rc=0 elapsed=396s
+finished=2026-08-03T05:53:19+03:30
+total 680
+drwxr-xr-x 1 manjaruhp manjaruhp    796 Aug  3 05:53 .
+drwxr-xr-x 1 manjaruhp manjaruhp  10376 Aug  3 04:47 ..
+-rw-r--r-- 1 manjaruhp manjaruhp  63945 Aug  3 05:08 causal_10x10_l2_blended.json
+-rw-r--r-- 1 manjaruhp manjaruhp   8589 Aug  3 05:08 causal_10x10_l2_blended.log
+-rw-r--r-- 1 manjaruhp manjaruhp 139872 Aug  3 05:01 causal_10x10_l2l3_geometry.json
+-rw-r--r-- 1 manjaruhp manjaruhp  16614 Aug  3 05:01 causal_10x10_l2l3_geometry.log
+-rw-r--r-- 1 manjaruhp manjaruhp  63690 Aug  3 05:03 causal_5x5_l2_blended.json
+-rw-r--r-- 1 manjaruhp manjaruhp   8446 Aug  3 05:03 causal_5x5_l2_blended.log
+-rw-r--r-- 1 manjaruhp manjaruhp 139493 Aug  3 04:51 causal_5x5_l2l3_geometry.json
+-rw-r--r-- 1 manjaruhp manjaruhp  16534 Aug  3 04:51 causal_5x5_l2l3_geometry.log
+-rw-r--r-- 1 manjaruhp manjaruhp  20361 Aug  3 05:23 diagnosis_10x10_l2_abc.json
+-rw-r--r-- 1 manjaruhp manjaruhp  21243 Aug  3 05:23 diagnosis_10x10_l2_abc.log
+-rw-r--r-- 1 manjaruhp manjaruhp  20713 Aug  3 05:13 diagnosis_5x5_l2_abc.json
+-rw-r--r-- 1 manjaruhp manjaruhp  20904 Aug  3 05:13 diagnosis_5x5_l2_abc.log
+-rw-r--r-- 1 manjaruhp manjaruhp  58974 Aug  3 05:46 level4_30s.json
+-rw-r--r-- 1 manjaruhp manjaruhp   8348 Aug  3 05:46 level4_30s.log
+-rw-r--r-- 1 manjaruhp manjaruhp   1246 Aug  3 05:53 manifest.txt
+-rw-r--r-- 1 manjaruhp manjaruhp   7661 Aug  3 05:53 phi_iq_l0l2.json
+-rw-r--r-- 1 manjaruhp manjaruhp  29734 Aug  3 05:53 phi_iq_l0l2.log

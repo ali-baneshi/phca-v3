@@ -1,4 +1,4 @@
-.PHONY: all test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery docker-build docker-build-core docker-build-mujoco docker-build-full docker-run-stress docker-run-test docker-run-mujoco-gate docker-run-nightly docker-run-ci-local docker-bash
+.PHONY: all install-deps install-mujoco-deps test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery docker-build docker-build-core docker-build-mujoco docker-build-full docker-run-stress docker-run-test docker-run-mujoco-gate docker-run-nightly docker-run-ci-local docker-bash
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -8,18 +8,30 @@
 # is not a bottleneck at ~50 ms p95 cycle latency). Re-introduce Rust
 # targets only if profiling shows Python as a bottleneck.
 
+PYTHON ?= python3
+
 all: lint test-all
 
 # ── Setup ────────────────────────────────────────────────────
 
 setup:
 	@echo "Setting up Python virtual environment..."
-	python3 -m venv .venv
-	. .venv/bin/activate && pip install --upgrade pip \
-	    && pip install -r requirements.txt \
-	    && pip install -r requirements-dev.txt
+	$(PYTHON) -m venv .venv
+	. .venv/bin/activate && pip install --upgrade pip && $(MAKE) install-deps
 	@echo "Done. Run 'make test-all' to verify."
-	@echo "Optional MuJoCo: pip install 'gymnasium[mujoco]'"
+	@echo "Optional MuJoCo: make install-mujoco-deps"
+
+install-deps:
+	@mkdir -p .tmp
+	@sed '/^pgmpy==/d' requirements.txt > .tmp/requirements-no-pgmpy.txt
+	python -m pip install -r .tmp/requirements-no-pgmpy.txt -r requirements-dev.txt
+	python -m pip install pgmpy==1.0.0 --no-deps
+	python -m pip install "opt_einsum>=3.3" "tqdm>=4.64" "pandas>=2.0,<3" \
+	    "statsmodels>=0.14,<1" "scikit-learn>=1.4,<2" "pyro-api>=0.1.1"
+	python -m pip install -e . --no-deps
+
+install-mujoco-deps:
+	python -m pip install -r requirements-mujoco.txt
 
 # ── Testing ───────────────────────────────────────────────────
 
@@ -52,7 +64,6 @@ lint:
 	@echo "Linting Python..."
 	@command -v ruff >/dev/null 2>&1 || (echo "❌ ruff not installed — run: pip install -r requirements-dev.txt" && exit 1)
 	ruff check python/ --no-cache
-	@-which black > /dev/null 2>&1 && black --check python/ || echo "⚠️  black not installed, skipping Python format check"
 
 ci-local: lint
 	@echo "Running CI-equivalent test suite..."
@@ -331,7 +342,7 @@ help:
 	@echo "  make setup          Install all dependencies"
 	@echo "  make test-all       Run all Python tests"
 	@echo "  make test-python    Run Python tests only"
-	@echo "  make lint           Run linters (ruff + black)"
+	@echo "  make lint           Run enforced lint gate (ruff)"
 	@echo "  make ci-local       Run the same checks as GitHub Actions CI (lint + test + observatory + noise-injector + L0 bench + causal-smoke)"
 	@echo "  make bench-level-0  Run Level 0 benchmark"
 	@echo "  make bench-all      Run all benchmarks"

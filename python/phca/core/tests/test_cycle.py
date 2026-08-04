@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import copy
+import threading
+import time
 
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from phca.config import StateVector, ResourceBounds
+from phca.config import CRITICALITY_SETPOINT, StateVector, ResourceBounds
 from phca.core.cycle import CognitiveCycle, CycleMetrics
 from phca.evaluation.interventions import InterventionConfig
 
@@ -48,6 +51,12 @@ class TestCognitiveCycleBuild:
         assert cycle.gprime.uncertainty_snapshot()["kind"] == "mlp_ensemble"
         assert cycle.gprime.position_dim == 25
 
+    def test_criticality_setpoint_is_shared(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        assert cycle.adaptive_controller.setpoint == CRITICALITY_SETPOINT
+        assert cycle.mdim._targets[2] == CRITICALITY_SETPOINT
+        assert cycle._compute_phi_criticality() == CRITICALITY_SETPOINT
+
 
 class TestCognitiveCycleStep:
     """Tests for single cycle execution."""
@@ -66,6 +75,60 @@ class TestCognitiveCycleStep:
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         cycle.step()
         assert cycle.cycle_count == 1
+
+    def test_async_learning_uses_action_time_state_snapshot(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        perception_metrics = CycleMetrics(cycle_id=0)
+        cycle._run_perception_cycle(perception_metrics)
+        state_before = copy.deepcopy(cycle.current_state)
+        prediction_before = copy.deepcopy(cycle.last_prediction)
+        action = cycle.env.stay_action
+        obs, _, _, info = cycle.env.step(action)
+        cycle.current_state.values.fill(0.0)
+
+        metrics = CycleMetrics(cycle_id=0)
+        cycle._run_learning_phase(
+            metrics,
+            action,
+            obs,
+            info,
+            None,
+            state_before=state_before,
+            prediction_before=prediction_before,
+            attention_weights=np.ones(cycle.state_dim, dtype=np.float32),
+            action_rationale={"selector_mode": "snapshot_test"},
+        )
+
+        replay_input, _ = cycle.gprime._replay_buffer[-1]
+        np.testing.assert_allclose(
+            replay_input[: cycle.state_dim],
+            state_before.values,
+        )
+
+    def test_async_queue_miss_does_not_create_synthetic_cycle(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        worker = threading.Thread(target=cycle._learning_loop)
+        worker.start()
+        time.sleep(0.15)
+        cycle._stop_event.set()
+        worker.join(timeout=1.0)
+
+        assert not worker.is_alive()
+        assert cycle.cycle_count == 0
+        assert cycle.metrics_history == []
+
+    def test_async_run_completes_exact_requested_cycle_count(self):
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
+        cycle._async_mode = True
+
+        result = cycle.run(5)
+
+        assert result["total_cycles"] == 5
+        assert cycle.cycle_count == 5
+        assert cycle._action_thread is not None
+        assert not cycle._action_thread.is_alive()
+        assert cycle._learning_thread is not None
+        assert not cycle._learning_thread.is_alive()
 
     def test_single_step_populates_metrics(self):
         """Step metrics should have all fields populated."""

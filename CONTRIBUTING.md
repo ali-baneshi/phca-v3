@@ -15,8 +15,8 @@
 ### Python
 - **Style:** PEP8 (line length 100)
 - **Types:** Type hints required on all public functions
-- **Format:** `black` (default settings)
-- **Lint:** `ruff` — zero errors before merge
+- **Format:** `black` is optional for touched files; repository-wide formatting is not yet normalized
+- **Lint:** `ruff` is the enforced gate — zero errors before merge
 
 ### All Languages
 - **Seeds:** Use fixed random seeds (`seed=42`) in all tests

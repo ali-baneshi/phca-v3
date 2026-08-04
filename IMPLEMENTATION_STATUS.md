@@ -43,7 +43,7 @@ evidence separate from invariant tests.
 | Component | Spec source | Code location | Status |
 |---|---|---|---|
 | ASI sanitizer | v3 patch | `phca/asi/sanitizer.py` | **Implemented** |
-| Grounding adapter (L0/L2) | v3 patch | — | **Not implemented** (ASI always level 1); see NoiseInjector in `python/phca/asi/noise_injector.py` for noise-stress proxy |
+| Grounding metadata adapter (L0/L2 labels) | v3 patch | `phca/asi/adapter.py` | **Partial** — health/confidence changes the state metadata level 0/1/2; it does not transform or semantically ground sensor data. NoiseInjector remains a stress proxy. |
 | **NoiseInjector** | Resilience | `python/phca/asi/noise_injector.py` | **Implemented** — configurable Gaussian noise, decay, warmup; `scripts/benchmark_noise_closedloop.py` + `scripts/benchmark_noise_robustness.py` |
 | **Hybrid ablation** | A4 analysis | `scripts/benchmark_hybrid_ablation.py` | **Implemented** — 30-seed Mann-Whitney ablation: Manhattan vs Prediction vs Hybrid; `experiments/hybrid_map_ablation.yaml` |
 | RBTA enforcer | Whitepaper §2.1 | `phca/regulation/rbta_enforcer.py` | **Implemented** — count-based `_classify_action` (0→CONT, 1-2→INT, 3+→TERM) with severity override (>0.8→TERM). `ConstraintViolation` severity direction-agnostic via `abs()`. `ResourceBounds` validates `B_energy > 0`. (Python; Rust removed D-084) |
@@ -106,7 +106,7 @@ evidence separate from invariant tests.
 See [docs/doc_drift_audit_2026-07-05.md](docs/doc_drift_audit_2026-07-05.md).
 
 **Scope note:** Observatory Phases 7–20 are complete. Whole PHCA blueprint items
-(M5, L4–L5, grounding adapter, etc.) remain in backlog below.
+(M5, L4–L5, sensor-specific grounding transformations, etc.) remain in backlog below.
 
 ---
 
@@ -136,7 +136,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | Novel goal rate in benchmark JSON output (Gap C) | `scripts/benchmark_level4.py` — `novel_goal_rate` in seed_entry + aggregated return | ✅ **Done** | Enables CI trend tracking for A4 autonomy criterion |
 | 2026-07-08 validation — Shadow Gaps resolved | `scripts/benchmark_level4.py` — `--m3-replay-budget 16` | ✅ **Validated (superseded)** | `forgetting_rate=0.0000`, `passes_gate=True` at 3 seeds (underpowered per D-151 standard). Superseded by 30-seed re-run (2026-07-18): `forgetting_rate=0.3783`, `passes_gate=False` — see `docs/experiments/re-run_l4_and_d161_round14.md` |
 | **Feature 3 — PER (Prioritized Experience Replay)** | `python/phca/memory/m3_episodic.py` — `sample_episodes_per()`, `update_priority()`, `batch_update_priorities()`; `python/phca/core/cycle.py` — PER sampling + IS weights + `_per_beta` annealing 0.4→1.0; `python/phca/consolidation/scheduler.py` tuple unpacking | ✅ **Done** (D-138) | Error-reduction-rate priority: `max(ε, (stored_error − current_error)/(stored_error + ε))` — not absolute TD-error, to avoid overfitting to aleatoric noise. |
-| **Feature 2 — Φ (gradient-norm criticality)** | `python/phca/world_model/mlp.py` — `_last_output_sens` + `last_input_sensitivity()`; `python/phca/core/cycle.py` — `_update_phi_from_gradient()`, removed `_error_vol_window` + `_approximate_error_volatility()`; `python/phca/config.py` — `PHI_TARGET`, `PHI_MAX` | ✅ **Done** (D-139) | Output Jacobian norm via arctan, EMA-filtered. Replaces temporal CoV. |
+| **Feature 2 — Φ (gradient-norm criticality)** | `python/phca/world_model/mlp.py` — `_last_output_sens` + `last_input_sensitivity()`; `python/phca/core/cycle.py` — `_update_phi_from_gradient()`; `python/phca/config.py` — `CRITICALITY_SETPOINT`, raw-sensitivity bounds | ✅ **Done** (D-139/D-199) | Output Jacobian norm via arctan, EMA-filtered. The controller/MDIM setpoint is 0.5; raw input sensitivity defaults to 1.0, which maps to Φ=0.5. |
 | **Feature 1 — Async Two-Thread Loop** | `python/phca/core/cycle.py` — `_action_loop()`, `_learning_loop()`, `start_async()`, `stop_async()`, `_finalize_learning_cycle()`; `python/phca/config.py` — `PerceptionFrame`, `ActionResult`, `STALE_THRESHOLD_MS` | ✅ **Done** (D-140) | Queue-based (maxsize=1) back-pressure. Sync mode default (no regression). Async: avg latency 20.2ms vs sync 12.7ms; goal success 98.8% vs 99.0%. |
 
 ## Fixes (2026-07-09)
@@ -193,8 +193,8 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 
 | Limitation | Impact | Status |
 |---|---|---|
-| Async mode `self.current_state` data race | Thread A overwrites state before Thread B finishes reading → stale state used in PEU/G'.learn | **Known** — mitigated by `maxsize=1` queue back-pressure; full fix (snapshot through ActionResult) deferred |
-| Learning efficiency can drop if env.step > 50ms | Thread B timeouts on queue.get → cache_miss → replay-only fallback; learning stalls | **Monitored** — `_cache_hit/_cache_miss` counters + 10-window starvation warning |
+| Async model concurrency | Prediction and learning share one model | **Mitigated** — `ActionResult` carries immutable state/prediction/attention snapshots and model access uses a lock; async remains experimental and GIL-bound |
+| Learning efficiency can drop if env.step exceeds queue timeout | Thread B records queue misses while waiting for action results | **Monitored** — misses are telemetry only and no longer create synthetic completed cycles |
 | M3 SQLite BUSY under concurrent write pressure | SQLite may return `sqlite3.OperationalError("database is locked")` | **Mitigated** — `PRAGMA busy_timeout=5000` + `OperationalError` caught → uniform-sampling fallback in all SQL read methods |
 | Warm-up → steady-state latency step (~3.4×) | MLP replay buffer fills at ~64 cycles → mini-batch replay activates → latency jumps from ~16ms to ~57ms | **Flagged W4 target** (D-081 corollary) |
 
@@ -206,7 +206,7 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 | MuJoCo integration tests | 23 | **Yes** (`MUJOCO_GL=disabled`) |
 | Static contract tests | 10+ | **Yes** |
 | Maturation T1 gates | 45 | No (nightly) |
-| Total | **698** (693 pass; 5 pre-existing monitoring/UI failures: JSON roundtrip, Qt rendering, multi-agent session report) | Mixed CI / nightly |
+| Total | Run `pytest --collect-only` for the current count; do not rely on frozen totals | Mixed CI / nightly |
 
 ## Open Backlog (blueprint / cognition)
 
@@ -214,4 +214,4 @@ Details: [docs/action_selection.md](docs/action_selection.md)
 |---|---|---|
 | AD-3 | Unify benchmark entry points | 4.1 | **Done** — `runner.py` deprecated; use `scripts/benchmark.py` |
 | AD-4 | M5 procedural memory | 4.3 |
-| SC-1 | Grounding adapter | Deferred |
+| SC-1 | Sensor-specific grounding transformation beyond metadata levels | Deferred |

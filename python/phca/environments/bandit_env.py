@@ -59,6 +59,15 @@ class BanditEnv:
     def stay_action(self) -> int:
         return 0
 
+    def neutral_action(self) -> int:
+        return self.stay_action
+
+    def get_goal_reference(self) -> None:
+        return None
+
+    def get_action_deltas(self) -> None:
+        return None
+
     def normalize_obs(self, raw: np.ndarray) -> np.ndarray:
         return raw.astype(np.float32)
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from phca.config import GoalVector, StateVector
+from phca.config import CRITICALITY_SETPOINT, GoalVector, StateVector
 from phca.logging import logger, _log
 
 
@@ -100,7 +100,7 @@ class MDIM:
         # Drive targets (setpoints)
         self._targets: Dict[int, float] = {
             1: 0.1,   # D1: low prediction error
-            2: 0.5,   # D2: criticality setpoint (edge of chaos)
+            2: CRITICALITY_SETPOINT,
             3: 0.05,  # D3: low competence deficit (high accuracy)
             4: 0.3,   # D4: moderate uncertainty (curiosity sweet spot)
             5: 0.2,   # D5: low energy cost

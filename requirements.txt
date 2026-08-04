@@ -1,5 +1,5 @@
 # PHCA v3.0 — Core Dependencies
-# All phases. Install: pip install -r requirements.txt
+# All phases. Canonical install: make setup
 
 # Core scientific computing
 numpy==1.26.4
@@ -8,8 +8,8 @@ scipy==1.12.0
 # Probabilistic programming (for G' Bayesian network)
 # pgmpy 1.0.0 pulls in torch + CUDA (~2 GB). 1.1.x requires numpy>=2.0
 # which conflicts with our pinned numpy==1.26.4 (D-114). Install pgmpy
-# without its optional deps (torch, pyro-ppl) via pip --no-deps and let
-# pip/setup.py pull only what the test suite actually imports.
+# without its optional deps via `make install-deps`; direct
+# `pip install -r requirements.txt` is intentionally not the canonical path.
 pgmpy==1.0.0
 
 # Graph operations

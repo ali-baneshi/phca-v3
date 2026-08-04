@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from phca.config import DEFAULT_MODULE_BOUNDS, PHI_MAX, ResourceBounds, StateVector
+from phca.config import DEFAULT_MODULE_BOUNDS, ResourceBounds, StateVector
 
 
 _EPS = 1e-8
@@ -524,16 +524,16 @@ class WorldModelMLP:
             state_dim: Dimensionality of the state portion of the input.
 
         Returns:
-            Φ in [0.0, PHI_MAX].  Falls back to ``PHI_TARGET`` if no backward
-            pass has been run yet.
+            Raw input sensitivity in [0.0, INPUT_SENSITIVITY_MAX]. Falls back
+            to ``DEFAULT_INPUT_SENSITIVITY`` if no backward pass has run yet.
         """
-        from phca.config import PHI_TARGET
+        from phca.config import DEFAULT_INPUT_SENSITIVITY, INPUT_SENSITIVITY_MAX
         sens = self._last_output_sens if self._last_output_sens is not None else self._last_input_grad
         if sens is None:
-            return PHI_TARGET
+            return DEFAULT_INPUT_SENSITIVITY
         grad_state = sens[:state_dim]
         phi = float(np.linalg.norm(grad_state)) / np.sqrt(float(state_dim))
-        return float(np.clip(phi, 0.0, PHI_MAX))
+        return float(np.clip(phi, 0.0, INPUT_SENSITIVITY_MAX))
 
     def reset(self) -> None:
         """Reset forward/backward cache. Weights and replay buffer persist across episodes."""

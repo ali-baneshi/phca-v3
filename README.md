@@ -140,8 +140,9 @@ Every push/PR to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.y
 
 | Job | Tier | What it checks |
 | :--- | :--- | :--- |
+| **package-smoke** | T0 | Editable installation and package import on Python 3.11/3.12 |
 | **lint** | T0 | `ruff check python/` |
-| **test-python** | T0 | ~792 tests (fast path; MuJoCo integration files excluded) |
+| **test-python** | T0 | Fast suite on Python 3.11/3.12; current count comes from pytest collection |
 | **observatory-check** | T0 | `phca_replay.py --check` on session fixtures |
 | **benchmark-level-0** | T0 | **L0 smoke / Φ-IQ regression floor only** (not L2–L4 cognitive competence); vs [`logs/benchmark_ci_baseline.json`](logs/benchmark_ci_baseline.json) |
 | **noise-injector** | T0 | ASI NoiseInjector unit tests in `python/phca/asi/tests/` |
@@ -266,7 +267,7 @@ make setup
 # Optional MuJoCo (Cartpole/Pendulum/Reacher):
 pip install -r requirements-mujoco.txt
 
-# Fast CI-equivalent tests (~792 collected; MuJoCo integration tests separate)
+# Fast CI-equivalent tests (current count comes from pytest; MuJoCo files separate)
 MUJOCO_GL=disabled make test-python
 make test-mujoco              # +36 MuJoCo integration tests
 make maturation-test          # 45 tests: static contracts + forgetting + resilience + maturation
@@ -394,7 +395,7 @@ D-156) rather than the originally-intended unconditional prediction-scored desig
 | **RBTA** | `phca/regulation/rbta_enforcer.py` | Resource-Bounded Turing Supervisor: enforces time/memory/energy/entropy budgets; count-based classification with a severity override for single catastrophic violations (D-144). |
 | **M3 (Episodic)** | `phca/memory/m3_episodic.py` | SQLite-backed episode store with task-aware eviction (D-146): each task retains a fair quota of episodes rather than the oldest episodes being evicted first regardless of which task they belong to. |
 | **Consolidation** | `phca/consolidation/scheduler.py` | Periodic episodic-to-statistical fact extraction. |
-| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete / continuous). **Async mode** (D-140): `start_async()` spins `_action_loop()` + `_learning_loop()` threads with queue back-pressure; `stop_async()` joins. |
+| **Cycle** | `phca/core/cycle.py` | 12-step cognitive cycle orchestrator; branches on ActionSpace (discrete / continuous). **Async mode** (D-140/D-199): action-time state/prediction snapshots flow through `ActionResult`; model access is serialized and queue misses are telemetry-only. |
 | **ActionSpace** | `phca/config.py` | `DiscreteSpace(n)` / `ContinuousSpace(low, high, dim)` union + helpers. |
 | **GridWorld** | `phca/environments/grid_world.py` | Configurable grid environment with walls, obstacles, and goal. |
 | **MuJoCoEnv** | `phca/environments/mujoco_env.py` | MuJoCo physics wrapper (Cartpole discrete; Pendulum + Reacher continuous). |
@@ -695,9 +696,10 @@ items, in rough order of significance:
 - **Dynamic goals are validated at one cadence only** (every 75 cycles); every-50 is
   documented as not achievable rather than silently omitted.
 - **P-Stream only** (E/S streams removed earlier in the project's history).
-- **Async two-thread mode.** `start_async()` uses Python threads, which are GIL-bound for
-  CPU-heavy blocks. A data race on `self.current_state` is mitigated (bounded queue) but
-  not fully eliminated.
+- **Async two-thread mode.** `start_async()` uses Python threads, which remain GIL-bound
+  for CPU-heavy blocks. Learning now consumes an immutable action-time state/prediction
+  snapshot and model access is serialized; async remains experimental because this
+  locking limits parallel speedup.
 - **No NLP, vision, multi-agent cognition (shared memory or coordination), or procedural
   memory.** The Observatory's replay UI supports multi-agent display, which is a
   visualization feature, not a claim about multi-agent cognitive capability.

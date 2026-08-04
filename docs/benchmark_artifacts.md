@@ -1,8 +1,10 @@
 # Benchmark Artifacts Index
 
 The `logs/` directory contains many JSON files from iterative development.
-**Only the files below are canonical** for current claims. Others are historical
-experiments — do not cite without checking dates and config blocks.
+**Only the files below are canonical** for current claims. New raw logs are
+ignored by default and should be uploaded as CI artifacts; commit only a small
+manifest/summary under `results/` or an explicitly reviewed golden baseline.
+Existing tracked investigation artifacts remain historical evidence.
 
 ---
 
@@ -53,6 +55,10 @@ Files matching these patterns are **development snapshots**:
 - `logs/benchmark_phase*.json`
 - `logs/phase5_*.json`, `logs/phase6_*.json`
 - `logs/benchmark_post_gap.json`, `logs/benchmark_l0.json` (unless regenerated for CI)
+
+Do not rewrite Git history to remove existing artifacts. For new investigations,
+store the full run outside Git and commit only the configuration, manifest,
+aggregate summary, and the minimum evidence needed to reproduce the claim.
 
 When in doubt, re-run:
 

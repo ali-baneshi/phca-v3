@@ -250,9 +250,15 @@ PER_BETA_FINAL = 1.0       # final IS correction (fully unbiased)
 PER_BETA_ANNEAL_STEPS = 100_000  # cycles to anneal beta from init to final
 PER_EPSILON = 0.01         # floor for priority (keeps stale episodes sampleable)
 
-# Φ (Criticality) constants
-PHI_TARGET = 1.0           # target criticality setpoint (||dL/dx|| / sqrt(d) ~ 1.0)
-PHI_MAX = 10.0             # maximum phi clip (safety bound)
+# Φ (criticality-proxy) constants
+CRITICALITY_SETPOINT = 0.5
+DEFAULT_INPUT_SENSITIVITY = 1.0
+INPUT_SENSITIVITY_MAX = 10.0
+
+# Backward-compatible aliases. These names referred to raw input sensitivity,
+# not the post-arctan Φ value.
+PHI_TARGET = DEFAULT_INPUT_SENSITIVITY
+PHI_MAX = INPUT_SENSITIVITY_MAX
 
 # Async cycle (Feature 1) constants
 STALE_THRESHOLD_MS = 100   # max age (ms) before a PerceptionFrame is considered stale
@@ -282,6 +288,8 @@ class ActionResult:
         age: Cycle-age of the associated PerceptionFrame when executed.
         action: The action taken (int for discrete, ndarray for continuous).
         info: Info dict from env.step (goal_reached, agent_pos, etc.).
+        state_before: Immutable action-time state used for learning.
+        prediction: Prediction produced from ``state_before``.
     """
     reward: float
     terminal: bool
@@ -289,3 +297,11 @@ class ActionResult:
     age: int = 0
     action: int | np.ndarray | None = None
     info: dict | None = None
+    state_before: StateVector | None = None
+    prediction: StateVector | None = None
+    prediction_confidence: float = 0.0
+    attention_weights: np.ndarray | None = None
+    action_rationale: dict | None = None
+    module_timings: dict | None = None
+    goal_drive_id: int | None = None
+    skip_feedback: bool = False

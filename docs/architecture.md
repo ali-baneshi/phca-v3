@@ -249,7 +249,8 @@ Dynamic mode is experimental and measured separately from the canonical static b
   optional, zero-overhead when unused. See `scripts/phca_observatory.py`, `scripts/phca_replay.py`,
   and `docs/observability.md`.
 - **Deferred blueprint items:** dual G′+V ensemble, VSA modules, M5 procedural memory,
-  `phca/resilience/` failure matrix, grounding adapter (levels 0/2).
+  the full `phca/resilience/` failure matrix, and sensor-specific grounding
+  transformations beyond the existing adaptive 0/1/2 metadata.
 
 ---
 

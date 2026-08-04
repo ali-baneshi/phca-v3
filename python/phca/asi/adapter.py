@@ -1,12 +1,12 @@
-"""
-Minimal grounding level adapter for ASI.
+"""Adaptive grounding metadata for ASI.
 
 Tracks a simple grounding level (0=raw, 1=feature, 2=semantic)
 that adapts based on sensor health. When sensors degrade, the
 level steps down (conservative mode). When sensors recover,
 the level steps back up.
 
-Phase 3.2 stepping-stone — not a full L0-L4 hierarchy.
+This is observability/control metadata, not a sensor-specific grounding
+transformation or a full L0-L4 hierarchy.
 """
 
 from __future__ import annotations
@@ -40,9 +40,9 @@ class GroundingAdapter:
         """
         if sensor_failure_count > 0:
             self._healthy_cycles = 0
-            if sensor_failure_count >= 3 and self.current_level > self.MIN_LEVEL:
-                self.current_level = max(self.MIN_LEVEL, self.current_level - 1)
-            elif sensor_failure_count >= 5 and self.current_level > self.MIN_LEVEL:
+            if sensor_failure_count >= 5:
+                self.current_level = self.MIN_LEVEL
+            elif sensor_failure_count >= 3 and self.current_level > self.MIN_LEVEL:
                 self.current_level = max(self.MIN_LEVEL, self.current_level - 1)
         else:
             self._healthy_cycles += 1

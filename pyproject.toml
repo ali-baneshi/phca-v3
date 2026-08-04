@@ -1,3 +1,57 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phca"
+version = "0.1.0"
+description = "Predictive Hierarchical Cognitive Architecture research prototype"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = {file = "docs/license.md"}
+authors = [
+    {name = "PHCA contributors"},
+]
+dependencies = [
+    "numpy==1.26.4",
+    "scipy==1.12.0",
+    "networkx==3.2.1",
+    "opt_einsum>=3.3",
+    "tqdm>=4.64",
+    "pandas>=2.0,<3",
+    "statsmodels>=0.14,<1",
+    "scikit-learn>=1.4,<2",
+    "pyro-api>=0.1.1",
+    "orjson==3.9.13",
+    "click==8.1.7",
+    "psutil>=5.9.0",
+    "matplotlib==3.11.0",
+    "PyQt5==5.15.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-benchmark==4.0.0",
+    "pytest-mock>=3.12",
+    "pytest-timeout==2.2.0",
+    "ruff==0.2.0",
+    "black==24.1.1",
+    "structlog==24.1.0",
+    "pyyaml>=6.0",
+]
+mujoco = [
+    "gymnasium[mujoco]==1.0.0",
+    "mujoco==3.2.7",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["phca*"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

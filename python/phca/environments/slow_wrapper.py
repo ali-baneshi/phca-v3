@@ -64,6 +64,9 @@ class SlowWrapper:
     def get_action_names(self) -> List[str]:
         return self._env.get_action_names()
 
+    def get_action_space(self):
+        return self._env.get_action_space()
+
     def get_observation(self) -> np.ndarray:
         return self._env.get_observation()
 

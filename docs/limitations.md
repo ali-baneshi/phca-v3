@@ -16,7 +16,7 @@ This document states what PHCA cannot do, so you can decide if it is the right t
 | **Real-time control** | ⚠️ Limited | ~10–17 ms mean cycle latency on the MLP path (~60–95 decisions/second). Not suitable for sub-5 ms hard real-time loops. |
 | **Vision / image processing** | ❌ Not supported | No convolutional layers, no image input. States are flat numerical vectors (MuJoCo camera is observability-only). |
 | **Multi-agent coordination** | ❌ Not supported | Single-agent only. Multiple cycles cannot share memory. |
-| **Multi-level grounding (levels 0–2)** | ⚠️ Partial | ASI always emits grounding level 1; Grounding Level Adapter deferred. |
+| **Multi-level grounding (levels 0–2)** | ⚠️ Metadata only | ASI can label states 0/1/2 from health/confidence, but does not perform sensor-specific or semantic grounding transformations. |
 | **Long-term procedural memory (M5)** | ❌ Not implemented | Skills are compiled in TSPL but not stored in a persistent library. |
 | **Dual G′+V ensemble / VSA** | ❌ Not implemented | Blueprint items; only G′ (Gaussian / discrete graph / MLP) is implemented. |
 | **Resilience failure matrix** | ⚠️ Partial (MVP) | B1, B4, B5, C1, F5 detect + recover in `phca/resilience/`; E1 FallbackController (dual-signal entropy + cascade); see [resilience.md](resilience.md) |
@@ -151,7 +151,7 @@ Phases 7–20 delivered live PyQt dashboard, JSONL recording, seek/scrub replay,
 | Full offline report ↔ dashboard parity | Done (Phase 10) |
 | Multi-session comparison (`--compare`) | Done (Phase 12) |
 | Large-session scrub performance (3000+ cycles) | Done (Phase 11) |
-| Grounding adapter (levels 0/2) | Deferred |
+| Sensor-specific grounding transformation beyond 0/1/2 metadata | Deferred |
 | M5 procedural memory | Not implemented |
 | Level-4-lite forgetting gate (10-task L4b) | **Measured FAIL** — honest capacity limit; maturation 2026-07-07 |
 | Full MuJoCo suite (5+ envs) | Planned |

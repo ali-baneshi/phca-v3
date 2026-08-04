@@ -7,4 +7,9 @@ continual learning, intrinsic motivation, and self-regulated autonomous agents.
 See docs/ for the architectural specification and implementation plan.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("phca")
+except PackageNotFoundError:
+    __version__ = "0+unknown"

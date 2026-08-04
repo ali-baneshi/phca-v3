@@ -32,7 +32,6 @@ from phca.config import (
     StreamID,
     STALE_THRESHOLD_MS,
     DEFAULT_MODULE_BOUNDS,
-    DiscreteSpace,
     ContinuousSpace,
     PER_ALPHA,
     PER_BETA_INIT,
@@ -69,7 +68,7 @@ from phca.regulation.pid_controller import AdaptiveParameterController
 from phca.hpm.parser import HPMValidator
 from phca.consolidation.scheduler import ConsolidationScheduler
 from phca.environments.grid_world import GridWorld
-from phca.environments.protocol import EnvironmentProtocol
+from phca.environments.protocol import EnvironmentProtocol, validate_environment
 from phca.asi.noise_injector import NoiseInjector
 from phca.asi.adapter import GroundingAdapter
 from phca.evaluation.interventions import DESYNC_STAGE_ORDER, InterventionConfig
@@ -207,12 +206,8 @@ class CognitiveCycle:
         self._asi_stale_safe_mode: bool = False
         self._asi_stale_anomaly_emitted: bool = False
 
-        # Phase 6 / A2: action-space branch. Resolve once; GridWorld and any
-        # env without get_action_space() fall back to DiscreteSpace(n).
-        space = getattr(env, "get_action_space", None)
-        self.action_space = (
-            space() if callable(space) else DiscreteSpace(n=env.action_space_size)
-        )
+        # Phase 6 / A2: action-space branch. Validate once at construction.
+        self.action_space = validate_environment(env)
         self._is_continuous: bool = isinstance(self.action_space, ContinuousSpace)
 
         self.runtime_log: Dict[str, float] = {}
@@ -289,6 +284,10 @@ class CognitiveCycle:
         self._action_thread: threading.Thread | None = None
         self._learning_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._model_lock = threading.RLock()
+        self._learning_done_event = threading.Event()
+        self._learning_done_event.set()
+        self._async_cycle_target: int | None = None
 
         # World-model integrity / learning effectiveness (honesty flags)
         self.gprime_modeled_dims: int = state_dim
@@ -331,13 +330,15 @@ class CognitiveCycle:
         In sync mode (default), calls ``step()`` N times sequentially.
         """
         if self._async_mode:
+            self._async_cycle_target = self.cycle_count + n_cycles
             self.start_async()
             try:
-                while len(self.metrics_history) < n_cycles:
+                while self.cycle_count < self._async_cycle_target:
                     if self._stop_event.wait(timeout=0.05):
                         break
             finally:
                 self.stop_async()
+                self._async_cycle_target = None
         else:
             for _ in range(n_cycles):
                 self.step()
@@ -865,6 +866,13 @@ class CognitiveCycle:
         obs: np.ndarray,
         info: dict,
         action_vec_step: np.ndarray | None,
+        *,
+        state_before: StateVector | None = None,
+        prediction_before: StateVector | None = None,
+        attention_weights: np.ndarray | None = None,
+        action_rationale: dict | None = None,
+        goal_drive_id: int | None = None,
+        skip_feedback: bool | None = None,
     ) -> None:
         """Steps 5-7: PEU + TSPL + G'.learn + M3 episode storage + action tracking.
 
@@ -886,7 +894,31 @@ class CognitiveCycle:
             metrics.action_name = action_names[int(action)] if 0 <= int(action) < len(action_names) else f"#{int(action)}"
         metrics.goal_reached = info.get("goal_reached", False)
 
-        if self.current_state is None:
+        learning_state = (
+            state_before if state_before is not None else self.current_state
+        )
+        learning_prediction = (
+            prediction_before
+            if prediction_before is not None
+            else self.last_prediction
+        )
+        learning_attention = (
+            attention_weights.copy()
+            if attention_weights is not None
+            else self._attention_weights.copy()
+        )
+        learning_rationale = (
+            copy.deepcopy(action_rationale)
+            if action_rationale is not None
+            else self.last_action_rationale
+        )
+        effective_skip_feedback = (
+            self._rbta_skip_feedback if skip_feedback is None else skip_feedback
+        )
+        if action_rationale is not None:
+            self.last_action_rationale = copy.deepcopy(action_rationale)
+
+        if learning_state is None:
             return
 
         # Build action vector for learning
@@ -902,20 +934,23 @@ class CognitiveCycle:
             timestamp=float(self.cycle_count),
         )
 
-        if self._rbta_skip_feedback:
+        if effective_skip_feedback:
             metrics.prediction_error = self._last_prediction_error
             self._store_m3_episode(
                 metrics,
                 action_vec,
                 next_state,
                 planner_mode="rbta_safe_mode",
+                state_before=learning_state,
+                action_rationale=learning_rationale,
+                goal_drive_id=goal_drive_id,
             )
             self._last_prediction_error = metrics.prediction_error
             return
 
         # Step 5-6: PEU — actual next_state vs prediction conditioned on action_vec
         corrected_prediction, corrected_conf = self.gprime.predict(
-            self.current_state, action_vec
+            learning_state, action_vec
         )
         t3 = time.perf_counter()
         error = self.peu.compute_precision_weighted(
@@ -938,7 +973,7 @@ class CognitiveCycle:
         mlp_accuracy = None
         if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
             mlp_accuracy = self.gprime.get_prediction_accuracy(
-                self.current_state.values, action_vec, next_state.values
+                learning_state.values, action_vec, next_state.values
             )
             # D-158/D-167: collect probe data from ALL cycles regardless of
             # action selector mode (was previously filtered to geometry-only,
@@ -947,15 +982,15 @@ class CognitiveCycle:
             geo_agreement = None
             if self._geo_action_cache is not None:
                 geo_agreement = 1.0 if (
-                    self.last_action_rationale.get("chosen_idx") == self._geo_action_cache
+                    learning_rationale.get("chosen_idx") == self._geo_action_cache
                 ) else 0.0
             self._probe_buffer.append({
-                "state": self.current_state.values.copy(),
+                "state": learning_state.values.copy(),
                 "action": action_vec.copy(),
                 "next_state": next_state.values.copy(),
                 "mse_accuracy": mlp_accuracy,
                 "mc_confidence": float(corrected_conf),
-                "selector": self.last_action_rationale.get("selector_mode", ""),
+                "selector": learning_rationale.get("selector_mode", ""),
                 "geo_agreement": geo_agreement,
             })
             max_samples = max(self.interventions.calibration_probe_samples, 16)
@@ -966,8 +1001,8 @@ class CognitiveCycle:
             theta_new, _ = self.tspl.update(
                 StreamID.P_STREAM,
                 metrics.prediction_error,
-                self.current_state,
-                self.last_prediction,
+                learning_state,
+                learning_prediction,
                 gradient=None,
                 accuracy_override=mlp_accuracy,
             )
@@ -1002,10 +1037,10 @@ class CognitiveCycle:
             if self._should_skip_gprime_learn(metrics):
                 self._last_m3_replay_steps = 0
             else:
-                attn_weighted_error = metrics.prediction_error * float(np.mean(self._attention_weights))
-                self.gprime._attention_weights = self._attention_weights.copy()
+                attn_weighted_error = metrics.prediction_error * float(np.mean(learning_attention))
+                self.gprime._attention_weights = learning_attention.copy()
                 self.gprime.learn(
-                    self.current_state, action_vec, next_state,
+                    learning_state, action_vec, next_state,
                     error=attn_weighted_error,
                 )
                 self._update_phi_from_gradient()
@@ -1016,7 +1051,14 @@ class CognitiveCycle:
                 self._m3_replay_total += self._last_m3_replay_steps
         metrics.module_timings["gprime_learn"] = (time.perf_counter() - t_glearn) * 1000
 
-        self._store_m3_episode(metrics, action_vec, next_state)
+        self._store_m3_episode(
+            metrics,
+            action_vec,
+            next_state,
+            state_before=learning_state,
+            action_rationale=learning_rationale,
+            goal_drive_id=goal_drive_id,
+        )
         self._last_prediction_error = metrics.prediction_error
 
     def _store_m3_episode(
@@ -1026,15 +1068,23 @@ class CognitiveCycle:
         next_state: StateVector,
         *,
         planner_mode: Optional[str] = None,
+        state_before: StateVector | None = None,
+        action_rationale: dict | None = None,
+        goal_drive_id: int | None = None,
     ) -> None:
         """Store transition plus planner trajectory metadata for offline replay."""
         if not self.interventions.enable_m3_write:
             return
-        if self.current_state is None:
+        episode_state = state_before if state_before is not None else self.current_state
+        if episode_state is None:
             return
         if action_vec is None:
             return
-        rationale = self.last_action_rationale or {}
+        rationale = (
+            action_rationale
+            if action_rationale is not None
+            else self.last_action_rationale or {}
+        )
         mode = planner_mode or str(
             rationale.get("selector_mode")
             or rationale.get("decision_reason")
@@ -1044,10 +1094,14 @@ class CognitiveCycle:
         goal_pos = self.env.get_goal_position() if hasattr(self.env, "get_goal_position") else None
         if goal_pos is not None:
             goal_pos = (int(goal_pos[0]), int(goal_pos[1]))
-        m3_drive_id = self.current_goal.drive_id if self.current_goal else None
+        m3_drive_id = (
+            goal_drive_id
+            if goal_drive_id is not None
+            else self.current_goal.drive_id if self.current_goal else None
+        )
         self._planner_path_length += 1
         self.consolidation.m3.store_episode(
-            state_before=self.current_state,
+            state_before=episode_state,
             action_taken=action_vec,
             state_after=next_state,
             prediction_error=metrics.prediction_error,
@@ -1095,6 +1149,7 @@ class CognitiveCycle:
     def stop_async(self, timeout: float = 5.0) -> None:
         """Signal stop and join both threads."""
         self._stop_event.set()
+        self._learning_done_event.set()
         if self._action_thread is not None and self._action_thread.is_alive():
             self._action_thread.join(timeout=timeout)
         if self._learning_thread is not None and self._learning_thread.is_alive():
@@ -1116,6 +1171,11 @@ class CognitiveCycle:
         """
         while not self._stop_event.is_set():
             try:
+                if (
+                    self._async_cycle_target is not None
+                    and self.cycle_count >= self._async_cycle_target
+                ):
+                    break
                 # Reset RBTA flags then apply carry (same as sync step())
                 self._rbta_skip_feedback = False
                 self._rbta_skip_consolidation = False
@@ -1125,14 +1185,24 @@ class CognitiveCycle:
                 elif self._rbta_carry_action == EnforcerAction.INTERRUPT:
                     self._rbta_action_candidate_limit = 1
 
-                # Phase A: Perception + Prediction + Regulation
-                self._run_perception_cycle(CycleMetrics(cycle_id=self.cycle_count))
-
-                # Phase B: Action selection + env step
-                if self._rbta_skip_feedback or self._asi_stale_safe_mode:
-                    action = self._neutral_action()
-                else:
-                    action = self._select_action()
+                # Phase A/B model access is serialized with learning. The
+                # environment step remains outside the lock.
+                perception_metrics = CycleMetrics(cycle_id=self.cycle_count)
+                with self._model_lock:
+                    self._run_perception_cycle(perception_metrics)
+                    if self._rbta_skip_feedback or self._asi_stale_safe_mode:
+                        action = self._neutral_action()
+                    else:
+                        action = self._select_action()
+                    state_before = copy.deepcopy(self.current_state)
+                    prediction_before = copy.deepcopy(self.last_prediction)
+                    attention_weights = self._attention_weights.copy()
+                    action_rationale = copy.deepcopy(self.last_action_rationale)
+                    goal_drive_id = (
+                        self.current_goal.drive_id if self.current_goal else None
+                    )
+                    prediction_confidence = perception_metrics.prediction_confidence
+                    skip_feedback = self._rbta_skip_feedback
 
                 if self._is_continuous:
                     obs, step_reward, terminal, info = self.env.step(
@@ -1150,16 +1220,29 @@ class CognitiveCycle:
                     age=0,
                     action=action,
                     info=info,
+                    state_before=state_before,
+                    prediction=prediction_before,
+                    prediction_confidence=prediction_confidence,
+                    attention_weights=attention_weights,
+                    action_rationale=action_rationale,
+                    module_timings=dict(perception_metrics.module_timings),
+                    goal_drive_id=goal_drive_id,
+                    skip_feedback=skip_feedback,
                 )
+                self._learning_done_event.clear()
                 self._action_result_queue.put(result)
+                while not self._learning_done_event.wait(timeout=0.1):
+                    if self._stop_event.is_set():
+                        break
 
                 if terminal:
                     self.env.reset()
-                    self.gprime.reset()
-                    self.sanitizer.reset()
-                    self._grounding_adapter.reset()
-                    self._last_goal_pos = None
-                    self._goal_switch_cooldown = 0
+                    with self._model_lock:
+                        self.gprime.reset()
+                        self.sanitizer.reset()
+                        self._grounding_adapter.reset()
+                        self._last_goal_pos = None
+                        self._goal_switch_cooldown = 0
 
             except Exception as e:
                 _log(logger, "error", "cycle.action_loop.error", error=str(e))
@@ -1176,9 +1259,10 @@ class CognitiveCycle:
           4. RBTA enforcement + resilience + logging + consolidation
         """
         while not self._stop_event.is_set():
+            result: ActionResult | None = None
+            result_completed = False
             try:
                 # Block for up to STALE_THRESHOLD_MS for a result
-                result: ActionResult | None = None
                 try:
                     result = self._action_result_queue.get(
                         timeout=STALE_THRESHOLD_MS / 1000.0
@@ -1216,11 +1300,8 @@ class CognitiveCycle:
                             "learning_starvation", severity=0.7, cycle=self.cycle_count,
                         )
 
-                # Queue miss → skip learning (age field is unused / always 0)
+                # Queue misses are telemetry only, not synthetic cognitive cycles.
                 if result is None:
-                    metrics.latency_ms = (time.perf_counter() - t_start) * 1000
-                    metrics.staleness_ratio = self._staleness_trigger_count / max(self.cycle_count, 1)
-                    self._finalize_learning_cycle(metrics, None)
                     continue
 
                 # Phase C: Learning
@@ -1229,15 +1310,31 @@ class CognitiveCycle:
                     if isinstance(result.action, (list, np.ndarray))
                     else None
                 )
-                self._run_learning_phase(
-                    metrics, result.action, result.state,
-                    result.info or {"goal_reached": False},
-                    action_vec_step,
-                )
+                metrics.prediction_confidence = result.prediction_confidence
+                metrics.module_timings.update(result.module_timings or {})
+                with self._model_lock:
+                    self._run_learning_phase(
+                        metrics,
+                        result.action,
+                        result.state,
+                        result.info or {"goal_reached": False},
+                        action_vec_step,
+                        state_before=result.state_before,
+                        prediction_before=result.prediction,
+                        attention_weights=result.attention_weights,
+                        action_rationale=result.action_rationale,
+                        goal_drive_id=result.goal_drive_id,
+                        skip_feedback=result.skip_feedback,
+                    )
 
-                metrics.latency_ms = (time.perf_counter() - t_start) * 1000
-                metrics.staleness_ratio = self._staleness_trigger_count / max(self.cycle_count, 1)
-                self._finalize_learning_cycle(metrics, result)
+                    metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+                    metrics.staleness_ratio = (
+                        self._staleness_trigger_count / max(self.cycle_count, 1)
+                    )
+                    self._finalize_learning_cycle(metrics, result)
+                self._action_result_queue.task_done()
+                result_completed = True
+                self._learning_done_event.set()
 
                 if result.terminal:
                     _log(logger, "info", "cycle.async.terminal",
@@ -1245,6 +1342,9 @@ class CognitiveCycle:
                          reward=f"{result.reward:.3f}")
 
             except Exception as e:
+                if result is not None and not result_completed:
+                    self._action_result_queue.task_done()
+                self._learning_done_event.set()
                 _log(logger, "error", "cycle.learning_loop.error",
                      cycle=self.cycle_count, error=str(e))
                 if self._stop_event.wait(timeout=0.1):
@@ -1635,13 +1735,34 @@ class CognitiveCycle:
         int for discrete-map compatibility; stepping with that int yields a
         0-d array and gymnasium raises ``Action dimension mismatch``.
         """
+        getter = getattr(self.env, "neutral_action", None)
         if self._is_continuous:
-            getter = getattr(self.env, "neutral_action", None)
+            dim = int(
+                getattr(self.action_space, "dim", self.env.action_space_size)
+                or self.env.action_space_size
+            )
             if callable(getter):
-                return np.asarray(getter(), dtype=np.float32)
-            dim = int(getattr(self.action_space, "dim", self.env.action_space_size) or self.env.action_space_size)
+                action = np.asarray(getter(), dtype=np.float32)
+                if action.shape == (dim,):
+                    return action
+                _log(
+                    logger,
+                    "warning",
+                    "environment.neutral_action_shape_mismatch",
+                    env_type=type(self.env).__name__,
+                    expected=(dim,),
+                    actual=action.shape,
+                )
             return np.zeros(dim, dtype=np.float32)
-        return self.env.stay_action
+        if callable(getter):
+            return int(getter())
+        _log(
+            logger,
+            "warning",
+            "environment.neutral_action_fallback",
+            env_type=type(self.env).__name__,
+        )
+        return int(getattr(self.env, "stay_action", 0))
 
     def _epistemic_entropy(self) -> float:
         """Epistemic uncertainty for D4 and A3.
@@ -2937,8 +3058,7 @@ class CognitiveCycle:
             gprime_b_time: RBTA time bound for G' module in seconds
                 (default 0.020; use 0.080 for MuJoCo with physics sim overhead).
             action_b_time: RBTA time bound for ACTION module in seconds
-            action_b_energy: RBTA energy bound for ACTION module
-                (default 0.020; use 0.050 for MuJoCo).
+            action_b_energy: RBTA energy bound for ACTION module.
             metrics_store: Optional MetricsStore for live monitoring.
             noise_profile: Sensor noise profile ("gaussian", "dropout",
                 "drift", "salt_pepper"). None = disabled.
@@ -2947,8 +3067,21 @@ class CognitiveCycle:
         Returns:
             Configured CognitiveCycle instance.
         """
+        action_space = validate_environment(env)
         state_dim = env.get_state_dim()
         action_dim = env.action_space_size
+        if isinstance(action_space, ContinuousSpace) and not use_mlp and not use_continuous:
+            raise ValueError(
+                "continuous environments require use_mlp=True or use_continuous=True"
+            )
+        if mlp_hidden_dim <= 0:
+            raise ValueError("mlp_hidden_dim must be positive")
+        if mlp_lr <= 0:
+            raise ValueError("mlp_lr must be positive")
+        if gprime_b_time <= 0 or action_b_time <= 0 or action_b_energy <= 0:
+            raise ValueError("RBTA time and energy bounds must be positive")
+        if not 0.0 <= noise_intensity <= 1.0:
+            raise ValueError("noise_intensity must be in [0, 1]")
         position_dim = int(env.size * env.size) if hasattr(env, "size") else None
 
         sanitizer = ASISanitizer(
@@ -3181,10 +3314,21 @@ class CognitiveCycle:
             action_slip=action_slip,
             maze=maze,
         )
-        actual_state_dim = state_dim or env.get_state_dim()
-        # Note: build() uses env.get_state_dim() internally, so if state_dim
-        # override is provided, we need to adjust. Pass use_mlp to trigger
-        # MLP bounds update if needed.
+        env_state_dim = env.get_state_dim()
+        if state_dim is not None:
+            import warnings
+
+            warnings.warn(
+                "build_for_env(state_dim=...) is deprecated; state dimensions "
+                "are derived from the environment",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if state_dim != env_state_dim:
+                raise ValueError(
+                    f"state_dim={state_dim} does not match environment dimension "
+                    f"{env_state_dim}"
+                )
         cycle = cls.build(
             env=env, seed=seed,
             use_mlp=use_mlp, use_continuous=use_continuous,
@@ -3196,7 +3340,4 @@ class CognitiveCycle:
             noise_profile=noise_profile,
             noise_intensity=noise_intensity,
         )
-        # If state_dim was overridden, update the cycle's state_dim
-        if state_dim is not None and state_dim != actual_state_dim:
-            cycle.state_dim = state_dim
         return cycle

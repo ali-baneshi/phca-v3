@@ -303,6 +303,11 @@ class GridWorld:
     def get_action_names(self) -> list[str]:
         return list(ACTION_NAMES)
 
+    def get_action_space(self):
+        from phca.config import DiscreteSpace
+
+        return DiscreteSpace(n=self.action_space_size)
+
     def get_observation(self) -> np.ndarray:
         """Public observation accessor (EnvironmentProtocol).
 
@@ -314,6 +319,12 @@ class GridWorld:
     def get_action_deltas(self) -> dict[str, tuple[int, int]]:
         """Return mapping of action names to (row_delta, col_delta)."""
         return dict(zip(ACTION_NAMES, ACTION_DELTAS))
+
+    def neutral_action(self) -> int:
+        return self.stay_action
+
+    def get_goal_reference(self) -> None:
+        return None
 
     @property
     def observed_grid(self) -> np.ndarray:

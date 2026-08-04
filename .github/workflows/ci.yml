@@ -8,6 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  package-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: Verify editable package metadata
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          python -c "import phca; print(phca.__version__)"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -20,27 +38,27 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          make install-deps
       - name: Lint Python
         run: |
           ruff check python/ --no-cache
 
   test-python:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.11
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: 'pip'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-          pip install -r requirements-mujoco.txt
+          make install-deps
       - name: Test Python
         env:
           MUJOCO_GL: disabled
@@ -64,8 +82,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          make install-deps
       - name: Observatory session integrity gate
         run: |
           PYTHONPATH=python:$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
@@ -84,8 +101,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          make install-deps
       - name: NoiseInjector unit tests
         run: |
           PYTHONPATH=python:$PYTHONPATH python -m pytest python/phca/asi/tests/ \
@@ -108,7 +124,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          make install-deps
       - name: Run quick L0 benchmark (smoke only)
         run: |
           mkdir -p logs
@@ -136,8 +152,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-mujoco.txt
+          make install-deps
+          make install-mujoco-deps
       - name: MuJoCo CI gate (Pendulum + Cartpole + Reacher)
         env:
           MUJOCO_GL: disabled
