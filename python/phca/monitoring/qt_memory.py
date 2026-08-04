@@ -117,8 +117,17 @@ class MemoryBeliefView(_BaseCanvas):
         self._episodic_timeline(p, self._m3_cache, f, 10, h - 22, col_w, 14)
         # ---- right: M4 retention cards + retention-cap gauge ----
         rx = col_w + 16
-        self._title(p, "M4 consolidated facts — ranked by retention score", x=rx, y=my)
         m4 = list(getattr(f, "m4_relevant", None) or []) + list(getattr(f, "m4_top", None) or [])
+        m4_has_timestamps = any(
+            isinstance(item.get("timestamp"), (int, float)) and item["timestamp"] > 0
+            for item in m4 if isinstance(item, dict)
+        )
+        m4_title = (
+            "M4 consolidated facts — ranked by retention score"
+            if m4_has_timestamps else
+            "M4 consolidated facts — ranked by confidence/support (temporal age unavailable)"
+        )
+        self._title(p, m4_title, x=rx, y=my)
         sig4 = freeze_sig(m4)
         if sig4 != self._m4_sig:
             self._m4_cache = m4; self._m4_sig = sig4
@@ -126,13 +135,24 @@ class MemoryBeliefView(_BaseCanvas):
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(rx, my + 24, "(M4 top not in this JSONL · newer sessions record m4_top)")
         else:
-            self._ranked_decay_cards(p, self._m4_cache, f,
-                                     label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
-                                     score_fn=lambda fac, fr: _retention_score(
-                                         max(0, int(fr.cycle_id) - int(fac.get('timestamp', fr.cycle_id))),
-                                         max(float(fac.get('confidence', fac.get('frequency', fac.get('support', 0.1))) or 0.1) * 80.0, 5.0)),
-                                     x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
-                                     col=QtGui.QColor(155, 89, 182))
+            self._ranked_decay_cards(
+                p, self._m4_cache, f,
+                label_fn=lambda fac: f"{fac.get('fact_type', fac.get('predicate','?'))} {str(fac.get('summary',''))[:18]}",
+                score_fn=(
+                    (lambda fac, fr: _retention_score(
+                        max(0, int(fr.cycle_id) - int(fac.get("timestamp", fr.cycle_id))),
+                        max(float(fac.get("confidence", fac.get("frequency", fac.get("support", 0.1))) or 0.1) * 80.0, 5.0),
+                    ))
+                    if m4_has_timestamps else
+                    (lambda fac, fr: float(
+                        fac.get("confidence", fac.get("frequency", fac.get("support", 0.0))) or 0.0
+                    ))
+                ),
+                x=rx, y=my + 12, w=w - rx - 10, h=h - my - 40,
+                col=QtGui.QColor(155, 89, 182),
+                score_label="R" if m4_has_timestamps else "conf",
+                draw_decay=m4_has_timestamps,
+            )
         # retention-cap gauge (top-right of the M4 column)
         self._cap_gauge(p, rx, my - 14, 120, 16, int(f.fact_count), int(f.m4_cap), "M4 cap")
         # v7: demoted |sanitized−raw| diff as a thin EMA-smoothed inset (bottom strip)
@@ -251,8 +271,9 @@ class MemoryBeliefView(_BaseCanvas):
         return [per.get(float(i), 0.0) for i in range(n)]
 
     def _ranked_decay_cards(self, p, items: list, f: ObservabilityFrame,
-                            label_fn, score_fn, x, y, w, h, col) -> None:
-        """v8 B6: retention-score-ranked cards (swatch + label + decay sparkline)."""
+                            label_fn, score_fn, x, y, w, h, col,
+                            *, score_label: str = "R", draw_decay: bool = True) -> None:
+        """Ranked cards with a decay trace only when a temporal age is recorded."""
         if not items:
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x, y + 12, "(empty)"); return
@@ -263,7 +284,6 @@ class MemoryBeliefView(_BaseCanvas):
             ry = y + i * rh
             if ry + rh > y + h:
                 break
-            S = max(rscore * 0.5, 2.0) if rscore > 1 else max(1.0 / max(rscore, 0.05), 2.0)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             p.drawRect(x, ry + 4, 6, rh - 10)
             p.setPen(TEXT_COL); p.setFont(_F_AXIS)
@@ -271,9 +291,14 @@ class MemoryBeliefView(_BaseCanvas):
             spark_x = x + 12; spark_w = w - 120
             p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
             p.drawRect(spark_x, ry + 6, spark_w, rh - 14)
-            _draw_decay_sparkline(p, spark_x + 2, ry + 7, spark_w - 4, rh - 16, S, col)
+            if draw_decay:
+                S = max(rscore * 0.5, 2.0) if rscore > 1 else max(1.0 / max(rscore, 0.05), 2.0)
+                _draw_decay_sparkline(p, spark_x + 2, ry + 7, spark_w - 4, rh - 16, S, col)
+            else:
+                p.setPen(QtGui.QPen(col, 2))
+                p.drawLine(spark_x + 2, ry + rh // 2, spark_x + spark_w - 2, ry + rh // 2)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            val_lbl = f"R={rscore:.2f}"
+            val_lbl = f"{score_label}={rscore:.2f}"
             p.drawText(x + w - 58, ry + rh - 8, val_lbl)
 
     def _ranked_bars(self, p, items: list, key: str, label_fn, x, y, w, h, col) -> None:

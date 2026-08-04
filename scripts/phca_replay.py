@@ -132,14 +132,16 @@ def _check(session_dir: str, *, allow_incomplete: bool = False,
                 ok = False
             ok_align, align_err = validate_aligned_timeline(parsed)
             if ok_align:
-                if any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+                if any(int(-1 if o.get("timeline_step") is None else o.get("timeline_step", -1)) >= 0
+                       for o in parsed):
                     print("  [PASS] aligned timeline_step sets complete")
             elif align_err:
                 print(f"  [FAIL] {align_err}")
                 ok = False
             ok_order, order_err = validate_jsonl_step_major_order(parsed)
             if ok_order:
-                if any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+                if any(int(-1 if o.get("timeline_step") is None else o.get("timeline_step", -1)) >= 0
+                       for o in parsed):
                     print("  [PASS] step-major JSONL line order")
             elif order_err:
                 print(f"  [FAIL] {order_err}")

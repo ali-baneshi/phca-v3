@@ -161,8 +161,10 @@ class TrajectoryView(_BaseCanvas):
             mags.append(0.0)
         p.setPen(QtGui.QPen(PANEL_BORDER, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRect(x, y, w, h)
+        pull_kind = str(getattr(f, "drive_pull_kind", "") or "")
+        pull_label = "drive pull" if pull_kind == "goal_vector_norm" else "deficit proxy"
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(x + 3, y + 10, "drive pull")
+        p.drawText(x + 3, y + 10, pull_label)
         cx, cy = x + w // 2, y + h // 2 + 4
         R = min(w, h) // 2 - 8
         mx = max(mags) if mags else 1.0
@@ -675,8 +677,14 @@ class _PhasePortraitView(_BaseCanvas):
         d = int(min(len(pred), len(ref)))
         if d == 0:
             self._empty(p, "Phase portrait (empty)"); return
-        from phca.monitoring.cognitive_panels import frame_per_dim_peu
+        from phca.monitoring.cognitive_panels import frame_has_full_peu, frame_per_dim_peu
         peu = frame_per_dim_peu(f)
+        full_peu = frame_has_full_peu(f)
+        sparse_peu_indices = {
+            int(item.get("idx", -1))
+            for item in (getattr(f, "per_dim_peu_top", None) or [])
+            if isinstance(item, dict)
+        }
         peu_a = None
         if peu is not None:
             pa = np.asarray(peu, dtype=np.float32).reshape(-1)
@@ -728,13 +736,15 @@ class _PhasePortraitView(_BaseCanvas):
             st_line += f" · deficits=[{ds}]"
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, hdr + 30, _elide_line(p, st_line, w - 20))
-        cap = "red = prediction error · blue whisker = ±σ · ▒ = PEU (live full / replay top-K)"
+        cap = "red = prediction error · blue whisker = ±σ"
         if peu_a is None and not self._replay:
             cap += " · stable order (no re-sort)"
         elif peu_a is None and self._replay:
             cap += " · replay · PEU top-K missing"
+        elif not full_peu:
+            cap += " · ▒ = PEU top-K only; non-top dimensions unknown"
         else:
-            cap += " · PEU layer active"
+            cap += " · ▒ = full PEU layer"
         self._caption(p, cap, y=hdr + 44)
         if (self._replay
                 and (f.gprime_uncertainty is None
@@ -766,8 +776,10 @@ class _PhasePortraitView(_BaseCanvas):
                     p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
                 # Do not treat action chosen_idx as a state-dim highlight.
                 p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
-                if peu_a is not None and int(idx[i]) < len(peu_a):
-                    pe = float(peu_a[int(idx[i])])
+                dim_i = int(idx[i])
+                if (peu_a is not None and dim_i < len(peu_a)
+                        and (full_peu or dim_i in sparse_peu_indices)):
+                    pe = float(peu_a[dim_i])
                     ph = int(pe / mx * (bot - top) * 0.5)
                     p.fillRect(int(x + bw / 2 - 2), int(bot - ph), 4, ph,
                                QtGui.QColor(150, 150, 160, 140))

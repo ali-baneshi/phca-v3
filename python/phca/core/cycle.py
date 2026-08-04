@@ -506,56 +506,6 @@ class CognitiveCycle:
             metrics.emergency_active = self._fallback_controller.active()
             metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
 
-            # Step 15: Logging — also populate dashboard fields
-            consol_stats = self.consolidation.get_stats()
-            metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
-            metrics.skill_accuracy = self.tspl.skill_accuracy
-            metrics.skill_compiled = self.tspl.skill_compiled
-            metrics.fact_count = consol_stats.get("total_facts_stored", 0)
-            metrics.m3_count = (
-                self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
-            )
-            metrics.episode_count = int(self._episode_index)
-            metrics.task_id = self._current_task_id
-            if metrics.fact_count == self._last_fact_count:
-                self._fact_stagnant_cycles += 1
-            else:
-                self._fact_stagnant_cycles = 0
-            self._last_fact_count = metrics.fact_count
-            self.metrics_history.append(metrics)
-            # Deep-copy before pushing to prevent dashboard thread from
-            # observing a mutating object (G-009: thread-safe monitoring)
-            if self.metrics_store is not None:
-                self.metrics_store.push(copy.deepcopy(metrics))
-            # Visual Observability Layer (Phase 7 ext): opt-in, zero-overhead
-            # when None. Frame build + ring push only; rendering/recording run
-            # off the hot path in the visualiser thread.
-            if self.observability_store is not None:
-                from phca.monitoring.observability import ObservabilityFrame
-                self.observability_store.push(ObservabilityFrame.from_cycle(self))
-            if self.trace_collector is not None:
-                self.trace_collector.record(
-                    cycle_id=self.cycle_count,
-                    action=metrics.action_taken,
-                    reward=self._last_step_reward,
-                    prediction_error=metrics.prediction_error,
-                    prediction_confidence=metrics.prediction_confidence,
-                    goal_drive=metrics.drive_id,
-                    rbta_action=metrics.rbta_action,
-                    violations=metrics.violations_count,
-                    latency_ms=metrics.latency_ms,
-                    goal_reached=metrics.goal_reached,
-                    module_timings=dict(metrics.module_timings),
-                    attention_weights=(
-                        self._attention_weights.tolist()
-                        if self.interventions.enable_attention else None
-                    ),
-                    env_goal_relocated=self._env_goal_relocated,
-                )
-                self._env_goal_relocated = False
-            if len(self.metrics_history) > 5000:
-                self.metrics_history = self.metrics_history[-5000:]
-
             # Steps 16-18: Consolidation (periodic E→S transfer)
             if self._rbta_skip_consolidation or not self.interventions.enable_consolidation:
                 consol_report = type("_Skip", (), {
@@ -591,6 +541,56 @@ class CognitiveCycle:
             self.runtime_log["CONSOL"] = metrics.module_timings.get("consolidation", 0.0) / 1000.0
             consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
             self.energy_log["CONSOL"] = consol_energy
+
+            # Step 15: publish only a completed-cycle snapshot. RBTA has already
+            # consumed its pre-enforcement runtime above; UI/report latency and
+            # resource logs must include consolidation and the final bookkeeping.
+            metrics.latency_ms = (time.perf_counter() - t_start) * 1000
+            self._collect_runtime_log(metrics)
+            self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
+            consol_stats = self.consolidation.get_stats()
+            metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
+            metrics.skill_accuracy = self.tspl.skill_accuracy
+            metrics.skill_compiled = self.tspl.skill_compiled
+            metrics.fact_count = consol_stats.get("total_facts_stored", 0)
+            metrics.m3_count = (
+                self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
+            )
+            metrics.episode_count = int(self._episode_index)
+            metrics.task_id = self._current_task_id
+            if metrics.fact_count == self._last_fact_count:
+                self._fact_stagnant_cycles += 1
+            else:
+                self._fact_stagnant_cycles = 0
+            self._last_fact_count = metrics.fact_count
+            self.metrics_history.append(metrics)
+            if self.metrics_store is not None:
+                self.metrics_store.push(copy.deepcopy(metrics))
+            if self.observability_store is not None:
+                from phca.monitoring.observability import ObservabilityFrame
+                self.observability_store.push(ObservabilityFrame.from_cycle(self))
+            if self.trace_collector is not None:
+                self.trace_collector.record(
+                    cycle_id=self.cycle_count,
+                    action=metrics.action_taken,
+                    reward=self._last_step_reward,
+                    prediction_error=metrics.prediction_error,
+                    prediction_confidence=metrics.prediction_confidence,
+                    goal_drive=metrics.drive_id,
+                    rbta_action=metrics.rbta_action,
+                    violations=metrics.violations_count,
+                    latency_ms=metrics.latency_ms,
+                    goal_reached=metrics.goal_reached,
+                    module_timings=dict(metrics.module_timings),
+                    attention_weights=(
+                        self._attention_weights.tolist()
+                        if self.interventions.enable_attention else None
+                    ),
+                    env_goal_relocated=self._env_goal_relocated,
+                )
+                self._env_goal_relocated = False
+            if len(self.metrics_history) > 5000:
+                self.metrics_history = self.metrics_history[-5000:]
 
             # Step 19: Increment cycle counter + anneal PER beta
             self.cycle_count += 1
@@ -1428,52 +1428,6 @@ class CognitiveCycle:
         metrics.emergency_active = self._fallback_controller.active()
         metrics.emergency_entropy = self._fallback_controller.smoothed_entropy
 
-        # Logging — populate dashboard fields
-        consol_stats = self.consolidation.get_stats()
-        metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
-        metrics.skill_accuracy = self.tspl.skill_accuracy
-        metrics.skill_compiled = self.tspl.skill_compiled
-        metrics.fact_count = consol_stats.get("total_facts_stored", 0)
-        metrics.m3_count = (
-            self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
-        )
-        metrics.episode_count = int(self._episode_index)
-        metrics.task_id = self._current_task_id
-        if metrics.fact_count == self._last_fact_count:
-            self._fact_stagnant_cycles += 1
-        else:
-            self._fact_stagnant_cycles = 0
-        self._last_fact_count = metrics.fact_count
-        self.metrics_history.append(metrics)
-
-        if self.metrics_store is not None:
-            self.metrics_store.push(copy.deepcopy(metrics))
-        if self.observability_store is not None:
-            from phca.monitoring.observability import ObservabilityFrame
-            self.observability_store.push(ObservabilityFrame.from_cycle(self))
-        if self.trace_collector is not None:
-            self.trace_collector.record(
-                cycle_id=self.cycle_count,
-                action=metrics.action_taken,
-                reward=self._last_step_reward,
-                prediction_error=metrics.prediction_error,
-                prediction_confidence=metrics.prediction_confidence,
-                goal_drive=metrics.drive_id,
-                rbta_action=metrics.rbta_action,
-                violations=metrics.violations_count,
-                latency_ms=metrics.latency_ms,
-                goal_reached=metrics.goal_reached,
-                module_timings=dict(metrics.module_timings),
-                attention_weights=(
-                    self._attention_weights.tolist()
-                    if self.interventions.enable_attention else None
-                ),
-                env_goal_relocated=self._env_goal_relocated,
-            )
-            self._env_goal_relocated = False
-        if len(self.metrics_history) > 5000:
-            self.metrics_history = self.metrics_history[-5000:]
-
         # Consolidation
         if self._rbta_skip_consolidation or not self.interventions.enable_consolidation:
             metrics.module_timings["consolidation"] = 0.0
@@ -1502,6 +1456,56 @@ class CognitiveCycle:
         self.runtime_log["CONSOL"] = metrics.module_timings.get("consolidation", 0.0) / 1000.0
         consol_energy = max(0.1, min(10.0, self.runtime_log["CONSOL"] * 50.0))
         self.energy_log["CONSOL"] = consol_energy
+
+        # Publish completed async cycles after consolidation as well. The worker
+        # already measured latency before entering this method, so add the final
+        # consolidation duration rather than exposing a pre-consolidation frame.
+        metrics.latency_ms += float(metrics.module_timings.get("consolidation", 0.0) or 0.0)
+        self._collect_runtime_log(metrics)
+        self.runtime_log["CYCLE"] = metrics.latency_ms / 1000.0
+        consol_stats = self.consolidation.get_stats()
+        metrics.drive_id = self.current_goal.drive_id if self.current_goal else 1
+        metrics.skill_accuracy = self.tspl.skill_accuracy
+        metrics.skill_compiled = self.tspl.skill_compiled
+        metrics.fact_count = consol_stats.get("total_facts_stored", 0)
+        metrics.m3_count = (
+            self.consolidation.m3.count() if hasattr(self, "consolidation") else 0
+        )
+        metrics.episode_count = int(self._episode_index)
+        metrics.task_id = self._current_task_id
+        if metrics.fact_count == self._last_fact_count:
+            self._fact_stagnant_cycles += 1
+        else:
+            self._fact_stagnant_cycles = 0
+        self._last_fact_count = metrics.fact_count
+        self.metrics_history.append(metrics)
+        if self.metrics_store is not None:
+            self.metrics_store.push(copy.deepcopy(metrics))
+        if self.observability_store is not None:
+            from phca.monitoring.observability import ObservabilityFrame
+            self.observability_store.push(ObservabilityFrame.from_cycle(self))
+        if self.trace_collector is not None:
+            self.trace_collector.record(
+                cycle_id=self.cycle_count,
+                action=metrics.action_taken,
+                reward=self._last_step_reward,
+                prediction_error=metrics.prediction_error,
+                prediction_confidence=metrics.prediction_confidence,
+                goal_drive=metrics.drive_id,
+                rbta_action=metrics.rbta_action,
+                violations=metrics.violations_count,
+                latency_ms=metrics.latency_ms,
+                goal_reached=metrics.goal_reached,
+                module_timings=dict(metrics.module_timings),
+                attention_weights=(
+                    self._attention_weights.tolist()
+                    if self.interventions.enable_attention else None
+                ),
+                env_goal_relocated=self._env_goal_relocated,
+            )
+            self._env_goal_relocated = False
+        if len(self.metrics_history) > 5000:
+            self.metrics_history = self.metrics_history[-5000:]
 
         # Increment cycle counter + anneal PER beta
         self.cycle_count += 1

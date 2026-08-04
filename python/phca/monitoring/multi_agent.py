@@ -101,7 +101,8 @@ def interleave_frames_for_record(
         return list(frames)
 
     def sort_key(f: ObservabilityFrame) -> Tuple[int, int]:
-        ts = int(getattr(f, "timeline_step", -1) or -1)
+        raw_ts = getattr(f, "timeline_step", -1)
+        ts = int(-1 if raw_ts is None else raw_ts)
         if ts < 0:
             ts = int(getattr(f, "cycle_id", 0) or 0)
         aid = int(getattr(f, "agent_id", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID)
@@ -116,11 +117,13 @@ def validate_jsonl_step_major_order(
     """Multi-agent aligned sessions: JSONL lines must be step-major interleaved."""
     if not is_multi_agent_session(parsed=parsed):
         return True, None
-    if not any(int(o.get("timeline_step", -1) or -1) >= 0 for o in parsed):
+    if not any(int(-1 if o.get("timeline_step") is None else o.get("timeline_step", -1)) >= 0
+               for o in parsed):
         return True, None
     prev: Optional[Tuple[int, int]] = None
     for i, obj in enumerate(parsed):
-        ts = int(obj.get("timeline_step", -1) or -1)
+        raw_ts = obj.get("timeline_step", -1)
+        ts = int(-1 if raw_ts is None else raw_ts)
         if ts < 0:
             continue
         aid = int(obj.get("agent_id", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID)

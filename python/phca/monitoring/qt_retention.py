@@ -455,9 +455,10 @@ class RBTABoundsView(_BaseCanvas):
                        and any(b.get(t) for t, _, _ in btypes)})
         if not mods:
             self._empty(p, "RBTA bound envelope (no bounds)"); return
-        self._title(p, f"RBTA bound envelope — retention score R=e^{{-t/S}}  ({len(mods)} mods)",
+        self._title(p, f"RBTA measured bound envelope  ({len(mods)} mods)",
                     y=12 + y0)
-        self._caption(p, "sparkline = retention decay · ▮ measured vs │ bound · red = violation",
+        self._caption(p, "sparkline = measured history · ▮ measured/bound · red = violation"
+                        " · memory/energy are estimated proxies",
                       y=26 + y0)
         col_w = w // max(len(btypes), 1)
         top, bot = 40 + y0, h - 8
@@ -501,7 +502,6 @@ class RBTABoundsView(_BaseCanvas):
                 bound_scale = b * 1000.0 if bt == "time" else b
                 ratio = meas / bound_scale if bound_scale > 0 else 0.0
                 col = QtGui.QColor(231, 76, 60) if ratio > 1.0 else bcol
-                S = max(bound_scale / max(meas, 1e-6), 2.0) * 4.0
                 spark_x, spark_w, spark_h = cx + 100, bw_max - 8, 10
                 p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG)
                 p.drawRect(spark_x, y + 4, spark_w, spark_h)
@@ -522,6 +522,5 @@ class RBTABoundsView(_BaseCanvas):
                 p.setPen(QtGui.QPen(ACCENT, 2))
                 p.drawLine(cx + 100 + bw_max, bar_y - 1, cx + 100 + bw_max, bar_y + 9)
                 p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                r_now = _retention_score(0.0, S)
                 over_t = "  OVER" if ratio > 1.0 else ""
-                p.drawText(cx + 100 + bw_max + 4, bar_y + 8, f"R={r_now:.2f}{over_t}")
+                p.drawText(cx + 100 + bw_max + 4, bar_y + 8, f"{ratio:.2f}×{over_t}")

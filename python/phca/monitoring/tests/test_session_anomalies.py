@@ -115,6 +115,18 @@ def test_leak_synthetic():
     assert anomaly_strict_fail(result)
 
 
+def test_short_soak_preserves_rss_slope_without_critical_leak():
+    frames = [
+        _frame(cycle_id=i, rss_bytes=200_000_000 + i * 25_000,
+               action_rationale={"goal_id": 1}, active_drive_id=1)
+        for i in range(100)
+    ]
+    result = detect_session_anomalies(frames)
+    assert result["flags"]["leak"] is False
+    assert result["metrics"]["rss_late_slope_bytes_per_cycle"] is not None
+    assert result["metrics"]["rss_leak_gate_mode"] == "insufficient_short_soak"
+
+
 def test_goal_instability_synthetic():
     frames = []
     for i in range(10):

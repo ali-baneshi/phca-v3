@@ -51,7 +51,10 @@ def _scalar_row(frame, moment: Dict[str, Any]) -> Dict[str, Any]:
         "cycle_id": int(getattr(frame, "cycle_id", 0) or 0),
         "agent_id": int(getattr(frame, "agent_id", 0) or 0),
         "agent_label": str(getattr(frame, "agent_label", "") or ""),
-        "timeline_step": int(getattr(frame, "timeline_step", -1) or -1),
+        "timeline_step": int(
+            -1 if getattr(frame, "timeline_step", -1) is None
+            else getattr(frame, "timeline_step", -1)
+        ),
         "schema_version": int(getattr(frame, "schema_version", 0) or 0),
         "env_kind": str(getattr(frame, "env_kind", "") or ""),
         "prediction_error": float(getattr(frame, "prediction_error", 0.0) or 0.0),

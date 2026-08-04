@@ -308,6 +308,7 @@ class ObservabilityFrame:
     drive_deficits: List[float] = field(default_factory=list)
     drive_goals: List[Optional[np.ndarray]] = field(default_factory=list)
     drive_goal_norms: List[float] = field(default_factory=list)  # compact ‖drive_goals[i]‖
+    drive_pull_kind: str = "unavailable"  # goal_vector_norm | deficit_proxy | unavailable
     goal_stack: List[Dict[str, Any]] = field(default_factory=list)
     pareto_front: List[int] = field(default_factory=list)
     meta_stable: Dict[str, Any] = field(default_factory=dict)
@@ -320,6 +321,7 @@ class ObservabilityFrame:
     tspl_compiled_skill_ids: List[str] = field(default_factory=list)
     candidate_rollouts: List[Dict[str, Any]] = field(default_factory=list)
     per_dim_peu: Optional[np.ndarray] = None
+    per_dim_peu_coverage: str = "none"  # full live | top_k JSONL replay | none
     attention_weights: Optional[np.ndarray] = None
     attention_precisions: List[float] = field(default_factory=list)
     rbta_bounds: Dict[str, Any] = field(default_factory=dict)
@@ -553,6 +555,11 @@ class ObservabilityFrame:
         # When MDIM has no target vectors, use deficit as honest spoke length
         # (never silent all-zeros while deficits vary).
         drive_goal_norms = []
+        drive_pull_kind = "unavailable"
+        if any(g is not None and np.asarray(g).size for g in drive_goals):
+            drive_pull_kind = "goal_vector_norm"
+        elif drive_deficits:
+            drive_pull_kind = "deficit_proxy"
         for i, g in enumerate(drive_goals):
             if g is not None and np.asarray(g).size:
                 drive_goal_norms.append(float(np.linalg.norm(g)))
@@ -621,28 +628,21 @@ class ObservabilityFrame:
             attention_weights = np.asarray(attention_weights, dtype=np.float32)
         attention_precisions = [float(x) for x in att_snap.get("precisions", [])]
 
-        # Aggregate logs change slowly → TTL-cached (avoids 4 dict-comprehensions
-        # every cycle). Belief entropies similarly.
-        def _cached_log(key: str, obj: Any, attr: str, ttl: float = 0.30):
-            now = time.monotonic()
-            cache_key = f"{key}:{id(obj)}:{type(obj).__name__}"
-            ent = _SNAP_CACHE.get(cache_key)
-            if ent is not None and now - ent[0] < ttl:
-                _SNAP_CACHE.move_to_end(cache_key)
-                return dict(ent[1])
+        # RBTA/Memory logs are per-cycle evidence. TTL-caching these values made
+        # JSONL and the UI disagree with the current module timings.
+        def _current_log(obj: Any, attr: str) -> Dict[str, float]:
             try:
-                d = {str(k): float(v) for k, v in
-                     dict(getattr(obj, attr, {}) or {}).items()}
+                return {
+                    str(k): float(v)
+                    for k, v in dict(getattr(obj, attr, {}) or {}).items()
+                }
             except Exception as exc:
-                _logger.debug("cached_log %s.%s failed: %s", type(obj).__name__, attr, exc)
-                d = {}
-            _SNAP_CACHE[cache_key] = (now, d)
-            _SNAP_CACHE.move_to_end(cache_key)
-            return dict(d)
-        runtime_log = _cached_log("runtime_log", cycle, "runtime_log")
-        memory_log = _cached_log("memory_log", cycle, "memory_log")
-        energy_log = _cached_log("energy_log", cycle, "energy_log")
-        belief_entropies = _cached_log("belief_entropies", cycle, "belief_entropies")
+                _logger.debug("current_log %s.%s failed: %s", type(obj).__name__, attr, exc)
+                return {}
+        runtime_log = _current_log(cycle, "runtime_log")
+        memory_log = _current_log(cycle, "memory_log")
+        energy_log = _current_log(cycle, "energy_log")
+        belief_entropies = _current_log(cycle, "belief_entropies")
 
         last_action_vector = None
         la = getattr(cycle, "last_action", None)
@@ -662,7 +662,8 @@ class ObservabilityFrame:
 
         agent_id = int(getattr(cycle, "observability_agent_id", 0) or 0)
         agent_label = str(getattr(cycle, "observability_agent_label", "") or "")
-        timeline_step = int(getattr(cycle, "observability_timeline_step", -1) or -1)
+        raw_timeline_step = getattr(cycle, "observability_timeline_step", -1)
+        timeline_step = int(-1 if raw_timeline_step is None else raw_timeline_step)
         phi_criticality = float(getattr(cycle, "last_error_volatility", 0.0) or 0.0)
 
         return cls(
@@ -734,6 +735,7 @@ class ObservabilityFrame:
             drive_deficits=drive_deficits,
             drive_goals=drive_goals,
             drive_goal_norms=drive_goal_norms,
+            drive_pull_kind=drive_pull_kind,
             goal_stack=goal_stack,
             pareto_front=pareto_front,
             meta_stable=meta_stable,
@@ -746,6 +748,7 @@ class ObservabilityFrame:
             tspl_compiled_skill_ids=tspl_compiled_skill_ids,
             candidate_rollouts=rollouts,
             per_dim_peu=per_dim_peu,
+            per_dim_peu_coverage="full" if per_dim_peu is not None else "none",
             attention_weights=attention_weights,
             attention_precisions=attention_precisions,
             rbta_bounds=rbta_bounds,
@@ -783,7 +786,8 @@ class ObservabilityFrame:
                 d[k] = int(v)
         # ── String labels ──
         for k in ("agent_label", "env_kind", "action_kind", "gprime_kind",
-                  "rbta_action", "action_name"):
+                  "rbta_action", "action_name", "drive_pull_kind",
+                  "per_dim_peu_coverage"):
             v = getattr(self, k, None)
             if v:
                 d[k] = str(v)
@@ -813,6 +817,8 @@ class ObservabilityFrame:
             for x in (getattr(self, "per_dim_peu_top", None) or [])
             if isinstance(x, dict)
         ]
+        # JSONL deliberately carries only the compact top-K representation.
+        d["per_dim_peu_coverage"] = "top_k" if d["per_dim_peu_top"] else "none"
         # Named labels for replay/UI
         d["dim_names"] = [str(x) for x in (getattr(self, "dim_names", None) or [])]
         d["action_names"] = [str(x) for x in (getattr(self, "action_names", None) or [])]
@@ -938,14 +944,22 @@ def normalize_observability_json(obj: Dict[str, Any]) -> Dict[str, Any]:
         out["goal_reached"] = False
     else:
         out["goal_reached"] = bool(out["goal_reached"])
+    if "per_dim_peu_coverage" not in out:
+        out["per_dim_peu_coverage"] = (
+            "top_k" if out.get("per_dim_peu_top") else "none"
+        )
+    if "drive_pull_kind" not in out:
+        out["drive_pull_kind"] = (
+            "deficit_proxy" if out.get("drive_goal_norms") else "unavailable"
+        )
     return out
 
 
 def slim_frame_for_ui_history(frame: ObservabilityFrame) -> ObservabilityFrame:
-    """Shrink heavy arrays on a frame already serialized to JSONL.
+    """Shrink heavy numerical arrays after serialization without dropping UI evidence.
 
-    Mutates in place. Keeps compact fields (peu_top, uncertainty as float16,
-    obs/predicted as float16) so scrub UI still works with less RSS.
+    Mutates in place. The live ring remains richer than JSONL where needed,
+    while numerical vectors are downcast to keep its RSS bounded.
     """
     for name in ("predicted_state", "obs_vector", "gprime_uncertainty", "goal_ref"):
         v = getattr(frame, name, None)
@@ -954,17 +968,15 @@ def slim_frame_for_ui_history(frame: ObservabilityFrame) -> ObservabilityFrame:
                 setattr(frame, name, np.asarray(v, dtype=np.float16))
             except Exception:
                 pass
-    frame.candidate_rollouts = []
-    frame.sanitized_state = None
-    frame.state_precision = None
+    # The launcher serializes first and then hands this same frame to the live
+    # clock. Keep bounded panel evidence so "live-only" panels do not silently
+    # degrade into replay behavior.
     frame.env_frame = None
-    frame.drive_goals = []
-    frame.per_dim_peu = None
-    frame.attention_weights = None
-    frame.prediction_precision = None
-    frame.last_action_vector = None
-    frame.m3_recent = []
-    frame.m4_relevant = []
+    if frame.per_dim_peu is not None:
+        try:
+            frame.per_dim_peu = np.asarray(frame.per_dim_peu, dtype=np.float16)
+        except Exception:
+            pass
     return frame
 
 

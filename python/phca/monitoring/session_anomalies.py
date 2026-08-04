@@ -208,11 +208,11 @@ def _session_leak_flag(
     late_slope = float(slopes["late_slope"])
     min_samples = int(th["leak_min_rss_samples"])
     min_cycles = int(th["leak_min_cycles"])
-    if cycles >= min_cycles and sample_count >= min_samples:
-        flagged = rss_leak_flagged(late_slope, cycles)
-    else:
-        # Short sessions: only flag if slope exceeds fill-phase threshold.
-        flagged = rss_leak_flagged(late_slope, min(cycles, 1))
+    if cycles <= min_cycles or sample_count < min_samples:
+        # A short soak cannot distinguish normal allocator/fill behaviour from a
+        # sustained leak. Preserve slopes for inspection without raising CRITICAL.
+        return False, late_slope, float(slopes["full_slope"]), "insufficient_short_soak"
+    flagged = rss_leak_flagged(late_slope, cycles)
     return flagged, late_slope, float(slopes["full_slope"]), str(slopes["leak_gate_mode"])
 
 

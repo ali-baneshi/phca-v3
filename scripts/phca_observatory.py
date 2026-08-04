@@ -293,6 +293,7 @@ def _read_latest_camera_packet(cycle_holder: dict) -> Any:
         return {
             "frame": frame,
             "cycle_id": cycle_holder.get("camera_cycle_id"),
+            "agent_id": cycle_holder.get("camera_agent_id", 0),
         }
 
 
@@ -700,6 +701,7 @@ def main() -> None:
                                 cycle_holder["camera_frame"] = np.asarray(
                                     frame, dtype=np.uint8).copy()
                                 cycle_holder["camera_cycle_id"] = cycle_id_for_step
+                                cycle_holder["camera_agent_id"] = aid
                         else:
                             if frame is None:
                                 diag = {"reason": "render_none", "cycle_id": cycle_id_for_step}

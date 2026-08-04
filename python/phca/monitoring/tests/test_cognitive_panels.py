@@ -23,6 +23,8 @@ from phca.monitoring.cognitive_panels import (
     format_session_results_lines,
     frame_attention_pairs,
     frame_drive_goal_norms,
+    frame_has_full_peu,
+    frame_is_geometry_control,
     frame_per_dim_peu,
     frame_peu_mean,
     mechanism_histogram,
@@ -142,6 +144,29 @@ def test_build_moment_series_decision_shift():
     assert c["decision_shift_count"] == 2
     assert series[1]["decision_shift"] is True
     assert series[3]["decision_shift"] is True
+
+
+def test_geometry_proxy_score_does_not_emit_learned_decision_shift():
+    frames = [
+        _frame(cycle_id=0, action_rationale={"best_score": 0.1}),
+        _frame(cycle_id=1, action_rationale={
+            "best_score": 0.9,
+            "selector_mode": "pure_geometry_ablation",
+            "decision_reason": "ablation_pure_geometry",
+        }),
+    ]
+    assert frame_is_geometry_control(frames[1])
+    assert build_moment_series(frames)[1]["decision_shift"] is False
+
+
+def test_top_k_peu_is_not_full_coverage():
+    f = _frame()
+    f.state_dim = 4
+    f.per_dim_peu = None
+    f.per_dim_peu_top = [{"idx": 2, "value": 0.7}]
+    f.per_dim_peu_coverage = "top_k"
+    assert frame_has_full_peu(f) is False
+    assert frame_per_dim_peu(f).tolist() == pytest.approx([0.0, 0.0, 0.7, 0.0])
 
 
 def test_apply_decision_shift_threshold():

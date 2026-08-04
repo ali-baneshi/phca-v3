@@ -18,6 +18,7 @@ from phca.monitoring.observability import (
     SessionRecorder,
     clear_snap_cache,
     normalize_observability_json,
+    slim_frame_for_ui_history,
 )
 from phca.monitoring.render import frame_from_json
 from phca.monitoring.session_report import build_session_report
@@ -165,6 +166,35 @@ def test_replay_check_fails_recorded_cycles_mismatch(tmp_path):
 def test_observability_to_json_stamps_schema_version():
     raw = ObservabilityFrame(cycle_id=7).to_json()
     assert raw["schema_version"] == OBSERVABILITY_SCHEMA_VERSION
+
+
+def test_jsonl_provenance_marks_compact_peu_and_deficit_drive():
+    f = ObservabilityFrame(cycle_id=0, state_dim=3)
+    f.per_dim_peu = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    f.per_dim_peu_top = [{"idx": 2, "value": 0.3}]
+    f.drive_goal_norms = [0.5]
+    raw = f.to_json()
+    assert raw["per_dim_peu_coverage"] == "top_k"
+    assert raw["drive_pull_kind"] == "unavailable"
+    legacy = normalize_observability_json({
+        "schema_version": 1, "per_dim_peu_top": [{"idx": 0, "value": 1.0}],
+        "drive_goal_norms": [0.2],
+    })
+    assert legacy["per_dim_peu_coverage"] == "top_k"
+    assert legacy["drive_pull_kind"] == "deficit_proxy"
+
+
+def test_slim_history_keeps_panel_evidence():
+    f = ObservabilityFrame(cycle_id=0)
+    f.per_dim_peu = np.array([0.1, 0.2], dtype=np.float32)
+    f.candidate_rollouts = [{"score": 0.5}]
+    f.drive_goals = [np.ones(2, dtype=np.float32)]
+    f.m4_top = [{"timestamp": 1, "confidence": 0.8}]
+    slim_frame_for_ui_history(f)
+    assert f.candidate_rollouts == [{"score": 0.5}]
+    assert f.drive_goals
+    assert f.m4_top
+    assert f.per_dim_peu.dtype == np.float16
 
 
 def test_observability_to_json_serializes_rbta_violations():

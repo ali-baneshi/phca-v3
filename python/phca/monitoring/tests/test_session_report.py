@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from phca.monitoring.cognitive_panels import apply_decision_shift
+from phca.monitoring.cognitive_panels import apply_decision_shift, frame_is_geometry_control
 from phca.monitoring.qt_dashboard import _apply_decision_shift
 from phca.monitoring.session_report import build_session_report, write_session_report
 
@@ -108,6 +108,24 @@ def test_decision_shift_parity_with_overview():
             prev_best_score = cur
 
     assert report["decision_shift_count"] == offline_count
+
+
+def test_geometry_proxy_scores_excluded_from_learned_score_report():
+    lines = [
+        json.dumps({
+            "schema_version": 1, "cycle_id": 0, "candidate_scores": [0.1, 0.2],
+            "action_rationale": {"best_score": 0.2, "selector_mode": "pure_geometry_ablation",
+                                 "decision_reason": "ablation_pure_geometry"},
+        }),
+        json.dumps({
+            "schema_version": 1, "cycle_id": 1, "candidate_scores": [0.1, 0.9],
+            "action_rationale": {"best_score": 0.9, "selector_mode": "pure_geometry_ablation",
+                                 "decision_reason": "ablation_pure_geometry"},
+        }),
+    ]
+    report = build_session_report({"cycles": 2}, lines)
+    assert report["action_metrics"]["cycles_with_scores"] == 0
+    assert report["decision_shift_count"] == 0
 
 
 def test_write_session_report(tmp_path):

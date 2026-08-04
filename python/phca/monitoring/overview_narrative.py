@@ -16,6 +16,9 @@ from phca.monitoring.cognitive_panels import (
     action_status_extras,
     cognitive_moment,
     flow_status_extras,
+    frame_is_geometry_control,
+    geometry_score_label,
+    learn_phase_label,
 )
 from phca.monitoring.observability import ObservabilityFrame
 
@@ -103,7 +106,8 @@ def _action_status_line(
     margin = _action_score_margin(scores)
     margin_s = f"{margin:+.3f}" if margin is not None else "—"
     rollouts = list(getattr(f, "candidate_rollouts", []) or [])
-    base = (f"Action: {mode} · ε={eps_s} · k={k_s} · score={bs_s} · "
+    score_label = geometry_score_label(f)
+    base = (f"Action: {mode} · ε={eps_s} · k={k_s} · {score_label}={bs_s} · "
             f"Δ2nd={margin_s} · rollouts={len(rollouts)}")
     extras = action_status_extras(
         f, scores, chosen, replay=replay, review=review,
@@ -245,6 +249,7 @@ def _overview_goal_intent_line(f: ObservabilityFrame, flags: Dict[str, Any]) -> 
     gid = _overview_goal_id(f)
     goal_s = _drive_short(gid) if gid else "—"
     score_s = f"{flags['score']:.2f}" if flags["score"] is not None else "—"
+    score_label = geometry_score_label(f)
     selector = str(r.get("selector_mode") or "")
     if flags.get("explored") or r.get("at_goal_explore"):
         why = "sampling alternatives"
@@ -264,7 +269,7 @@ def _overview_goal_intent_line(f: ObservabilityFrame, flags: Dict[str, Any]) -> 
     if isinstance(k_cand, (int, float)):
         extras.append(f"k={int(k_cand)}")
     extra_s = (" · " + " · ".join(extras)) if extras else ""
-    return f"Intent: {mode} · goal={goal_s} · score={score_s}{extra_s} · why={why}"
+    return f"Intent: {mode} · goal={goal_s} · {score_label}={score_s}{extra_s} · why={why}"
 
 
 def _overview_evidence_line(f: ObservabilityFrame, flags: Dict[str, Any],
@@ -338,14 +343,14 @@ def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
     if flags.get("spike"):
         events.append("SPIKE: prediction error jumped")
     if flags.get("learn_burst"):
-        events.append(f"LEARN: G′ updated ({flags['learn_ms']:.1f}ms)")
+        events.append(f"{learn_phase_label(f, learn_burst=True)} ({flags['learn_ms']:.1f}ms)")
     if getattr(f, "goal_reached", False):
         events.append("GOAL: target reached")
     if drive_change is not None:
         old_d, new_d = drive_change
         events.append(f"DRIVE: {_drive_short(old_d)}→{_drive_short(new_d)}")
     if flags.get("decision_shift"):
-        events.append("DECISION: best action changed")
+        events.append("DECISION: best learned-score action changed")
     if explore_entered:
         events.append("EXPLORE: sampling candidates")
     if flags.get("near_bound"):

@@ -17,6 +17,7 @@ from phca.monitoring.cognitive_panels import (
     count_moments,
     flow_near_bound_modules,
     frame_display_confidence,
+    frame_is_geometry_control,
     goal_id_from_frame,
 )
 from phca.monitoring.session_anomalies import detect_session_anomalies
@@ -255,7 +256,11 @@ def _build_agent_report_from_frames(
         elif rbta_act == "INTERRUPT":
             interrupt_cycle_count += 1
         bs = r.get("best_score")
-        cur_score = float(bs) if isinstance(bs, (int, float)) else None
+        cur_score = (
+            float(bs)
+            if isinstance(bs, (int, float)) and not frame_is_geometry_control(f)
+            else None
+        )
 
         goal_id = _overview_goal_id(f)
         drive_change, last_active_drive = _track_drive_change(last_active_drive, goal_id)
@@ -350,16 +355,17 @@ def _build_agent_report_from_frames(
         if flow_near_bound_modules(f, top_k=1):
             near_bound_cycle_count += 1
 
+        geometry_control = frame_is_geometry_control(f)
         scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
-        if scores:
+        if scores and not geometry_control:
             cycles_with_scores += 1
             margin = _action_score_margin(scores)
             if margin is not None and not explored:
                 score_margins.append(margin)
-        elif explored:
+        elif explored and not geometry_control:
             cycles_explore_empty_scores += 1
         bs = r.get("best_score")
-        if isinstance(bs, (int, float)):
+        if isinstance(bs, (int, float)) and not geometry_control:
             all_best_scores.append(float(bs))
         chosen = -1
         ci = r.get("chosen_idx")

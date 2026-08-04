@@ -63,7 +63,12 @@ def learn_phase_label(f: Any, *, learn_burst: bool = False) -> str:
 
 
 def frame_per_dim_peu(f: Any) -> Optional[np.ndarray]:
-    """Full per-dim PEU when live; reconstruct from compact top-K on replay."""
+    """Full per-dim PEU when live; sparse top-K values on replay.
+
+    Replay reconstruction uses zero placeholders solely to preserve dimension
+    coordinates. Callers must check ``frame_has_full_peu`` before interpreting
+    non-top dimensions as measured zero PEU.
+    """
     peu = getattr(f, "per_dim_peu", None)
     if peu is not None:
         arr = np.asarray(peu, dtype=np.float32).reshape(-1)
@@ -93,6 +98,14 @@ def frame_per_dim_peu(f: Any) -> Optional[np.ndarray]:
         if 0 <= i < n:
             out[i] = float(item.get("value", 0.0) or 0.0)
     return out
+
+
+def frame_has_full_peu(f: Any) -> bool:
+    """Whether every PEU dimension, rather than replay's sparse top-K, exists."""
+    coverage = str(getattr(f, "per_dim_peu_coverage", "") or "").lower()
+    if coverage:
+        return coverage == "full"
+    return getattr(f, "per_dim_peu", None) is not None
 
 
 def frame_peu_mean(f: Any) -> Optional[float]:
@@ -298,9 +311,10 @@ def cognitive_moment(
     latency_ms = float(getattr(f, "latency_ms", 0.0) or 0.0)
     learn_burst = learn_ms >= max(LEARN_MS_MIN, 0.4 * latency_ms)
     r = _frame_rationale(f)
-    cur_score = _best_score(f)
+    geometry_control = frame_is_geometry_control(f)
+    cur_score = None if geometry_control else _best_score(f)
     decision_shift = apply_decision_shift(prev_best_score, cur_score)
-    if not decision_shift:
+    if not decision_shift and not geometry_control:
         decision_shift = bool(r.get("decision_shift", False))
     peu_mean = frame_peu_mean(f)
     gid = _goal_id(f)
@@ -337,7 +351,7 @@ def build_moment_series(frames: List[ObservabilityFrame]) -> List[Dict[str, Any]
         if gid:
             prev_drive = gid
         cur_score = _best_score(f)
-        if cur_score is not None:
+        if cur_score is not None and not frame_is_geometry_control(f):
             prev_best_score = cur_score
     return out
 
@@ -362,7 +376,10 @@ def append_cognitive_moment(
     gid = _goal_id(f)
     new_prev = gid if gid else prev_drive_id
     cur_score = _best_score(f)
-    new_best = cur_score if cur_score is not None else prev_best_score
+    new_best = (
+        cur_score if cur_score is not None and not frame_is_geometry_control(f)
+        else prev_best_score
+    )
     return series, new_prev, new_best
 
 

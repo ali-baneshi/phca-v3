@@ -114,6 +114,7 @@ class OverviewAgentView(_BaseCanvas):
         self._camera_numpy: Optional[np.ndarray] = None
         self._camera_stale: bool = False
         self._camera_cycle_id: Optional[int] = None
+        self._camera_agent_id: Optional[int] = None
         self._camera_fail_count: int = 0
         self._camera_provider: Optional[Callable[[], Any]] = None
         self._camera_debug: bool = False
@@ -378,6 +379,9 @@ class OverviewAgentView(_BaseCanvas):
             return "2D"
         if self._camera_stale:
             return "STALE"
+        if self._camera_agent_id is not None and int(self._camera_agent_id) != int(
+                getattr(f, "agent_id", 0) if f is not None else 0):
+            return f"AGENT {self._camera_agent_id} ONLY"
         if (
             f is not None
             and self._camera_cycle_id is not None
@@ -387,14 +391,18 @@ class OverviewAgentView(_BaseCanvas):
         return "LIVE"
 
     def _parse_camera_provider_result(
-            self, raw: Any) -> Tuple[Optional[np.ndarray], Optional[int]]:
+            self, raw: Any) -> Tuple[Optional[np.ndarray], Optional[int], Optional[int]]:
         if raw is None:
-            return None, None
+            return None, None, None
         if isinstance(raw, dict):
-            return _normalize_rgb_frame(raw.get("frame")), raw.get("cycle_id")
+            return (
+                _normalize_rgb_frame(raw.get("frame")),
+                raw.get("cycle_id"),
+                raw.get("agent_id"),
+            )
         if isinstance(raw, (tuple, list)) and len(raw) == 2:
-            return _normalize_rgb_frame(raw[0]), raw[1]
-        return _normalize_rgb_frame(raw), None
+            return _normalize_rgb_frame(raw[0]), raw[1], None
+        return _normalize_rgb_frame(raw), None, None
 
     def camera_label_rect(self) -> QtCore.QRect:
         """Camera QLabel geometry within the overview body panel."""
@@ -468,8 +476,9 @@ class OverviewAgentView(_BaseCanvas):
             raw = self._camera_provider()
         except Exception:
             return None
-        arr, cid = self._parse_camera_provider_result(raw)
+        arr, cid, aid = self._parse_camera_provider_result(raw)
         self._camera_cycle_id = int(cid) if cid is not None else None
+        self._camera_agent_id = int(aid) if aid is not None else None
         if arr is None:
             self._camera_last_reason = "provider_none"
             return None
