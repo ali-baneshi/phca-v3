@@ -799,10 +799,10 @@ OBSERVATORY_TAB_LABELS: Tuple[str, ...] = (
     "Overview",
     "Cognitive Flow",
     "Action Selection",
-    "Phase Space & Trajectory",
-    "Retention & Resources",
-    "Memory & Belief",
-    "Goals & Motivation",
+    "Phase Space + Trajectory",
+    "Retention + Resources",
+    "Memory + Belief",
+    "Goals + Motivation",
 )
 
 

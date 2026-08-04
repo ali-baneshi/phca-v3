@@ -109,6 +109,28 @@ def test_trajectory_rebuild_histories(qt_app):
     assert len(view.trail) == 5
 
 
+def test_trajectory_drive_pull_inset_paints_without_name_error(qt_app):
+    from PyQt5 import QtGui
+
+    frames = [_reacher_frame(cycle_id=index) for index in range(6)]
+    proj = BeliefProjection(window=16)
+    for frame in frames:
+        proj.update(frame)
+        proj.push_history(proj.project(frame.obs_vector))
+    f = frames[-1]
+    f.drive_goal_norms = [0.2, 0.4, 0.1]
+    f.drive_pull_kind = "deficit_proxy"
+    view = TrajectoryView()
+    view.resize(640, 360)
+    view.set_projection(proj)
+    view.set_frame(f)
+    pm = QtGui.QPixmap(640, 360)
+    pm.fill(PANEL_BG)
+    painter = QtGui.QPainter(pm)
+    view._draw(painter)
+    painter.end()
+
+
 def test_trajectory_replay_banner_luminance(qt_app):
     from PyQt5 import QtGui
 

@@ -20,7 +20,7 @@ from phca.monitoring.qt_base import (
     _draw_moment_ticks, _draw_moment_chips,
     _draw_execution_phase_strip,
     _draw_data_contract_banner, _window_session_incomplete,
-    _flow_update_active_idx, _flow_status_line, _action_score_margin,
+    _flow_update_active_idx, _flow_status_line, _action_score_margin, _elide_line,
 )
 
 
@@ -159,18 +159,19 @@ class CognitiveFlowView(_BaseCanvas):
                                    review=self._review, panel_key="flow", y=2,
                                    multi_agent=self._multi_agent,
                                    incomplete=_window_session_incomplete(self))
-        self._title(p, "Cognitive flow — timing topology + execution phases", y=12 + y0)
+        self._title(p, "Cognitive flow — timing topology + execution phases", y=18 + y0)
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
-        p.drawText(10, 28 + y0, _flow_status_line(f, active_idx=active_idx))
+        p.drawText(10, 40 + y0, _elide_line(
+            p, _flow_status_line(f, active_idx=active_idx), w - 20))
         moment = self._moment_series[-1] if self._moment_series else None
-        _draw_moment_chips(p, 10, 40 + y0, moment)
+        _draw_moment_chips(p, 10, 48 + y0, moment)
         strip_y = 58 + y0
         learn_burst = bool(moment and moment.get("learn_burst"))
         _draw_execution_phase_strip(
             p, f, QtCore.QRect(8, strip_y, w - 16, 14), learn_burst=learn_burst)
         self._caption(p, "disc = timing cost · red = RBTA violation · "
                          "link width = adjacent timing share · gold arc = Δ edge · "
-                         "POST-CYCLE = inter-cycle housekeeping", y=74 + y0)
+                         "POST-CYCLE = inter-cycle housekeeping", y=104 + y0)
         pos, (cx, cy), R = self._node_pos(
             w, lay["graph_h"], lay["graph_top"], scale=lay.get("node_scale", 1.0))
         n = len(PIPELINE)

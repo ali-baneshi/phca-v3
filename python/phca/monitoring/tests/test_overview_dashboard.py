@@ -94,6 +94,23 @@ def test_overview_unified_widget(qt_app):
     qt_app.processEvents()
 
 
+def test_dashboard_tabs_are_scrollable_and_keep_full_labels(qt_app):
+    from PyQt5 import QtWidgets
+
+    win = ObservatoryWindow()
+    win.resize(960, 640)
+    win.show()
+    qt_app.processEvents()
+    assert win._tabs.count() == 7
+    assert all(
+        isinstance(win._tabs.widget(index), QtWidgets.QScrollArea)
+        for index in range(win._tabs.count())
+    )
+    assert all("&" not in win._tabs.tabText(index) for index in range(win._tabs.count()))
+    assert win._tabs.widget(0).horizontalScrollBar().maximum() > 0
+    win.close()
+
+
 def test_overview_reacher_smoke_paint(qt_app):
     win = ObservatoryWindow()
     win.resize(1320, 840)

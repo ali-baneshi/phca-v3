@@ -16,7 +16,7 @@ from phca.monitoring.qt_base import (
     _draw_belief_rollout_cloud, _draw_score_proxy_cloud, _draw_rollout_score_legend,
     _draw_mechanism_stacked_bar, _draw_action_decision_card,
     _draw_moment_chips, _draw_moment_ticks, _elide_line, _to_qcolor, _map_pt,
-    _CAPTION_COL, _F_CAPTION, _F_AXIS, _F_LABEL_B,
+    _CAPTION_COL, _F_CAPTION, _F_AXIS, _F_LABEL_B, _F_TITLE,
     _ACTION_SPARK_GAP, _ACTION_DECISION_H, _ACTION_MECH_H, _ACTION_EXPLAIN_H,
 )
 
@@ -342,7 +342,11 @@ class CandidateScoreView(_BaseCanvas):
         score_lbl = geometry_score_label(f)
         if isinstance(bs, (int, float)):
             hdr += f"  {score_lbl}={bs:.3f}"
-        self._title(p, hdr, y=lay["title_y"])
+        p.setPen(TEXT_COL); p.setFont(_F_TITLE)
+        p.drawText(
+            10, lay["title_y"],
+            _elide_line(p, hdr, max(120, lay["spark_x0"] - 18)),
+        )
         moment = self._moment_series[-1] if self._moment_series else None
         status = _action_status_line(
             f, scores, chosen, replay=self._replay, review=self._review,
@@ -375,9 +379,13 @@ class CandidateScoreView(_BaseCanvas):
         self._best_score_spark(p, sx, sy, sw, sh)
         self._margin_spark(p, sx + sw + sg, sy, sw, sh)
         self._pred_err_spark(p, sx + 2 * (sw + sg), sy, sw, sh)
+        decision_w = min(
+            w - lay["left_x"] - 8,
+            lay["spark_x0"] - lay["left_x"] - 10,
+        )
         _draw_action_decision_card(
             p, f, scores, chosen, moment, pareto,
-            lay["left_x"], lay["decision_y"], w - lay["left_x"] - 8, _ACTION_DECISION_H)
+            lay["left_x"], lay["decision_y"], decision_w, _ACTION_DECISION_H)
         self._action_context_band(p, f, lay["left_x"], lay["ctx_y"] + 10, lay["left_w"])
         self._draw_action_explain_band(
             p, f, lay["left_x"], lay["explain_y"] + 4, lay["left_w"], _ACTION_EXPLAIN_H)

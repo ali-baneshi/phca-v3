@@ -154,7 +154,10 @@ class MemoryBeliefView(_BaseCanvas):
                 draw_decay=m4_has_timestamps,
             )
         # retention-cap gauge (top-right of the M4 column)
-        self._cap_gauge(p, rx, my - 14, 120, 16, int(f.fact_count), int(f.m4_cap), "M4 cap")
+        self._cap_gauge(
+            p, max(rx, w - 132), my - 14, 120, 16,
+            int(f.fact_count), int(f.m4_cap), "M4 cap",
+        )
         # v7: demoted |sanitized−raw| diff as a thin EMA-smoothed inset (bottom strip)
         self._diff_inset(p, f, 10, h - 26, w - 20, 22)
 

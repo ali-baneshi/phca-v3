@@ -385,12 +385,18 @@ class _PhaseSpaceTab(QtWidgets.QWidget):
 
 
 class ObservatoryWindow(QtWidgets.QMainWindow):
+    _SETTINGS_ORG = "PHCA"
+    _SETTINGS_APP = "CognitiveObservatory"
+    _DEFAULT_CONTENT_SIZE = QtCore.QSize(1180, 760)
+
     def __init__(self, title: str = "PHCA Cognitive Observatory"):
         super().__init__()
         self.setWindowTitle(title)
-        self.resize(1320, 840)
         self.setStyleSheet(_qss())
         tabs = QtWidgets.QTabWidget()
+        tabs.setUsesScrollButtons(True)
+        tabs.tabBar().setExpanding(False)
+        tabs.tabBar().setElideMode(QtCore.Qt.ElideNone)
         # v6: top transport slot (hidden until install_transport is called).
         central = QtWidgets.QWidget()
         cv = QtWidgets.QVBoxLayout(central)
@@ -423,6 +429,7 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
 
         # Overview — v8.1: single unified agent card
         ov = QtWidgets.QWidget()
+        ov.setMinimumSize(self._DEFAULT_CONTENT_SIZE)
         ov_lay = QtWidgets.QVBoxLayout(ov)
         ov_lay.setContentsMargins(6, 6, 6, 6); ov_lay.setSpacing(0)
         self.overview = OverviewAgentView()
@@ -430,15 +437,17 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self.overview.setMinimumHeight(480)
         self.overview.bind_camera_tabs(tabs, overview_tab_index=0)
         ov_lay.addWidget(self.overview, 1)
-        tabs.addTab(ov, "Overview")
+        self._add_scroll_tab(tabs, ov, self._tab_base_labels[0])
 
         # Cognitive Flow
         self.flow = CognitiveFlowView()
-        tabs.addTab(self.flow, "Cognitive Flow")
+        self.flow.setMinimumSize(1180, 720)
+        self._add_scroll_tab(tabs, self.flow, self._tab_base_labels[1])
 
         # Action Selection
         self.cand = CandidateScoreView(); self.cand.set_projection(self.proj)
-        tabs.addTab(self.cand, "Action Selection")
+        self.cand.setMinimumSize(1180, 720)
+        self._add_scroll_tab(tabs, self.cand, self._tab_base_labels[2])
 
         # Phase Space & Belief Uncertainty
         ps = _PhaseSpaceTab(self)
@@ -452,18 +461,20 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ps_lay.addWidget(self.radar, 0, 2, 1, 1)
         ps_lay.addWidget(self.perdim, 2, 0, 1, 3)
         ps_lay.addWidget(self.dim_selector, 3, 0, 1, 3)
-        tabs.addTab(ps, "Phase Space & Trajectory")
+        ps.setMinimumSize(1180, 760)
+        self._add_scroll_tab(tabs, ps, self._tab_base_labels[3])
         self._ps_tab = ps
         self._ps_lay = ps_lay
         self._last_frame: Optional[ObservabilityFrame] = None
 
         # Retention & Resources
         ret = QtWidgets.QWidget(); ret_lay = QtWidgets.QVBoxLayout(ret)
+        ret.setMinimumSize(1180, 1050)
         ret_lay.setContentsMargins(6, 6, 6, 6); ret_lay.setSpacing(6)
         self.retention = RetentionView()
         self.rbta_bounds = RBTABoundsView()
-        self.rbta_bounds.setMinimumHeight(160)
-        self.rbta_bounds.setMaximumHeight(220)
+        self.rbta_bounds.setMinimumHeight(400)
+        self.rbta_bounds.setMaximumHeight(500)
         self.viol = ViolationTable()
         self._viol_summary = QtWidgets.QLabel("0 violations")
         self._viol_summary.setStyleSheet("color:#e74c3c; font-weight:bold; padding:2px 6px;")
@@ -471,15 +482,17 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         ret_lay.addWidget(self.rbta_bounds, 0)
         ret_lay.addWidget(self._viol_summary)
         ret_lay.addWidget(self.viol, 1)
-        tabs.addTab(ret, "Retention & Resources")
+        self._add_scroll_tab(tabs, ret, self._tab_base_labels[4])
 
         # NEW: Memory & Belief
         self.memory = MemoryBeliefView()
-        tabs.addTab(self.memory, "Memory & Belief")
+        self.memory.setMinimumSize(1180, 720)
+        self._add_scroll_tab(tabs, self.memory, self._tab_base_labels[5])
 
         # NEW: Goals & Motivation
         self.goals = GoalsMotivationView()
-        tabs.addTab(self.goals, "Goals & Motivation")
+        self.goals.setMinimumSize(1180, 720)
+        self._add_scroll_tab(tabs, self.goals, self._tab_base_labels[6])
 
         self.controller = DashboardController(self)
         self._tabs.currentChanged.connect(self.controller.on_tab_changed)
@@ -497,6 +510,57 @@ class ObservatoryWindow(QtWidgets.QMainWindow):
         self._all_frames_maxlen: int = 8000
         self._all_frames_lock = threading.Lock()
         self._moment_matches: List[Any] = []
+        self._restore_window_geometry()
+
+    def _add_scroll_tab(
+        self,
+        tabs: QtWidgets.QTabWidget,
+        content: QtWidgets.QWidget,
+        label: str,
+    ) -> None:
+        """Keep each dense dashboard readable instead of shrinking it to overlap."""
+        area = QtWidgets.QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        area.setWidget(content)
+        index = tabs.addTab(area, label)
+        tabs.setTabToolTip(index, label)
+
+    @staticmethod
+    def _geometry_is_visible(rect: QtCore.QRect) -> bool:
+        if rect.width() < 480 or rect.height() < 360:
+            return False
+        for screen in QtWidgets.QApplication.screens():
+            if rect.intersects(screen.availableGeometry()):
+                return True
+        return False
+
+    def _restore_window_geometry(self) -> None:
+        settings = QtCore.QSettings(self._SETTINGS_ORG, self._SETTINGS_APP)
+        saved = settings.value("window_geometry")
+        maximized = bool(settings.value("window_maximized", False, type=bool))
+        if saved is not None and self.restoreGeometry(saved) and self._geometry_is_visible(self.frameGeometry()):
+            if maximized:
+                self.showMaximized()
+            return
+        screen = self.screen() or QtWidgets.QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1320, 840)
+        width = min(self._DEFAULT_CONTENT_SIZE.width() + 120, int(available.width() * 0.90))
+        height = min(self._DEFAULT_CONTENT_SIZE.height() + 100, int(available.height() * 0.90))
+        width = max(960, min(width, available.width()))
+        height = max(640, min(height, available.height()))
+        x = available.x() + max(0, (available.width() - width) // 2)
+        y = available.y() + max(0, (available.height() - height) // 2)
+        self.setGeometry(x, y, width, height)
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        settings = QtCore.QSettings(self._SETTINGS_ORG, self._SETTINGS_APP)
+        settings.setValue("window_geometry", self.saveGeometry())
+        settings.setValue("window_maximized", self.isMaximized())
+        settings.sync()
+        super().closeEvent(event)
 
     def _moment_nav_enabled(self) -> bool:
         transport = self._transport

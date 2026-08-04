@@ -15,7 +15,7 @@ from phca.monitoring.qt_base import (
     _draw_belief_rollout_cloud, _draw_score_proxy_cloud, _draw_rollout_score_legend,
     _draw_moment_ticks, _draw_moment_chips, _elide_line, _dim_label,
     _map_pt, _ellipse_pixel_axes, _draw_phase_grid_base, _prediction_heatmap,
-    _drive_color, _drive_short, _to_qcolor,
+    _drive_color, _drive_short, _n_drives, _to_qcolor,
     MOMENT_COLORS,
     _CAPTION_COL, _FOOTER_COL, _F_CAPTION, _F_AXIS, _F_LABEL, _F_LABEL_B, _F_TITLE,
 )

@@ -148,13 +148,13 @@ _CONTRACT_BANNER_Y0 = 16
 _FLOW_HDR_CAPTION_Y = 74
 _FLOW_HDR_CAPTION_H = 14
 
-_ACTION_TITLE_H = 18
-_ACTION_STATUS_H = 14
-_ACTION_CHIPS_H = 16
-_ACTION_DECISION_H = 28
-_ACTION_CTX_H = 28
-_ACTION_EXPLAIN_H = 36
-_ACTION_MECH_H = 16
+_ACTION_TITLE_H = 20
+_ACTION_STATUS_H = 20
+_ACTION_CHIPS_H = 18
+_ACTION_DECISION_H = 34
+_ACTION_CTX_H = 34
+_ACTION_EXPLAIN_H = 48
+_ACTION_MECH_H = 20
 _ACTION_SPARK_W = 62
 _ACTION_SPARK_H = 28
 _ACTION_SPARK_GAP = 4
@@ -165,7 +165,9 @@ _ACTION_EPSILON_H = 32
 def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[str, Any]:
     """Reserve header, graph, and heatmap bands so they do not overlap."""
     y0 = _CONTRACT_BANNER_Y0
-    header_h = _FLOW_HDR_CAPTION_Y + _FLOW_HDR_CAPTION_H + 2 + y0
+    # Title, status, moment chips, phase strip, and caption need distinct
+    # baselines. The previous 90px header placed the caption through the graph.
+    header_h = 112 + y0
     margin = 6
     label_w = 36 if w < 520 else 44
     heatmap_h = max(90, min(int(h * 0.18), h - header_h - margin - 120))
@@ -192,12 +194,12 @@ def _flow_layout(w: int, h: int, n_mods: int, *, replay: bool = False) -> Dict[s
 def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     """Explicit row-based geometry for Action Selection (no band overlap)."""
     y0 = _CONTRACT_BANNER_Y0
-    title_y = y0 + 2
-    status_y = title_y + _ACTION_TITLE_H
-    chips_y = status_y + _ACTION_STATUS_H
-    decision_y = chips_y + _ACTION_CHIPS_H
-    ctx_y = decision_y + _ACTION_DECISION_H
-    explain_y = ctx_y + _ACTION_CTX_H
+    title_y = y0 + 16
+    status_y = title_y + _ACTION_TITLE_H + 4
+    chips_y = status_y + _ACTION_STATUS_H + 4
+    decision_y = chips_y + _ACTION_CHIPS_H + 4
+    ctx_y = decision_y + _ACTION_DECISION_H + 4
+    explain_y = ctx_y + _ACTION_CTX_H + 2
     mech_y = explain_y + _ACTION_EXPLAIN_H
     body_top = mech_y + _ACTION_MECH_H + 4
     margin = 8
@@ -212,8 +214,10 @@ def _action_layout(w: int, h: int, *, replay: bool = False) -> Dict[str, Any]:
     tau_slot_h = 44
     tau_slot_y = body_top + body_h - tau_slot_h
     list_h = body_h - tau_slot_h - 6
-    spark_x0 = w - spark_gutter
-    spark_y0 = title_y
+    # Header text owns the full width; tiny diagnostic sparklines sit on the
+    # decision row instead of colliding with title/status at narrow widths.
+    spark_x0 = w - spark_gutter - margin
+    spark_y0 = decision_y
     return {
         "y0": y0,
         "title_y": title_y,
@@ -2151,7 +2155,7 @@ class _BaseCanvas(QtWidgets.QWidget):
 
     def _title(self, p: QtGui.QPainter, text: str, y: int = 15, x: int = 10) -> None:
         p.setPen(TEXT_COL); p.setFont(_F_TITLE)
-        p.drawText(x, y, text)
+        p.drawText(x, y, _elide_line(p, text, self.width() - x - 8))
 
     def _caption(self, p: QtGui.QPainter, text: str, y: int = 28, x: int = 10) -> None:
         """One-line dim 'what this tells you' under a title."""
