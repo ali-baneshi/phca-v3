@@ -23,6 +23,7 @@ def frame_from_json(obj: Dict[str, Any]) -> ObservabilityFrame:
         "prediction_precision", "gprime_uncertainty", "per_dim_peu",
         "attention_weights", "last_action_vector",
     }
+    # per_dim_peu_top is a list[dict]; handled by deepcopy branch below.
     for k, v in obj.items():
         if k == "grid" and v is not None:
             setattr(f, k, np.asarray(v, dtype=np.int32))

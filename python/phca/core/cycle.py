@@ -101,7 +101,9 @@ class CycleMetrics:
     cycle_id: int = 0
     latency_ms: float = 0.0
     prediction_error: float = 0.0
-    prediction_confidence: float = 0.0
+    prediction_confidence: float = 0.0  # epistemic (MC dropout)
+    prediction_quality: float = 1.0  # post-PEU accuracy proxy in [0.01, 1]
+    display_confidence: float = 0.0  # min(epistemic, quality) for Observatory chrome
     rbta_action: str = "CONTINUE"
     violations_count: int = 0
     violations_by_type: Dict[str, int] = field(default_factory=dict)
@@ -944,6 +946,13 @@ class CognitiveCycle:
 
         if effective_skip_feedback:
             metrics.prediction_error = self._last_prediction_error
+            pe_scale = max(float(self.state_dim) * 0.01, 1.0)
+            peu_norm = float(metrics.prediction_error) / pe_scale
+            metrics.prediction_quality = float(np.clip(np.exp(-peu_norm), 0.01, 1.0))
+            metrics.display_confidence = float(min(
+                float(metrics.prediction_confidence or 0.0),
+                float(metrics.prediction_quality),
+            ))
             self._store_m3_episode(
                 metrics,
                 action_vec,
@@ -975,6 +984,15 @@ class CognitiveCycle:
                 self.last_per_dim_peu = None
         if corrected_conf > metrics.prediction_confidence:
             metrics.prediction_confidence = corrected_conf
+        # Observatory honesty: quality from realised PE (available after PEU).
+        # scale=0.01 → PE≈3 on sd=309 → norm≈1 → quality≈0.37 (not saturated).
+        pe_scale = max(float(self.state_dim) * 0.01, 1.0)
+        peu_norm = float(error) / pe_scale
+        metrics.prediction_quality = float(np.clip(np.exp(-peu_norm), 0.01, 1.0))
+        metrics.display_confidence = float(min(
+            float(metrics.prediction_confidence or 0.0),
+            float(metrics.prediction_quality),
+        ))
         metrics.module_timings["peu"] = (time.perf_counter() - t3) * 1000
 
         # Step 7: TSPL P-Stream update

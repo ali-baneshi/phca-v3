@@ -269,7 +269,8 @@ class WorldModelMLP:
         self._tspl_bias: np.ndarray = np.zeros(state_dim, dtype=np.float32)
         # Observability v4: cache last MC per-dim std + mutual_info.
         self._last_mc_per_dim_std: Optional[np.ndarray] = None
-        self._last_mutual_info: float = 0.0
+        self._last_mutual_info: float = 0.0  # p95-based (used for epistemic conf)
+        self._last_mutual_info_mean: float = 0.0  # mean-based (diagnostics)
         # Input gradient cache for Φ (causal sensitivity) — set by _backward()
         self._last_input_grad: Optional[np.ndarray] = None
         # Output sensitivity cache: gradient of mean(out) w.r.t input — set by _backward()
@@ -349,13 +350,19 @@ class WorldModelMLP:
         #         the true next state is unavailable at prediction time —
         #         comparing against the current state would reward predicting
         #         "no change" and penalize correct movement predictions.
-        var = np.var(mc_outs, axis=0).mean()
+        # Per-dim MC variance. Mean over dims dilutes sparse high-uncertainty
+        # axes on large GridWorld states (sd≈309); use p95 for epistemic conf.
+        per_dim_var = np.var(mc_outs, axis=0).astype(np.float32)
+        var_mean = float(np.mean(per_dim_var))
+        var_p95 = float(np.percentile(per_dim_var, 95)) if per_dim_var.size else var_mean
         # mutual information ≈ log(1 + var) clipped to [0, ~1.1]
-        mutual_info = float(np.log1p(min(var, 2.0)))
+        mutual_info = float(np.log1p(min(var_p95, 2.0)))
+        mutual_info_mean = float(np.log1p(min(var_mean, 2.0)))
         # Observability v4: cache per-dim std + mutual info (uncertainty portrait).
-        self._last_mc_per_dim_std = np.sqrt(np.var(mc_outs, axis=0)).astype(np.float32)
+        self._last_mc_per_dim_std = np.sqrt(per_dim_var).astype(np.float32)
         self._last_mutual_info = mutual_info
-        # confidence = 1.0 - 0.5 * mutual_info  (pure epistemic)
+        self._last_mutual_info_mean = mutual_info_mean
+        # confidence = 1.0 - 0.5 * mutual_info  (pure epistemic, p95-based)
         confidence = float(np.clip(1.0 - 0.5 * mutual_info, 0.01, 1.0))
 
         # Apply TSPL learned bias (AF-002 compatibility, safe mode).

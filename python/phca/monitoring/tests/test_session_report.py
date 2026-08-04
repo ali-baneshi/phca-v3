@@ -182,6 +182,42 @@ def test_compare_session_reports_delta():
     assert result["regression_flags"]["violations_increased"] is True
 
 
+def test_confidence_saturated_vs_error_flag():
+    """High raw epistemic + high PE flags saturation; dual-signal display clears it."""
+    saturated_lines = []
+    for i in range(8):
+        saturated_lines.append(json.dumps({
+            "cycle_id": i,
+            "schema_version": 1,
+            "prediction_error": 5.0,
+            "prediction_confidence": 0.99,
+            "module_timings": {},
+            "action_rationale": {"best_score": 0.1, "decision_reason": "prediction"},
+        }))
+    sat = build_session_report({"env": "grid", "cycles": 8}, saturated_lines)
+    assert sat["confidence_saturated_vs_error"] is True
+    assert sat["prediction_confidence_mean"] == pytest.approx(0.99)
+
+    honest_lines = []
+    for i in range(8):
+        honest_lines.append(json.dumps({
+            "cycle_id": i,
+            "schema_version": 1,
+            "prediction_error": 5.0,
+            "prediction_confidence": 0.99,
+            "prediction_quality": 0.2,
+            "display_confidence": 0.2,
+            "module_timings": {},
+            "action_rationale": {"best_score": 0.1, "decision_reason": "prediction"},
+        }))
+    hon = build_session_report({"env": "grid", "cycles": 8}, honest_lines)
+    assert hon["confidence_saturated_vs_error"] is False
+    assert hon["display_confidence_mean"] == pytest.approx(0.2)
+    assert "confidence_saturated_vs_error" not in (
+        hon.get("report_classification") or {}
+    ).get("observability_limitations", [])
+
+
 def test_rbta_safe_and_terminate_metrics():
     """CORE-A02: report sustained safe-mode / TERMINATE fractions."""
     lines = []

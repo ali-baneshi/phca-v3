@@ -332,7 +332,12 @@ class CandidateScoreView(_BaseCanvas):
                                    review=self._review, panel_key="action",
                                    multi_agent=self._multi_agent,
                                    incomplete=_window_session_incomplete(self))
-        hdr = f"goal={goal_lbl}  {'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
+        from phca.monitoring.cognitive_panels import frame_is_geometry_control
+        ctrl = "CONTROL=geometry" if frame_is_geometry_control(f) else "CONTROL=scored"
+        hdr = (
+            f"{ctrl}  goal={goal_lbl}  "
+            f"{'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
+        )
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
             hdr += f"  score={bs:.3f}"

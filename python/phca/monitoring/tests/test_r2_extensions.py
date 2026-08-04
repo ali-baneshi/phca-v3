@@ -167,6 +167,7 @@ def test_session_report_anchor_retention_last():
     report = build_session_report({}, lines)
     anchors = report["retention_metrics"]["anchor_retention"]
     assert "last" in anchors
+    assert "m3_count" in anchors["last"]
     assert "episode_count" in anchors["last"]
 
 

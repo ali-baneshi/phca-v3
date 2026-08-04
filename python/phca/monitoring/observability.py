@@ -262,7 +262,11 @@ class ObservabilityFrame:
     # CycleMetrics scalar mirrors
     latency_ms: float = 0.0
     prediction_error: float = 0.0
-    prediction_confidence: float = 0.0
+    prediction_confidence: float = 0.0  # epistemic
+    prediction_quality: Optional[float] = None  # post-PEU; None = not recorded
+    display_confidence: Optional[float] = None  # min(epistemic, quality); None = derive
+    per_dim_peu_top: List[Dict[str, Any]] = field(default_factory=list)  # compact top-K
+    per_dim_peu_sum: float = 0.0
     rbta_action: str = "CONTINUE"
     violations_count: int = 0
     goal_reached: bool = False
@@ -354,6 +358,19 @@ class ObservabilityFrame:
         pred = getattr(cycle, "last_prediction", None)
         predicted_state = pred.values.copy() if pred is not None else None
         obs_vector = getattr(env, "_last_obs", None)
+        if obs_vector is None:
+            # GridWorld (and others) often omit _last_obs; use live cycle state.
+            cur = getattr(cycle, "current_state", None)
+            if cur is not None and getattr(cur, "values", None) is not None:
+                obs_vector = cur.values
+            else:
+                getter = getattr(env, "get_observation", None)
+                if callable(getter):
+                    try:
+                        obs_vector = getter()
+                    except Exception as exc:
+                        _logger.debug("obs_vector get_observation failed: %s", exc)
+                        obs_vector = None
         if obs_vector is not None:
             obs_vector = np.asarray(obs_vector).copy()
         # MuJoCo goal reference (MPC alignment target)
@@ -559,8 +576,19 @@ class ObservabilityFrame:
                 _logger.debug("rollout read failed: %s", exc)
                 continue
         per_dim_peu = getattr(cycle, "last_per_dim_peu", None)
+        per_dim_peu_top: List[Dict[str, Any]] = []
+        per_dim_peu_sum = 0.0
         if per_dim_peu is not None:
             per_dim_peu = np.asarray(per_dim_peu, dtype=np.float32)
+            flat = per_dim_peu.reshape(-1)
+            per_dim_peu_sum = float(np.sum(flat)) if flat.size else 0.0
+            if flat.size:
+                k = min(16, int(flat.size))
+                top_idx = np.argpartition(flat, -k)[-k:]
+                top_idx = top_idx[np.argsort(-flat[top_idx])]
+                per_dim_peu_top = [
+                    {"idx": int(i), "value": float(flat[i])} for i in top_idx
+                ]
         empowerment = float(getattr(cycle, "last_empowerment", 0.0) or 0.0)
 
         attention_weights = getattr(cycle, "_attention_weights", None)
@@ -636,6 +664,16 @@ class ObservabilityFrame:
             latency_ms=getattr(m, "latency_ms", 0.0),
             prediction_error=getattr(m, "prediction_error", 0.0),
             prediction_confidence=getattr(m, "prediction_confidence", 0.0),
+            prediction_quality=float(getattr(m, "prediction_quality", 1.0) or 1.0),
+            display_confidence=float(
+                getattr(m, "display_confidence", 0.0)
+                or min(
+                    float(getattr(m, "prediction_confidence", 0.0) or 0.0),
+                    float(getattr(m, "prediction_quality", 1.0) or 1.0),
+                )
+            ),
+            per_dim_peu_top=per_dim_peu_top,
+            per_dim_peu_sum=per_dim_peu_sum,
             rbta_action=getattr(m, "rbta_action", "CONTINUE"),
             violations_count=getattr(m, "violations_count", 0),
             goal_reached=getattr(m, "goal_reached", False),
@@ -727,6 +765,7 @@ class ObservabilityFrame:
                 d[k] = str(v)
         # ── Float scalars ──
         for k in ("latency_ms", "prediction_error", "prediction_confidence",
+                  "prediction_quality", "display_confidence", "per_dim_peu_sum",
                   "goal_tolerance", "goal_priority", "cr_temperature",
                   "empowerment", "tspl_skill_accuracy", "gprime_mutual_info",
                   "phi_criticality"):
@@ -735,7 +774,7 @@ class ObservabilityFrame:
                 d[k] = float(v)
         # ── Numpy array fields → list ──
         for arr_field in ("grid", "predicted_state", "obs_vector", "goal_ref",
-                          "continuous_action"):
+                          "continuous_action", "gprime_uncertainty"):
             v = getattr(self, arr_field, None)
             if v is not None:
                 d[arr_field] = np.asarray(v).tolist()
@@ -743,6 +782,15 @@ class ObservabilityFrame:
         for lst in ("drive_levels", "drive_targets", "attention_saliences",
                     "candidate_scores", "drive_deficits", "attention_precisions"):
             d[lst] = [float(v) for v in getattr(self, lst, [])]
+        # Compact PEU top-K for Flow/Phase replay (full per_dim_peu stays live-only)
+        d["per_dim_peu_top"] = [
+            {"idx": int(x.get("idx", 0)), "value": float(x.get("value", 0.0))}
+            for x in (getattr(self, "per_dim_peu_top", None) or [])
+            if isinstance(x, dict)
+        ]
+        # Named labels for replay/UI
+        d["dim_names"] = [str(x) for x in (getattr(self, "dim_names", None) or [])]
+        d["action_names"] = [str(x) for x in (getattr(self, "action_names", None) or [])]
         # ── String-list fields ──
         for lst in ("failure_events",):
             d[lst] = list(getattr(self, lst, []))

@@ -280,17 +280,19 @@ class OverviewAgentView(_BaseCanvas):
         active = int(_overview_goal_id(f) or 0)
         sig = freeze_sig((f.cycle_id, tuple(round(x, 3) for x in levels), active))
         if sig != self._glyph_sig and levels:
+            from phca.monitoring.cognitive_panels import frame_display_confidence
             self._glyph_sig = sig
             self._glyph_hist.append(([float(x) for x in levels],
-                                     float(getattr(f, "prediction_confidence", 0.0) or 0.0),
+                                     float(frame_display_confidence(f)),
                                      active))
 
     def rebuild_histories(self, frames: List[ObservabilityFrame]) -> None:
         """Rebuild sparklines/trails from a rolling window (scrub/live sync)."""
+        from phca.monitoring.cognitive_panels import frame_display_confidence
         self._err_hist = deque(
             (float(f.prediction_error) for f in frames), maxlen=TREND_WINDOW)
         self._conf_hist = deque(
-            (float(f.prediction_confidence) for f in frames), maxlen=TREND_WINDOW)
+            (frame_display_confidence(f) for f in frames), maxlen=TREND_WINDOW)
         self.trail.clear()
         self.arena_trail.clear()
         self._reacher_trail.clear()
@@ -330,7 +332,8 @@ class OverviewAgentView(_BaseCanvas):
         if review:
             self._review_mode = True
         if not histories_done:
-            self._conf_hist.append(float(f.prediction_confidence))
+            from phca.monitoring.cognitive_panels import frame_display_confidence
+            self._conf_hist.append(float(frame_display_confidence(f)))
             self._emp_sm.value(float(getattr(f, "empowerment", 0.0) or 0.0))
             self._append_trails_from_frame(f)
             self._moment_series, self._prev_drive_id, self._prev_best_score = (
@@ -723,12 +726,12 @@ class AgentPortraitView(_BaseCanvas):
     Trend: composite free-energy (prediction_error) sparkline + ↘/↗ health arrow.
     """
 
-    GAUGES = ("free-energy", "mutual-info", "mean-PEU", "cr-temp", "goal-pri")
+    GAUGES = ("free-energy", "mutual-info", "empowerment", "cr-temp", "goal-pri")
     # v7: gauge units + human meaning (for the legend/tooltip under each arc).
     GAUGE_META = {
         "free-energy": ("", "prediction error (free energy)"),
         "mutual-info": ("bit", "G′ mutual information"),
-        "mean-PEU": ("", "mean predictive empowerment"),
+        "empowerment": ("", "MDIM empowerment"),
         "cr-temp": ("", "CR cooling temperature"),
         "goal-pri": ("", "active goal priority"),
     }
@@ -770,7 +773,7 @@ class AgentPortraitView(_BaseCanvas):
         ct = float(getattr(f, "cr_temperature", 0.0) or 0.0)
         self._sm["cr-temp"].value(ct); self._raw["cr-temp"] = ct
         emp = float(getattr(f, "empowerment", 0.0) or 0.0)
-        self._sm["mean-PEU"].value(emp); self._raw["mean-PEU"] = emp
+        self._sm["empowerment"].value(emp); self._raw["empowerment"] = emp
         gp = float(getattr(f, "goal_priority", 0.0) or 0.0)
         self._sm["goal-pri"].value(gp); self._raw["goal-pri"] = gp
         for name in self.GAUGES:
@@ -780,9 +783,10 @@ class AgentPortraitView(_BaseCanvas):
         active = int(getattr(f, "active_drive_id", 0) or 0)
         sig = freeze_sig((f.cycle_id, tuple(round(x, 3) for x in levels), active))
         if sig != self._glyph_sig and levels:
+            from phca.monitoring.cognitive_panels import frame_display_confidence
             self._glyph_sig = sig
             self._glyph_hist.append(([float(x) for x in levels],
-                                     float(getattr(f, "prediction_confidence", 0.0) or 0.0),
+                                     float(frame_display_confidence(f)),
                                      active))
         self._dirty = True
 
@@ -824,7 +828,7 @@ class AgentPortraitView(_BaseCanvas):
         glyph_cy = h // 2 + 6
         R = min(w // 5, h // 3)
         _draw_agent_glyph(p, f, glyph_cx, glyph_cy, R, self._glyph_hist, self._t0,
-                          self._sm["mean-PEU"]._v)
+                          self._sm["empowerment"]._v)
         # gauges grid (5 gauges: 3+2) on the right half + mini sparklines
         gx0 = w // 2
         gw = (w - gx0 - 8) // 3
@@ -839,7 +843,7 @@ class AgentPortraitView(_BaseCanvas):
 
     def _draw_glyph(self, p, f, cx, cy, R):
         _draw_agent_glyph(p, f, cx, cy, R, self._glyph_hist, self._t0,
-                          self._sm["mean-PEU"]._v)
+                          self._sm["empowerment"]._v)
 
     def _draw_limbs(self, p, f, cx, cy, cr, R):
         _draw_agent_limbs(p, f, cx, cy, cr, R)
@@ -1059,9 +1063,15 @@ class WorldCanvas(_BaseCanvas):
             p.drawEllipse(int(ox + c * cell + cell * 0.25),
                           int(oy + r * cell + cell * 0.25),
                           int(cell * 0.5), int(cell * 0.5))
-        self._title(p, f"GridWorld {n}×{n}  conf={f.prediction_confidence:.2f}  "
-                       f"err={f.prediction_error:.2f}  (amber ghost = G′ predicted next cell)")
-        self._caption(p, "agent ● + trail · amber ghost = predicted next cell · env=grid (dim-adaptive)")
+        from phca.monitoring.cognitive_panels import frame_display_confidence
+        dconf = frame_display_confidence(f)
+        env_s = "—"
+        if f.agent_pos is not None and f.goal_pos is not None:
+            env_s = f"agent={tuple(f.agent_pos)}→goal={tuple(f.goal_pos)}"
+        self._title(p, f"GridWorld {n}×{n}  conf={dconf:.2f}  "
+                       f"err={f.prediction_error:.2f}  {env_s}")
+        self._caption(p, "agent ● + trail · amber ghost = predicted next cell · "
+                         "conf=min(epi,qual) · env cell ≠ MDIM drive")
 
     def _draw_rgb(self, p, f, w, h):
         if self._overview_mode:
@@ -1073,7 +1083,9 @@ class WorldCanvas(_BaseCanvas):
         dx, dy, dw, dh = _draw_qimage(p, frame, 10, 28, int(w * 0.62) - 10, h - 40)
         p.setPen(QtGui.QPen(QtGui.QColor(60, 60, 70), 1))
         p.drawRect(dx - 1, dy - 1, dw + 2, dh + 2)
-        self._title(p, f"MuJoCo camera  cycle={f.cycle_id}  conf={f.prediction_confidence:.2f}  "
+        from phca.monitoring.cognitive_panels import frame_display_confidence
+        dconf = frame_display_confidence(f)
+        self._title(p, f"MuJoCo camera  cycle={f.cycle_id}  conf={dconf:.2f}  "
                        f"err={f.prediction_error:.2f}")
         self._caption(p, "live RGB camera frame · env=mujoco_rgb (dim-adaptive; high-dim → see Phase Space)")
         cx, cy = dx + dw // 2, dy + dh // 2
@@ -1107,8 +1119,10 @@ class WorldCanvas(_BaseCanvas):
     def _draw_rgb_overview(self, p, f, w, h) -> None:
         """v8 Overview: full-width camera, signed τ bar below — no RGB arrows."""
         frame = getattr(f, "env_frame", None)
+        from phca.monitoring.cognitive_panels import frame_display_confidence
         ak = getattr(f, "action_kind", "") or "?"
-        self._title(p, f"MuJoCo camera  cycle={f.cycle_id}  conf={f.prediction_confidence:.2f}  "
+        dconf = frame_display_confidence(f)
+        self._title(p, f"MuJoCo camera  cycle={f.cycle_id}  conf={dconf:.2f}  "
                        f"err={f.prediction_error:.2f}  action={ak}")
         self._caption(p, "live RGB · τ bar below = chosen continuous action (signed per-dim)")
         cam_h = h - 52
@@ -1299,10 +1313,12 @@ class TrendCanvas(_ChartCanvas):
         self.add_series("conf", "#2ecc71", self.conf, log=False, fill=False)
 
     def push(self, f: ObservabilityFrame) -> None:
+        from phca.monitoring.cognitive_panels import frame_display_confidence
+        dconf = frame_display_confidence(f)
         self.err.append(float(f.prediction_error))
-        self.conf.append(float(f.prediction_confidence))
+        self.conf.append(float(dconf))
         self.title = (f"Prediction error (red, log) & confidence (green)  "
-                      f"err={f.prediction_error:.2f}  conf={f.prediction_confidence:.3f}")
+                      f"err={f.prediction_error:.2f}  conf={dconf:.3f}")
         self._dirty = True
 
     def _draw(self, p: QtGui.QPainter) -> None:
@@ -1418,8 +1434,17 @@ class StatusPanel(_BaseCanvas):
         m3_n = int(getattr(f, "m3_count", 0) or 0) or int(getattr(f, "episode_count", 0) or 0)
         m3e = m3_n / f.m3_cap if f.m3_cap else 0.0
         m4e = f.fact_count / f.m4_cap if f.m4_cap else 0.0
+        from phca.monitoring.cognitive_panels import (
+            frame_display_confidence, frame_is_geometry_control,
+        )
+        dconf = frame_display_confidence(f)
+        epi = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
+        qual = float(getattr(f, "prediction_quality", 1.0) or 1.0)
+        ctrl = "CONTROL=geometry" if frame_is_geometry_control(f) else "CONTROL=scored"
         p.drawText(10, y, f"M3 {m3_n}/{f.m3_cap} ({m3e*100:.0f}%)   "
                           f"M4 {f.fact_count}/{f.m4_cap} ({m4e*100:.0f}%)  prune→{f.m4_prune_target}")
+        y += 14
+        p.drawText(10, y, f"{ctrl}  conf={dconf:.2f} (epi={epi:.2f}·qual={qual:.2f})")
         y += 16
         # v7: proportional-width gauges (fit the panel)
         gw = max(80, (W - 40) // 2)
@@ -1430,12 +1455,15 @@ class StatusPanel(_BaseCanvas):
         y += 24
         r = f.action_rationale or {}
         gid = r.get("goal_id")
-        goal_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
+        drive_lbl = DRIVE_NAMES.get(gid, gid) if gid is not None else "—"
+        env_lbl = "—"
+        if f.goal_pos is not None and len(f.goal_pos) >= 2:
+            env_lbl = f"({int(f.goal_pos[0])},{int(f.goal_pos[1])})"
         tag = "EXPLORE" if r.get("explored") else "EXPLOIT"
         note = r.get("note", "")
         score = r.get("best_score")
         score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "—"
-        head = f"{goal_lbl} · {tag} · score={score_s}"
+        head = f"env={env_lbl} · drive={drive_lbl} · {tag} · score={score_s}"
         p.setPen(TEXT_COL)
         p.drawText(10, y, head)
         y += 13

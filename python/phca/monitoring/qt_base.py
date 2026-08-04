@@ -1087,7 +1087,11 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
     while len(deficits) < n:
         deficits.append(0.0)
     active = int(_overview_goal_id(f) or 0)
-    conf = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
+    try:
+        from phca.monitoring.cognitive_panels import frame_display_confidence
+        conf = float(frame_display_confidence(f))
+    except Exception:
+        conf = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
     ms = getattr(f, "meta_stable", None) or {}
     stable = bool(ms.get("is_meta_stable", ms.get("stable", False)))
     for gi, (gh_lvls, _gh_conf, _gh_act) in enumerate(list(glyph_hist)[:-1]):

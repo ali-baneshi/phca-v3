@@ -16,6 +16,7 @@ from phca.monitoring.cognitive_panels import (
     classify_action_mechanism,
     count_moments,
     flow_near_bound_modules,
+    frame_display_confidence,
     goal_id_from_frame,
 )
 from phca.monitoring.session_anomalies import detect_session_anomalies
@@ -166,6 +167,9 @@ def _build_agent_report_from_frames(
 
     all_errors: List[float] = []
     all_dists: List[float] = []
+    all_epistemic_conf: List[float] = []
+    all_prediction_quality: List[float] = []
+    all_display_confidence: List[float] = []
     phase_totals: Dict[str, float] = {label: 0.0 for _, label in _OVERVIEW_PHASE_STEPS}
     phase_grand_total = 0.0
 
@@ -219,6 +223,11 @@ def _build_agent_report_from_frames(
     for idx, f in enumerate(frames):
         err_hist.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
         all_errors.append(float(getattr(f, "prediction_error", 0.0) or 0.0))
+        all_epistemic_conf.append(float(getattr(f, "prediction_confidence", 0.0) or 0.0))
+        pq = getattr(f, "prediction_quality", None)
+        if isinstance(pq, (int, float)):
+            all_prediction_quality.append(float(pq))
+        all_display_confidence.append(float(frame_display_confidence(f)))
 
         obs = f.obs_vector if f.obs_vector is not None else f.sanitized_state
         kin = _reacher_kinematics_from_obs(obs)
@@ -384,6 +393,7 @@ def _build_agent_report_from_frames(
             if idx == target_idx and anchor_key not in anchor_retention:
                 anchor_retention[anchor_key] = {
                     "cycle_id": int(getattr(f, "cycle_id", idx) or idx),
+                    "m3_count": m3_count,
                     "episode_count": ep_count,
                     "fact_count": fact_count,
                     "m3_cap": m3_cap,
@@ -431,6 +441,32 @@ def _build_agent_report_from_frames(
     err_late_med = _median(err_late)
     dist_early_med = _median(dist_early)
     dist_late_med = _median(dist_late)
+
+    pe_median = _median(all_errors)
+    epi_mean = (
+        float(sum(all_epistemic_conf) / len(all_epistemic_conf))
+        if all_epistemic_conf else None
+    )
+    qual_mean = (
+        float(sum(all_prediction_quality) / len(all_prediction_quality))
+        if all_prediction_quality else None
+    )
+    disp_mean = (
+        float(sum(all_display_confidence) / len(all_display_confidence))
+        if all_display_confidence else None
+    )
+    # Saturated chrome: conf stays near-1 while realised PE stays large.
+    # Uses display_confidence (min(epi, quality)). Pre-dual-signal JSONL keeps
+    # quality default 1.0 → display≈epistemic, so old runs still flag the bug.
+    pe_sat_threshold = 2.0
+    conf_sat_threshold = 0.95
+    conf_for_sat = disp_mean if disp_mean is not None else epi_mean
+    confidence_saturated_vs_error = bool(
+        conf_for_sat is not None
+        and pe_median is not None
+        and conf_for_sat > conf_sat_threshold
+        and pe_median > pe_sat_threshold
+    )
 
     phase_budget_pct: Dict[str, float] = {}
     if phase_grand_total > 0:
@@ -520,6 +556,10 @@ def _build_agent_report_from_frames(
         report_classification["observability_limitations"].append(
             "incomplete_session_trend_claims_are_limited"
         )
+    if confidence_saturated_vs_error:
+        report_classification["observability_limitations"].append(
+            "confidence_saturated_vs_error"
+        )
 
     return {
         "meta": dict(meta),
@@ -528,6 +568,17 @@ def _build_agent_report_from_frames(
         ),
         "cycles": n,
         "explore_ratio": round(explore_count / n, 4) if n else 0.0,
+        "prediction_confidence_mean": (
+            round(epi_mean, 4) if epi_mean is not None else None
+        ),
+        "prediction_quality_mean": (
+            round(qual_mean, 4) if qual_mean is not None else None
+        ),
+        "display_confidence_mean": (
+            round(disp_mean, 4) if disp_mean is not None else None
+        ),
+        "prediction_error_median": pe_median,
+        "confidence_saturated_vs_error": confidence_saturated_vs_error,
         "rbta_safe_count": int(mechanism_counts.get("rbta_safe", 0)),
         "rbta_safe_ratio": (
             round(mechanism_counts.get("rbta_safe", 0) / n, 4) if n else 0.0

@@ -10,6 +10,33 @@ from phca.monitoring.observability import ObservabilityFrame
 
 LEARN_MS_MIN = 25.0  # absolute floor; also requires ≥40% of cycle latency
 
+
+def frame_display_confidence(f: Any) -> float:
+    """UI chrome confidence: min(epistemic, post-PEU quality), never saturated alone."""
+    disp = getattr(f, "display_confidence", None)
+    if isinstance(disp, (int, float)):
+        return float(disp)
+    epi = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
+    qual = getattr(f, "prediction_quality", None)
+    if isinstance(qual, (int, float)):
+        return float(min(epi, float(qual))) if epi > 0 else float(qual)
+    # Legacy JSONL (no quality/display): use raw epistemic so session_report can
+    # still flag confidence_saturated_vs_error when epi≈1 and PE is large.
+    # UI live path always records display_confidence after PEU.
+    return epi if epi > 0 else 0.01
+
+
+def frame_is_geometry_control(f: Any) -> bool:
+    r = getattr(f, "action_rationale", None) or {}
+    sel = str(r.get("selector_mode") or "")
+    reason = str(r.get("decision_reason") or "")
+    return (
+        "geometry" in sel
+        or reason.startswith("ablation_pure_geometry")
+        or bool(r.get("greedy_fallback"))
+    )
+
+
 MOMENT_COLORS = {
     "spike": "#e74c3c",
     "learn_burst": "#9b59b6",

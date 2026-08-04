@@ -345,7 +345,8 @@ class CognitiveFlowView(_BaseCanvas):
     def _scalar_gauge_value(self, mod: str, f: ObservabilityFrame) -> Tuple[float, str, str]:
         """Scalar for node gauge with action-specific semantics on Act node."""
         if mod == "prediction":
-            v = float(getattr(f, "prediction_confidence", 0.0) or 0.0)
+            from phca.monitoring.cognitive_panels import frame_display_confidence
+            v = float(frame_display_confidence(f))
             return v, "conf", ""
         r = f.action_rationale or {}
         scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]

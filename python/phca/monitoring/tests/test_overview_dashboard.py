@@ -911,7 +911,7 @@ def test_event_log_hold(qt_app):
     ov.set_frame(f0)
     f = _reacher_frame()
     f.prediction_error = 50.0
-    f.module_timings = {"gprime_learn": 8.0}
+    f.module_timings = {"gprime_learn": 30.0}  # ≥ LEARN_MS_MIN
     ov.set_frame(f)
     assert any("SPIKE" in line for line in ov.visible_event_lines())
     assert any("LEARN" in line for line in ov.visible_event_lines())

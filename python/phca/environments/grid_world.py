@@ -288,6 +288,19 @@ class GridWorld:
         """Get the dimensionality of the state vector."""
         return self.size * self.size * 3 + 9
 
+    def get_dim_names(self) -> list[str]:
+        """Human-readable labels for the flattened GridWorld observation."""
+        n = self.size
+        names: list[str] = []
+        for prefix in ("agent", "goal", "wall"):
+            for r in range(n):
+                for c in range(n):
+                    names.append(f"{prefix}[{r},{c}]")
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                names.append(f"local[{dr:+d},{dc:+d}]")
+        return names
+
     @property
     def action_space_size(self) -> int:
         return 5

@@ -25,11 +25,12 @@ from phca.monitoring.qt_dashboard import (
 def _flow_frame(**kwargs) -> ObservabilityFrame:
     f = ObservabilityFrame()
     f.cycle_id = kwargs.get("cycle_id", 1)
+    # gprime_learn ≥ LEARN_MS_MIN (25ms) so status line emits learn=…
     f.module_timings = kwargs.get("module_timings", {
         "sanitize": 0.5,
         "prediction": 1.0,
         "action_selection": 2.0,
-        "gprime_learn": 6.0,
+        "gprime_learn": 30.0,
         "rbta": 0.3,
     })
     f.violations_count = kwargs.get("violations_count", 0)

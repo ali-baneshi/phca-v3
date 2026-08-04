@@ -540,7 +540,9 @@ def main() -> None:
         args.heartbeat_hz = 4.0
         args.render_hz = 3.0
 
-    store_maxlen = max(1000, args.cycles * args.agents)
+    # Cap live UI rings independently of full JSONL length (RSS leak mitigation).
+    # JSONL still records every cycle; scrub beyond the ring reloads from session files.
+    store_maxlen = min(1500, max(1000, args.cycles * args.agents))
     store = ObservabilityStore(maxlen=store_maxlen)
     total_jsonl_lines = args.cycles * args.agents
     recorder = SessionRecorder(root=args.record_dir, fps=args.record_fps,
