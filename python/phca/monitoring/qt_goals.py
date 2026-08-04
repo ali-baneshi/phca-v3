@@ -260,16 +260,17 @@ class GoalsMotivationView(_BaseCanvas):
         if not mags or all(m <= 0 for m in mags):
             p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
-            msg = ("drive_goal_norms unavailable"
-                   if self._replay else "drive pull (collecting…)")
-            p.drawText(x + 3, y + 11, msg)
+            p.drawText(x + 3, y + 11, "no drive targets")
             return
         nd = max(len(mags), _n_drives(f))
         while len(mags) < nd:
             mags.append(0.0)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG); p.drawRect(x, y, w, h)
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
-        p.drawText(x + 3, y + 11, "drive pull ‖·‖")
+        # Norms may be deficit proxies when MDIM has no goal vectors.
+        has_vecs = any(g is not None for g in (getattr(f, "drive_goals", None) or []))
+        p.drawText(x + 3, y + 11,
+                   "drive pull ‖·‖" if has_vecs else "drive pull (deficit)")
         cx, cy = x + w // 2, y + h // 2 + 6
         R = min(w, h) // 2 - 16
         mx = max(mags) if mags else 1.0

@@ -167,6 +167,27 @@ def test_observability_to_json_stamps_schema_version():
     assert raw["schema_version"] == OBSERVABILITY_SCHEMA_VERSION
 
 
+def test_observability_to_json_serializes_rbta_violations():
+    f = ObservabilityFrame(cycle_id=3, violations_count=2)
+    f.rbta_violations = [
+        {"module_id": "ACTION", "bound_type": "time", "measured": 2.5, "allowed": 2.0},
+        {"module_id": "G'", "bound_type": "time", "measured": 1.1, "allowed": 1.0,
+         "extra_drop": "x"},
+    ] + [
+        {"module_id": f"M{i}", "bound_type": "time", "measured": 1.0, "allowed": 0.5}
+        for i in range(10)
+    ]
+    raw = f.to_json()
+    assert "rbta_violations" in raw
+    assert len(raw["rbta_violations"]) == 8
+    assert set(raw["rbta_violations"][0]) == {
+        "module_id", "bound_type", "measured", "allowed",
+    }
+    restored = frame_from_json(raw)
+    assert len(restored.rbta_violations) == 8
+    assert restored.rbta_violations[0]["module_id"] == "ACTION"
+
+
 def test_session_recorder_stamps_schema_version_in_meta(tmp_path):
     rec = SessionRecorder(root=str(tmp_path), record=True)
     session_dir = rec.start({"cycles": 1})

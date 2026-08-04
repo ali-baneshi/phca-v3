@@ -186,3 +186,37 @@ def test_reacher_goal_position_is_none():
     env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
     assert env.get_goal_position() is None
 
+
+def test_reacher_continuous_action_names():
+    """Continuous Reacher exposes τ dim names, not discrete MOVE_* labels."""
+    env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    names = env.get_action_names()
+    assert names == ["τ₀", "τ₁"]
+    assert not any(n.startswith("MOVE_") for n in names)
+    env.close()
+
+
+def test_pendulum_continuous_action_names():
+    env = MuJoCoSimpleEnv("Pendulum-v1", seed=42)
+    assert env.get_action_names() == ["τ"]
+    env.close()
+
+
+def test_reacher_goal_reached_not_always_true():
+    """Default Reacher tip-error gate must not report success every step."""
+    env = MuJoCoSimpleEnv("Reacher-v5", seed=42)
+    env.reset()
+    hits = 0
+    n = 40
+    rng = np.random.RandomState(0)
+    for _ in range(n):
+        action = rng.uniform(-1.0, 1.0, size=2).astype(np.float32)
+        _, _, terminal, info = env.step(action)
+        if info.get("goal_reached"):
+            hits += 1
+        if terminal:
+            env.reset()
+    assert hits < n, f"goal_reached always true ({hits}/{n})"
+    assert "goal_reached" in info
+    env.close()
+

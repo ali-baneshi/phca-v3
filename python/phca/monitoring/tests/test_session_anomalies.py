@@ -127,6 +127,11 @@ def test_goal_instability_synthetic():
         ))
     result = detect_session_anomalies(frames)
     assert result["flags"]["goal_instability"] is True
+    # Prefer active_drive switches — do not double-count goal_id + active_drive.
+    assert result["metrics"]["drive_switch_count"] == result["metrics"]["active_drive_switch_count"]
+    assert result["metrics"]["drive_switch_rate"] == pytest.approx(
+        result["metrics"]["active_drive_switch_count"] / 10, abs=1e-4
+    )
 
 
 def test_anomalies_from_report_rolling_goal_parity():

@@ -227,6 +227,24 @@ def test_frame_drive_goal_norms():
     assert frame_drive_goal_norms(f) == [1.0, 0.5, 0.0]
 
 
+def test_geometry_chrome_helpers():
+    from phca.monitoring.cognitive_panels import (
+        frame_is_geometry_control, frame_scores_degenerate,
+        geometry_score_label, learn_phase_label,
+    )
+    f = ObservabilityFrame()
+    f.action_rationale = {
+        "selector_mode": "geometry",
+        "decision_reason": "ablation_pure_geometry",
+        "best_score": 1.0,
+    }
+    f.candidate_scores = [1.0, 1.0, 1.0]
+    assert frame_is_geometry_control(f) is True
+    assert frame_scores_degenerate(f) is True
+    assert "geo-proxy" in geometry_score_label(f)
+    assert "WM only" in learn_phase_label(f, learn_burst=True)
+
+
 def test_classify_action_mechanism_parity():
     assert classify_action_mechanism({"explored": True}) == "explore"
     assert classify_action_mechanism({"continuous": True}) == "continuous"

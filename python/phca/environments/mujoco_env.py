@@ -182,7 +182,17 @@ class MuJoCoSimpleEnv:
         return None
 
     def get_action_names(self) -> List[str]:
-        """Return human-readable action names for logging."""
+        """Return human-readable action names for logging.
+
+        Continuous envs expose τ-dimension labels (not discrete MOVE_* grid).
+        """
+        if self._continuous_cfg is not None:
+            dim = int(self._continuous_cfg[2])
+            if self.env_name == "Pendulum-v1":
+                return ["τ"][:dim]
+            if self.env_name == "Reacher-v5":
+                return ["τ₀", "τ₁"][:dim]
+            return [f"τ{i}" for i in range(dim)]
         return list(
             self._ACTION_NAMES.get(
                 self.env_name,
@@ -266,10 +276,14 @@ class MuJoCoSimpleEnv:
         # Cache for _get_observation()
         self._last_obs = obs
 
-        # Forgetting-benchmark: compute goal_reached from task reference
+        # Goal-reached: default False. Reacher uses tip→target distance.
+        # Cosine vs get_goal_reference() is reserved for explicit task layouts
+        # (forgetting benchmark) — default Reacher tip-zeroed refs are nearly
+        # identical to obs and falsely report goal_reached on every step.
         info = dict(info)
-        ref = self.get_goal_reference()
-        if ref is not None and len(obs) >= len(ref):
+        info.setdefault("goal_reached", False)
+        if self._task_goal_reference is not None:
+            ref = self._task_goal_reference
             min_d = min(len(obs), len(ref))
             o = obs[:min_d]
             r = ref[:min_d]
@@ -278,6 +292,13 @@ class MuJoCoSimpleEnv:
             if o_norm > 1e-8 and r_norm > 1e-8:
                 cos_sim = float(np.dot(o, r) / (o_norm * r_norm))
                 info["goal_reached"] = bool(cos_sim > self._task_goal_threshold)
+        elif self.env_name == "Reacher-v5" and len(obs) >= 2:
+            tip_err = float(np.linalg.norm(obs[-2:]))
+            tip_thr = float(getattr(self, "_tip_goal_threshold", 0.05))
+            info["goal_reached"] = bool(tip_err < tip_thr)
+        elif self.env_name == "Pendulum-v1" and len(obs) >= 1:
+            # Upright: cos(θ) ≈ obs[0] near +1.
+            info["goal_reached"] = bool(float(obs[0]) > 0.95)
 
         return obs, float(reward), bool(terminal), info
 

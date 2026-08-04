@@ -37,6 +37,31 @@ def frame_is_geometry_control(f: Any) -> bool:
     )
 
 
+def frame_scores_degenerate(f: Any) -> bool:
+    """True when candidate_scores are flat (common under geometry STAY)."""
+    scores = [float(x) for x in (getattr(f, "candidate_scores", None) or [])]
+    if len(scores) < 2:
+        return False
+    return max(scores) - min(scores) < 1e-9
+
+
+def geometry_score_label(f: Any) -> str:
+    """Honest Act/Action score chrome when geometry controls action."""
+    if frame_is_geometry_control(f):
+        if frame_scores_degenerate(f):
+            return "geo-proxy (degenerate)"
+        return "geo-proxy"
+    return "score"
+
+
+def learn_phase_label(f: Any, *, learn_burst: bool = False) -> str:
+    """Learn chrome: under geometry, G′ learn is world-model only."""
+    if frame_is_geometry_control(f):
+        base = "G′ learn (WM only · not control)"
+        return base + (" · burst" if learn_burst else "")
+    return "Learn" + (" burst" if learn_burst else "")
+
+
 def frame_per_dim_peu(f: Any) -> Optional[np.ndarray]:
     """Full per-dim PEU when live; reconstruct from compact top-K on replay."""
     peu = getattr(f, "per_dim_peu", None)
@@ -442,7 +467,10 @@ def flow_status_extras(f: ObservabilityFrame) -> str:
         parts.append(f"phase={dom}")
     learn_ms = float(timings.get("gprime_learn", 0.0) or 0.0)
     if learn_ms >= LEARN_MS_MIN:
-        parts.append(f"learn={learn_ms:.1f}ms")
+        if frame_is_geometry_control(f):
+            parts.append(f"WM-learn={learn_ms:.1f}ms")
+        else:
+            parts.append(f"learn={learn_ms:.1f}ms")
     nb = flow_near_bound_module(f, timings=timings)
     if nb:
         parts.append(f"near_bound={_pipeline_label(nb)}")
@@ -483,6 +511,11 @@ def action_status_extras(
         if is_cont and str(lbl).startswith("MOVE_"):
             lbl = f"τ#{chosen}"
         parts.append(f"chosen={lbl}")
+    if frame_is_geometry_control(f):
+        if frame_scores_degenerate(f):
+            parts.append("geo-proxy=degenerate")
+        else:
+            parts.append("geo-proxy")
     gid = r.get("goal_id")
     if gid is not None:
         parts.append(f"goal={int(gid)}")

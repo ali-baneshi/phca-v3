@@ -263,7 +263,12 @@ def detect_session_anomalies(
 
     cycles = int(report.get("cycles", n) if report else n)
     spike_rate = round(spike_count / cycles, 4) if cycles else 0.0
-    switch_total = drive_switch_count + active_drive_switch_count
+    # Single switch source — prefer MDIM active_drive; do not sum overlapping counters.
+    switch_total = (
+        active_drive_switch_count
+        if active_drive_switch_count > 0
+        else drive_switch_count
+    )
     drive_switch_rate = round(switch_total / cycles, 4) if cycles else 0.0
 
     leak_flag, late_slope, full_slope, leak_mode = _session_leak_flag(frames, cycles, th)
@@ -334,7 +339,12 @@ def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
     goals_m = report.get("goals_metrics") or {}
     active_drive_switch_count = int(goals_m.get("active_drive_switch_count", 0) or 0)
     drive_switch_count = int(report.get("drive_switch_count", 0) or 0)
-    switch_total = drive_switch_count + active_drive_switch_count
+    # Single switch source — prefer MDIM active_drive; do not sum overlapping counters.
+    switch_total = (
+        active_drive_switch_count
+        if active_drive_switch_count > 0
+        else drive_switch_count
+    )
     drive_switch_rate = round(switch_total / cycles, 4) if cycles else 0.0
 
     error_early = report.get("error_early_median")

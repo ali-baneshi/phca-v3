@@ -723,7 +723,7 @@ class AgentPortraitView(_BaseCanvas):
       - limbs     : 2 limbs encoding the action vector direction/magnitude
     Gauges (radial): PEU/free-energy, confidence, empowerment, meta-stability,
       mean attention precision, RBTA time-headroom.
-    Trend: composite free-energy (prediction_error) sparkline + ↘/↗ health arrow.
+    Trend: prediction_error sparkline + ↘/↗ direction arrow (not a health claim).
     """
 
     GAUGES = ("free-energy", "mutual-info", "empowerment", "cr-temp", "goal-pri")
@@ -889,7 +889,7 @@ class AgentPortraitView(_BaseCanvas):
             p.drawLine(int(x0), int(y0), int(x1), int(y1))
 
     def _draw_trend(self, p, x, y, w, h):
-        self._title(p, "free-energy convergence (↘ healthy)", x=x, y=y + 12)
+        self._title(p, "prediction-error trend (↘ falling)", x=x, y=y + 12)
         vals = list(self._fe_hist)
         p.setPen(QtGui.QPen(GRID_COL, 1)); p.drawLine(x, y + h - 4, x + w, y + h - 4)
         if len(vals) < 2:
@@ -898,10 +898,10 @@ class AgentPortraitView(_BaseCanvas):
         lo, hi = min(vals), max(vals)
         if hi - lo < 1e-9: hi = lo + 1
         n = len(vals)
-        # health arrow: compare last quarter mean to first quarter
+        # Trend arrow only — do not claim free-energy "health".
         q = max(1, n // 4)
         early = float(np.mean(vals[:q])); late = float(np.mean(vals[-q:]))
-        arrow = "↘ healthy" if late <= early else "↗ rising"
+        arrow = "↘ falling" if late <= early else "↗ rising"
         col = QtGui.QColor(46, 204, 113) if late <= early else QtGui.QColor(231, 76, 60)
         p.setPen(col); p.setFont(_F_LABEL_B)
         p.drawText(x + w - 110, y + 12, arrow)
@@ -1463,7 +1463,9 @@ class StatusPanel(_BaseCanvas):
         note = r.get("note", "")
         score = r.get("best_score")
         score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "—"
-        head = f"env={env_lbl} · drive={drive_lbl} · {tag} · score={score_s}"
+        from phca.monitoring.cognitive_panels import geometry_score_label
+        score_key = geometry_score_label(f)
+        head = f"env={env_lbl} · drive={drive_lbl} · {tag} · {score_key}={score_s}"
         p.setPen(TEXT_COL)
         p.drawText(10, y, head)
         y += 13

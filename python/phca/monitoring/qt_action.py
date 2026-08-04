@@ -329,15 +329,19 @@ class CandidateScoreView(_BaseCanvas):
                                    review=self._review, panel_key="action",
                                    multi_agent=self._multi_agent,
                                    incomplete=_window_session_incomplete(self))
-        from phca.monitoring.cognitive_panels import frame_is_geometry_control
-        ctrl = "CONTROL=geometry" if frame_is_geometry_control(f) else "CONTROL=scored"
+        from phca.monitoring.cognitive_panels import (
+            frame_is_geometry_control, geometry_score_label, frame_scores_degenerate,
+        )
+        geo = frame_is_geometry_control(f)
+        ctrl = "CONTROL=geometry" if geo else "CONTROL=scored"
         hdr = (
             f"{ctrl}  goal={goal_lbl}  "
             f"{'EXPLORE' if explored else 'EXPLOIT'}  ε={r.get('eps',0):.3f}  T={cr_t:.2f}"
         )
         bs = r.get("best_score")
+        score_lbl = geometry_score_label(f)
         if isinstance(bs, (int, float)):
-            hdr += f"  score={bs:.3f}"
+            hdr += f"  {score_lbl}={bs:.3f}"
         self._title(p, hdr, y=lay["title_y"])
         moment = self._moment_series[-1] if self._moment_series else None
         status = _action_status_line(
@@ -345,6 +349,10 @@ class CandidateScoreView(_BaseCanvas):
             prefix_len=self._prefix_len, moment=moment)
         kind = "continuous τ" if is_continuous else "discrete"
         status += f" · {kind} · pareto={len(pareto)}/{len(scores)}"
+        if geo and frame_scores_degenerate(f):
+            status += " · degenerate scores (geometry)"
+        elif geo:
+            status += " · geometry proxy (not learned control)"
         if note:
             status += f" · {note}"
         p.setPen(TEXT_COL); p.setFont(_F_AXIS)
@@ -433,9 +441,19 @@ class CandidateScoreView(_BaseCanvas):
         lo, hi = self._score_scale.update(smin, smax)
         rng = (hi - lo) or 1.0
         rh = max(14, min(34, h // max(n, 1)))
-        p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+        from phca.monitoring.cognitive_panels import (
+            frame_is_geometry_control, frame_scores_degenerate, geometry_score_label,
+        )
+        geo_deg = bool(
+            self.frame and frame_is_geometry_control(self.frame)
+            and frame_scores_degenerate(self.frame))
+        score_hdr = geometry_score_label(self.frame) if self.frame else "score"
+        p.setPen(DIM_COL if geo_deg else TEXT_COL); p.setFont(_F_AXIS)
         n_par = len(pareto)
-        p.drawText(x, y - 4, f"rank · name · score (Δ2nd) · Pareto {n_par}/{n}")
+        hdr = f"rank · name · {score_hdr} (Δ2nd) · Pareto {n_par}/{n}"
+        if geo_deg:
+            hdr += " · degenerate (geometry)"
+        p.drawText(x, y - 4, hdr)
         moment = self._moment_series[-1] if self._moment_series else None
         shift = bool(moment and moment.get("decision_shift"))
         if shift:
@@ -458,7 +476,7 @@ class CandidateScoreView(_BaseCanvas):
                 p.drawRoundedRect(x, ry, w, rh - 3, 4, 4)
             p.setPen(DIM_COL); p.setFont(_F_AXIS)
             p.drawText(x + 4, ry + rh - 8, f"#{rank + 1}")
-            p.setPen(TEXT_COL)
+            p.setPen(DIM_COL if geo_deg else TEXT_COL)
             p.setFont(_F_LABEL_B if is_chosen else _F_AXIS)
             if is_continuous:
                 name = f"τ[{idx}]"
@@ -469,12 +487,15 @@ class CandidateScoreView(_BaseCanvas):
             frac = max(0.0, min(1.0, (s - lo) / rng))
             p.setPen(QtGui.QPen(GRID_COL, 1)); p.setBrush(PANEL_BG_ALT)
             p.drawRect(bar_x, ry + 4, bar_w, rh - 12)
-            col = ACCENT if is_chosen else QtGui.QColor(52, 152, 219, 220)
+            bar_a = 90 if geo_deg else 220
+            col = (ACCENT if is_chosen else QtGui.QColor(52, 152, 219, bar_a))
+            if geo_deg and is_chosen:
+                col = QtGui.QColor(241, 196, 15, 120)
             p.setPen(QtCore.Qt.NoPen); p.setBrush(col)
             p.fillRect(bar_x, ry + 4, int(bar_w * frac), rh - 12, col)
-            p.setPen(TEXT_COL); p.setFont(_F_AXIS)
+            p.setPen(DIM_COL if geo_deg else TEXT_COL); p.setFont(_F_AXIS)
             txt = f"{s:.3f}"
-            if rank == 0 and n > 1:
+            if rank == 0 and n > 1 and not geo_deg:
                 txt += f"  Δ{(s - scores[order[1]]):+.3f}"
             p.drawText(bar_x + bar_w + 6, ry + rh - 8, txt)
             if is_chosen:

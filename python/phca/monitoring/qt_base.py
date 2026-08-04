@@ -522,7 +522,9 @@ def _draw_action_decision_card(
         left += f"  emp={emp:.2f}"
     if peu is not None:
         left += f"  PEŪ={peu:.2f}"
-    right = (f"ε={eps_s}  k={k_s}  score={bs_s}  Δ2nd={margin_s}"
+    from phca.monitoring.cognitive_panels import geometry_score_label
+    score_key = geometry_score_label(f)
+    right = (f"ε={eps_s}  k={k_s}  {score_key}={bs_s}  Δ2nd={margin_s}"
              f"  Pareto {n_par}/{n_sc}  cr_T={cr_t:.2f}")
     p.drawText(x + 6, y + 12, _elide_line(p, left, mid - x - 8))
     p.drawText(mid + 4, y + 12, _elide_line(p, right, x + w - mid - 8))
@@ -1125,13 +1127,7 @@ def _draw_agent_glyph(p: QtGui.QPainter, f: ObservabilityFrame,
             p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, int(50 + 100 * u_mean)),
                                 1, QtCore.Qt.DashLine))
             p.drawEllipse(cx - ur, cy - ur, ur * 2, ur * 2)
-    elif conf < 0.5:
-        # MLP fallback: use 1.0 - confidence as approximate uncertainty
-        u_approx = 1.0 - conf
-        ur = int(R * (1.28 + min(0.4, u_approx)))
-        p.setPen(QtGui.QPen(QtGui.QColor(52, 152, 219, int(50 + 100 * u_approx)),
-                            1, QtCore.Qt.DashLine))
-        p.drawEllipse(cx - ur, cy - ur, ur * 2, ur * 2)
+    # No synthetic σ from 1−conf — omit ring when gprime_uncertainty missing.
     for i in range(n):
         did = i + 1
         lvl = float(levels[i])
@@ -1778,8 +1774,15 @@ def _draw_session_results_panel(
 
 
 def _execution_phase_segments(f: ObservabilityFrame) -> List[Tuple[str, float]]:
+    from phca.monitoring.cognitive_panels import frame_is_geometry_control
     timings = dict(getattr(f, "module_timings", {}) or {})
-    return [(label, _phase_ms(timings, key)) for key, label in EXECUTION_PHASE_STEPS]
+    geo = frame_is_geometry_control(f)
+    out: List[Tuple[str, float]] = []
+    for key, label in EXECUTION_PHASE_STEPS:
+        if label == "Learn" and geo:
+            label = "WM-lrn"
+        out.append((label, _phase_ms(timings, key)))
+    return out
 
 
 def _overview_phase_segments(f: ObservabilityFrame) -> List[Tuple[str, float]]:
@@ -1819,7 +1822,7 @@ def _draw_execution_phase_strip(p: QtGui.QPainter, f: ObservabilityFrame,
         p.setPen(QtGui.QPen(col.darker(130), 1))
         p.setBrush(col)
         p.drawRect(cx, bar_y, seg_w, bar_h)
-        if learn_burst and label == "Learn" and ms > 0:
+        if learn_burst and label in ("Learn", "WM-lrn") and ms > 0:
             learn_x0, learn_x1 = cx, cx + seg_w
         cx += seg_w + 1
     if learn_x1 > learn_x0:
@@ -1897,7 +1900,12 @@ def _overview_new_events(f: ObservabilityFrame, flags: Dict[str, Any],
     if flags.get("spike"):
         events.append("SPIKE: prediction error jumped")
     if flags.get("learn_burst"):
-        events.append(f"LEARN: G′ updated ({flags['learn_ms']:.1f}ms)")
+        from phca.monitoring.cognitive_panels import frame_is_geometry_control
+        if frame_is_geometry_control(f):
+            events.append(
+                f"LEARN: G′ WM-only ({flags['learn_ms']:.1f}ms · not control)")
+        else:
+            events.append(f"LEARN: G′ updated ({flags['learn_ms']:.1f}ms)")
     if getattr(f, "goal_reached", False):
         events.append("GOAL: target reached")
     if drive_change is not None:
@@ -1949,7 +1957,7 @@ _OVERVIEW_SEMANTIC_MAP = {
     "header.mode": "action_rationale.explored",
     "header.safety": "violations_count / goal_reached / meta_stable",
     "narrative.error": "prediction_error + err trend from _err_hist",
-    "narrative.learning": "module_timings.gprime_learn (burst >= 5ms)",
+    "narrative.learning": "module_timings.gprime_learn (burst >= 25ms · ≥40% latency)",
     "narrative.decision": "action_rationale.best_score/decision_shift (0.20 threshold)",
     "narrative.plain": "_overview_plain_story (legacy; outcome uses physical deltas)",
     "narrative.intent": "_overview_goal_intent_line (+ eps, k_candidates)",

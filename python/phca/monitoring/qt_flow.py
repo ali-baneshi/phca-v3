@@ -231,7 +231,12 @@ class CognitiveFlowView(_BaseCanvas):
             p.drawText(x - 22, y + 4, 44, 11, 0x84, f"{ms:.1f}ms")
             lbl_y = y + r + 10
             p.setFont(_F_LABEL_B); p.setPen(TEXT_COL)
-            p.drawText(x - 30, lbl_y, 60, 12, 0x84, PIPELINE_LABEL.get(mod, mod))
+            node_lbl = PIPELINE_LABEL.get(mod, mod)
+            if mod == "gprime_learn":
+                from phca.monitoring.cognitive_panels import frame_is_geometry_control
+                if frame_is_geometry_control(f):
+                    node_lbl = "G′WM"
+            p.drawText(x - 30, lbl_y, 60, 12, 0x84, node_lbl)
             self._mb_bar(p, mod, ms, x - 30, lbl_y + 14, 60)
             if mod in ("prediction", "action_selection"):
                 self._scalar_gauge_thumb(p, mod, f, x - 30, y - r - 30, 60, 22)
@@ -326,14 +331,20 @@ class CognitiveFlowView(_BaseCanvas):
         viol = mod in self.viol_mods
         bounds = getattr(self.frame, "rbta_bounds", None) or {}
         b_ms = self._bound_for(mod, bounds)
-        scale = b_ms if b_ms else 25.0
-        ratio = measured / scale if scale else 0.0
-        if viol or ratio > 1.0:
+        if viol:
+            # VIOLATION only from rbta_violations / viol_mods — never invent from ms.
             txt, c = "VIOLATION", QtGui.QColor(231, 76, 60)
-        elif ratio > 0.8:
-            txt, c = "NEAR-BOUND", QtGui.QColor(241, 196, 15)
+        elif not b_ms or b_ms <= 0:
+            # No fake 25ms scale — do not invent OK/VIOLATION without a bound.
+            txt, c = "NO-BOUND", QtGui.QColor(120, 120, 130)
         else:
-            txt, c = "OK", QtGui.QColor(46, 204, 113)
+            ratio = measured / b_ms if b_ms else 0.0
+            if ratio > 1.0:
+                txt, c = "OVER", QtGui.QColor(231, 76, 60)
+            elif ratio > 0.8:
+                txt, c = "NEAR-BOUND", QtGui.QColor(241, 196, 15)
+            else:
+                txt, c = "OK", QtGui.QColor(46, 204, 113)
         p.setPen(QtGui.QPen(c, 1)); p.setBrush(PANEL_BG_ALT)
         p.drawRoundedRect(x, y, w, 14, 4, 4)
         p.setBrush(QtGui.QColor(c.red(), c.green(), c.blue(), CHIP_FILL_ALPHA))
@@ -347,11 +358,13 @@ class CognitiveFlowView(_BaseCanvas):
             from phca.monitoring.cognitive_panels import frame_display_confidence
             v = float(frame_display_confidence(f))
             return v, "conf", ""
+        from phca.monitoring.cognitive_panels import geometry_score_label
+        score_lbl = geometry_score_label(f)
         r = f.action_rationale or {}
         scores = [float(x) for x in (getattr(f, "candidate_scores", []) or [])]
         bs = r.get("best_score")
         if isinstance(bs, (int, float)):
-            return float(bs), "score", ""
+            return float(bs), score_lbl, ""
         margin = _action_score_margin(scores)
         if margin is not None:
             return max(0.0, min(1.0, margin)), "margin", ""
@@ -359,8 +372,8 @@ class CognitiveFlowView(_BaseCanvas):
         if isinstance(eps, (int, float)) and not r.get("explored"):
             return max(0.0, min(1.0, 1.0 - float(eps))), "conf", ""
         if scores:
-            return float(np.mean(scores)), "mean", ""
-        return 0.0, "score", ""
+            return float(np.mean(scores)), score_lbl, ""
+        return 0.0, score_lbl, ""
 
     def _scalar_gauge_thumb(self, p: QtGui.QPainter, mod: str,
                             f: ObservabilityFrame, x: int, y: int, w: int, h: int) -> None:
@@ -399,18 +412,18 @@ class CognitiveFlowView(_BaseCanvas):
 
     def _attn_salience_bars(self, p: QtGui.QPainter, f: ObservabilityFrame,
                             x: int, y: int, w: int) -> None:
-        """Mini salience strip under the Attn node."""
-        sal = getattr(f, "attention_saliences", None)
-        if sal is None:
+        """Mini salience strip under the Attn node (selected attention pairs)."""
+        from phca.monitoring.cognitive_panels import frame_attention_pairs
+        pairs = frame_attention_pairs(f)
+        if not pairs:
             return
-        arr = np.asarray(sal, dtype=np.float32).reshape(-1)
-        if arr.size == 0:
+        vals = [float(s) for _, s in pairs[:4]]
+        if not vals:
             return
-        head = arr[:4]
-        mx = float(np.max(np.abs(head))) or 1.0
-        bar_w = max(3, (w - 8) // 4)
-        for i, val in enumerate(head):
-            bh = max(1, int(abs(float(val)) / mx * 10))
+        mx = max(abs(v) for v in vals) or 1.0
+        bar_w = max(3, (w - 8) // max(len(vals), 1))
+        for i, val in enumerate(vals):
+            bh = max(1, int(abs(val) / mx * 10))
             p.fillRect(x + 2 + i * (bar_w + 1), y + (10 - bh), bar_w, bh,
                        QtGui.QColor(52, 152, 219, 200))
 

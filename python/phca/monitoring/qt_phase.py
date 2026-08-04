@@ -153,9 +153,8 @@ class TrajectoryView(_BaseCanvas):
         from phca.monitoring.cognitive_panels import frame_drive_goal_norms
         mags = frame_drive_goal_norms(f)
         if not mags or all(m <= 0 for m in mags):
-            if self._replay:
-                p.setPen(DIM_COL); p.setFont(_F_AXIS)
-                p.drawText(x, y + 10, "drive_goal_norms unavailable")
+            p.setPen(DIM_COL); p.setFont(_F_AXIS)
+            p.drawText(x, y + 10, "no drive targets")
             return
         nd = max(len(mags), _n_drives(f))
         while len(mags) < nd:
@@ -729,11 +728,11 @@ class _PhasePortraitView(_BaseCanvas):
             st_line += f" · deficits=[{ds}]"
         p.setPen(DIM_COL); p.setFont(_F_AXIS)
         p.drawText(10, hdr + 30, _elide_line(p, st_line, w - 20))
-        cap = "red = prediction error · blue whisker = ±σ · ▒ = PEU when live"
+        cap = "red = prediction error · blue whisker = ±σ · ▒ = PEU (live full / replay top-K)"
         if peu_a is None and not self._replay:
             cap += " · stable order (no re-sort)"
         elif peu_a is None and self._replay:
-            cap += " · replay"
+            cap += " · replay · PEU top-K missing"
         else:
             cap += " · PEU layer active"
         self._caption(p, cap, y=hdr + 44)
@@ -755,9 +754,6 @@ class _PhasePortraitView(_BaseCanvas):
         p.save()
         try:
             p.setClipRect(chart_x, top, chart_w, bot - top)
-            r = f.action_rationale or {}
-            ci = r.get("chosen_idx")
-            chosen_dim = int(ci) if isinstance(ci, (int, float)) else -1
             for i in range(n):
                 x = 20 + i * bw
                 eh = int(errs_s[i] / mx * (bot - top))
@@ -768,11 +764,7 @@ class _PhasePortraitView(_BaseCanvas):
                     p.drawLine(int(x + bw / 2), int(y_e - s_pix), int(x + bw / 2), int(y_e + s_pix))
                     p.drawLine(int(x + bw / 2 - 3), int(y_e - s_pix), int(x + bw / 2 + 3), int(y_e - s_pix))
                     p.drawLine(int(x + bw / 2 - 3), int(y_e + s_pix), int(x + bw / 2 + 3), int(y_e + s_pix))
-                is_chosen_dim = (int(idx[i]) == chosen_dim and chosen_dim >= 0)
-                if is_chosen_dim:
-                    p.setPen(QtGui.QPen(ACCENT, 2))
-                    p.setBrush(QtGui.QColor(241, 196, 15, CHIP_FILL_ALPHA))
-                    p.drawRoundedRect(int(x), int(bot - eh - 2), int(bw - 4), eh + 4, 2, 2)
+                # Do not treat action chosen_idx as a state-dim highlight.
                 p.fillRect(int(x + 2), int(bot - eh), int(bw - 8), eh, QtGui.QColor(231, 76, 60, 220))
                 if peu_a is not None and int(idx[i]) < len(peu_a):
                     pe = float(peu_a[int(idx[i])])

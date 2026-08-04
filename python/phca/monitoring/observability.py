@@ -550,10 +550,15 @@ class ObservabilityFrame:
         drive_goals = [np.asarray(t, dtype=np.float32).copy()
                        if t is not None else None
                        for t in mdim_snap.get("goals", [])]
-        drive_goal_norms = [
-            float(np.linalg.norm(g)) if g is not None else 0.0
-            for g in drive_goals
-        ]
+        # When MDIM has no target vectors, use deficit as honest spoke length
+        # (never silent all-zeros while deficits vary).
+        drive_goal_norms = []
+        for i, g in enumerate(drive_goals):
+            if g is not None and np.asarray(g).size:
+                drive_goal_norms.append(float(np.linalg.norm(g)))
+            else:
+                dval = float(drive_deficits[i]) if i < len(drive_deficits) else 0.0
+                drive_goal_norms.append(float(max(dval, 0.0)))
         goal_stack = list(mdim_snap.get("goal_stack", []))
         pareto_front = [int(x) for x in mdim_snap.get("pareto_front", [])]
         meta_stable = dict(mdim_snap.get("meta_stable", {}))
@@ -847,6 +852,19 @@ class ObservabilityFrame:
             d["action_rationale"] = _recursive_json(self.action_rationale)
         if self.m3_top_error:
             d["m3_top_error"] = _recursive_json(self.m3_top_error)
+        # Compact RBTA violations for Flow/Retention/Overview scrub
+        viols = getattr(self, "rbta_violations", None) or []
+        if viols:
+            d["rbta_violations"] = [
+                {
+                    "module_id": str(x.get("module_id", "?")),
+                    "bound_type": str(x.get("bound_type", "?")),
+                    "measured": float(x.get("measured", 0.0) or 0.0),
+                    "allowed": float(x.get("allowed", 0.0) or 0.0),
+                }
+                for x in viols[:8]
+                if isinstance(x, dict)
+            ]
         # Compact M4 top-8 for Memory tab scrub (full m4_relevant stays live-only)
         m4 = getattr(self, "m4_top", None) or []
         if m4:
