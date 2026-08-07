@@ -59,6 +59,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           make install-deps
+      - name: Verify optional dependency isolation
+        env:
+          PYTHONPATH: python
+        run: |
+          python - <<'PY'
+          from phca.world_model.graph import WorldModelGPrime
+          from phca.world_model.gaussian import conditional_covariance
+          print("Gaussian graph import without optional pgmpy runtime: PASS")
+          PY
       - name: Test Python
         env:
           MUJOCO_GL: disabled

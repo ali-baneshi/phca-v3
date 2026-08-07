@@ -16,10 +16,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
-from pgmpy.models import DiscreteBayesianNetwork
-from pgmpy.factors.discrete import TabularCPD, DiscreteFactor
-from pgmpy.inference import VariableElimination
-
 from phca.config import StateVector
 from phca.logging import logger, _log
 from phca.world_model.gaussian import (
@@ -32,6 +28,20 @@ from phca.world_model.gaussian import (
 )
 
 _EPS = 1e-8
+
+
+def _require_pgmpy() -> tuple[Any, Any, Any, Any]:
+    """Load optional discrete-inference dependencies only when needed."""
+    try:
+        from pgmpy.factors.discrete import DiscreteFactor, TabularCPD
+        from pgmpy.inference import VariableElimination
+        from pgmpy.models import DiscreteBayesianNetwork
+    except ImportError as exc:
+        raise RuntimeError(
+            "Discrete G' inference requires pgmpy runtime dependencies "
+            "(including torch); install the optional discrete stack."
+        ) from exc
+    return DiscreteBayesianNetwork, TabularCPD, VariableElimination, DiscreteFactor
 
 
 @dataclass
@@ -102,7 +112,7 @@ class WorldModelGPrime:
         self.causal_edges: List[Tuple[str, str]] = []
 
         # pgmpy model (built lazily on first predict/learn call)
-        self._bn: Optional[DiscreteBayesianNetwork] = None
+        self._bn: Optional[Any] = None
 
         # State history for similarity search
         self.state_history: List[StateVector] = []
@@ -181,6 +191,7 @@ class WorldModelGPrime:
         then attaches CPDs. Automatically creates edges for node parent
         relationships to keep CPDs consistent with the DAG.
         """
+        DiscreteBayesianNetwork, _, _, _ = _require_pgmpy()
         # Collect all edges from temporal, causal, and parent relationships
         edges = set()
         for e in self.temporal_edges:
@@ -224,12 +235,13 @@ class WorldModelGPrime:
 
         self._bn.add_cpds(*cpds)
 
-    def _build_discrete_cpd(self, node: StateNode, parents: List[str]) -> TabularCPD:
+    def _build_discrete_cpd(self, node: StateNode, parents: List[str]) -> Any:
         """Build a TabularCPD for a discrete node.
 
         If params is provided, use it directly. Otherwise, use a uniform
         distribution over the node's cardinality.
         """
+        _, TabularCPD, _, _ = _require_pgmpy()
         var_card = node.cardinality
 
         if parents:
@@ -320,6 +332,7 @@ class WorldModelGPrime:
                     0.5,
                 )
 
+            _, _, VariableElimination, _ = _require_pgmpy()
             infer = VariableElimination(self._bn)
             result = infer.query(variables=target_vars, evidence=evidence)
 
@@ -961,7 +974,7 @@ class WorldModelGPrime:
 
 
 def _result_to_dict(
-    result: DiscreteFactor,
+    result: Any,
     expected_vars: List[str],
 ) -> Dict[str, np.ndarray]:
     """Convert a pgmpy DiscreteFactor query result to a var→probs dict.
