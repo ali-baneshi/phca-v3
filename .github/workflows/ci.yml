@@ -59,6 +59,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           make install-deps
+          # Observatory monitoring tests construct live Reacher cycles.
+          # Install the pinned optional stack here; MuJoCo-heavy integration
+          # tests remain explicitly excluded below and run in mujoco-gate.
+          make install-mujoco-deps
       - name: Verify optional dependency isolation
         env:
           PYTHONPATH: python
