@@ -29,6 +29,28 @@ import numpy as np
 from phca.logging import logger, _log
 
 
+_SOLVE_EPS = 1e-8
+
+
+def _solve_covariance_system(matrix: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    """Solve a covariance system without an expensive condition-number scan."""
+    matrix = np.asarray(matrix, dtype=np.float64)
+    rhs = np.asarray(rhs, dtype=np.float64)
+    diagonal = np.diag(matrix)
+    if np.allclose(matrix, np.diag(diagonal), rtol=1e-10, atol=1e-12):
+        safe_diag = np.where(np.abs(diagonal) > _SOLVE_EPS, diagonal, _SOLVE_EPS)
+        return rhs / safe_diag.reshape((-1,) + (1,) * (rhs.ndim - 1))
+    try:
+        return np.linalg.solve(matrix, rhs)
+    except np.linalg.LinAlgError:
+        scale = max(float(np.max(np.abs(diagonal))), 1.0)
+        regularized = matrix + np.eye(matrix.shape[0]) * (_SOLVE_EPS * scale)
+        try:
+            return np.linalg.solve(regularized, rhs)
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(regularized) @ rhs
+
+
 @np.errstate(divide="raise", invalid="raise", over="ignore")
 def compute_joint_moments(
     node_order: List[str],
@@ -164,19 +186,8 @@ def posterior(
     # Use solve() for well-conditioned matrices (fast, O(n³)), fall back to
     # pinv() for near-singular matrices where solve() can hang.
     resid = e_vec - mu_E
-    cond = np.linalg.cond(Σ_EE)
-    if cond < 1e12:
-        try:
-            Σ_EE_inv_resid = np.linalg.solve(Σ_EE, resid)
-            Σ_EE_inv_QET = np.linalg.solve(Σ_EE, Σ_QE.T)
-        except np.linalg.LinAlgError:
-            Σ_EE_inv = np.linalg.pinv(Σ_EE)
-            Σ_EE_inv_resid = Σ_EE_inv @ resid
-            Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
-    else:
-        Σ_EE_inv = np.linalg.pinv(Σ_EE)
-        Σ_EE_inv_resid = Σ_EE_inv @ resid
-        Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
+    Σ_EE_inv_resid = _solve_covariance_system(Σ_EE, resid)
+    Σ_EE_inv_QET = _solve_covariance_system(Σ_EE, Σ_QE.T)
     mu_Q_given_E = mu_Q + Σ_QE @ Σ_EE_inv_resid
     Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv_QET
 
@@ -245,16 +256,7 @@ def conditional_covariance(
     Σ_QQ = cov[np.ix_(q_idx, q_idx)]
     Σ_QE = cov[np.ix_(q_idx, e_idx)]
 
-    cond = np.linalg.cond(Σ_EE)
-    if cond < 1e12:
-        try:
-            Σ_EE_inv_QET = np.linalg.solve(Σ_EE, Σ_QE.T)
-        except np.linalg.LinAlgError:
-            Σ_EE_inv = np.linalg.pinv(Σ_EE)
-            Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
-    else:
-        Σ_EE_inv = np.linalg.pinv(Σ_EE)
-        Σ_EE_inv_QET = Σ_EE_inv @ Σ_QE.T
+    Σ_EE_inv_QET = _solve_covariance_system(Σ_EE, Σ_QE.T)
 
     Σ_QQ_given_E = Σ_QQ - Σ_QE @ Σ_EE_inv_QET
     return Σ_QQ_given_E

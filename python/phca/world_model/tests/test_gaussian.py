@@ -18,12 +18,24 @@ import numpy as np
 
 from phca.config import StateVector
 from phca.world_model.gaussian import (
+    conditional_covariance,
     compute_joint_moments,
     posterior,
     confidence_from_variance,
     sample_posterior,
 )
 from phca.world_model.graph import WorldModelGPrime, StateNode
+
+
+def test_conditional_covariance_diagonal_fast_path():
+    out = conditional_covariance(
+        np.zeros(4),
+        np.diag([1.0, 2.0, 3.0, 4.0]),
+        ["x0", "x1"],
+        ["x2", "x3"],
+        ["x0", "x1", "x2", "x3"],
+    )
+    np.testing.assert_allclose(out, np.diag([3.0, 4.0]))
 
 
 class TestComputeJointMoments:

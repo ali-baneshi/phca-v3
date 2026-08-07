@@ -651,6 +651,8 @@ class WorldModelGPrime:
         """
         if not self.has_gaussian_nodes():
             return 0.0
+        if self.state_dim > 128:
+            return 0.3
 
         try:
             node_order, betas, sigmas, parents_dict = self._get_gaussian_topology()
