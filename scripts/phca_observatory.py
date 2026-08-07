@@ -301,6 +301,10 @@ def _read_latest_camera_packet(cycle_holder: dict) -> Any:
         }
 
 
+def _should_verify_early_close(n_lines: int, no_verify: bool) -> bool:
+    return int(n_lines) > 0 and not bool(no_verify)
+
+
 def _place_start_goal_across_barrier(env, rng: np.random.RandomState) -> None:
     """Put start and goal on opposite sides of the mid-column barrier when possible."""
     if not hasattr(env, "grid") or not hasattr(env, "size"):
@@ -1016,7 +1020,7 @@ def main() -> None:
         except Exception as exc:
             print(f"[recover] early finalize failed: {exc}", file=sys.stderr)
             return
-        if n_lines > 0 and args.verify:
+        if _should_verify_early_close(n_lines, args.no_verify):
             verify_rc = _run_session_verify(session_dir, allow_incomplete=True)
             status = "PASS (allow-incomplete)" if verify_rc == 0 else "FAIL"
             print(f"[verify] early close check: {status}", file=sys.stderr)

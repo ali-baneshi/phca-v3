@@ -81,6 +81,13 @@ def test_load_optional_json_missing(tmp_path):
     assert mod._load_optional_json(str(tmp_path / "nope.json")) is None
 
 
+def test_should_verify_early_close_uses_no_verify_flag():
+    mod = _load_observatory()
+    assert mod._should_verify_early_close(3, False)
+    assert not mod._should_verify_early_close(3, True)
+    assert not mod._should_verify_early_close(0, False)
+
+
 def test_run_session_verify_allow_incomplete_flag(tmp_path, monkeypatch):
     mod = _load_observatory()
     session = _minimal_session(tmp_path)
