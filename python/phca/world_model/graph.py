@@ -120,6 +120,9 @@ class WorldModelGPrime:
 
         # pgmpy model (built lazily on first predict/learn call)
         self._bn: Optional[Any] = None
+        # Identifies whether discrete inference is using the optional backend
+        # or the dependency-free compatibility path.
+        self.discrete_inference_backend = "pgmpy"
 
         # State history for similarity search
         self.state_history: List[StateVector] = []
@@ -201,7 +204,9 @@ class WorldModelGPrime:
         pgmpy_types = _pgmpy_types()
         if pgmpy_types is None:
             self._bn = None
+            self.discrete_inference_backend = "fallback"
             return
+        self.discrete_inference_backend = "pgmpy"
         DiscreteBayesianNetwork, _, _, _ = pgmpy_types
         # Collect all edges from temporal, causal, and parent relationships
         edges = set()
@@ -412,6 +417,7 @@ class WorldModelGPrime:
         self, state: StateVector
     ) -> Tuple[StateVector, float]:
         """Predict discrete transitions without optional pgmpy/Torch."""
+        self.discrete_inference_backend = "fallback"
         values = state.values.copy().astype(np.float32)
         confidences: List[float] = []
         evidence = {

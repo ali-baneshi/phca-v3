@@ -2114,7 +2114,20 @@ class CognitiveCycle:
             else:
                 persistent_disagreement = False
 
-            if mean_conf < self._calibration_threshold or persistent_disagreement:
+            # A dependency-free discrete G' fallback intentionally reports
+            # conservative confidence.  It must not silently rewrite an
+            # explicitly enabled prediction-scored selection into geometry:
+            # that would make the selector contract depend on whether the
+            # optional pgmpy/Torch stack happened to be installed.  Keep the
+            # backend limitation visible in rationale/observability instead.
+            fallback_backend = (
+                getattr(self.gprime, "discrete_inference_backend", None)
+                == "fallback"
+            )
+            if (
+                not fallback_backend
+                and (mean_conf < self._calibration_threshold or persistent_disagreement)
+            ):
                 best_action = geo_action
                 best_score = None
                 best_components = {
@@ -2150,6 +2163,9 @@ class CognitiveCycle:
             "task_lock": bool(self._task_lock),
             "selector_mode": selector_mode,
             "score_components": best_components,
+            "prediction_backend": getattr(
+                self.gprime, "discrete_inference_backend", None
+            ),
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
         }, decision_reason="adaptive_geo_fallback" if selector_mode == "adaptive_geometry_fallback" else "prediction")
         return best_action
