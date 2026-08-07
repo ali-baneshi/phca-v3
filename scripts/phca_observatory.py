@@ -1016,7 +1016,13 @@ def main() -> None:
         n_lines = int(recorder.count)
         try:
             from phca.monitoring.session_recovery import finalize_session
-            finalize_session(session_dir, reason="user_close", write_report=True)
+            if n_lines >= expected_jsonl:
+                finalize_session(
+                    session_dir, reason="completed", status="complete",
+                    write_report=True,
+                )
+            else:
+                finalize_session(session_dir, reason="user_close", write_report=True)
         except Exception as exc:
             print(f"[recover] early finalize failed: {exc}", file=sys.stderr)
             return

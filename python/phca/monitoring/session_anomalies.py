@@ -356,8 +356,14 @@ def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
     late_slope = metrics_block.get("rss_late_slope_bytes_per_cycle")
     goal_rolling = metrics_block.get("goal_rolling_instability")
     leak_flag = False
+    leak_gate_mode = None
     if isinstance(late_slope, (int, float)):
-        leak_flag = rss_leak_flagged(float(late_slope), cycles)
+        min_cycles = int(th["leak_min_cycles"])
+        if cycles <= min_cycles:
+            leak_gate_mode = "insufficient_short_soak"
+        else:
+            leak_flag = rss_leak_flagged(float(late_slope), cycles)
+            leak_gate_mode = "fill_phase" if cycles < 7000 else "post_cap"
 
     drift_evaluated = cycles >= int(th["drift_min_cycles"])
     flags: Dict[str, bool] = {
@@ -392,6 +398,7 @@ def anomalies_from_report(report: Dict[str, Any]) -> Dict[str, Any]:
             "dist_early_median": dist_early,
             "dist_late_median": dist_late,
             "rss_late_slope_bytes_per_cycle": late_slope,
+            "rss_leak_gate_mode": leak_gate_mode,
             "drive_switch_count": drive_switch_count,
             "active_drive_switch_count": active_drive_switch_count,
             "drive_switch_rate": drive_switch_rate,

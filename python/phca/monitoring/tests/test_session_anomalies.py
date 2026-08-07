@@ -15,6 +15,7 @@ from phca.monitoring.session_anomalies import (
     DEFAULT_THRESHOLDS,
     anomaly_overall_pass,
     anomaly_strict_fail,
+    anomalies_from_report,
     detect_session_anomalies,
 )
 from phca.monitoring.session_report import build_session_report
@@ -124,6 +125,20 @@ def test_short_soak_preserves_rss_slope_without_critical_leak():
     result = detect_session_anomalies(frames)
     assert result["flags"]["leak"] is False
     assert result["metrics"]["rss_late_slope_bytes_per_cycle"] is not None
+    assert result["metrics"]["rss_leak_gate_mode"] == "insufficient_short_soak"
+
+
+def test_report_recheck_does_not_flag_short_soak_leak():
+    result = anomalies_from_report({
+        "cycles": 100,
+        "spike_count": 0,
+        "anomalies": {
+            "metrics": {
+                "rss_late_slope_bytes_per_cycle": 100_000.0,
+            }
+        },
+    })
+    assert result["flags"]["leak"] is False
     assert result["metrics"]["rss_leak_gate_mode"] == "insufficient_short_soak"
 
 
