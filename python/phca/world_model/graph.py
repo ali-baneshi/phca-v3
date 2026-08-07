@@ -44,6 +44,13 @@ def _require_pgmpy() -> tuple[Any, Any, Any, Any]:
     return DiscreteBayesianNetwork, TabularCPD, VariableElimination, DiscreteFactor
 
 
+def _pgmpy_types() -> tuple[Any, Any, Any, Any] | None:
+    try:
+        return _require_pgmpy()
+    except RuntimeError:
+        return None
+
+
 @dataclass
 class StateNode:
     """A node in the G' probabilistic graph (v3.0 §2.2).
@@ -191,7 +198,11 @@ class WorldModelGPrime:
         then attaches CPDs. Automatically creates edges for node parent
         relationships to keep CPDs consistent with the DAG.
         """
-        DiscreteBayesianNetwork, _, _, _ = _require_pgmpy()
+        pgmpy_types = _pgmpy_types()
+        if pgmpy_types is None:
+            self._bn = None
+            return
+        DiscreteBayesianNetwork, _, _, _ = pgmpy_types
         # Collect all edges from temporal, causal, and parent relationships
         edges = set()
         for e in self.temporal_edges:
@@ -297,6 +308,8 @@ class WorldModelGPrime:
         if self._bn is None and len(self.nodes) > 0:
             self._build_graph()
 
+        if self._bn is None and len(self.nodes) > 0:
+            return self._predict_discrete_fallback(state)
         if self._bn is None or len(self.nodes) == 0:
             # Empty or unbuildable graph: return copy of state with zero confidence
             return (
@@ -394,6 +407,51 @@ class WorldModelGPrime:
                 ),
                 0.0,
             )
+
+    def _predict_discrete_fallback(
+        self, state: StateVector
+    ) -> Tuple[StateVector, float]:
+        """Predict discrete transitions without optional pgmpy/Torch."""
+        values = state.values.copy().astype(np.float32)
+        confidences: List[float] = []
+        evidence = {
+            f"s{i}_t": int(round(state.values[i]))
+            for i in range(min(self.state_dim, len(state.values)))
+        }
+        for name, node in self.nodes.items():
+            if not name.endswith("_t1") or not node.params is not None:
+                continue
+            params = np.asarray(node.params, dtype=np.float64)
+            parents = [p for p in node.parents if p in evidence]
+            if params.ndim == 1:
+                probs = params
+            elif parents:
+                cards = [self.nodes[p].cardinality for p in parents]
+                index = 0
+                for parent, card in zip(parents, cards):
+                    index = index * card + (evidence[parent] % card)
+                probs = params[:, index]
+            else:
+                probs = params[:, 0]
+            probs = np.asarray(probs, dtype=np.float64)
+            total = float(probs.sum())
+            if total <= 0 or not np.all(np.isfinite(probs)):
+                continue
+            probs = probs / total
+            target_idx = int(name.split("s", 1)[1].split("_t1", 1)[0])
+            if target_idx < len(values):
+                values[target_idx] = float(np.argmax(probs))
+            confidences.append(float(np.max(probs)))
+        confidence = float(np.mean(confidences)) if confidences else 0.0
+        return (
+            StateVector(
+                values=values,
+                precision=np.full_like(values, confidence),
+                timestamp=state.timestamp + 1.0,
+                grounding_level=state.grounding_level,
+            ),
+            confidence,
+        )
 
     # ── Prediction (Continuous / Gaussian) ───────────────────
 
