@@ -1,6 +1,6 @@
 # License
 
-Erasmus (PHCA v3.0) is released under the **Apache License, Version 2.0**.
+PHCA v3.0 is released under the **Apache License, Version 2.0**.
 
 ---
 
