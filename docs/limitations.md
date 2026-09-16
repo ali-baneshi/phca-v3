@@ -83,6 +83,25 @@ Session reporting flags `pure_geometry_ablation_dominant` /
 `geometry_dominated_action_selection` so goal success is not mistaken for
 prediction-path quality.
 
+### Confidence-gated selection is opt-in and experimental
+
+The repository now has a separate `--confidence-gated` selector for discrete
+experiments. It remains opt-in: the default is still pure geometry. The selector
+uses geometry during a 50-cycle warm-up, below the configured 0.9 confidence
+threshold, and after its rolling prediction-versus-geometry success fallback
+activates. The existing blended scorer remains a separate explicit opt-in path.
+The contract and unresolved questions are in
+[`SPEC_ACTION_SELECTION.md`](../SPEC_ACTION_SELECTION.md), and the static evidence
+is in [`AUDIT_ACTION_SELECTION_2026-09-16.md`](../AUDIT_ACTION_SELECTION_2026-09-16.md).
+The valid 30-seed × 200-cycle 5×5 validation record is in
+[`docs/action_selection_validation_2026-09-16.md`](action_selection_validation_2026-09-16.md);
+the planned corrected 10×10 run has no result artifact and remains unvalidated.
+
+Action rationale is available in Observatory frames when observability is attached,
+but low-level trace records do not necessarily contain the complete candidate-score
+and veto chain; an auditor cannot assume every entrypoint persists the same detail.
+See `python/phca/monitoring/observability.py` and `python/phca/evaluation/trace.py`.
+
 ### Partial-observability viewport is wall/goal-only
 
 The `partial_obs_radius` feature (D-160) only masks walls and goal outside the agent's viewport. Cell-type classification (EMPTY, WALL, GOAL, HAZARD) in the local 3×3 neighborhood is unaffected — the agent always sees the true cell type of its 8 neighbors regardless of viewport distance. This means hazards are always visible when adjacent even if outside the viewport.

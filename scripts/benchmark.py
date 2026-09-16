@@ -330,6 +330,14 @@ def main() -> None:
     parser.add_argument("--action-slip", type=float, default=0.0)
     parser.add_argument("--disable-task-lock", action="store_true",
                         help="Disable task-lock: let MDIM 6-drive run, use prediction-scored action for all levels")
+    parser.add_argument("--confidence-gated", action="store_true",
+                        help="Enable opt-in confidence-gated discrete selection")
+    parser.add_argument("--confidence-gated-warmup", type=int, default=50,
+                        help="Geometry-only cycles before confidence-gated selection")
+    parser.add_argument("--confidence-gated-threshold", type=float, default=0.9,
+                        help="Minimum G' confidence for prediction-scored selection")
+    parser.add_argument("--confidence-gated-window", type=int, default=30,
+                        help="Rolling outcome window for confidence-gated fallback")
     parser.add_argument("--allow-fail", action="store_true",
                         help="Exit 0 even when pass criteria fail (validation scaling)")
     args = parser.parse_args()
@@ -358,9 +366,22 @@ def main() -> None:
         grid_size=args.grid_size,
         action_slip=args.action_slip,
     )
-    interventions = InterventionConfig()
+    interventions = InterventionConfig(
+        confidence_gated_selector=bool(args.confidence_gated),
+        disable_blended_scorer=not bool(args.confidence_gated),
+        confidence_gated_warmup_cycles=args.confidence_gated_warmup,
+        confidence_gated_threshold=args.confidence_gated_threshold,
+        confidence_gated_window=args.confidence_gated_window,
+    )
     if args.disable_task_lock:
-        interventions = InterventionConfig(disable_task_lock=True)
+        interventions = InterventionConfig(
+            disable_task_lock=True,
+            confidence_gated_selector=bool(args.confidence_gated),
+            disable_blended_scorer=not bool(args.confidence_gated),
+            confidence_gated_warmup_cycles=args.confidence_gated_warmup,
+            confidence_gated_threshold=args.confidence_gated_threshold,
+            confidence_gated_window=args.confidence_gated_window,
+        )
     multi_seed_data: Optional[Dict[str, Any]] = None
     if args.seeds > 1:
         report, multi_seed_data = run_multiseed(levels, config, args.seeds)

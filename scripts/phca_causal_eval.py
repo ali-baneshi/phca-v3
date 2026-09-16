@@ -854,12 +854,26 @@ def main() -> None:
     parser.add_argument("--use-mlp", action="store_true")
     parser.add_argument("--enable-blended-scorer", action="store_true",
                         help="D-156: enable G' prediction blend (default now pure geometry)")
+    parser.add_argument("--confidence-gated", action="store_true",
+                        help="Enable opt-in confidence-gated discrete selection")
+    parser.add_argument("--confidence-gated-warmup", type=int, default=50,
+                        help="Geometry-only cycles before confidence-gated selection")
+    parser.add_argument("--confidence-gated-threshold", type=float, default=0.9,
+                        help="Minimum G' confidence for prediction-scored selection")
+    parser.add_argument("--confidence-gated-window", type=int, default=30,
+                        help="Rolling outcome window for confidence-gated fallback")
     parser.add_argument("--output", default="logs/phca_causal_eval.json")
     parser.add_argument("--gate", action="store_true")
     args = parser.parse_args()
 
     agents = [a.strip() for a in args.agents.split(",") if a.strip()]
-    iv = InterventionConfig(disable_blended_scorer=not args.enable_blended_scorer)
+    iv = InterventionConfig(
+        disable_blended_scorer=not (args.enable_blended_scorer or args.confidence_gated),
+        confidence_gated_selector=bool(args.confidence_gated),
+        confidence_gated_warmup_cycles=args.confidence_gated_warmup,
+        confidence_gated_threshold=args.confidence_gated_threshold,
+        confidence_gated_window=args.confidence_gated_window,
+    )
     report = run_evaluation(
         cycles=args.cycles,
         seeds=args.seeds,
@@ -879,7 +893,7 @@ def main() -> None:
         print(f"Wrote {out}")
         print(
             f"Action selection: "
-            f"{'blended' if args.enable_blended_scorer else 'pure_geometry_default'}"
+            f"{'confidence_gated' if args.confidence_gated else 'blended' if args.enable_blended_scorer else 'pure_geometry_default'}"
         )
         critical_failure = False
         for level, level_report in report["levels"].items():

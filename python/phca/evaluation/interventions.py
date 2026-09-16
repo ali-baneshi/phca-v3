@@ -64,6 +64,11 @@ class InterventionConfig:
     disable_task_lock: bool = False
     disable_planning_grid: bool = False
     disable_blended_scorer: bool = True
+    confidence_gated_selector: bool = False
+    confidence_gated_warmup_cycles: int = 50
+    confidence_gated_threshold: float = 0.9
+    confidence_gated_window: int = 30
+    confidence_gated_min_samples: int = 5
     adaptive_confidence_gating: bool = True  # D-156: fall back to geometry when G' confidence < threshold
     agreement_gating: bool = True            # Round 7 (NEW-10): fall back to geometry when blended scorer persistently disagrees with geometry
     agreement_window: int = 30               # Round 7: number of recent cycles to track agreement rate
@@ -134,6 +139,11 @@ class InterventionConfig:
             disable_task_lock=d.get("disable_task_lock", False),
             disable_planning_grid=d.get("disable_planning_grid", False),
             disable_blended_scorer=d.get("disable_blended_scorer", True),
+            confidence_gated_selector=d.get("confidence_gated_selector", False),
+            confidence_gated_warmup_cycles=int(d.get("confidence_gated_warmup_cycles", 50)),
+            confidence_gated_threshold=float(d.get("confidence_gated_threshold", 0.9)),
+            confidence_gated_window=int(d.get("confidence_gated_window", 30)),
+            confidence_gated_min_samples=int(d.get("confidence_gated_min_samples", 5)),
             adaptive_confidence_gating=d.get("adaptive_confidence_gating", True),
             agreement_gating=d.get("agreement_gating", True),
             agreement_window=int(d.get("agreement_window", 30)),
@@ -189,14 +199,26 @@ def action_selection_interpretation(
         return {
             "action_selection_mode": "environment_specific",
             "disable_blended_scorer": bool(iv.disable_blended_scorer),
+            "confidence_gated_selector": bool(iv.confidence_gated_selector),
             "interpretation_caveat": (
                 "Non-GridWorld Φ-IQ path; continuous MPC is prediction-primary when applicable."
+            ),
+        }
+    if iv.confidence_gated_selector:
+        return {
+            "action_selection_mode": "confidence_gated_opt_in",
+            "disable_blended_scorer": bool(iv.disable_blended_scorer),
+            "confidence_gated_selector": True,
+            "interpretation_caveat": (
+                "Confidence-gated G′-scored discrete selection active (opt-in); geometry "
+                "is used during warm-up, below threshold, or after rolling success fallback."
             ),
         }
     if iv.disable_blended_scorer:
         return {
             "action_selection_mode": "pure_geometry_default",
             "disable_blended_scorer": True,
+            "confidence_gated_selector": bool(iv.confidence_gated_selector),
             "interpretation_caveat": (
                 "L2 goal_complexity / Φ-IQ under default discrete GridWorld largely "
                 "reflects BFS/Manhattan planner competence, not G′-scored control "
@@ -206,6 +228,7 @@ def action_selection_interpretation(
     return {
         "action_selection_mode": "blended_opt_in",
         "disable_blended_scorer": False,
+        "confidence_gated_selector": False,
         "interpretation_caveat": (
             "Blended G′-scored discrete selection active (opt-in); still subject to "
             "agreement/confidence gating fallbacks."

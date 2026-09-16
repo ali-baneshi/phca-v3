@@ -2709,3 +2709,38 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - No repository-wide formatting rewrite and no removal of historical tracked artifacts.
 
 - **Cross-ref:** D-139/D-140, D-194–D-198, G2-INV-05.
+
+---
+
+## Decision D-200: Action-selection ground-truth audit and current-state snapshot
+
+- **Date:** 2026-09-16
+- **Category:** Tier 3 (documentation / architecture evidence)
+- **Decision:** Treat `AUDIT_ACTION_SELECTION_2026-09-16.md` and `docs/CURRENT_STATE.md` as the authoritative static evidence for the action-selection subsystem.
+- **Rationale:** The default discrete path returns geometric actions before the G′ candidate loop, while continuous MPC remains prediction-scored. The distinction must remain explicit so default GridWorld metrics are not presented as uniform prediction-primary control.
+- **Non-goals:** No runtime behavior or default flag changed by this decision.
+
+## Decision D-201: Opt-in confidence-gated selector specification
+
+- **Date:** 2026-09-16
+- **Category:** Tier 2 (experimental capability proposal)
+- **Decision:** Specify, but do not yet enable by default, a confidence-gated discrete selector with a 50-cycle geometry warm-up, the existing 0.9 initial calibration threshold, a 30-cycle rolling comparison window, and a five-observation minimum per selector path.
+- **Rationale:** The repository already exposes scalar prediction confidence and already has a 50-cycle blended warm-up and 30-cycle agreement window. The proposal adds only an explicit opt-in contract, rationale fields, and realized-outcome fallback while preserving the existing planner and RBTA.
+- **Cross-ref:** `AUDIT_ACTION_SELECTION_2026-09-16.md`, `docs/CURRENT_STATE.md`, `SPEC_ACTION_SELECTION.md`.
+
+## Decision D-202: Implement confidence-gated discrete selection as opt-in
+
+- **Date:** 2026-09-16
+- **Category:** Tier 2 (experimental runtime capability)
+- **Decision:** Implement the confidence-gated selector behind `--confidence-gated` and keep `disable_blended_scorer=True` as the default discrete configuration.
+- **Implementation:** Added configurable 50-cycle geometry warm-up, public `PredictionEngine.predict_confidence()`, threshold gating using the existing scalar G′ confidence, per-cycle rationale fields, and a sticky geometry fallback when the rolling prediction success rate is below the geometric success rate after five observations per path.
+- **Non-goals:** No geometric planner changes, no RBTA changes, and no G′ architecture or training-target changes. At implementation time, no benchmark claim was made; subsequent validation is recorded in D-203.
+- **Cross-ref:** `SPEC_ACTION_SELECTION.md`, `python/phca/core/tests/test_confidence_gated_selection.py`.
+
+## Decision D-203: Validate the opt-in selector without promoting it
+
+- **Date:** 2026-09-16
+- **Category:** Tier 2 (experimental validation)
+- **Decision:** Retain `--confidence-gated` as experimental and disabled by default. Record the valid 30-seed × 200-cycle 5×5 run as behavioral evidence, but do not make a 10×10 claim because the corrected 10×10 command produced no result artifact.
+- **Evidence:** `logs/action_selection_validation/final_default_5x5_30x200.json`, `logs/action_selection_validation/final_gated_5x5_30x200.json`, and `docs/action_selection_validation_2026-09-16.md`.
+- **Rationale:** The unit and integration tests establish selector semantics. The 5×5 run shows the opt-in path is exercised and that rolling fallback activates. Missing 10×10 output is an unresolved validation gap, not evidence of success or failure.

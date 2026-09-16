@@ -65,11 +65,11 @@ The project's central architectural claim is that **action should be driven by t
 learned predictive model (G′)**, not by hand-written spatial heuristics. Two extended
 rounds of hardening work tested this claim directly:
 
-1. An earlier version of the code silently fell back to a hand-coded, memoryless
-   BFS/Manhattan-distance planner whenever an extrinsic goal was present — which covered
-   almost every benchmark scenario in this repository. This was found, and removed: as of
-   2026-07-11, the fallback was eliminated and action selection was made to run the
-   learned-model-scored path unconditionally.
+1. **SUPERSEDED — see the current-state snapshot and audit.** An earlier version of the
+   code silently fell back to a hand-coded, memoryless BFS/Manhattan-distance planner
+   whenever an extrinsic goal was present. The historical record is retained, but the
+   current code again makes pure geometry the default for discrete GridWorld after the
+   learned-model-scored path failed the harder causal tests.
 2. That change was then tested against harder conditions than the original 5×5 GridWorld
    benchmark: a 10×10 grid, and a direct comparison against a simple greedy baseline with
    the same information access as PHCA. The result: **the prediction-scored path did not
@@ -93,10 +93,16 @@ it is the honest current state after a real experiment falsified the stronger cl
 learned model (G′) is still trained and still produces the state predictions used
 elsewhere in the cycle (confidence estimates, MDIM drive computation, RBTA entropy
 checks), but it does not currently determine *which action is taken* in the default
-discrete configuration. Making it reliable enough to do so — likely via confidence-gated
-switching between the two paths, rather than an unconditional either/or — is the
-project's main open technical problem. See `IMPLEMENTATION_STATUS.md` for the up-to-date
-per-environment breakdown and `DECISIONS.md` D-156 for the full experimental record.
+discrete configuration. An explicit experimental path is now available with
+`--confidence-gated`; it is opt-in and does not change the default. It uses 50 cycles of
+geometry-only warm-up, the existing 0.9 confidence threshold, and a 30-cycle rolling
+outcome window with five observations required per path before sticky geometry fallback.
+See `SPEC_ACTION_SELECTION.md` and `DECISIONS.md` D-202 for the contract and
+implementation record.
+
+The authoritative static snapshot for this subsystem is
+[`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md); the evidence ledger is
+[`AUDIT_ACTION_SELECTION_2026-09-16.md`](AUDIT_ACTION_SELECTION_2026-09-16.md).
 
 The continuous-control path (MuJoCo Pendulum, Reacher — MPC-style sampling scored by G′)
 was not part of the environments where the discrete-path collapse was observed, and its
@@ -775,6 +781,9 @@ D-137 (historical only).
 | [docs/architecture.md](docs/architecture.md) | Architecture overview — bannered pre-D-156 drift; prefer README A4 + DECISIONS. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Phi-IQ definition; default discrete L2 is planner-contaminated. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors — geometry default first; blended opt-in. |
+| [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) | **Authoritative 2026-09-16 as-is snapshot** for action selection. |
+| [SPEC_ACTION_SELECTION.md](SPEC_ACTION_SELECTION.md) | Action-selection contract and approved opt-in extension specification. |
+| [docs/action_selection_validation_2026-09-16.md](docs/action_selection_validation_2026-09-16.md) | Validation evidence and explicit unresolved benchmark coverage for the opt-in selector. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot currently do; open backlog items. |
 | [docs/l4_root_cause_verdict.md](docs/l4_root_cause_verdict.md) | **Superseded** D-137-era L4 notes; current L4 is 37.83% FAIL @ 30 seeds. |
 | [docs/phca_causal_evidence.md](docs/phca_causal_evidence.md) | Causal behavior evidence gate; overnight SoT D-197. |

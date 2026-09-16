@@ -92,3 +92,20 @@ class PredictionEngine:
             action: Action vector from the last cycle step.
         """
         self.last_action = action.copy()
+
+    def predict_confidence(
+        self,
+        state: StateVector,
+        action: np.ndarray | None = None,
+    ) -> float:
+        """Return G′'s scalar confidence for ``state`` and ``action``.
+
+        This is a convenience contract for selectors that need a confidence
+        decision without consuming the predicted state.  It delegates to the
+        same G′ prediction interface used by :meth:`predict`, so the returned
+        value has the model-specific confidence semantics of the active G′
+        implementation.
+        """
+        query_action = self.last_action if action is None else np.asarray(action, dtype=np.float32)
+        _, confidence = self.gprime.predict(state, query_action)
+        return float(np.clip(confidence, 0.0, 1.0))

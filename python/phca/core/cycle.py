@@ -322,6 +322,15 @@ class CognitiveCycle:
         self._last_agreement_rate: float = 1.0
         self._geo_action_cache: Optional[int] = None  # cached geo_action for probe recording
 
+        # Explicit opt-in confidence-gated selector state.  The default path
+        # never reads these fields and remains pure geometry for discrete grids.
+        self._confidence_gated_fallback_active: bool = False
+        self._confidence_gated_outcomes: Dict[str, list] = {
+            "prediction": [],
+            "geometry": [],
+        }
+        self._confidence_gated_last_rates: Dict[str, float] = {}
+
         # D-165: one-shot warning that energy/memory/entropy bounds are estimated
         self._warned_estimated_bounds: bool = False
 
@@ -927,6 +936,10 @@ class CognitiveCycle:
         )
         if action_rationale is not None:
             self.last_action_rationale = copy.deepcopy(action_rationale)
+
+        self._record_confidence_gated_outcome(
+            bool(metrics.goal_reached), learning_rationale,
+        )
 
         if learning_state is None:
             return
@@ -1778,6 +1791,92 @@ class CognitiveCycle:
         r["chosen_label"] = self._chosen_label_from_rationale(r)
         return r
 
+    def _record_confidence_gated_outcome(
+        self,
+        goal_reached: bool,
+        rationale: Optional[dict],
+    ) -> None:
+        """Record realized outcomes for the explicit confidence-gated mode."""
+        if not self.interventions.confidence_gated_selector or not rationale:
+            return
+        mode = str(rationale.get("selector_mode") or "")
+        if mode == "confidence_gated_prediction":
+            bucket = "prediction"
+        elif mode in {
+            "confidence_gated_warmup",
+            "confidence_gated_geometry",
+            "confidence_gated_fallback",
+        }:
+            bucket = "geometry"
+        else:
+            return
+        values = self._confidence_gated_outcomes[bucket]
+        values.append(bool(goal_reached))
+        window = max(1, int(self.interventions.confidence_gated_window))
+        del values[:-window]
+        self._update_confidence_gated_fallback()
+
+    def _update_confidence_gated_fallback(self) -> None:
+        """Activate sticky geometry fallback when prediction underperforms."""
+        if not self.interventions.confidence_gated_selector:
+            return
+        minimum = max(1, int(self.interventions.confidence_gated_min_samples))
+        prediction = self._confidence_gated_outcomes["prediction"]
+        geometry = self._confidence_gated_outcomes["geometry"]
+        if len(prediction) < minimum or len(geometry) < minimum:
+            return
+        prediction_rate = float(np.mean(prediction))
+        geometry_rate = float(np.mean(geometry))
+        self._confidence_gated_last_rates = {
+            "prediction": prediction_rate,
+            "geometry": geometry_rate,
+        }
+        if prediction_rate < geometry_rate and not self._confidence_gated_fallback_active:
+            self._confidence_gated_fallback_active = True
+            _log(
+                logger,
+                "warning",
+                "action_selection.confidence_gated_fallback",
+                prediction_success_rate=prediction_rate,
+                geometry_success_rate=geometry_rate,
+                window=max(len(prediction), len(geometry)),
+            )
+
+    def _confidence_gated_geometry_action(
+        self,
+        geo_action: int,
+        goal_id: int,
+        eps: float,
+        *,
+        mode: str,
+        reason: str,
+        confidence: Optional[float] = None,
+    ) -> int:
+        """Return geometry with explicit confidence-gated rationale."""
+        scores = self._geometry_candidate_scores()
+        rationale = {
+            "explored": False,
+            "eps": float(eps),
+            "goal_id": int(goal_id),
+            "continuous": False,
+            "best_score": float(scores[int(geo_action)]) if scores else None,
+            "k_candidates": int(self.env.action_space_size),
+            "chosen_idx": int(geo_action),
+            "task_lock": bool(self._task_lock),
+            "selector_mode": mode,
+            "confidence_gated": True,
+            "confidence_threshold": float(self.interventions.confidence_gated_threshold),
+            "confidence": confidence,
+            "rolling_success_rates": dict(self._confidence_gated_last_rates),
+            "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
+        }
+        self.last_action_rationale = self._finalize_action_rationale(
+            rationale, decision_reason=reason,
+        )
+        self.last_candidate_scores = scores
+        self.last_candidate_rollouts = []
+        return int(geo_action)
+
     def _neutral_action(self):
         """Safe-mode action: discrete stay index, or continuous zero vector.
 
@@ -1889,12 +1988,55 @@ class CognitiveCycle:
         goal_id = goal.drive_id if goal else 1
         target = goal.target_state if goal else None
 
+        confidence_gated = bool(self.interventions.confidence_gated_selector)
+        confidence_gated_prediction_ready = False
+
+        # Opt-in confidence gating must precede legacy exploration/energy branches
+        # so its warm-up and threshold contract cannot be bypassed.
+        geo_action: Optional[int] = None
+        if hasattr(self.env, "agent_pos") and self.env.get_goal_position() is not None:
+            geo_action, _, _ = self._select_greedy_grid_action()
+        self._geo_action_cache = geo_action  # cache for probe recording
+
+        if confidence_gated and geo_action is not None:
+            if self._confidence_gated_fallback_active:
+                return self._confidence_gated_geometry_action(
+                    geo_action,
+                    int(goal_id),
+                    eps=0.0,
+                    mode="confidence_gated_fallback",
+                    reason="confidence_gated_fallback",
+                )
+            if self.cycle_count < max(0, int(self.interventions.confidence_gated_warmup_cycles)):
+                return self._confidence_gated_geometry_action(
+                    geo_action,
+                    int(goal_id),
+                    eps=0.0,
+                    mode="confidence_gated_warmup",
+                    reason="confidence_gated_warmup",
+                )
+            confidence_action = np.zeros(self.env.action_space_size, dtype=np.float32)
+            confidence_action[int(geo_action)] = 1.0
+            gate_confidence = self.engine.predict_confidence(
+                self.current_state, confidence_action,
+            )
+            if gate_confidence < float(self.interventions.confidence_gated_threshold):
+                return self._confidence_gated_geometry_action(
+                    geo_action,
+                    int(goal_id),
+                    eps=0.0,
+                    mode="confidence_gated_geometry",
+                    reason="confidence_below_threshold",
+                    confidence=gate_confidence,
+                )
+            confidence_gated_prediction_ready = True
+
         # Adaptive ε-greedy: explore less as model converges; task-lock reduces ε (P0-3)
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         if self._task_lock:
             eps = 0.0
         rng = np.random.RandomState(self.cycle_count)
-        if eps > 0.0 and rng.random() < eps:
+        if not confidence_gated_prediction_ready and eps > 0.0 and rng.random() < eps:
             pick = int(rng.randint(0, self.env.action_space_size))
             self.last_action_rationale = self._finalize_action_rationale({
                 "explored": True, "eps": float(eps),
@@ -1912,7 +2054,12 @@ class CognitiveCycle:
 
         # D5 (Energy Efficiency): prefer STAY for grid envs — skip under task-lock (P0-3)
         # Non-grid envs (bandit) have no meaningful stay action; fall through
-        if goal_id == 5 and not self._task_lock and hasattr(self.env, 'grid'):
+        if (
+            not confidence_gated_prediction_ready
+            and goal_id == 5
+            and not self._task_lock
+            and hasattr(self.env, 'grid')
+        ):
             self.last_action_rationale = self._finalize_action_rationale({
                 "explored": False, "eps": float(eps),
                 "goal_id": 5, "continuous": False,
@@ -1931,14 +2078,12 @@ class CognitiveCycle:
         # only when disable_blended_scorer=False; default returns geometry early.
         # Geometry suggestion (BFS/Manhattan) is blended as an uncertainty-weighted
         # prior — strongest when G' is uncertain, fading as confidence grows.
-        geo_action: Optional[int] = None
-        if hasattr(self.env, "agent_pos") and self.env.get_goal_position() is not None:
-            geo_action, _, _ = self._select_greedy_grid_action()
-        self._geo_action_cache = geo_action  # cache for probe recording
-
         # NEW-05 / D-156 / D-157: skip prediction-scored loop when geometry is forced
-        should_skip_blended = self.interventions.disable_blended_scorer or (
-            self.interventions.adaptive_confidence_gating
+        should_skip_blended = (
+            self.interventions.disable_blended_scorer and not confidence_gated
+        ) or (
+            not confidence_gated
+            and self.interventions.adaptive_confidence_gating
             and not self.interventions.disable_blended_scorer
             and self.interventions.before_blended_warmup_cycles > 0
             and self.cycle_count < self.interventions.before_blended_warmup_cycles
@@ -2124,9 +2269,13 @@ class CognitiveCycle:
                 getattr(self.gprime, "discrete_inference_backend", None)
                 == "fallback"
             )
+            effective_threshold = (
+                float(self.interventions.confidence_gated_threshold)
+                if confidence_gated else self._calibration_threshold
+            )
             if (
                 not fallback_backend
-                and (mean_conf < self._calibration_threshold or persistent_disagreement)
+                and (mean_conf < effective_threshold or persistent_disagreement)
             ):
                 best_action = geo_action
                 best_score = None
@@ -2141,7 +2290,10 @@ class CognitiveCycle:
                     "mean_conf_preview": mean_conf,
                     "agreement_rate": self._last_agreement_rate,
                 }
-                selector_mode = "adaptive_geometry_fallback"
+                selector_mode = (
+                    "confidence_gated_geometry"
+                    if confidence_gated else "adaptive_geometry_fallback"
+                )
             else:
                 selector_mode = "prediction_scored"
         else:
@@ -2154,7 +2306,18 @@ class CognitiveCycle:
         else:
             self.last_candidate_rollouts = []
 
-        self.last_action_rationale = self._finalize_action_rationale({
+        if confidence_gated and selector_mode == "prediction_scored":
+            selector_mode = "confidence_gated_prediction"
+        decision_reason = (
+            "confidence_gated_prediction"
+            if confidence_gated and selector_mode == "confidence_gated_prediction"
+            else "adaptive_geo_fallback"
+            if selector_mode == "adaptive_geometry_fallback"
+            else "confidence_below_threshold"
+            if selector_mode == "confidence_gated_geometry"
+            else "prediction"
+        )
+        rationale = {
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id), "continuous": False,
             "best_score": max(0.0, float(best_score)) if best_score is not None else 0.0,
@@ -2167,7 +2330,16 @@ class CognitiveCycle:
                 self.gprime, "discrete_inference_backend", None
             ),
             "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
-        }, decision_reason="adaptive_geo_fallback" if selector_mode == "adaptive_geometry_fallback" else "prediction")
+        }
+        if confidence_gated:
+            rationale.update({
+                "confidence_gated": True,
+                "confidence_threshold": float(self.interventions.confidence_gated_threshold),
+                "rolling_success_rates": dict(self._confidence_gated_last_rates),
+            })
+        self.last_action_rationale = self._finalize_action_rationale(
+            rationale, decision_reason=decision_reason,
+        )
         return best_action
 
     def _select_continuous_action(self) -> np.ndarray:
