@@ -96,6 +96,19 @@ Default gated controls:
 
 This rule is deliberately not tuned to force a pass.
 
+### Evidence-power label
+
+Every causal-evaluator summary includes per-metric bootstrap intervals and an
+explicit evidence-quality label. Fewer than 10 shared seeds is `smoke_power`;
+10–29 is `diagnostic_power`; at least 30 shared seeds for PHCA and every gated
+control is `causal_power` and is marked promotion-ready. The scenario gate's
+boolean is deliberately unchanged, so a small run can still produce a
+descriptive PASS; it is not a promotion decision without `causal_power`.
+
+The canonical benchmark result also carries selector-mode and decision-reason
+counts when its science trace is attached. This is required to distinguish
+planner-dominated default runs from prediction-scored runs.
+
 ## Current Measurement — overnight SoT (D-197)
 
 Prefer `logs/overnight_20260802_103502/causal_*_l2l3_geometry.json` (geometry default)
@@ -266,4 +279,3 @@ Prior measurement (2026-07-04 pre-L3-coverage fix):
 |-------|--------|-------------------------|
 | `level2` | PASS | 3/4 metrics |
 | `level3` | FAIL | 4/6 metrics (`coverage_rate` short) |
-

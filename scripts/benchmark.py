@@ -37,6 +37,7 @@ from phca.evaluation.metrics.phi_iq import (
 from phca.evaluation.result_schema import DEFAULT_WEIGHTS
 from phca.evaluation.metrics.statistics import seed_sequence
 from phca.evaluation.result_schema import BenchmarkConfig, BenchmarkReport, BenchmarkResult
+from phca.evaluation.trace import TraceCollector, summarize_action_selection
 from phca.logging import ensure_logging
 
 
@@ -98,6 +99,7 @@ class BenchmarkRunner:
         level_iv = self.interventions
         if level == 3 and level_iv is None:
             level_iv = InterventionConfig(disable_task_lock=True)
+        trace = TraceCollector(verbose=False)
         cycle = CognitiveCycle.build_for_env(
             size=self.config.grid_size,
             seed=self.config.seed + level,
@@ -106,6 +108,7 @@ class BenchmarkRunner:
             obstacles=obstacles,
             action_slip=self.config.action_slip,
             interventions=level_iv,
+            trace_collector=trace,
         )
 
         apply_grid_rbta_bounds(
@@ -132,6 +135,7 @@ class BenchmarkRunner:
         result = compute_level_metrics(level, history, cycle, n, self.config.weights)
         result.transfer_efficiency = result.adaptation_speed * result.prediction_accuracy
         result.phi_iq = compute_phi_iq(result, self.config.weights)
+        result.raw_metrics["action_selection"] = summarize_action_selection(trace.snapshot())
         return result
 
     def _dump_history_csv(self, history: List[CycleMetrics], level: int) -> None:
@@ -221,10 +225,12 @@ def run_multiseed(
     levels: List[int],
     config: BenchmarkConfig,
     n_seeds: int,
+    interventions: Optional[InterventionConfig] = None,
 ) -> Tuple[BenchmarkReport, Dict[str, Any]]:
     base_seed = config.seed
     overall_scores: List[float] = []
     per_level: Dict[int, List[float]] = {level: [] for level in levels}
+    action_selection_by_level: Dict[str, Dict[str, Any]] = {}
     last_report: Optional[BenchmarkReport] = None
 
     for i, seed in enumerate(seed_sequence(base_seed, n_seeds)):
@@ -242,12 +248,26 @@ def run_multiseed(
             weights=config.weights.copy(),
         )
         print(f"\n{'#'*60}\n  Seed {seed} ({i + 1}/{n_seeds})\n{'#'*60}")
-        runner = BenchmarkRunner(run_config)
+        runner = BenchmarkRunner(run_config, interventions=interventions)
         report = runner.run_all(levels)
         last_report = report
         overall_scores.append(report.overall_phi_iq)
         for r in report.results:
             per_level[r.level].append(r.phi_iq)
+            source = r.raw_metrics.get("action_selection", {})
+            target = action_selection_by_level.setdefault(
+                str(r.level),
+                {
+                    "n_records": 0,
+                    "selector_mode_counts": {},
+                    "decision_reason_counts": {},
+                },
+            )
+            target["n_records"] += int(source.get("n_records", 0))
+            for field_name in ("selector_mode_counts", "decision_reason_counts"):
+                for key, value in (source.get(field_name) or {}).items():
+                    counts = target[field_name]
+                    counts[str(key)] = counts.get(str(key), 0) + int(value)
 
     assert last_report is not None
     level_stats = {
@@ -273,6 +293,7 @@ def run_multiseed(
             "values": overall_scores,
         },
         "per_level_phi_iq": level_stats,
+        "action_selection": action_selection_by_level,
     }
     print(f"\n{'='*60}")
     print(f"  Multi-seed summary ({n_seeds} seeds, base={base_seed})")
@@ -384,7 +405,9 @@ def main() -> None:
         )
     multi_seed_data: Optional[Dict[str, Any]] = None
     if args.seeds > 1:
-        report, multi_seed_data = run_multiseed(levels, config, args.seeds)
+        report, multi_seed_data = run_multiseed(
+            levels, config, args.seeds, interventions=interventions,
+        )
         print_report(report, interventions=interventions)
     else:
         runner = BenchmarkRunner(config, interventions=interventions)

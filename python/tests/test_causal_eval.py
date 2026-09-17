@@ -111,6 +111,28 @@ def test_causal_eval_smoke_short_run_emits_required_sections():
     assert "prediction_error_mean" in report["summary"]["phca"]
     assert gate.get("secondary_prediction", {}).get("gated") is False
     assert gate.get("prediction_error_mean") is not None
+    assert gate["evidence_quality"] == "smoke_power"
+    assert gate["statistical_power"]["promotion_ready"] is False
+    assert gate["statistical_power"]["phca_seeds"] == 1
+    assert "goal_rate_ci95_lo" in report["summary"]["phca"]
+
+
+def test_causal_eval_marks_thirty_shared_seeds_as_promotion_ready():
+    mod = _load_eval_module()
+    rows = []
+    for seed in range(30):
+        rows.extend([
+            {"agent": "phca", "seed": seed, "cycles": 10, "goal_rate": 0.8,
+             "first_goal_cycle": 2, "mean_distance_to_goal": 0.6,
+             "cumulative_reward": 5.0},
+            {"agent": "random", "seed": seed, "cycles": 10, "goal_rate": 0.1,
+             "first_goal_cycle": None, "mean_distance_to_goal": 4.0,
+             "cumulative_reward": -0.1},
+        ])
+    summary = mod.aggregate_runs(rows)
+    gate = mod.compare_agents(summary, gate_controls=["random"])["gate"]
+    assert gate["evidence_quality"] == "causal_power"
+    assert gate["statistical_power"]["promotion_ready"] is True
 
 
 def test_level2_wrapper_exposes_constrained_observation_to_observed_greedy():

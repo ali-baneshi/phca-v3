@@ -8,7 +8,11 @@ from phca.evaluation.result_schema import (
     ExperimentResult,
     RunSummary,
 )
-from phca.evaluation.trace import CycleTraceRecord, TraceCollector
+from phca.evaluation.trace import (
+    CycleTraceRecord,
+    TraceCollector,
+    summarize_action_selection,
+)
 
 __all__ = [
     "BenchmarkConfig",
@@ -19,4 +23,5 @@ __all__ = [
     "InterventionConfig",
     "RunSummary",
     "TraceCollector",
+    "summarize_action_selection",
 ]

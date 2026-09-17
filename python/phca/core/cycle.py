@@ -596,6 +596,8 @@ class CognitiveCycle:
                         if self.interventions.enable_attention else None
                     ),
                     env_goal_relocated=self._env_goal_relocated,
+                    action_rationale=self.last_action_rationale,
+                    candidate_scores=self.last_candidate_scores,
                 )
                 self._env_goal_relocated = False
             if len(self.metrics_history) > 5000:
@@ -1515,6 +1517,8 @@ class CognitiveCycle:
                     if self.interventions.enable_attention else None
                 ),
                 env_goal_relocated=self._env_goal_relocated,
+                action_rationale=self.last_action_rationale,
+                candidate_scores=self.last_candidate_scores,
             )
             self._env_goal_relocated = False
         if len(self.metrics_history) > 5000:

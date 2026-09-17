@@ -69,6 +69,7 @@ class RunSummary:
     metrics: Dict[str, float] = field(default_factory=dict)
     emergence: Dict[str, float] = field(default_factory=dict)
     failures: Dict[str, Any] = field(default_factory=dict)
+    action_selection: Dict[str, Any] = field(default_factory=dict)
     duration_s: float = 0.0
 
 

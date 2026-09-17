@@ -30,6 +30,7 @@ from phca.evaluation.interventions import (
     action_selection_interpretation,
 )
 from phca.evaluation.metrics.statistics import seed_sequence
+from phca.evaluation.metrics.statistics import bootstrap_ci
 from phca.config import ResourceBounds
 from phca.world_model.mlp import gprime_stress_bounds
 
@@ -553,6 +554,10 @@ def aggregate_runs(
             vals = [_metric_value(row, metric) for row in rows]
             data[f"{metric}_mean"] = float(mean(vals))
             data[f"{metric}_median"] = float(median(vals))
+            data[f"{metric}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+            ci_lo, ci_hi = bootstrap_ci(vals, seed=42)
+            data[f"{metric}_ci95_lo"] = float(ci_lo)
+            data[f"{metric}_ci95_hi"] = float(ci_hi)
         data["success_rate"] = float(mean([
             1.0 if row.get("first_goal_cycle") is not None else 0.0
             for row in rows
@@ -596,6 +601,7 @@ def compare_agents(
 ) -> Dict[str, Any]:
     phca = summary.get("phca")
     metric_list = list(metrics)
+    gate_control_list = list(gate_controls)
     if phca is None:
         return {"gate": {"passed": False, "reason": "missing phca rows"}}
     comparisons: Dict[str, Any] = {}
@@ -629,7 +635,7 @@ def compare_agents(
             "phca_better_count": better_count,
             "phca_worse_count": worse_count,
         }
-        if other in gate_controls:
+        if other in gate_control_list:
             needed = max(1, int(np.ceil(len(metric_list) * 0.75)))
             passed = better_count >= needed
             gate_details[other] = {
@@ -639,6 +645,27 @@ def compare_agents(
             }
             gate_passed = gate_passed and passed
     phca_summary = summary.get("phca") or {}
+    sample_sizes = {
+        agent: int(data.get("n", 0)) for agent, data in summary.items()
+    }
+    minimum_causal_seeds = 30
+    minimum_diagnostic_seeds = 10
+    phca_n = int(phca_summary.get("n", 0))
+    control_ns = {
+        control: int((summary.get(control) or {}).get("n", 0))
+        for control in gate_control_list
+    }
+    all_adequate = phca_n >= minimum_causal_seeds and all(
+        n >= minimum_causal_seeds for n in control_ns.values()
+    )
+    all_diagnostic = phca_n >= minimum_diagnostic_seeds and all(
+        n >= minimum_diagnostic_seeds for n in control_ns.values()
+    )
+    evidence_quality = (
+        "causal_power" if all_adequate
+        else "diagnostic_power" if all_diagnostic
+        else "smoke_power"
+    )
     geo_dom = float(phca_summary.get("geometry_dominated_frac", 0.0))
     pe_raw = phca_summary.get("prediction_error_mean")
     pe_mean = float(pe_raw) if pe_raw is not None else None
@@ -666,6 +693,19 @@ def compare_agents(
         "controls": gate_details,
         "rule": "PHCA must beat each gated control on >=75% of scenario metrics",
         "note": "greedy_full_info is reported as a ceiling unless explicitly gated",
+        "sample_sizes": sample_sizes,
+        "evidence_quality": evidence_quality,
+        "statistical_power": {
+            "minimum_diagnostic_seeds": minimum_diagnostic_seeds,
+            "minimum_causal_seeds": minimum_causal_seeds,
+            "phca_seeds": phca_n,
+            "gated_control_seeds": control_ns,
+            "promotion_ready": bool(all_adequate),
+            "note": (
+                "Scenario PASS/FAIL remains descriptive below 30 shared seeds; "
+                "use the 30-seed profile for causal promotion decisions."
+            ),
+        },
         "rbta_violation_rate_mean": phca_summary.get("rbta_violation_rate_mean"),
         "geometry_dominated_frac": geo_dom,
         "selector_mode_pct": phca_summary.get("selector_mode_pct"),

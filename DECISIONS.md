@@ -2744,3 +2744,37 @@ NEW-14 is confirmed resolved at the project's stated 30-seed standard.
 - **Decision:** Retain `--confidence-gated` as experimental and disabled by default. Record the valid 30-seed × 200-cycle 5×5 run as behavioral evidence, but do not make a 10×10 claim because the corrected 10×10 command produced no result artifact.
 - **Evidence:** `logs/action_selection_validation/final_default_5x5_30x200.json`, `logs/action_selection_validation/final_gated_5x5_30x200.json`, and `docs/action_selection_validation_2026-09-16.md`.
 - **Rationale:** The unit and integration tests establish selector semantics. The 5×5 run shows the opt-in path is exercised and that rolling fallback activates. Missing 10×10 output is an unresolved validation gap, not evidence of success or failure.
+
+## Decision D-204: Persist action-selection evidence in science traces
+
+- **Date:** 2026-09-17
+- **Category:** Tier 1 (evaluation / observability correctness)
+- **Decision:** Extend `CycleTraceRecord` additively with selector mode, decision reason, action rationale, and candidate scores, and pass the cycle's finalized rationale into both sync and async trace publication paths.
+- **Rationale:** Observatory frames already exposed this information, but benchmark traces and derived experiment outputs did not. Without it, an external reviewer could see performance metrics without reliably reconstructing which selector acted.
+- **Non-goals:** No action-selection behavior, planner, G′ architecture, RBTA policy, or Observatory schema change.
+- **Cross-ref:** `python/phca/evaluation/trace.py`, `python/phca/core/cycle.py`, `docs/observability.md`.
+
+## Decision D-205: Make causal evidence quality explicit
+
+- **Date:** 2026-09-17
+- **Category:** Tier 1 (evaluation correctness)
+- **Decision:** Add confidence intervals and explicit `smoke_power`, `diagnostic_power`, and `causal_power` metadata to causal-evaluation summaries; treat 30 shared seeds as promotion-ready evidence while preserving the existing scenario gate semantics.
+- **Rationale:** Existing reports could print a scenario PASS at an underpowered sample. Labeling evidence quality prevents that result from being over-read without changing historical comparisons or silently changing the gate.
+- **Implementation:** Aggregate per-metric bootstrap intervals; report sample sizes and power thresholds in `scripts/phca_causal_eval.py`.
+- **Cross-ref:** `docs/phca_causal_evidence.md`, `docs/limitations.md`.
+
+## Decision D-206: Preserve selector interventions in multi-seed benchmarks
+
+- **Date:** 2026-09-17
+- **Category:** Tier 1 (benchmark harness correctness)
+- **Decision:** Pass `InterventionConfig` through `scripts/benchmark.py::run_multiseed()` and aggregate action-selection evidence across all reported seeds.
+- **Rationale:** A multi-seed invocation with `--confidence-gated` previously constructed the intervention but dropped it before each `BenchmarkRunner`, silently measuring the default selector. The same path also exposed only the last seed's selector evidence.
+- **Non-goals:** No default selector change and no MuJoCo behavior change.
+
+## Decision D-207: Keep confidence-gated selection experimental after repair validation
+
+- **Date:** 2026-09-17
+- **Category:** Tier 2 (experimental validation)
+- **Decision:** Keep pure geometry as the default and do not promote `--confidence-gated` after the current 30-seed × 200-cycle 5×5 L2 comparison.
+- **Evidence:** `docs/action_selection_validation_2026-09-17.md` and the two raw reports under `logs/repair_validation/`.
+- **Rationale:** The gated branch is reachable and fully instrumented, but both modes fail against `greedy_observed`; the modest differences do not establish a causal improvement. 10×10 and full multi-level promotion evidence remain open.

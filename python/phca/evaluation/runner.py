@@ -22,7 +22,7 @@ from phca.evaluation.metrics.phi_iq import (
 from phca.evaluation.metrics.statistics import aggregate_runs, compare_groups, seed_sequence
 from phca.evaluation.metrics.synergy import synergy_score
 from phca.evaluation.result_schema import BenchmarkConfig, RunSummary
-from phca.evaluation.trace import TraceCollector
+from phca.evaluation.trace import TraceCollector, summarize_action_selection
 from phca.environments.bandit_env import BanditEnv
 from phca.environments.grid_world import GridWorld
 
@@ -140,8 +140,9 @@ def run_benchmark_level(
         cycle.step()
     history = list(cycle.metrics_history)
     result = compute_level_metrics(level, history, cycle, n, config.weights)
-    emergence = compute_emergence_bundle(trace.snapshot())
-    synergy = synergy_score(trace.snapshot())
+    trace_records = trace.snapshot()
+    emergence = compute_emergence_bundle(trace_records)
+    synergy = synergy_score(trace_records)
     failures = _collect_failures(history, cycle)
     return RunSummary(
         seed=seed,
@@ -158,6 +159,7 @@ def run_benchmark_level(
         },
         emergence={**emergence, "synergy": synergy},
         failures=failures,
+        action_selection=summarize_action_selection(trace_records),
     )
 
 
@@ -175,17 +177,44 @@ def run_full_benchmark(
     merged_metrics: Dict[str, float] = {"phi_iq": float(np.mean(phi_scores))}
     merged_emergence: Dict[str, float] = {}
     merged_failures: Dict[str, Any] = {}
+    merged_action_selection: Dict[str, Any] = {
+        "n_records": 0,
+        "selector_mode_counts": {},
+        "decision_reason_counts": {},
+    }
     for s in summaries:
         merged_metrics.update(s.metrics)
         for k, v in s.emergence.items():
             merged_emergence[k] = max(merged_emergence.get(k, 0.0), v)
         for k, v in s.failures.items():
             merged_failures[k] = merged_failures.get(k, 0) + v
+        merged_action_selection["n_records"] += int(s.action_selection.get("n_records", 0))
+        for field_name in ("selector_mode_counts", "decision_reason_counts"):
+            merged = merged_action_selection[field_name]
+            for key, value in (s.action_selection.get(field_name) or {}).items():
+                merged[key] = merged.get(key, 0) + int(value)
+    n_records = int(merged_action_selection["n_records"])
+    merged_action_selection["rationale_coverage"] = float(
+        sum(
+            int(s.action_selection.get("rationale_coverage", 0.0) *
+                s.action_selection.get("n_records", 0))
+            for s in summaries
+        ) / max(n_records, 1)
+    )
+    merged_action_selection["candidate_score_coverage"] = float(
+        sum(
+            s.action_selection.get("candidate_score_coverage", 0.0) *
+            s.action_selection.get("n_records", 0)
+            for s in summaries
+        ) / max(n_records, 1)
+    )
+
     return RunSummary(
         seed=seed,
         metrics=merged_metrics,
         emergence=merged_emergence,
         failures=merged_failures,
+        action_selection=merged_action_selection,
     )
 
 
@@ -294,8 +323,9 @@ def run_mujoco_smoke_report(
                 violation_details.append(_violation_to_dict(v, i))
     early = float(np.mean(errors[:max(1, len(errors) // 4)]))
     late = float(np.mean(errors[-max(1, len(errors) // 4):]))
-    emergence = compute_emergence_bundle(trace.snapshot())
-    synergy = synergy_score(trace.snapshot())
+    trace_records = trace.snapshot()
+    emergence = compute_emergence_bundle(trace_records)
+    synergy = synergy_score(trace_records)
     failures = _collect_failures(cycle.metrics_history, cycle)
     result: Dict[str, Any] = {
         "env": env_name, "n_cycles": n_cycles, "model": "MLP" if use_mlp else "Gaussian",
@@ -312,6 +342,7 @@ def run_mujoco_smoke_report(
         "no_errors": all(np.isfinite(e) for e in errors),
         "synergy": synergy,
         "emergence": emergence,
+        "action_selection": summarize_action_selection(trace_records),
         "failures": failures,
     }
     if violation_details:

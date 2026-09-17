@@ -104,6 +104,12 @@ loading; mixed schema versions in a single JSONL fail `--check` unless
 
 `schema_version`, `agent_id`, `agent_label`, `timeline_step`, scalars, `grid`, `obs_vector`, `predicted_state`, `goal_ref`, `gprime_uncertainty`, `attention_indices`, `attention_saliences`, `candidate_scores`, `action_rationale`, `module_timings` (**ms**), `rbta_bounds` (**time in seconds**), `rbta_violations`, `runtime_log`, `memory_log`, `energy_log`, `drive_*`, `goal_stack`, `goal_history`, `pareto_front`, `meta_stable`, `m3_top_error`, `dim_names`, `action_names`, retention caps, etc.
 
+The separate opt-in `TraceCollector` used by scientific runners now persists the
+same decision-level essentials as additive fields: `selector_mode`,
+`decision_reason`, `action_rationale`, and `candidate_scores`. This makes selector
+path accounting reproducible in benchmark results without changing the existing
+ObservabilityFrame schema. Candidate rollouts remain live-only.
+
 | Field | Default | Description |
 |-------|---------|-------------|
 | `agent_id` | `0` | Agent index within a session (legacy single-agent = 0) |

@@ -20,7 +20,10 @@ from phca.world_model.mlp import gprime_stress_bounds
 from phca.evaluation.metrics.emergence import compute_emergence_bundle
 from phca.evaluation.metrics.phi_iq import generate_goal_pursuit_obstacles
 from phca.evaluation.metrics.synergy import synergy_score
-from phca.evaluation.trace import CycleTraceRecord, TraceCollector
+from phca.evaluation.trace import (
+    CycleTraceRecord,
+    summarize_action_selection,
+)
 from phca.logging import ensure_logging
 
 
@@ -37,6 +40,7 @@ class RollingTrace:
         drive = kwargs.get("goal_drive", 1)
         switched = self._last_goal_drive is not None and self._last_goal_drive != drive
         self._last_goal_drive = drive
+        rationale = kwargs.get("action_rationale") or {}
         rec = CycleTraceRecord(
             cycle_id=kwargs["cycle_id"],
             action=kwargs["action"],
@@ -50,6 +54,10 @@ class RollingTrace:
             latency_ms=kwargs.get("latency_ms", 0.0),
             goal_reached=kwargs.get("goal_reached", False),
             module_timings=kwargs.get("module_timings", {}),
+            selector_mode=str(rationale.get("selector_mode") or ""),
+            decision_reason=str(rationale.get("decision_reason") or ""),
+            action_rationale=rationale,
+            candidate_scores=kwargs.get("candidate_scores"),
         )
         self._records.append(rec)
         if len(self._records) > self.window:
@@ -144,6 +152,8 @@ def main() -> None:
             latency_ms=m.latency_ms,
             goal_reached=m.goal_reached,
             module_timings=dict(m.module_timings),
+            action_rationale=cycle.last_action_rationale,
+            candidate_scores=cycle.last_candidate_scores,
         )
         if args.checkpoint_every and (i + 1) % args.checkpoint_every == 0:
             trace.flush_window_summary(i + 1 - window)
@@ -166,6 +176,7 @@ def main() -> None:
         "grid_size": args.grid_size,
         "duration_s": duration,
         "final_emergence": final_emergence,
+        "action_selection": summarize_action_selection(trace.snapshot()),
         "rolling_windows": trace.summaries,
         "checkpoint": str(ckpt_path) if ckpt_path.exists() else None,
         "resume_drift": resume_drift,

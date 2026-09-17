@@ -97,10 +97,26 @@ The valid 30-seed × 200-cycle 5×5 validation record is in
 [`docs/action_selection_validation_2026-09-16.md`](action_selection_validation_2026-09-16.md);
 the planned corrected 10×10 run has no result artifact and remains unvalidated.
 
-Action rationale is available in Observatory frames when observability is attached,
-but low-level trace records do not necessarily contain the complete candidate-score
-and veto chain; an auditor cannot assume every entrypoint persists the same detail.
-See `python/phca/monitoring/observability.py` and `python/phca/evaluation/trace.py`.
+The latest repair validation is a separate, limited-scope 5×5 L2 comparison:
+both default geometry and confidence-gated selection failed against
+`greedy_observed` at 30 seeds. See
+[`action_selection_validation_2026-09-17.md`](action_selection_validation_2026-09-17.md).
+
+Action rationale is available in Observatory frames when observability is attached.
+Attached science traces now also persist selector mode, decision reason, rationale,
+and candidate scores, but candidate rollouts and the full live RBTA violation object
+remain outside the low-level trace contract. An auditor can reconstruct the selector
+path when a trace is attached, but must use an Observatory session for the richest
+candidate and veto detail. See `python/phca/monitoring/observability.py` and
+`python/phca/evaluation/trace.py`.
+
+### Benchmark evidence quality is explicit but not automatically promotional
+
+The causal evaluator labels runs below 10 shared seeds as smoke evidence, runs from
+10 through 29 seeds as diagnostic evidence, and runs with at least 30 shared seeds as
+causal-power evidence. The scenario gate itself is intentionally unchanged, so a
+small run can still print PASS; that PASS must not be used as a promotion decision.
+See `scripts/phca_causal_eval.py` and `docs/phca_causal_evidence.md`.
 
 ### Partial-observability viewport is wall/goal-only
 

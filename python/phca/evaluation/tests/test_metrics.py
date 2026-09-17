@@ -10,7 +10,11 @@ from phca.evaluation.metrics.emergence import (
 from phca.evaluation.metrics.phi_iq import compute_phi_iq, DEFAULT_WEIGHTS
 from phca.evaluation.metrics.statistics import mann_whitney_u, seed_sequence
 from phca.evaluation.result_schema import BenchmarkResult
-from phca.evaluation.trace import CycleTraceRecord, TraceCollector
+from phca.evaluation.trace import (
+    CycleTraceRecord,
+    TraceCollector,
+    summarize_action_selection,
+)
 
 
 def _synthetic_trace(actions: list[int], n: int = 100) -> list[CycleTraceRecord]:
@@ -68,6 +72,63 @@ def test_trace_collector():
               prediction_confidence=0.5, goal_drive=1, rbta_action="CONTINUE",
               violations=0, latency_ms=10.0, goal_reached=False, module_timings={})
     assert len(tc) == 1
+
+
+def test_trace_collector_preserves_action_selection_evidence():
+    tc = TraceCollector()
+    rationale = {
+        "selector_mode": "confidence_gated_geometry",
+        "decision_reason": "confidence_below_threshold",
+        "confidence_threshold": 0.9,
+    }
+    tc.record(
+        cycle_id=3, action=1, reward=0.0, prediction_error=0.2,
+        prediction_confidence=0.3, goal_drive=1, rbta_action="CONTINUE",
+        violations=0, latency_ms=1.0, goal_reached=False, module_timings={},
+        action_rationale=rationale, candidate_scores=[0.1, 0.8, 0.2],
+    )
+    record = tc.snapshot()[0]
+    assert record.selector_mode == "confidence_gated_geometry"
+    assert record.decision_reason == "confidence_below_threshold"
+    assert record.action_rationale == rationale
+    assert record.candidate_scores == [0.1, 0.8, 0.2]
+
+
+def test_trace_collector_defaults_keep_legacy_callers_valid():
+    tc = TraceCollector()
+    tc.record(
+        cycle_id=0, action=0, reward=0.0, prediction_error=0.0,
+        prediction_confidence=0.0, goal_drive=1, rbta_action="CONTINUE",
+        violations=0, latency_ms=0.0, goal_reached=False, module_timings={},
+    )
+    record = tc.snapshot()[0]
+    assert record.selector_mode == ""
+    assert record.decision_reason == ""
+    assert record.action_rationale == {}
+    assert record.candidate_scores == []
+
+
+def test_action_selection_summary_is_explicit_about_trace_coverage():
+    records = [
+        CycleTraceRecord(
+            cycle_id=0,
+            action=0,
+            selector_mode="pure_geometry_ablation",
+            decision_reason="ablation_pure_geometry",
+            action_rationale={"selector_mode": "pure_geometry_ablation"},
+            candidate_scores=[1.0, 0.0],
+        ),
+        CycleTraceRecord(cycle_id=1, action=1),
+    ]
+    summary = summarize_action_selection(records)
+    assert summary["n_records"] == 2
+    assert summary["selector_mode_counts"] == {
+        "pure_geometry_ablation": 1,
+        "unknown": 1,
+    }
+    assert summary["decision_reason_counts"]["ablation_pure_geometry"] == 1
+    assert summary["rationale_coverage"] == 0.5
+    assert summary["candidate_score_coverage"] == 0.5
 
 
 def test_mann_whitney_u():

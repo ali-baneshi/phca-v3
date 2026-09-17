@@ -104,6 +104,11 @@ The authoritative static snapshot for this subsystem is
 [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md); the evidence ledger is
 [`AUDIT_ACTION_SELECTION_2026-09-16.md`](AUDIT_ACTION_SELECTION_2026-09-16.md).
 
+Scientific benchmark traces now retain selector mode, decision reason, rationale,
+and candidate scores when a `TraceCollector` is attached. Causal reports also label
+whether their shared-seed sample is smoke, diagnostic, or 30-seed causal power; this
+metadata describes evidence quality and does not promote the experimental selector.
+
 The continuous-control path (MuJoCo Pendulum, Reacher — MPC-style sampling scored by G′)
 was not part of the environments where the discrete-path collapse was observed, and its
 selection mechanism has always scored every candidate by G′ prediction regardless of the
@@ -137,6 +142,15 @@ treat the post-RBTA-fix 77.8% blended figure as causal-gate competence.
 reliably across levels and scales.** Pure geometry is the less-broken default; closing
 the gap remains the project's central open problem (G2-INV-05). See
 [`docs/investigations/overnight_analysis_2026-08-02.md`](docs/investigations/overnight_analysis_2026-08-02.md).
+
+### Latest repair validation (limited scope, 2026-09-17)
+
+A fresh 30-seed × 200-cycle 5×5 L2 comparison is recorded in
+[`docs/action_selection_validation_2026-09-17.md`](docs/action_selection_validation_2026-09-17.md).
+Default geometry reached goal rate 0.4797; confidence-gated reached 0.5072; both
+lost to `greedy_observed` and failed the scenario gate. This validates branch
+reachability and evidence capture, not selector promotion. The corrected 10×10
+gated protocol remains unvalidated.
 
 ---
 
@@ -781,7 +795,7 @@ D-137 (historical only).
 | [docs/architecture.md](docs/architecture.md) | Architecture overview — bannered pre-D-156 drift; prefer README A4 + DECISIONS. |
 | [docs/phi_iq_metric.md](docs/phi_iq_metric.md) | Phi-IQ definition; default discrete L2 is planner-contaminated. |
 | [docs/action_selection.md](docs/action_selection.md) | Discrete vs. continuous selectors — geometry default first; blended opt-in. |
-| [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) | **Authoritative 2026-09-16 as-is snapshot** for action selection. |
+| [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md) | **Authoritative 2026-09-17 as-is snapshot** for action selection. |
 | [SPEC_ACTION_SELECTION.md](SPEC_ACTION_SELECTION.md) | Action-selection contract and approved opt-in extension specification. |
 | [docs/action_selection_validation_2026-09-16.md](docs/action_selection_validation_2026-09-16.md) | Validation evidence and explicit unresolved benchmark coverage for the opt-in selector. |
 | [docs/limitations.md](docs/limitations.md) | What PHCA cannot currently do; open backlog items. |
