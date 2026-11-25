@@ -71,9 +71,6 @@ ci-local: lint
 	@python -c "import pytest_benchmark.plugin" 2>/dev/null || (echo "❌ pytest-benchmark missing — run: pip install -r requirements.txt" && exit 1)
 	PYTHONPATH=python:$$PYTHONPATH MUJOCO_GL=disabled python -m pytest python/tests/ python/phca/ \
 	    -v --tb=short --timeout=30 --maxfail=5 --benchmark-skip
-	@echo "Observatory session integrity gate..."
-	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/multi_agent_short/
-	PYTHONPATH=python:$$PYTHONPATH python scripts/phca_replay.py --check python/phca/monitoring/tests/fixtures/reacher_short/
 	mkdir -p logs
 	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
 	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
@@ -180,12 +177,12 @@ nightly:
 	echo "============================================"; \
 	echo "  PHCA v3.0 — Nightly CI Hardening"; \
 	echo "============================================"; \
-	echo "[1/7] Static Φ-IQ benchmark (200cyc MLP)..."; \
+	echo "[1/5] Static Φ-IQ benchmark (200cyc MLP)..."; \
 	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --use-mlp --cycles=200 --output=logs/nightly_static.json >/dev/null \
 	    && python scripts/check_benchmark_gate.py logs/nightly_static.json logs/benchmark_ci_baseline.json \
 	    || FAILED="$${FAILED} static-phi-iq"; \
-	echo "[2/7] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."; \
+	echo "[2/5] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."; \
 	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null \
 	    && MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
@@ -196,26 +193,19 @@ nightly:
 	    logs/nightly_mujoco_pendulum.json logs/nightly_mujoco_cartpole.json logs/nightly_mujoco_reacher.json \
 	    && python scripts/check_benchmark_gate.py --neg-test >/dev/null \
 	    || FAILED="$${FAILED} mujoco-gate"; \
-	echo "[3/7] Assumption validation (A1–A5 incl. A2, --ci)..."; \
+	echo "[3/5] Assumption validation (A1–A5 incl. A2, --ci)..."; \
 	MUJOCO_GL=disabled PYTHONPATH=python:scripts:$$PYTHONPATH python scripts/assumption_validation.py --ci \
 	    --output=logs/nightly_assumptions.json \
 	    || FAILED="$${FAILED} assumption-validation"; \
-	echo "[4/7] OOD calibration (σ-sweep, monotonic)..."; \
+	echo "[4/5] OOD calibration (σ-sweep, monotonic)..."; \
 	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/ood_calibration.py \
 	    --output=logs/nightly_ood.json \
 	    || FAILED="$${FAILED} ood-calibration"; \
-	echo "[5/7] Nightly stress (NIGHTLY_CYCLES=$(NIGHTLY_CYCLES))..."; \
-	MUJOCO_GL=disabled NIGHTLY_CYCLES=$(NIGHTLY_CYCLES) PYTHONPATH=python:$$PYTHONPATH \
-	    python scripts/nightly_stress.py --output=logs/nightly_stress.json \
-	    || FAILED="$${FAILED} nightly-stress"; \
-	echo "[6/7] Causal behavior gate (level2+level3, 200cyc; 30 seeds)..."; \
+	echo "[5/5] Causal behavior gate (level2+level3, 200cyc; 30 seeds)..."; \
 	MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/phca_causal_eval.py \
 	    --levels level2,level3 --cycles 200 --seeds 30 --use-mlp --gate \
 	    --output logs/phca_causal_eval_nightly.json \
 	    || FAILED="$${FAILED} causal-gate(check-if-L3-only-see-D161)"; \
-	echo "[7/7] Session anomaly gate..."; \
-	PYTHONPATH=python python scripts/nightly_anomaly_gate.py --output=logs/nightly_anomaly_gate.json \
-	    || FAILED="$${FAILED} session-anomaly-gate"; \
 	echo "============================================"; \
 	if [ -n "$$FAILED" ]; then \
 	    echo "  Nightly hardening: FAILED —$$FAILED"; exit 1; \
@@ -225,7 +215,7 @@ nightly:
 	echo "============================================"
 
 nightly-mujoco:
-	@echo "[2/7] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."
+	@echo "[2/5] MuJoCo benchmark gate (Pendulum + Reacher continuous, Cartpole discrete)..."
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
 	    --env pendulum --use-mlp --cycles=100 --output=logs/nightly_mujoco_pendulum.json >/dev/null
 	@MUJOCO_GL=disabled PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py \
@@ -343,7 +333,7 @@ help:
 	@echo "  make test-all       Run all Python tests"
 	@echo "  make test-python    Run Python tests only"
 	@echo "  make lint           Run enforced lint gate (ruff)"
-	@echo "  make ci-local       Run the same checks as GitHub Actions CI (lint + test + observatory + noise-injector + L0 bench + causal-smoke)"
+	@echo "  make ci-local       Run the same checks as GitHub Actions CI (lint + test + noise-injector + L0 bench + causal-smoke)"
 	@echo "  make bench-level-0  Run Level 0 benchmark"
 	@echo "  make bench-all      Run all benchmarks"
 	@echo "  make profile-cycle  Profile the cognitive cycle"

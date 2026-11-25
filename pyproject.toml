@@ -51,14 +51,14 @@ package-dir = {"" = "python"}
 [tool.setuptools.packages.find]
 where = ["python"]
 include = ["phca*"]
+exclude = ["phca.*.tests", "phca.*.tests.*"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["attic"]
 
 [tool.ruff.lint.per-file-ignores]
-"python/phca/monitoring/*.py" = ["E701", "E702", "F401", "F405"]
-"python/phca/monitoring/tests/test_overview_dashboard.py" = ["E402"]
 "python/tests/test_continuous_actions.py" = ["E402"]
 "python/tests/test_cycle_with_mujoco.py" = ["E402"]
 "python/tests/test_mujoco_env.py" = ["E402"]

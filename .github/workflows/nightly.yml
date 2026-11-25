@@ -45,7 +45,6 @@ jobs:
           name: nightly-logs
           path: |
             logs/nightly_static.json
-            logs/nightly_stress.json
             logs/nightly_ood.json
             logs/nightly_assumptions.json
             logs/phca_causal_eval_nightly.json

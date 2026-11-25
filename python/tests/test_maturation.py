@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 import numpy as np
@@ -11,7 +10,6 @@ import pytest
 from phca.core.cycle import CognitiveCycle
 from phca.evaluation.metrics.forgetting import forgetting_rate
 from phca.memory.m3_episodic import M3EpisodicMemory
-from phca.monitoring.observability import ObservabilityFrame
 from phca.resilience import FailureDetector
 
 
@@ -137,21 +135,3 @@ class TestTrackPhiIQHonesty:
         forgetting = forgetting_rate({0: -0.5, 1: 0.1})
         assert forgetting != proxy
         assert proxy == pytest.approx(0.56)
-
-
-class TestTrackObservatoryExport:
-    def test_observability_frame_resilience_json_roundtrip(self):
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
-        cycle.on_task_boundary(2)
-        m = cycle.step()
-        m.failure_events = ["B4"]
-        m.recovery_active = True
-        m.task_id = 2
-        cycle.metrics_history[-1] = m
-        frame = ObservabilityFrame.from_cycle(cycle)
-        raw = frame.to_json()
-        assert raw["task_id"] == 2
-        assert raw["failure_events"] == ["B4"]
-        assert raw["recovery_active"] is True
-        restored = json.loads(json.dumps(raw))
-        assert restored["task_id"] == 2

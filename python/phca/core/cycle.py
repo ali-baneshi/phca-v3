@@ -18,7 +18,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Protocol, Sequence, TYPE_CHECKING
 
 import numpy as np
 
@@ -74,9 +74,17 @@ from phca.asi.adapter import GroundingAdapter
 from phca.evaluation.interventions import DESYNC_STAGE_ORDER, InterventionConfig
 from phca.evaluation.trace import TraceCollector
 
-if TYPE_CHECKING:
-    from phca.monitoring.metrics_store import MetricsStore
-    from phca.monitoring.observability import ObservabilityStore
+
+class CycleObserver(Protocol):
+    """Anything that wants a per-cycle callback.
+
+    ``on_cycle`` runs after metrics are recorded for a completed cycle. It
+    receives the live cycle and the cycle's metrics; it must not mutate them.
+    Exceptions raised by observers propagate to the caller.
+    """
+
+    def on_cycle(self, cycle: "CognitiveCycle", metrics: "CycleMetrics") -> None: ...
+
 
 # AF-005: Normalisation factor for FLOP-based energy signals.
 # ~120M FLOPs (MLP forward+backward at h=128, bs=64, ts=8) → energy ≈ 1.0.
@@ -156,8 +164,7 @@ class CognitiveCycle:
         env: EnvironmentProtocol,
         state_dim: int,
         rbta_bounds: Optional[Dict[str, ResourceBounds]] = None,
-        metrics_store: Optional["MetricsStore"] = None,
-        observability_store: Optional["ObservabilityStore"] = None,
+        observers: Optional[Sequence[CycleObserver]] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
     ):
@@ -180,8 +187,7 @@ class CognitiveCycle:
         self.rbta_bounds = rbta_bounds or DEFAULT_MODULE_BOUNDS.copy()
 
         self.cycle_count: int = 0
-        self.metrics_store = metrics_store
-        self.observability_store = observability_store
+        self.observers: List[CycleObserver] = list(observers or ())
         self.interventions = interventions or InterventionConfig()
         self.trace_collector = trace_collector
 
@@ -192,18 +198,9 @@ class CognitiveCycle:
         )
         self.last_action: np.ndarray = np.zeros(env.action_space_size, dtype=np.float32)
         self.last_prediction: Optional[StateVector] = None
-        # Observability v2: expose signals discarded on the hot path so the
-        # dashboard can show RBTA reasons + action-selection rationale.
         self.last_violations: list = []
         self.last_action_rationale: dict = {}
-        # Observability v3: per-action / per-candidate scores for the
-        # Action-Selection tab of the Qt dashboard.
         self.last_candidate_scores: list = []
-        # Observability v4: cognitive-portrait captures (only populated when
-        # observability_store is attached — zero-overhead when off).
-        self.last_candidate_rollouts: list = []
-        self.last_per_dim_peu: Optional[np.ndarray] = None
-        self.last_empowerment: float = 0.0
         self.sensor_failure_count: int = 0
         self.asi_failure_limit: int = self.sanitizer.asi_failure_limit
         self._asi_stale_safe_mode: bool = False
@@ -224,7 +221,7 @@ class CognitiveCycle:
         # Initialised at 0.5 (neutral) — only MLP/HybridGraphMLP update this via
         # _update_phi_from_gradient; discrete/Gaussian G' stay at neutral.
         self._cached_phi: float = 0.5
-        # Exposed error volatility for observability (read by ObservabilityFrame)
+        # Exposed error volatility for observers and traces.
         self.last_error_volatility: float = 0.0
 
         # C3 fix: unified FLOP-based energy signal for D5 and RBTA
@@ -413,7 +410,6 @@ class CognitiveCycle:
             if force_safe:
                 action = self._neutral_action()
                 self.last_candidate_scores = []
-                self.last_candidate_rollouts = []
                 safe_reason = (
                     "asi_stale_safe" if self._asi_stale_safe_mode and not self._rbta_skip_feedback
                     else "rbta_safe"
@@ -495,7 +491,7 @@ class CognitiveCycle:
             metrics.violations_by_type = {}
             for v in violations:
                 metrics.violations_by_type[v.bound_type] = metrics.violations_by_type.get(v.bound_type, 0) + 1
-            self.last_violations = violations  # Observability v2: RBTA reasons
+            self.last_violations = violations
             metrics.module_timings["rbta"] = (time.perf_counter() - t6) * 1000
             self._rbta_carry_action = enforcer_action
             if enforcer_action in (EnforcerAction.INTERRUPT, EnforcerAction.TERMINATE):
@@ -574,11 +570,8 @@ class CognitiveCycle:
                 self._fact_stagnant_cycles = 0
             self._last_fact_count = metrics.fact_count
             self.metrics_history.append(metrics)
-            if self.metrics_store is not None:
-                self.metrics_store.push(copy.deepcopy(metrics))
-            if self.observability_store is not None:
-                from phca.monitoring.observability import ObservabilityFrame
-                self.observability_store.push(ObservabilityFrame.from_cycle(self))
+            for observer in self.observers:
+                observer.on_cycle(self, metrics)
             if self.trace_collector is not None:
                 self.trace_collector.record(
                     cycle_id=self.cycle_count,
@@ -742,8 +735,6 @@ class CognitiveCycle:
             error_volatility = self._compute_phi_criticality()
             self.last_error_volatility = error_volatility
             empowerment = self._estimate_empowerment()
-            if self.observability_store is not None:
-                self.last_empowerment = float(empowerment)
 
             if self.current_state is not None and self.interventions.enable_consolidation:
                 self._relevant_facts = self.consolidation.get_relevant_facts(
@@ -990,14 +981,6 @@ class CognitiveCycle:
             next_state, corrected_prediction, next_state.precision
         )
         metrics.prediction_error = error
-        if self.observability_store is not None:
-            try:
-                diff = (next_state.values - corrected_prediction.values)
-                self.last_per_dim_peu = (
-                    next_state.precision * (diff ** 2)
-                ).astype(np.float32)
-            except Exception:
-                self.last_per_dim_peu = None
         if corrected_conf > metrics.prediction_confidence:
             metrics.prediction_confidence = corrected_conf
         # Observatory honesty: quality from realised PE (available after PEU).
@@ -1496,11 +1479,8 @@ class CognitiveCycle:
             self._fact_stagnant_cycles = 0
         self._last_fact_count = metrics.fact_count
         self.metrics_history.append(metrics)
-        if self.metrics_store is not None:
-            self.metrics_store.push(copy.deepcopy(metrics))
-        if self.observability_store is not None:
-            from phca.monitoring.observability import ObservabilityFrame
-            self.observability_store.push(ObservabilityFrame.from_cycle(self))
+        for observer in self.observers:
+            observer.on_cycle(self, metrics)
         if self.trace_collector is not None:
             self.trace_collector.record(
                 cycle_id=self.cycle_count,
@@ -1880,7 +1860,6 @@ class CognitiveCycle:
             rationale, decision_reason=reason,
         )
         self.last_candidate_scores = scores
-        self.last_candidate_rollouts = []
         return int(geo_action)
 
     def _neutral_action(self):
@@ -1987,7 +1966,6 @@ class CognitiveCycle:
                 "relevant_fact_ids": [],
             }, decision_reason="no_state")
             self.last_candidate_scores = []
-            self.last_candidate_rollouts = []
             return self.env.stay_action
 
         goal = self.current_goal
@@ -2055,7 +2033,6 @@ class CognitiveCycle:
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="explore")
             self.last_candidate_scores = []
-            self.last_candidate_rollouts = []
             return pick
 
         # D5 (Energy Efficiency): prefer STAY for grid envs — skip under task-lock (P0-3)
@@ -2077,7 +2054,6 @@ class CognitiveCycle:
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="d5_stay")
             self.last_candidate_scores = []
-            self.last_candidate_rollouts = []
             return self.env.stay_action
 
         # Task-lock modulates goal context. Prediction-scored (blended) path runs
@@ -2113,7 +2089,6 @@ class CognitiveCycle:
                     "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
                 }, decision_reason="at_goal_explore")
                 self.last_candidate_scores = scores
-                self.last_candidate_rollouts = []
                 return int(probe)
             scores = self._geometry_candidate_scores()
             best = float(scores[int(geo_action)]) if scores else None
@@ -2129,7 +2104,6 @@ class CognitiveCycle:
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="ablation_pure_geometry")
             self.last_candidate_scores = scores
-            self.last_candidate_rollouts = []
             return geo_action
 
         best_action = self.env.stay_action
@@ -2137,8 +2111,6 @@ class CognitiveCycle:
         action_confidences = []
         scores_per_action = [0.0] * self.env.action_space_size
         best_components: dict = {}
-        _obs = self.observability_store is not None
-        _rollouts: list = []
 
         candidate_indices = range(self.env.action_space_size)
         if self._rbta_action_candidate_limit is not None:
@@ -2156,15 +2128,6 @@ class CognitiveCycle:
                     self.current_state, horizon=1,
                 )
                 action_confidences.append(confidence)
-                if _obs:
-                    _rollouts.append({
-                        "action": action.copy(),
-                        "action_idx": action_idx,
-                        "predicted": np.asarray(predicted.values,
-                                                dtype=np.float32).copy(),
-                        "score": 0.0,
-                        "chosen": False,
-                    })
 
                 distance_gain = self._compute_distance_gain(action_idx)
 
@@ -2218,8 +2181,6 @@ class CognitiveCycle:
                         "prediction_primary": bool(prediction_primary),
                         "fact_boost": float(len(self._relevant_facts) > 0),
                     }
-                if _obs and _rollouts and _rollouts[-1].get("action_idx") == action_idx:
-                    _rollouts[-1]["score"] = float(score)
             except Exception as e:
                 action_confidences.append(0.0)
                 _log(logger, "warning", "action_selection.predict_failed",
@@ -2304,13 +2265,6 @@ class CognitiveCycle:
                 selector_mode = "prediction_scored"
         else:
             selector_mode = "prediction_scored"
-        if _obs:
-            for r in _rollouts:
-                r["chosen"] = (r["action_idx"] == best_action)
-            _rollouts.sort(key=lambda r: r["score"], reverse=True)
-            self.last_candidate_rollouts = _rollouts[:8]
-        else:
-            self.last_candidate_rollouts = []
 
         if confidence_gated and selector_mode == "prediction_scored":
             selector_mode = "confidence_gated_prediction"
@@ -2408,7 +2362,6 @@ class CognitiveCycle:
                 "relevant_fact_ids": [f.fact_id for f in self._relevant_facts],
             }, decision_reason="continuous_explore")
             self.last_candidate_scores = []
-            self.last_candidate_rollouts = []
             return (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
 
         ref = getattr(self.env, "get_goal_reference", lambda: None)()
@@ -2417,8 +2370,6 @@ class CognitiveCycle:
         best_a, best_score, best_idx = None, -float("inf"), -1
         best_components: dict = {}
         cand_scores = []
-        _obs = self.observability_store is not None
-        _rollouts: list = []
         for _ in range(K):
             a = (low + (high - low) * rng.uniform(size=space.dim)).astype(np.float32)
             self.engine.update_action(a)
@@ -2438,14 +2389,6 @@ class CognitiveCycle:
             score = 0.4 * float(np.clip(confidence, 0.0, 1.0)) + 0.5 * ref_align + 0.1 * pga
             cand_scores.append(float(score))
             ci = len(cand_scores) - 1
-            if _obs:
-                _rollouts.append({
-                    "action": a.copy(),
-                    "predicted": np.asarray(predicted.values,
-                                            dtype=np.float32).copy(),
-                    "score": float(score),
-                    "chosen": False,
-                })
             if score > best_score:
                 best_score, best_a, best_idx = score, a, ci
                 best_components = {
@@ -2454,13 +2397,6 @@ class CognitiveCycle:
                     "pga": float(pga),
                 }
         self.last_candidate_scores = cand_scores
-        if _obs:
-            for r in _rollouts:
-                if best_a is not None and np.array_equal(r["action"], best_a):
-                    r["chosen"] = True
-            self.last_candidate_rollouts = _rollouts[:8]
-        else:
-            self.last_candidate_rollouts = []
         self.last_action_rationale = self._finalize_action_rationale({
             "explored": False, "eps": float(eps),
             "goal_id": int(goal_id) if goal_id is not None else None,
@@ -3369,8 +3305,7 @@ class CognitiveCycle:
         gprime_b_time: float = 0.020,
         action_b_time: float = 0.030,
         action_b_energy: float = 10.0,
-        metrics_store: Optional["MetricsStore"] = None,
-        observability_store: Optional["ObservabilityStore"] = None,
+        observers: Optional[Sequence[CycleObserver]] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
         noise_profile: Optional[str] = None,
@@ -3397,7 +3332,7 @@ class CognitiveCycle:
                 (default 0.020; use 0.080 for MuJoCo with physics sim overhead).
             action_b_time: RBTA time bound for ACTION module in seconds
             action_b_energy: RBTA energy bound for ACTION module.
-            metrics_store: Optional MetricsStore for live monitoring.
+            observers: Objects whose ``on_cycle(cycle, metrics)`` runs after each cycle.
             noise_profile: Sensor noise profile ("gaussian", "dropout",
                 "drift", "salt_pepper"). None = disabled.
             noise_intensity: Noise level 0.0-1.0 (default 0.1).
@@ -3494,8 +3429,7 @@ class CognitiveCycle:
             hpm_validator=hpm_validator,
             consolidation=consolidation, env=env,
             state_dim=state_dim,
-            metrics_store=metrics_store,
-            observability_store=observability_store,
+            observers=observers,
             interventions=iv,
             trace_collector=trace_collector,
         )
@@ -3514,9 +3448,7 @@ class CognitiveCycle:
         use_mlp: bool = True,
         use_continuous: bool = True,
         render_mode: Optional[str] = None,
-        enable_camera: bool = False,
-        metrics_store: Optional["MetricsStore"] = None,
-        observability_store: Optional["ObservabilityStore"] = None,
+        observers: Optional[Sequence[CycleObserver]] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
         noise_profile: Optional[str] = None,
@@ -3534,10 +3466,8 @@ class CognitiveCycle:
             seed: Random seed.
             use_mlp: If True, use the pure-NumPy MLP world model.
             use_continuous: If True (and use_mlp=False), use Gaussian CPDs.
-            render_mode: Legacy gym render mode (human only). Live dashboard
-                camera uses ``enable_camera`` / ``mujoco.Renderer``.
-            enable_camera: Use offscreen ``mujoco.Renderer`` for dashboard RGB.
-            metrics_store: Optional MetricsStore for live monitoring.
+            render_mode: Gymnasium render mode (None for headless, "human" for a window).
+            observers: Objects whose ``on_cycle(cycle, metrics)`` runs after each cycle.
 
         Returns:
             Configured CognitiveCycle instance.
@@ -3547,10 +3477,7 @@ class CognitiveCycle:
         """
         from phca.environments.mujoco_env import MuJoCoSimpleEnv
 
-        use_camera = bool(enable_camera or render_mode == "rgb_array")
-        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed,
-                              render_mode=render_mode,
-                              enable_camera=use_camera)
+        env = MuJoCoSimpleEnv(env_name=env_name, seed=seed, render_mode=render_mode)
 
         if not use_mlp and not use_continuous:
             import warnings
@@ -3567,8 +3494,7 @@ class CognitiveCycle:
             gprime_b_time=0.120,      # MuJoCo + MLP learn headroom (D-128)
             action_b_time=0.080,      # MPC only (D-131; env.step → ENV)
             action_b_energy=4.0,      # Runtime-derived ACTION energy (time×50)
-            metrics_store=metrics_store,
-            observability_store=observability_store,
+            observers=observers,
             interventions=interventions,
             trace_collector=trace_collector,
             noise_profile=noise_profile,
@@ -3620,8 +3546,7 @@ class CognitiveCycle:
         obstacles: Optional[List[tuple]] = None,
         action_slip: float = 0.0,
         maze: bool = False,
-        metrics_store: Optional["MetricsStore"] = None,
-        observability_store: Optional["ObservabilityStore"] = None,
+        observers: Optional[Sequence[CycleObserver]] = None,
         interventions: Optional[InterventionConfig] = None,
         trace_collector: Optional[TraceCollector] = None,
         noise_profile: Optional[str] = None,
@@ -3640,7 +3565,7 @@ class CognitiveCycle:
             use_continuous: If True, use Gaussian CPDs.
             use_mlp: If True, use the pure-NumPy MLP world model.
             obstacles: Wall positions. If None, generates random walls.
-            metrics_store: Optional MetricsStore for live monitoring.
+            observers: Objects whose ``on_cycle(cycle, metrics)`` runs after each cycle.
 
         Returns:
             Configured CognitiveCycle instance.
@@ -3671,8 +3596,7 @@ class CognitiveCycle:
             env=env, seed=seed,
             use_mlp=use_mlp, use_continuous=use_continuous,
             gprime_b_time=0.050 if use_mlp else 0.020,
-            metrics_store=metrics_store,
-            observability_store=observability_store,
+            observers=observers,
             interventions=interventions,
             trace_collector=trace_collector,
             noise_profile=noise_profile,

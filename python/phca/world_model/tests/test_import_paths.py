@@ -31,11 +31,12 @@ def test_cycle_import_does_not_load_pgmpy():
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
-def test_observatory_import_chain_does_not_load_pgmpy():
+def test_core_import_does_not_load_gui_stack():
     proc = _run_isolated(
         "import sys\n"
+        "import phca\n"
         "from phca.core.cycle import CognitiveCycle\n"
-        "from phca.monitoring.observability import ObservabilityStore\n"
-        "assert 'pgmpy' not in sys.modules\n"
+        "loaded = [m for m in ('PyQt5', 'matplotlib', 'PIL') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout

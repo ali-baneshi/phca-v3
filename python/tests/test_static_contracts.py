@@ -69,21 +69,6 @@ class TestObservabilityContracts:
                 return
         pytest.fail("CycleMetrics class not found")
 
-    def test_observability_frame_exports_resilience_fields(self):
-        src = (_PHCA / "monitoring" / "observability.py").read_text(encoding="utf-8")
-        tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == "ObservabilityFrame":
-                field_names = {
-                    t.target.id
-                    for t in node.body
-                    if isinstance(t, ast.AnnAssign) and isinstance(t.target, ast.Name)
-                }
-                missing = {"failure_events", "recovery_active", "task_id"} - field_names
-                assert not missing, f"ObservabilityFrame missing fields: {missing}"
-                return
-        pytest.fail("ObservabilityFrame class not found")
-
 
 class TestResilienceContracts:
     def test_resilience_runs_after_rbta_in_cycle(self):

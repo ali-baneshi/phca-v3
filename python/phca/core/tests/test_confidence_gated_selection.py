@@ -7,7 +7,6 @@ import numpy as np
 from phca.config import StateVector
 from phca.core.cycle import CognitiveCycle
 from phca.evaluation.interventions import InterventionConfig
-from phca.monitoring.observability import ObservabilityStore
 from phca.regulation.rbta_enforcer import EnforcerAction
 
 
@@ -157,13 +156,21 @@ def test_gprime_trains_during_confidence_gated_warmup() -> None:
     assert metrics.module_timings["gprime_learn"] >= 0.0
 
 
-def test_integration_observability_records_selector_rationale() -> None:
-    store = ObservabilityStore(maxlen=4)
+class _RationaleRecorder:
+    def __init__(self) -> None:
+        self.rationales: list[dict] = []
+
+    def on_cycle(self, cycle: CognitiveCycle, metrics) -> None:
+        self.rationales.append(dict(cycle.last_action_rationale))
+
+
+def test_integration_observer_records_selector_rationale() -> None:
+    recorder = _RationaleRecorder()
     cycle = CognitiveCycle.build_for_env(
         size=5,
         seed=42,
         use_mlp=False,
-        observability_store=store,
+        observers=[recorder],
         interventions=InterventionConfig(
             confidence_gated_selector=True,
             disable_blended_scorer=False,
@@ -174,8 +181,8 @@ def test_integration_observability_records_selector_rationale() -> None:
     cycle._rbta_preflight_check = lambda *args, **kwargs: EnforcerAction.CONTINUE  # type: ignore[method-assign]
 
     cycle.step()
-    frame = store.latest()
 
-    assert frame is not None
-    assert frame.action_rationale["selector_mode"] == "confidence_gated_warmup"
-    assert frame.action_rationale["decision_reason"] == "confidence_gated_warmup"
+    assert len(recorder.rationales) == 1
+    rationale = recorder.rationales[0]
+    assert rationale["selector_mode"] == "confidence_gated_warmup"
+    assert rationale["decision_reason"] == "confidence_gated_warmup"
