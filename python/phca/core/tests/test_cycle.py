@@ -234,7 +234,7 @@ class TestCognitiveCycleCollectLogs:
         """Task-lock with low G' confidence uses prediction-scored path (always on)."""
         from phca.prediction.engine import PredictionEngine
 
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42,
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=False,
             interventions=InterventionConfig(disable_blended_scorer=False))
         cycle._task_lock = True
         cycle.cycle_count = 400
@@ -268,7 +268,7 @@ class TestCognitiveCycleCollectLogs:
         """Task-lock with high G' confidence still uses prediction-scored path (no bypass)."""
         from phca.prediction.engine import PredictionEngine
 
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42,
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=False,
             interventions=InterventionConfig(disable_blended_scorer=False))
         cycle._task_lock = True
         cycle.cycle_count = 400
@@ -300,7 +300,7 @@ class TestCognitiveCycleCollectLogs:
 
     def test_prediction_path_marks_selector_mode(self):
         """Low-confidence discrete selection reports prediction_scored path."""
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42,
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=False,
             interventions=InterventionConfig(disable_blended_scorer=False))
         cycle._task_lock = True
         cycle.cycle_count = 400
@@ -487,7 +487,7 @@ class TestActionRationaleEnrichment:
         )
 
     def test_discrete_prediction_rationale_fields(self):
-        cycle = CognitiveCycle.build_for_env(size=5, seed=42,
+        cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=False,
             interventions=InterventionConfig(disable_blended_scorer=False))
         cycle.cycle_count = 400
         self._state(cycle)

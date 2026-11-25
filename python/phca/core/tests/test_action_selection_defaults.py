@@ -19,6 +19,20 @@ def test_default_intervention_disables_blended_scorer() -> None:
     assert InterventionConfig().disable_blended_scorer is True
 
 
+def test_default_world_model_is_mlp_and_learns() -> None:
+    """The default G' is the pure-numpy MLP, and it reduces prediction error.
+
+    The discrete graph model is opt-in (use_mlp=False); it models only ~12%
+    of GridWorld state dims and its prediction error barely moves.
+    """
+    cycle = CognitiveCycle.build_for_env(size=5, seed=0)
+    assert type(cycle.gprime).__name__ == "WorldModelMLP"
+    errors = [cycle.step().prediction_error for _ in range(120)]
+    early = sum(errors[:10]) / 10
+    late = sum(errors[-30:]) / 30
+    assert late < 0.5 * early, (early, late)
+
+
 def test_default_gridworld_selector_is_pure_geometry() -> None:
     cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=False)
     modes: Counter[str] = Counter()
