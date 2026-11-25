@@ -42,15 +42,6 @@ class TestCognitiveCycleBuild:
         cycle = CognitiveCycle.build_for_env(size=5, seed=42)
         assert cycle.cycle_count == 0
 
-    def test_build_deep_ensemble_prediction_mode(self):
-        """prediction_mode=deep_ensemble should build a probabilistic MLP ensemble."""
-        cfg = InterventionConfig(prediction_mode="deep_ensemble")
-        cycle = CognitiveCycle.build_for_env(
-            size=5, seed=42, use_mlp=True, interventions=cfg,
-        )
-        assert cycle.gprime.uncertainty_snapshot()["kind"] == "mlp_ensemble"
-        assert cycle.gprime.position_dim == 25
-
     def test_criticality_setpoint_is_shared(self):
         cycle = CognitiveCycle.build_for_env(size=5, seed=42, use_mlp=True)
         assert cycle.adaptive_controller.setpoint == CRITICALITY_SETPOINT

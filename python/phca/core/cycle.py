@@ -52,8 +52,6 @@ from phca.world_model.mlp import (
     grid_scale,
     scaled_time_bound,
 )
-from phca.world_model.ensemble import WorldModelMLPEnsemble
-from phca.world_model.hybrid import HybridGraphMLP
 
 if TYPE_CHECKING:
     from phca.world_model.graph import WorldModelGPrime
@@ -218,7 +216,7 @@ class CognitiveCycle:
         self.metrics_history: List[CycleMetrics] = []
 
         # Cached Φ (gradient-norm criticality) from the most recent backward pass.
-        # Initialised at 0.5 (neutral) — only MLP/HybridGraphMLP update this via
+        # Initialised at 0.5 (neutral) — only the MLP updates this via
         # _update_phi_from_gradient; discrete/Gaussian G' stay at neutral.
         self._cached_phi: float = 0.5
         # Exposed error volatility for observers and traces.
@@ -996,7 +994,7 @@ class CognitiveCycle:
 
         # Step 7: TSPL P-Stream update
         mlp_accuracy = None
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if isinstance(self.gprime, WorldModelMLP):
             mlp_accuracy = self.gprime.get_prediction_accuracy(
                 learning_state.values, action_vec, next_state.values
             )
@@ -1052,7 +1050,7 @@ class CognitiveCycle:
         # LEARN: update G' with observed transition, weighted by attention
         t_glearn = time.perf_counter()
         if self.interventions.enable_gprime_learn:
-            if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+            if isinstance(self.gprime, WorldModelMLP):
                 boost_still_valid = (
                     self.cycle_count - self._replay_boost_activated_cycle
                 ) < self._replay_boost_duration
@@ -1528,7 +1526,7 @@ class CognitiveCycle:
         """B4 recovery: replay boost + halve P-Stream learning rate."""
         self._forgetting_mitigation_active = True
         self._replay_boost_activated_cycle = self.cycle_count
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if isinstance(self.gprime, WorldModelMLP):
             self.gprime.replay_boost = True
         cfg = self.tspl.configs[StreamID.P_STREAM]
         cfg.alpha = max(0.01, cfg.alpha * 0.5)
@@ -1562,7 +1560,7 @@ class CognitiveCycle:
         """
         if not self._forgetting_mitigation_active:
             return 0
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if not isinstance(self.gprime, WorldModelMLP):
             return 0
         prior_id = self._current_task_id
         if prior_id <= 0:
@@ -1636,7 +1634,7 @@ class CognitiveCycle:
 
     def _should_skip_gprime_learn(self, metrics: CycleMetrics) -> bool:
         """Throttle replay-only G' learning once the model is in steady state."""
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if not isinstance(self.gprime, WorldModelMLP):
             return False
         if self._forgetting_mitigation_active:
             return False
@@ -1905,7 +1903,6 @@ class CognitiveCycle:
           - WorldModelGPrime (discrete): Shannon entropy of posterior / log(2)
           - WorldModelGPrime (Gaussian): differential entropy H=0.5*log(2πeσ²)
           - WorldModelMLP: MC-Dropout mutual information ≈ log(1+var)
-          - HybridGraphMLP: MLP MI + scaled graph/MLP disagreement
         """
         mi = getattr(self.gprime, "_last_mutual_info", None)
         if mi is None:
@@ -2813,7 +2810,7 @@ class CognitiveCycle:
         The 1.1 safety margin ensures the threshold is slightly above measured
         accuracy, so G' must prove itself before being trusted.
         """
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if not isinstance(self.gprime, WorldModelMLP):
             return
         cfg = self.interventions
         if len(self._probe_buffer) < cfg.calibration_probe_samples:
@@ -2938,7 +2935,7 @@ class CognitiveCycle:
         The arctan maps [0, ∞) → [0, 1) so PID setpoints and MDIM drive
         targets need no adjustment from the old error-volatility heuristic.
         """
-        if not isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if not isinstance(self.gprime, WorldModelMLP):
             _log(logger, "debug", "cycle.phi_update.skipped_non_mlp",
                  gprime_type=type(self.gprime).__name__)
             return
@@ -3110,7 +3107,7 @@ class CognitiveCycle:
             self.runtime_log["G'"] = 0.001  # G' not in timing_map but expected by tests
         # Memory estimates from state dimensionality
         sd = self.state_dim
-        if isinstance(self.gprime, (WorldModelMLP, HybridGraphMLP, WorldModelMLPEnsemble)):
+        if isinstance(self.gprime, WorldModelMLP):
             g_mem = estimate_mlp_memory_bytes(
                 sd, self.gprime.action_dim, self.gprime.hidden_dim, self.gprime.replay_capacity,
             )
@@ -3178,7 +3175,7 @@ class CognitiveCycle:
     def _refresh_gprime_coverage(self) -> None:
         """Record discrete G' dim coverage; warn once if below threshold."""
         gp = self.gprime
-        if isinstance(gp, (WorldModelMLP, WorldModelMLPEnsemble, HybridGraphMLP)):
+        if isinstance(gp, WorldModelMLP):
             modeled = int(self.state_dim)
         elif hasattr(gp, "has_gaussian_nodes") and gp.has_gaussian_nodes():
             modeled = int(self.state_dim)
@@ -3237,8 +3234,6 @@ class CognitiveCycle:
         action_dim: int,
         use_mlp: bool = False,
         use_continuous: bool = False,
-        use_ensemble: bool = False,
-        use_deep_ensemble: bool = False,
         mlp_hidden_dim: int = 128,
         mlp_lr: float = 0.2,
         seed: int = 42,
@@ -3246,39 +3241,13 @@ class CognitiveCycle:
     ) -> Any:
         """Build the world-model (G') module, dispatching by mode.
 
-        Supports five modes:
-          - deep_ensemble: WorldModelMLPEnsemble (probabilistic MLP ensemble)
-          - ensemble:  HybridGraphMLP (graph + MLP)
-          - use_mlp:   WorldModelMLP (pure NumPy)
+        Supports three modes:
+          - use_mlp:   WorldModelMLP (pure NumPy, default)
           - continuous: WorldModelGPrime (Gaussian CPDs)
-          - discrete:  WorldModelGPrime (binary pgmpy, default)
+          - discrete:  WorldModelGPrime (binary; pgmpy when installed)
         """
 
-        if use_deep_ensemble:
-            return WorldModelMLPEnsemble(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                n_members=3,
-                hidden_dim=mlp_hidden_dim,
-                seed=seed,
-                lr=mlp_lr,
-                position_dim=position_dim,
-            )
-        if use_ensemble:
-            from phca.world_model.graph import WorldModelGPrime
-            from phca.world_model.hybrid import HybridGraphMLP
-
-            graph = WorldModelGPrime(
-                state_dim=state_dim, action_dim=action_dim, seed=seed,
-            )
-            cls._build_discrete_graph_nodes(graph, state_dim)
-            mlp = WorldModelMLP(
-                state_dim=state_dim, action_dim=action_dim,
-                hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
-                position_dim=position_dim,
-            )
-            return HybridGraphMLP(graph_model=graph, mlp_model=mlp)
-        elif use_mlp:
+        if use_mlp:
             return WorldModelMLP(
                 state_dim=state_dim, action_dim=action_dim,
                 hidden_dim=mlp_hidden_dim, seed=seed, lr=mlp_lr,
@@ -3372,16 +3341,11 @@ class CognitiveCycle:
         m1 = M1SensoryBuffer(sensor_dim=state_dim)
         m2 = M2WorkingMemory(capacity=7)
 
-        prediction_mode = getattr(interventions, "prediction_mode", "normal")
-        use_ensemble = prediction_mode == "ensemble"
-        use_deep_ensemble = prediction_mode == "deep_ensemble"
         gprime = cls._build_gprime(
             state_dim=state_dim,
             action_dim=action_dim,
             use_mlp=use_mlp,
             use_continuous=use_continuous,
-            use_ensemble=use_ensemble,
-            use_deep_ensemble=use_deep_ensemble,
             mlp_hidden_dim=mlp_hidden_dim,
             mlp_lr=mlp_lr,
             seed=seed,

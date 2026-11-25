@@ -2,7 +2,6 @@
 PHCA v3.0 — Prediction Engine.
 
 Phase 3.1: Single-model ensemble (G' only).
-Phase 3.2: Dual-model ensemble via HybridGraphMLP (graph + MLP).
 
 v3.0 References:
     - §2.2 Definition 2.5 (prediction via G' only, Phase 3.1)
@@ -23,10 +22,6 @@ class PredictionEngine:
     Phase 3.1: Single-model ensemble (G' Bayesian network).
         - Calls WorldModelGPrime.predict() for each step.
         - Confidence decays with horizon (1/horizon heuristic).
-
-    Phase 3.2+: Dual-model ensemble via HybridGraphMLP wrapper.
-        - Blending happens inside the wrapper's predict().
-        - Ensemble disagreement feeds into RBTA entropy.
     """
 
     def __init__(self, gprime: Any):

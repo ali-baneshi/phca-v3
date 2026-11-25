@@ -1,4 +1,4 @@
-"""Prediction Engine + Prediction Error Unit + Ensemble Prediction.
+"""Prediction Engine + Prediction Error Unit.
 
 Phase 3.1:
     - PredictionEngine: Single-model (G') prediction with horizon rolling.

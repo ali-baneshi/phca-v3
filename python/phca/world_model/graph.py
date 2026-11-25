@@ -95,10 +95,8 @@ class WorldModelGPrime:
     Phase 3.1: Single-model ensemble (G' only). Supports discrete Bayesian
     networks via pgmpy with exact inference (variable elimination).
 
-    Phase 3.2: Dual-model via HybridGraphMLP (shallow wrapper combining
-        graph + MLP). Inference blends via confidence-weighted mean.
-        Also supports continuous Gaussian CPDs with closed-form analytic
-        inference (see predict_continuous()).
+    Also supports continuous Gaussian CPDs with closed-form analytic
+    inference (see predict_continuous()).
     """
 
     def __init__(self, state_dim: int, action_dim: int, seed: int = 42):
