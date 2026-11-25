@@ -18,7 +18,7 @@ back with `git mv` and re-adding its dependencies and tests.
 
 | Path | Why removed | Replacement | Commit |
 |---|---|---|---|
-| `python/phca/monitoring/` (164 files, 22,171 LOC incl. tests) | PyQt5 Observatory, JSONL session store, dashboards. 49% of production code; not on any cognitive code path | `CycleObserver` protocol in `phca.core.cycle` (`on_cycle(cycle, metrics)`) | see `git log -- attic/python/phca/monitoring` |
-| `scripts/phca_observatory.py`, `phca_observatory_supervisor.py`, `phca_multi_observatory.py`, `phca_replay.py`, `phca_query.py`, `phca_visualise.py`, `camera_probe.py`, `camera_probe_qt.py` | GUI, replay, and camera front-ends for monitoring | `phca` CLI (planned) | same |
-| `scripts/nightly_stress.py`, `scripts/nightly_anomaly_gate.py` | Depend on monitoring retention/anomaly modules | Removed from `make nightly` | same |
-| `python/tests/test_observatory_export.py` | Tested GUI frame JSON serialization, not cycle behavior | — | same |
+| `python/phca/monitoring/` (164 files, 22,171 LOC incl. tests) | PyQt5 Observatory, JSONL session store, dashboards. 49% of production code; not on any cognitive code path | `CycleObserver` protocol in `phca.core.cycle` (`on_cycle(cycle, metrics)`) | `6049956` |
+| `scripts/phca_observatory.py`, `phca_observatory_supervisor.py`, `phca_multi_observatory.py`, `phca_replay.py`, `phca_query.py`, `phca_visualise.py`, `camera_probe.py`, `camera_probe_qt.py` | GUI, replay, and camera front-ends for monitoring | `phca` CLI (planned) | `6049956` |
+| `scripts/nightly_stress.py`, `scripts/nightly_anomaly_gate.py` | Depend on monitoring retention/anomaly modules | Removed from `make nightly` | `6049956` |
+| `python/tests/test_observatory_export.py` | Tested GUI frame JSON serialization, not cycle behavior | — | `6049956` |
