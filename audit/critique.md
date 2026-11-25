@@ -118,8 +118,10 @@ stays in `phca/config.py`; the 30-field version is attic'd.
 
 ### Delete outright
 
-Empty JS toolchain files, zero-byte `.env*` files, duplicated result trees,
-`build/` artifacts, `.pytest_cache/`, `.ruff_cache/`, `.pytest_tmp/`.
+Duplicated tracked result trees and stale tracked logs. The empty JS/`.env*` files
+and the cache directories (`build/`, `.pytest_cache/`, `.ruff_cache/`,
+`.pytest_tmp/`) are untracked local files, so they are not part of the repository
+and are left alone.
 
 ## Known risks
 

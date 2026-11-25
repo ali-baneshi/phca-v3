@@ -63,9 +63,12 @@ with the claim they encode.
   horizons.
 - `Diagrams/` contains 9 mermaid sources and 9 PNG renders, several of which describe removed
   phases.
-- Empty JS toolchain files: `package.json`, `pnpm-lock.yaml`, `yarn.lock`,
-  `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, `.npmrc`, `package-lock.json`.
-- Zero-byte `.env*` files (7).
+- Empty JS toolchain files (`package.json`, `pnpm-lock.yaml`, `yarn.lock`,
+  `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, `.npmrc`, `package-lock.json`),
+  `.gitmodules`, an empty `node_modules/`, and eight zero-byte `.env*` files.
+  **None of these are tracked by git.** They all have the same mtime and look like
+  local tool scaffolding, not project content. Nothing to remove from the
+  repository; they are out of scope.
 
 ## Estimation
 
