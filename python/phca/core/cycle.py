@@ -1914,6 +1914,15 @@ class CognitiveCycle:
             mi = 0.5
         return float(np.clip(float(mi), 0.0, 1.0))
 
+    @staticmethod
+    def _cycle_rng(seed: int) -> np.random.RandomState:
+        """Per-decision RNG, seeded by cycle count so selection is reproducible.
+
+        Single construction point so tests can patch it without replacing
+        ``numpy.random.RandomState`` process-wide.
+        """
+        return np.random.RandomState(seed)
+
     def _select_action(self):
         """Select action using goal-directed planning with MDIM goal awareness.
 
@@ -2019,7 +2028,7 @@ class CognitiveCycle:
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         if self._task_lock:
             eps = 0.0
-        rng = np.random.RandomState(self.cycle_count)
+        rng = self._cycle_rng(self.cycle_count)
         if not confidence_gated_prediction_ready and eps > 0.0 and rng.random() < eps:
             pick = int(rng.randint(0, self.env.action_space_size))
             self.last_action_rationale = self._finalize_action_rationale({
@@ -2346,7 +2355,7 @@ class CognitiveCycle:
         if K * space.dim > 16:
             K = max(2, 16 // space.dim)
 
-        rng = np.random.RandomState(self.cycle_count)
+        rng = self._cycle_rng(self.cycle_count)
         eps = max(0.02, 0.10 * (1.0 - self.cycle_count / 500.0))
         goal = self.current_goal
         goal_id = goal.drive_id if goal else None
@@ -2572,7 +2581,7 @@ class CognitiveCycle:
             candidates.append(int(action_idx))
         if not candidates:
             return None
-        rng = np.random.RandomState(int(self.cycle_count) + 17)
+        rng = self._cycle_rng(int(self.cycle_count) + 17)
         return int(candidates[int(rng.randint(0, len(candidates)))])
 
     def _select_greedy_grid_action(

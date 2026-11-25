@@ -257,7 +257,7 @@ class TestCognitiveCycleCollectLogs:
         mock_rng.random.return_value = 1.0
         PredictionEngine.predict = _counting_predict
         try:
-            with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
                 cycle._select_action()
             assert calls["n"] >= 2
             assert cycle.last_action_rationale.get("selector_mode") == "prediction_scored"
@@ -291,7 +291,7 @@ class TestCognitiveCycleCollectLogs:
         mock_rng.random.return_value = 1.0
         PredictionEngine.predict = _counting_predict
         try:
-            with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+            with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
                 cycle._select_action()
             assert calls["n"] >= 2  # prediction always called, no geometry bypass
             assert cycle.last_action_rationale.get("selector_mode") == "prediction_scored"
@@ -493,7 +493,7 @@ class TestActionRationaleEnrichment:
         self._state(cycle)
         mock_rng = MagicMock()
         mock_rng.random.return_value = 1.0
-        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+        with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
             cycle._select_action()
         r = cycle.last_action_rationale
         assert r["decision_reason"] == "prediction"
@@ -507,7 +507,7 @@ class TestActionRationaleEnrichment:
         mock_rng = MagicMock()
         mock_rng.random.return_value = 0.0
         mock_rng.randint.return_value = 2
-        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+        with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
             cycle._select_action()
         assert cycle.last_action_rationale["decision_reason"] == "explore"
 
@@ -521,7 +521,7 @@ class TestActionRationaleEnrichment:
         cycle.cycle_count = 100
         mock_rng = MagicMock()
         mock_rng.random.return_value = 1.0
-        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+        with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
             cycle._select_action()
         assert cycle.last_action_rationale["decision_reason"] == "d5_stay"
         assert cycle.last_action_rationale["mechanism"] == "stay"
@@ -548,7 +548,7 @@ class TestActionRationaleEnrichment:
         mock_rng = MagicMock()
         mock_rng.random.return_value = 1.0
         mock_rng.uniform.return_value = np.array([0.1, -0.2], dtype=np.float32)
-        with patch("phca.core.cycle.np.random.RandomState", return_value=mock_rng):
+        with patch.object(CognitiveCycle, "_cycle_rng", return_value=mock_rng):
             cycle._select_continuous_action()
         r = cycle.last_action_rationale
         assert r["decision_reason"] == "continuous_mpc"
