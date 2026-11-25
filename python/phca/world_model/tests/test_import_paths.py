@@ -1,4 +1,4 @@
-"""Import-path tests: MLP/Observatory paths must not eagerly load pgmpy."""
+"""Import-path and dependency-surface tests for the core package."""
 from __future__ import annotations
 
 import os
@@ -40,3 +40,18 @@ def test_core_import_does_not_load_gui_stack():
         "assert not loaded, loaded\n"
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_declared_runtime_dependencies_are_numpy_only():
+    """The core runs on numpy alone; everything else is an optional extra."""
+    import re
+
+    text = (_REPO / "pyproject.toml").read_text(encoding="utf-8")
+    block = re.search(r"^dependencies = \[(.*?)\]", text, re.S | re.M)
+    assert block is not None
+    names = {
+        re.split(r"[<>=!~\[ ]", item.strip().strip('"'))[0].lower()
+        for item in block.group(1).split(",")
+        if item.strip()
+    }
+    assert names == {"numpy"}, names

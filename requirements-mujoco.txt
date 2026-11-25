@@ -1,9 +1,3 @@
-# PHCA v3.0 — MuJoCo Environment Dependencies (optional)
-# Enables Cartpole/Pendulum/Reacher via MuJoCoSimpleEnv.
-# Install: pip install -r requirements-mujoco.txt
-# Headless servers: export MUJOCO_GL=disabled  (or egl; osmesa needs libOSMesa)
-#
-# Pinned for CI reproducibility (mujoco-gate job).
-
-gymnasium[mujoco]==1.0.0
-mujoco==3.2.7
+# MuJoCo dependencies are declared in pyproject.toml ([project.optional-dependencies].mujoco).
+# Headless servers: export MUJOCO_GL=disabled (or egl; osmesa needs libOSMesa).
+-e .[mujoco]

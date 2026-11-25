@@ -21,7 +21,7 @@ echo "[gate] import phca"
 if [ "${1:-}" != "--fast" ]; then
     echo "[gate] full test suite"
     "$PY" -m pytest python/tests/ python/phca/ -q -p no:cacheprovider \
-        --timeout=60 --benchmark-skip \
+        --timeout=60 \
         --ignore=python/tests/test_mujoco_env.py \
         --ignore=python/tests/test_cycle_with_mujoco.py \
         --ignore=python/tests/test_continuous_actions.py

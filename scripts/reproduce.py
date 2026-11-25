@@ -145,10 +145,6 @@ def check_preflight(manifest: dict) -> tuple[dict, bool]:
         import pytest_timeout  # noqa: F401
     except ImportError:
         missing.append("pytest-timeout")
-    try:
-        import pytest_benchmark.plugin  # noqa: F401
-    except ImportError:
-        missing.append("pytest-benchmark")
     if missing:
         print(
             f"ERROR: missing pytest plugins: {', '.join(missing)}",

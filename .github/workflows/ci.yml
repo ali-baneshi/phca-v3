@@ -78,7 +78,7 @@ jobs:
             --ignore=python/tests/test_mujoco_env.py \
             --ignore=python/tests/test_cycle_with_mujoco.py \
             --ignore=python/tests/test_continuous_actions.py \
-            -v --tb=short --timeout=30 --maxfail=5 --benchmark-skip
+            -v --tb=short --timeout=30 --maxfail=5
 
   noise-injector:
     runs-on: ubuntu-latest

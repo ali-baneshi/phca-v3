@@ -1,4 +1,4 @@
-.PHONY: all install-deps install-mujoco-deps test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery docker-build docker-build-core docker-build-mujoco docker-build-full docker-run-stress docker-run-test docker-run-mujoco-gate docker-run-nightly docker-run-ci-local docker-bash
+.PHONY: all install-deps install-mujoco-deps test-all test-python test-mujoco lint ci-local bench-level-0 bench-all profile-cycle clean setup nightly nightly-mujoco mujoco-ci causal-smoke reproduce reproduce-quick validate-science maturation-test bench-level4-smoke bench-level4-ablation bench-recovery docker-build docker-build-core docker-build-mujoco docker-run-stress docker-run-test docker-run-mujoco-gate docker-run-nightly docker-run-ci-local docker-bash
 
 # ─────────────────────────────────────────────────────────────
 # PHCA v3.0 — Build & Test Automation
@@ -22,22 +22,15 @@ setup:
 	@echo "Optional MuJoCo: make install-mujoco-deps"
 
 install-deps:
-	@mkdir -p .tmp
-	@sed '/^pgmpy==/d' requirements.txt > .tmp/requirements-no-pgmpy.txt
-	python -m pip install -r .tmp/requirements-no-pgmpy.txt -r requirements-dev.txt
-	python -m pip install pgmpy==1.0.0 --no-deps
-	python -m pip install "opt_einsum>=3.3" "tqdm>=4.64" "pandas>=2.0,<3" \
-	    "statsmodels>=0.14,<1" "scikit-learn>=1.4,<2" "pyro-api>=0.1.1"
-	python -m pip install -e . --no-deps
+	python -m pip install -e ".[dev,stats]"
 
 install-mujoco-deps:
-	python -m pip install -r requirements-mujoco.txt
+	python -m pip install -e ".[mujoco]"
 
 # ── Testing ───────────────────────────────────────────────────
 
-# Optional pytest plugins (requirements.txt); omit flags when not installed.
+# pytest-timeout is in the dev extra; omit the flag when it is not installed.
 _PYTEST_TIMEOUT := $(shell python -c "import pytest_timeout" 2>/dev/null && echo "--timeout=30")
-_PYTEST_BENCH := $(shell python -c "import pytest_benchmark.plugin" 2>/dev/null && echo "--benchmark-skip")
 
 test-all: test-python
 	@echo "✅ All tests passed"
@@ -48,7 +41,7 @@ test-python:
 	    --ignore=python/tests/test_mujoco_env.py \
 	    --ignore=python/tests/test_cycle_with_mujoco.py \
 	    --ignore=python/tests/test_continuous_actions.py \
-	    -v --tb=short --maxfail=5 $(_PYTEST_TIMEOUT) $(_PYTEST_BENCH)
+	    -v --tb=short --maxfail=5 $(_PYTEST_TIMEOUT)
 
 test-mujoco:
 	@echo "Running MuJoCo integration tests (needs gymnasium[mujoco])..."
@@ -67,10 +60,9 @@ lint:
 
 ci-local: lint
 	@echo "Running CI-equivalent test suite..."
-	@python -c "import pytest_timeout" 2>/dev/null || (echo "❌ pytest-timeout missing — run: pip install -r requirements.txt" && exit 1)
-	@python -c "import pytest_benchmark.plugin" 2>/dev/null || (echo "❌ pytest-benchmark missing — run: pip install -r requirements.txt" && exit 1)
+	@python -c "import pytest_timeout" 2>/dev/null || (echo "❌ pytest-timeout missing — run: make install-deps" && exit 1)
 	PYTHONPATH=python:$$PYTHONPATH MUJOCO_GL=disabled python -m pytest python/tests/ python/phca/ \
-	    -v --tb=short --timeout=30 --maxfail=5 --benchmark-skip
+	    -v --tb=short --timeout=30 --maxfail=5
 	mkdir -p logs
 	PYTHONPATH=python:$$PYTHONPATH python scripts/benchmark.py --quick --output=logs/benchmark_report.json
 	python scripts/check_benchmark_gate.py logs/benchmark_report.json logs/benchmark_ci_baseline.json
@@ -287,9 +279,8 @@ clean:
 # ── Docker ────────────────────────────────────────────────────
 #
 # Multi-stage targets (see Dockerfile):
-#   phca-core   — CI, stress tests, pytest (no MuJoCo, no PyQt5)
+#   phca-core   — numpy core + dev tools (CI, tests, stress)
 #   phca-mujoco — core + MuJoCo physics engine
-#   phca-full   — muojco + PyQt5 Observatory dashboard
 #
 # All docker-run-* targets auto-build if the image is stale.
 
@@ -303,9 +294,6 @@ docker-build-core:
 
 docker-build-mujoco:
 	docker build --target phca-mujoco -t phca:mujoco .
-
-docker-build-full:
-	docker build --target phca-full -t phca:full .
 
 docker-run-stress: docker-build-core
 	docker compose run --rm stress
@@ -322,7 +310,7 @@ docker-run-nightly: docker-build-mujoco
 docker-run-ci-local: docker-build-core
 	docker compose run --rm ci-local
 
-docker-bash: docker-build-full
+docker-bash: docker-build-mujoco
 	docker compose run --rm bash
 
 # ── Help ─────────────────────────────────────────────────────

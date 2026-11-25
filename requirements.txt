@@ -1,36 +1,8 @@
-# PHCA v3.0 — Core Dependencies
-# All phases. Canonical install: make setup
-
-# Core scientific computing
-numpy==1.26.4
-scipy==1.12.0
-
-# Probabilistic programming (for G' Bayesian network)
-# pgmpy 1.0.0 pulls in torch + CUDA (~2 GB). 1.1.x requires numpy>=2.0
-# which conflicts with our pinned numpy==1.26.4 (D-114). Install pgmpy
-# without its optional deps via `make install-deps`; direct
-# `pip install -r requirements.txt` is intentionally not the canonical path.
-pgmpy==1.0.0
-
-# Graph operations
-networkx==3.2.1
-
-# Testing
-pytest==8.0.0
-pytest-benchmark==4.0.0
-pytest-timeout==2.2.0
-
-# Serialization
-orjson==3.9.13
-
-# CLI
-click==8.1.7
-
-# Nightly stress RSS leak detector (scripts/nightly_stress.py) + Observatory
-psutil>=5.9.0
-
-# Visual Observability Layer (Phase 7 ext) — graphical live view + replay
-matplotlib==3.11.0
-
-# Observability v3 — PyQt5 Cognitive Observatory (multi-tab live dashboard)
-PyQt5==5.15.11
+# Runtime dependencies are declared in pyproject.toml ([project].dependencies).
+# The core runs on numpy alone. This file exists for tools that expect it.
+#
+#   pip install -e .                    # runtime
+#   pip install -e ".[dev]"             # + pytest, ruff
+#   pip install -e ".[dev,stats,graph]" # + scipy, pgmpy (used by scripts/ and the graph world model)
+#   pip install -e ".[mujoco]"          # + MuJoCo continuous environments
+-e .
