@@ -488,6 +488,7 @@ class CognitiveCycle:
                 sensor_failure_count=self.sensor_failure_count,
                 asi_failure_limit=self.asi_failure_limit,
                 composition_tree=composition_tree,
+                warmup=(self.cycle_count == 0),
             )
             metrics.rbta_action = enforcer_action.name
             metrics.violations_count = len(violations)
@@ -1417,6 +1418,7 @@ class CognitiveCycle:
             sensor_failure_count=self.sensor_failure_count,
             asi_failure_limit=self.asi_failure_limit,
             composition_tree=composition_tree,
+            warmup=(self.cycle_count == 0),
         )
         metrics.rbta_action = enforcer_action.name
         metrics.violations_count = len(violations)
@@ -3103,6 +3105,7 @@ class CognitiveCycle:
             sensor_failure_count=self.sensor_failure_count,
             asi_failure_limit=self.asi_failure_limit,
             composition_tree=composition_tree,
+            warmup=(self.cycle_count == 0),
         )
         return action
 

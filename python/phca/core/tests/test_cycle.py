@@ -408,6 +408,10 @@ class TestRBTAEnforcement:
             "CR",
             ResourceBounds(B_time=1e-9, B_mem=1_000_000, B_energy=10.0),
         )
+        # Cycle 0 is the declared warm-up and is exempt from TIME/ENERGY bounds
+        # (RBTAEnforcer.check_cycle(warmup=True)); the post-check contract this
+        # test covers applies to steady-state cycles.
+        cycle.step()
         metrics = cycle.step()
         assert metrics.rbta_action in ("INTERRUPT", "TERMINATE")
         if metrics.rbta_action == "INTERRUPT":

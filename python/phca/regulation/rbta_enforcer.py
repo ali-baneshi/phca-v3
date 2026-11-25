@@ -87,6 +87,7 @@ class RBTAEnforcer:
         sensor_failure_count: int,
         asi_failure_limit: Optional[int] = None,
         composition_tree: Optional[Dict] = None,
+        warmup: bool = False,
     ) -> Tuple[List[ConstraintViolation], EnforcerAction]:
         """Check all resource bounds for the current cognitive cycle.
 
@@ -100,6 +101,11 @@ class RBTAEnforcer:
             asi_failure_limit: ASI failure limit override (default: self.asi_failure_limit).
             composition_tree: HPM composition tree for SEQUENCE/PARALLEL checks.
                 Phase 3.1: None (deferred to Phase 3.2).
+            warmup: Skip TIME and ENERGY bounds for the first cycle. Lazy
+                imports and code generation make cycle 0 an order of magnitude
+                slower than steady state; charging that to the cognitive
+                workload makes behavior depend on process warmth. Memory,
+                entropy, and sensor bounds remain enforced.
 
         Returns:
             Tuple of (violations, action):
@@ -117,7 +123,7 @@ class RBTAEnforcer:
                 _log(logger, "warning", "rbta.nan_log_value",
                      module=module_id, bound="TIME", value=runtime)
                 continue
-            if runtime > bounds.B_time:
+            if not warmup and runtime > bounds.B_time:
                 violations.append(ConstraintViolation(
                     module_id=module_id,
                     bound_type=BoundType.TIME.value,
@@ -145,7 +151,7 @@ class RBTAEnforcer:
                 _log(logger, "warning", "rbta.nan_log_value",
                      module=module_id, bound="ENERGY", value=energy)
                 continue
-            if energy > bounds.B_energy:
+            if not warmup and energy > bounds.B_energy:
                 violations.append(ConstraintViolation(
                     module_id=module_id,
                     bound_type=BoundType.ENERGY.value,
@@ -179,7 +185,9 @@ class RBTAEnforcer:
 
         # Composition tree check (Phase 3.2+)
         if composition_tree is not None:
-            self._check_composition_tree(composition_tree, runtime_log, energy_log, violations)
+            self._check_composition_tree(
+                composition_tree, runtime_log, energy_log, violations, warmup=warmup
+            )
 
         # Determine action based on violation severity
         action = self._classify_action(violations)
@@ -220,6 +228,7 @@ class RBTAEnforcer:
         runtime_log: Dict[str, float],
         energy_log: Dict[str, float],
         violations: List[ConstraintViolation],
+        warmup: bool = False,
     ) -> None:
         """Check composite resource bounds via HPM composition tree.
 
@@ -288,7 +297,7 @@ class RBTAEnforcer:
             bound = tree_bounds.get("B_time", float("inf"))
             if isinstance(bound, ResourceBounds):
                 bound = bound.B_time
-            if total_time > bound:
+            if not warmup and total_time > bound:
                 violations.append(ConstraintViolation(
                     module_id=f"composite:{tree.get('id', op)}",
                     bound_type=BoundType.TIME.value,
@@ -299,7 +308,7 @@ class RBTAEnforcer:
             energy_bound = tree_bounds.get("B_energy", float("inf"))
             if isinstance(energy_bound, ResourceBounds):
                 energy_bound = energy_bound.B_energy
-            if total_energy > energy_bound:
+            if not warmup and total_energy > energy_bound:
                 violations.append(ConstraintViolation(
                     module_id=f"composite:{tree.get('id', op)}",
                     bound_type=BoundType.ENERGY.value,

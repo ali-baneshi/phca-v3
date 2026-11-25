@@ -29,6 +29,51 @@ def enforcer() -> RBTAEnforcer:
 class TestRBTAEnforcer:
     """Core RBTA enforcer tests."""
 
+    def test_warmup_skips_time_and_energy_bounds(self, enforcer: RBTAEnforcer):
+        """First-cycle startup latency is not a resource violation.
+
+        Import and code-generation costs land in cycle 0 and must not be
+        attributed to the cognitive workload. Memory and entropy bounds stay
+        enforced during warm-up.
+        """
+        violations, action = enforcer.check_cycle(
+            runtime_log={"ASI": 99.0, "G'": 99.0},
+            memory_log={},
+            energy_log={"ASI": 999.0, "G'": 999.0},
+            belief_entropies={},
+            sensor_failure_count=0,
+            warmup=True,
+        )
+        assert violations == []
+        assert action == EnforcerAction.CONTINUE
+
+    def test_warmup_still_enforces_memory_and_entropy(self, enforcer: RBTAEnforcer):
+        """Warm-up is a timing exemption, not an amnesty for real violations."""
+        violations, action = enforcer.check_cycle(
+            runtime_log={},
+            memory_log={"WM": 10_000_000.0},
+            energy_log={},
+            belief_entropies={"G'": 0.0},
+            sensor_failure_count=0,
+            warmup=True,
+        )
+        bound_types = {v.bound_type for v in violations}
+        assert "MEM" in bound_types
+        assert "ENTROPY" in bound_types
+        assert action != EnforcerAction.CONTINUE
+
+    def test_non_warmup_still_flags_time_violation(self, enforcer: RBTAEnforcer):
+        violations, action = enforcer.check_cycle(
+            runtime_log={"ASI": 0.010},
+            memory_log={},
+            energy_log={},
+            belief_entropies={},
+            sensor_failure_count=0,
+            warmup=False,
+        )
+        assert [v.bound_type for v in violations] == ["TIME"]
+        assert action == EnforcerAction.INTERRUPT
+
     def test_single_module_time_violation(self, enforcer: RBTAEnforcer):
         """Runtime > B_time → 1 violation, action = INTERRUPT."""
         violations, action = enforcer.check_cycle(
