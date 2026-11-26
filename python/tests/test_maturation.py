@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from phca.core.cycle import CognitiveCycle
-from phca.evaluation.metrics.forgetting import forgetting_rate
 from phca.memory.m3_episodic import M3EpisodicMemory
 from phca.resilience import FailureDetector
 
@@ -125,13 +124,3 @@ class TestTrackResilienceFalsification:
             cycle.step()
             mgr._update_mitigation(cycle)
         assert not mgr.any_active()
-
-
-class TestTrackPhiIQHonesty:
-    def test_transfer_efficiency_not_forgetting(self):
-        """G4: proxy must not be confused with cross-task retention."""
-        adapt, pred = 0.8, 0.7
-        proxy = adapt * pred
-        forgetting = forgetting_rate({0: -0.5, 1: 0.1})
-        assert forgetting != proxy
-        assert proxy == pytest.approx(0.56)

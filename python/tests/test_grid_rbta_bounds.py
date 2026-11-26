@@ -6,7 +6,7 @@ import pytest
 
 from phca.config import DEFAULT_MODULE_BOUNDS
 from phca.core.cycle import CognitiveCycle
-from phca.evaluation.metrics.phi_iq import generate_goal_pursuit_obstacles
+from phca.environments.grid_world import goal_pursuit_obstacles
 from phca.world_model.mlp import (
     apply_grid_rbta_bounds,
     estimate_gaussian_gprime_memory_bytes,
@@ -69,7 +69,7 @@ def test_l2_10x10_gaussian_violation_rate_under_15pct():
     """
     level = 2
     seed = 44
-    obstacles = generate_goal_pursuit_obstacles(seed + level, 10)
+    obstacles = goal_pursuit_obstacles(seed + level, 10)
     cycle = CognitiveCycle.build_for_env(
         size=10,
         seed=seed + level,
@@ -98,7 +98,7 @@ def test_action_latency_spread_within_20x():
     """
     level = 2
     seed = 44
-    obstacles = generate_goal_pursuit_obstacles(seed + level, 10)
+    obstacles = goal_pursuit_obstacles(seed + level, 10)
     cycle = CognitiveCycle.build_for_env(
         size=10,
         seed=seed + level,

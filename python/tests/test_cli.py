@@ -173,3 +173,51 @@ def test_cli_import_loads_no_gui_or_graph_stack() -> None:
         capture_output=True, text=True, env=env, check=False,
     )
     assert proc.returncode == 0, proc.stderr
+
+
+class TestReplacedHarnessGuarantees:
+    """Coverage that used to live in script-level tests (benchmark.py,
+    reproduce.py, test_benchmark_harness.py), restated against the CLI."""
+
+    def test_trace_records_selector_evidence(self, tmp_path: Path) -> None:
+        from phca.core.cycle import CognitiveCycle
+        from phca.evaluation.trace import TraceCollector, summarize_action_selection
+
+        trace = TraceCollector(capacity=64)
+        cycle = CognitiveCycle.build_for_env(size=5, seed=0, trace_collector=trace)
+        for _ in range(6):
+            cycle.step()
+        records = trace.snapshot()
+        assert len(records) == 6
+        summary = summarize_action_selection(records)
+        assert summary["n_records"] == 6
+        assert summary["rationale_coverage"] == 1.0
+        assert records[0].selector_mode
+
+    def test_result_file_round_trips_through_replay(self, tmp_path: Path) -> None:
+        path = tmp_path / "r.json"
+        _result(tmp_path)
+        payload = json.loads(path.read_text())
+        assert payload["summary"]["goal_latencies"]
+        assert all(lat >= 1 for lat in payload["summary"]["goal_latencies"])
+        proc = _phca("replay", "--session", str(path))
+        assert proc.returncode == 0, proc.stderr
+        assert payload["schema"] in proc.stdout
+
+    def test_wrong_schema_is_rejected(self, tmp_path: Path) -> None:
+        bad = tmp_path / "old.json"
+        bad.write_text(json.dumps({"schema": "phca.result.v0", "command": "run"}))
+        proc = _phca("replay", "--session", str(bad))
+        assert proc.returncode == 2
+        assert "schema" in proc.stderr.lower()
+
+    def test_bench_selector_choice_is_actually_different(self, tmp_path: Path) -> None:
+        path = tmp_path / "bench.json"
+        proc = _phca(
+            "bench", "--sizes", "5", "--seeds", "0", "--cycles", "60",
+            "--relocate-goal-every", "20", "--quiet", "--out", str(path),
+        )
+        assert proc.returncode == 0, proc.stderr
+        rows = {r["selector"]: r for r in json.loads(path.read_text())["rows"]}
+        assert "pure_geometry_ablation" in rows["geometry"]["selector_mode_counts"]
+        assert "prediction_scored" in rows["learned"]["selector_mode_counts"]

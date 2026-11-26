@@ -29,6 +29,26 @@ ACTION_DELTAS = [
 ]
 
 
+def goal_pursuit_obstacles(seed: int, size: int = 5) -> list[tuple[int, int]]:
+    """Walls forming a vertical barrier with one gap, plus two random blocks.
+
+    Deterministic for a given seed. Used by the causal evaluation harness and
+    by the RBTA bound tests so both exercise the same layout.
+    """
+    rng = np.random.RandomState(seed)
+    obstacles: list[tuple[int, int]] = []
+    gap_row = int(rng.randint(0, size))
+    mid_col = max(1, size // 2)
+    for row in range(size):
+        if row != gap_row:
+            obstacles.append((row, mid_col))
+    for _ in range(2):
+        row, col = (int(x) for x in rng.randint(0, size, size=2))
+        if (row, col) not in obstacles:
+            obstacles.append((row, col))
+    return obstacles
+
+
 class GridWorld:
     """
     A 2D grid-world environment.

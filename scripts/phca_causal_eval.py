@@ -21,7 +21,12 @@ import _bootstrap  # noqa: F401
 
 from phca.core.cycle import CognitiveCycle
 from phca.config import DiscreteSpace
-from phca.environments.grid_world import ACTION_DELTAS, ACTION_NAMES, GridWorld
+from phca.environments.grid_world import (
+    ACTION_DELTAS,
+    ACTION_NAMES,
+    GridWorld,
+    goal_pursuit_obstacles,
+)
 from phca.evaluation.baselines.greedy import greedy_action
 from phca.evaluation.baselines.random_agent import random_action
 from phca.evaluation.baselines.search import bfs_action
@@ -316,25 +321,10 @@ class ScenarioGridWorld:
         self.base.grid[self._managed_wall] = self.WALL
 
 
-def generate_goal_pursuit_obstacles(seed: int, size: int = 5) -> List[Tuple[int, int]]:
-    """Match benchmark.py Level-2 obstacle generation without importing the runner."""
-    rng = np.random.RandomState(seed)
-    obstacles: List[Tuple[int, int]] = []
-    gap_row = int(rng.randint(0, size))
-    for row in range(size):
-        if row != gap_row:
-            obstacles.append((row, 2))
-    for _ in range(2):
-        row, col = [int(x) for x in rng.randint(0, size, size=2)]
-        if (row, col) not in obstacles:
-            obstacles.append((row, col))
-    return obstacles
-
-
 def build_scenario_env(
     seed: int, size: int, spec: ScenarioSpec, action_slip: float = 0.0,
 ) -> ScenarioGridWorld:
-    obstacles = generate_goal_pursuit_obstacles(seed + 2, size=size)
+    obstacles = goal_pursuit_obstacles(seed + 2, size=size)
     return ScenarioGridWorld(
         size=size, obstacles=obstacles, seed=seed + 2, spec=spec, action_slip=action_slip,
     )

@@ -1,57 +1,16 @@
 # PHCA — Docker Compose
-# =============================================================================
-# Quick start:
-#   docker compose run --rm stress        # Run stress tests
-#   docker compose run --rm test          # Run pytest suite
-#   docker compose run --rm mujoco-gate   # MuJoCo benchmark gate
-#   docker compose run --rm nightly       # Nightly hardening suite
-#   docker compose run --rm bash          # Interactive shell
-# =============================================================================
+#
+#   docker compose run --rm test        run the pytest suite
+#   docker compose run --rm ci-local    lint + tests + causal smoke
+#   docker compose run --rm bash        interactive shell with MuJoCo
 
 services:
-  stress:
-    build:
-      context: .
-      target: phca-core
-    command: scripts/stress_test_resilience.py
-    volumes:
-      - ./logs:/app/logs
-    environment:
-      - MUJOCO_GL=disabled
-
   test:
     build:
       context: .
       target: phca-core
     entrypoint: ["make"]
-    command:
-      - test-python
-    environment:
-      - MUJOCO_GL=disabled
-
-  mujoco-gate:
-    build:
-      context: .
-      target: phca-mujoco
-    entrypoint: ["make"]
-    command:
-      - mujoco-ci
-      - MUJOCO_CI_CYCLES=100
-    volumes:
-      - ./logs:/app/logs
-    environment:
-      - MUJOCO_GL=disabled
-
-  nightly:
-    build:
-      context: .
-      target: phca-mujoco
-    entrypoint: ["make"]
-    command:
-      - nightly
-      - NIGHTLY_CYCLES=1000
-    volumes:
-      - ./logs:/app/logs
+    command: ["test-python"]
     environment:
       - MUJOCO_GL=disabled
 
@@ -60,10 +19,7 @@ services:
       context: .
       target: phca-core
     entrypoint: ["make"]
-    command:
-      - ci-local
-    volumes:
-      - ./logs:/app/logs
+    command: ["ci-local"]
     environment:
       - MUJOCO_GL=disabled
 
@@ -74,7 +30,5 @@ services:
     entrypoint: ["/bin/bash"]
     stdin_open: true
     tty: true
-    volumes:
-      - ./logs:/app/logs
     environment:
       - MUJOCO_GL=disabled

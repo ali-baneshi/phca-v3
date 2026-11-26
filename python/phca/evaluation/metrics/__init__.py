@@ -1,25 +1,21 @@
-"""Pure metric functions from traces and cycle history."""
+"""Pure metric functions over cycle traces.
 
-from phca.evaluation.result_schema import DEFAULT_WEIGHTS
-from phca.evaluation.metrics.phi_iq import (
-    check_pass_criteria,
-    compute_level_metrics,
-    compute_phi_iq,
-)
+Φ-IQ, emergence, interaction, synergy, and forgetting metrics moved to
+``attic/`` with the benchmark harnesses that consumed them.
+"""
+
 from phca.evaluation.metrics.statistics import (
     aggregate_runs,
     bootstrap_ci,
+    compare_groups,
     mann_whitney_u,
     seed_sequence,
 )
 
 __all__ = [
-    "DEFAULT_WEIGHTS",
     "aggregate_runs",
     "bootstrap_ci",
-    "check_pass_criteria",
-    "compute_level_metrics",
-    "compute_phi_iq",
+    "compare_groups",
     "mann_whitney_u",
     "seed_sequence",
 ]

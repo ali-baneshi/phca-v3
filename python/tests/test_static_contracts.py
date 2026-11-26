@@ -36,11 +36,6 @@ def _grep_callers(symbol: str, *, exclude_def: Path) -> list[str]:
 
 
 class TestContinualLearningContracts:
-    def test_benchmark_level4_calls_on_task_boundary(self):
-        src = (_SCRIPTS / "benchmark_level4.py").read_text(encoding="utf-8")
-        assert "on_task_boundary" in src
-        assert "cycle.on_task_boundary(task.task_id)" in src
-
     def test_cycle_stores_task_id_in_m3(self):
         src = (_PHCA / "core" / "cycle.py").read_text(encoding="utf-8")
         assert "task_id=self._current_task_id" in src
