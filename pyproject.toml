@@ -34,6 +34,9 @@ graph = [
     "pgmpy==1.0.0",
 ]
 
+[project.scripts]
+phca = "phca.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "python"}
 
